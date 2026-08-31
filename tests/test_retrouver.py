@@ -233,7 +233,7 @@ async def test_un_renvoi_heading_emporte_un_passage_citable_sans_suivre_ses_refs
     assert borne_outils.opened_block_ids == [] and borne_outils.truncated
 
 
-async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_variantes() -> None:
+def _corpus_facettes_distinctes() -> tuple[Corpus, ParsedQuestion]:
     blocks = [
         Block(block_id="d:p1:1", text="Thème profil général.", loc="p1", seq=1),
         Block(block_id="d:p2:1", text="Encore un thème profil général.", loc="p2", seq=1),
@@ -248,6 +248,11 @@ async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_va
         summaries={"d": "root > n1, n2, n3, n4"})
     parsed = _parsed(["première démarche", "seconde démarche"], themes=["thème profil"],
                      facettes=["première démarche", "seconde démarche"])
+    return corpus, parsed
+
+
+async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_variantes() -> None:
+    corpus, parsed = _corpus_facettes_distinctes()
     budget = _budget(max_opens=2, node_window=1, search_limit=2,
                      max_blocks=2, max_tokens=6000)
 
@@ -255,11 +260,211 @@ async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_va
     outils, _step, _fake, _request_budget = await _run_outils([
         _tool_message(_tool("chercher", "t1",
                             termes=["thème profil", "première démarche", "seconde démarche"]),
-                      _tool("ouvrir_noeud", "t2", node_id="n3", focus_block_id="d:p3:1"),
-                      _tool("ouvrir_noeud", "t3", node_id="n4", focus_block_id="d:p4:1")),
+                      _tool("ouvrir_noeud", "t2", node_id="n3", focus_block_id="d:p3:1")),
     ], corpus=corpus, parsed=parsed, budget=budget)
 
     assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p3:1", "d:p4:1"]
+    assert len(_fake.requests) == _request_budget.attempts == 1
+
+
+async def test_une_ouverture_sans_focus_autorise_la_completion_des_facettes() -> None:
+    corpus, parsed = _corpus_facettes_distinctes()
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["thème profil", "première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n3")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p3:1", "d:p4:1"]
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_un_sommaire_apres_outils_nouvre_pas_de_reservation_tardive() -> None:
+    corpus, parsed = _corpus_facettes_distinctes()
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["première"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n3",
+                            focus_block_id="d:p3:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0,
+                    retrieval_mechanism_order="outils,sommaire,dictionnaire,faq"))
+
+    assert result.opened_block_ids == ["d:p3:1"]
+    assert "d:p4:1" not in result.opened_block_ids
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_les_reservations_saccumulent_entre_deux_recherches_successives() -> None:
+    corpus, parsed = _corpus_facettes_distinctes()
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["première"]),
+                      _tool("chercher", "t2", termes=["seconde"]),
+                      _tool("ouvrir_noeud", "t3", node_id="n4",
+                            focus_block_id="d:p4:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p4:1", "d:p3:1"]
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_une_fenetre_valide_refusee_laisse_la_facette_suivante_entrer() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1,
+              refs=["d:p3:1", "d:p3:2"]),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1),
+        Block(block_id="d:p3:1", text="Précision alpha.", loc="p3", seq=1),
+        Block(block_id="d:p3:2", text="Précision bêta.", loc="p3", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2"),
+                                         NodeRef(node_id="n3")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")]),
+             Node(node_id="n3", items=[BlockRef(block_id="d:p3:1"),
+                                       BlockRef(block_id="d:p3:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2, n3"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=1, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p2:1"]
+    assert result.truncated is True
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_la_completion_tente_le_focus_avant_son_frere_de_fenetre() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Passage voisin contingent.", loc="p2", seq=1),
+        Block(block_id="d:p2:2", text="Seconde démarche utile.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                       BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=2, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1", "d:p2:2"]
+    assert "d:p2:1" not in result.opened_block_ids
+    assert result.truncated is True
+
+
+async def test_deux_facettes_du_meme_noeud_sont_completees_fenetre_par_fenetre() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Seconde démarche utile.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"),
+                                      BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2"]
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_la_completion_des_facettes_respecte_budget_et_atomicite() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1,
+              refs=["d:p2:2"]),
+        Block(block_id="d:p2:2", text="Précision liée indispensable.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                       BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1"]
+    assert result.truncated is True
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_la_completion_dedoublonne_les_reservations_deja_ouvertes() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2",
+                            focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
+    assert result.truncated is False
+    assert len(fake.requests) == request_budget.attempts == 1
 
 
 async def test_une_cible_aussi_primaire_reste_atomique_avec_sa_source() -> None:

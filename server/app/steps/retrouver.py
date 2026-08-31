@@ -264,6 +264,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     search_candidates: list[str] = []
     tool_search_candidates: list[str] = []
     search_runs: list[list[str]] = []
+    reserved_candidates: list[tuple[str, str]] = []
+    valid_window_attempted = False
+    focused_windows_attempted: set[str] = set()
     related_cache: dict[str, list[str]] = {}
     decision_dependencies: list[str] = []
     searched_terms: list[str] = []
@@ -320,8 +323,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
-    def execute(name: str, args: object, *, mechanism: bool = False) -> tuple[dict[str, Any], bool]:
-        nonlocal opens, truncated
+    def execute(name: str, args: object, *, mechanism: bool = False,
+                prioritize_focus: bool = False) -> tuple[dict[str, Any], bool]:
+        nonlocal opens, truncated, valid_window_attempted
         if not isinstance(args, dict):
             return invalid()
         if name == "sommaire":
@@ -341,12 +345,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if (dictionary_ready
                         and forme(terme) not in {forme(t) for t in dictionary_searched_terms}):
                     dictionary_searched_terms.append(terme)
+            run_reservations: list[tuple[str, str]] = []
             hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
-                                  groupes_prioritaires=parsed.facettes)
+                                  groupes_prioritaires=parsed.facettes,
+                                  reservations_out=run_reservations)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
                 truncated = True
                 hits = hits[:budget.search_limit]
+            for reservation in run_reservations:
+                if reservation in hits and reservation not in reserved_candidates:
+                    reserved_candidates.append(reservation)
             for block_id, _node_id in hits:
                 if block_id not in search_candidates:
                     search_candidates.append(block_id)
@@ -382,6 +391,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                                             node_window=budget.node_window)
             except (KeyError, ValueError):
                 return invalid()
+            valid_window_attempted = True
+            if focus is not None:
+                focused_windows_attempted.add(focus)
             # Une pagination n'est résolue que si elle part du début puis suit chaque curseur.
             expected = pagination_expected.get(node_id, 0)
             follows = focus is None and (cursor or 0) == expected
@@ -400,7 +412,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         candidate for candidate in run if candidate not in relevant_candidates)
             primary: list[str] = []
             newly: list[str] = []
-            for item in window.blocks:
+            window_blocks = list(window.blocks)
+            if prioritize_focus and focus is not None:
+                window_blocks.sort(key=lambda item: item.block_id != focus)
+            for item in window_blocks:
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
                 # l'unité entière entre, ou le primaire n'est pas transmis isolément.
                 dependencies = _dependances_directes(
@@ -475,6 +490,18 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return {"blocks": rendered(kept),
                     "truncated": any(b not in admitted_set for b in ids)}, False
         return invalid()
+
+    def complete_reservations() -> None:
+        # Une fenêtre valide suffit à établir que le navigateur a commencé sa lecture, même si son
+        # unité atomique n'a pas tenu. Ne pas retenter un focus déjà essayé laisse le budget
+        # restant aux autres facettes. Pour ces seules ouvertures automatiques, le bloc réservé est
+        # essayé avant ses frères de fenêtre afin qu'un frère contingent ne consomme pas sa place.
+        if not valid_window_attempted:
+            return
+        for block_id, node_id in reserved_candidates:
+            if block_id not in admitted_set and block_id not in focused_windows_attempted:
+                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                        prioritize_focus=True)
 
     used_tools = False
 
@@ -552,6 +579,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 execute("chercher", {"termes": terms}, mechanism=True)
         elif mechanism == "outils":
             await navigate()
+            # Le navigateur conserve la priorité : ses fenêtres sont admises en premier. La
+            # complétion ne voit que les recherches des phases antérieures et de ce tour outils ;
+            # un sommaire placé après ne peut donc jamais ouvrir rétroactivement un candidat caché.
+            complete_reservations()
     expected_search = canonical_forms(terms)
     covered_search = canonical_forms(searched_terms)
     # Un refus `zero_hit` n'est honnête que si au moins un terme canonique existait et si les

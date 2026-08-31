@@ -158,7 +158,9 @@ class Index:
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None,
-                 groupes_prioritaires: Iterable[str] | None = None) -> list[tuple[str, str]]:
+                 groupes_prioritaires: Iterable[str] | None = None,
+                 reservations_out: list[tuple[str, str]] | None = None,
+                 ) -> list[tuple[str, str]]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
 
         Le classement compte d'abord tous les canoniques dont au moins une forme est entièrement
@@ -192,6 +194,8 @@ class Index:
         `groupes_prioritaires` préserve, avant `limit`, au plus un candidat pleinement couvert par
         libellé, de préférence dans un nœud encore non réservé. Cette diversification reste contenue
         dans les hits de `termes` : une facette réordonne le rappel, elle n'ajoute aucun document.
+        Si `reservations_out` est fourni, le même classement y expose les réservations qui survivent
+        à `limit`, dans leur ordre. L'appelant peut ainsi les rendre effectives sans second classement.
         """
         if limit < 1:
             raise ValueError("limit doit être ≥ 1")
@@ -279,7 +283,11 @@ class Index:
             if choisi not in reserves:
                 reserves.append(choisi)
                 noeuds_reserves.add(choisi[1])
-        return [*reserves, *(item for item in classement if item not in reserves)][:limit]
+        resultat = [*reserves, *(item for item in classement if item not in reserves)][:limit]
+        if reservations_out is not None:
+            reservations_out.extend(item for item in reserves
+                                     if item in resultat and item not in reservations_out)
+        return resultat
 
     @staticmethod
     def _hit(e: _Entry, form: frozenset[str], frequencies: dict[str, int]) -> Fraction:
