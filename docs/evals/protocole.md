@@ -11,7 +11,29 @@ lui-même est machine-lisible dans `server/evals/reference/plancher.yaml`, figé
 |---|---|---|---|
 | A | développement | `server/evals/cases/` | public, exécuté librement, publié |
 | B | holdout scellé | `~/foyer-retour-holdout/B/` (hors dépôt) | **jamais lu ni matérialisé par le builder** ; un seul verdict B par candidat ; la promotion ne publie **ni questions, ni réponses brutes, ni détail par cas** — uniquement le verdict et les agrégats ; création et scellement (`cases_hash` figé avant tout réglage) : action orchestrateur |
-| C | réserve | hors dépôt | **jamais exécuté** |
+| C | holdout final one-shot | stockage privé hors dépôt et workspace | généré par un Codex neuf depuis les seuls corpus normalisés autorisés, puis chiffré sans fichier clair ; la story ne conserve que le reçu public. Le verrou exige fin d'Epic 5, test utilisateur et derniers correctifs, puis consomme la tentative avant déchiffrement : aucun retry ni correctif après le résultat |
+
+### Holdout C : reçu public et verrou fermé
+
+`server.evals.holdout` valide le reçu, le payload chiffré et leur liaison sans lire le contenu. Le
+reçu public expose uniquement les empreintes des cas, du schéma, des paramètres, des sources et du
+payload, les comptages, la preuve de confinement et l'état `sealed/unexecuted`. La référence de clé
+reste dans le reçu privé hors workspace ; le secret lui-même est placé dans le trousseau avec accès
+interactif, jamais dans un argument, une variable, un log ou un fichier de travail.
+
+L'armement exige trois attestations distinctes et strictes ainsi que l'autorisation interactive du
+secret scellé : elle produit un jeton dont seule l'empreinte figure dans le reçu. Une édition directe
+du verrou ne peut donc ni passer la vérification publique ni consommer la tentative. La prise
+one-shot crée une marque avec `O_EXCL` sous verrou OS, puis met l'état à `consumed` avant toute
+récupération de clé. Le payload est authentifié avant déchiffrement, validé à nouveau par le schéma
+du runner et transmis en mémoire ; le profil `vertical` continue d'exiger
+`truth.source=lecture_humaine`, tandis que `codex` n'est admis que pour `full`.
+
+Avant le scellement, le générateur et le scelleur valident tous deux le schéma JSON strict exporté
+par le produit. Le générateur ne reçoit que les deux corpus aux chemins et empreintes autorisés, ce
+schéma et les paramètres publics ; le scelleur est un processus distinct, sans réseau et sans droit
+de lecture sur les workspaces parent et produit. Des contre-sondes vérifient ces refus avant la
+génération, sans viser ni parcourir aucun autre holdout.
 
 Risque accepté et documenté : le split B vit sur le poste de travail, hors contrôle
 cryptographique — un contournement délibéré resterait possible. La règle organisationnelle (un
