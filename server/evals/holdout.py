@@ -344,7 +344,16 @@ def _preuve_marque(secret: bytes, receipt_digest: str) -> str:
     ).hexdigest()
 
 
-def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPublic:
+def _verifier_armement(verrou: VerrouPublic, *, receipt_digest: str, arm_token_digest: str) -> None:
+    if verrou.receipt_digest != receipt_digest:
+        raise RefusHoldout("verrou lié à un autre reçu")
+    if verrou.state != "armed" or not all(verrou.conditions.values()) or verrou.attempts_remaining != 1:
+        raise RefusHoldout("holdout encore fermé")
+    if verrou.arm_token is None or hashlib.sha256(bytes.fromhex(verrou.arm_token)).hexdigest() != arm_token_digest:
+        raise RefusHoldout("verrou armé sans jeton authentique")
+
+
+def prendre_tentative_unique(lock_path: Path, *, receipt_digest: str, arm_token_digest: str) -> VerrouPublic:
     try:
         fd = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
     except OSError as exc:
@@ -364,10 +373,11 @@ def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPu
             verrou = VerrouPublic.model_validate(json.loads(flux.read().decode("utf-8")))
         except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
             raise RefusHoldout("verrou illisible") from exc
-        if verrou.state != "armed" or not all(verrou.conditions.values()):
-            raise RefusHoldout("holdout encore fermé")
-        if verrou.arm_token is None or hashlib.sha256(bytes.fromhex(verrou.arm_token)).hexdigest() != arm_token_digest:
-            raise RefusHoldout("verrou armé sans jeton authentique")
+        _verifier_armement(
+            verrou,
+            receipt_digest=receipt_digest,
+            arm_token_digest=arm_token_digest,
+        )
         try:
             marque_fd = os.open(marque, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         except FileExistsError as exc:
@@ -485,14 +495,22 @@ def dechiffrer(payload: bytes, recu: RecuPublic, secret: str) -> bytes:
 
 
 def executer(*, receipt_path: Path, lock_path: Path, payload_path: Path, runner_args: list[str]) -> int:
-    """Révoque d'abord la clé : même une panne ou restauration ultérieure interdit tout retry."""
+    """Valide l'armement, puis révoque la clé avant la prise irréversible."""
     recu = lire_recu(receipt_path)
     verrou = lire_verrou(lock_path)
-    if digest_json(recu.model_dump(mode="json")) != verrou.receipt_digest:
-        raise RefusHoldout("verrou lié à un autre reçu")
+    receipt_digest = digest_json(recu.model_dump(mode="json"))
+    _verifier_armement(
+        verrou,
+        receipt_digest=receipt_digest,
+        arm_token_digest=recu.arm_token_digest,
+    )
     secret = _secret_keychain(recu)
     _supprimer_secret_keychain(recu)
-    prendre_tentative_unique(lock_path, recu.arm_token_digest)
+    prendre_tentative_unique(
+        lock_path,
+        receipt_digest=receipt_digest,
+        arm_token_digest=recu.arm_token_digest,
+    )
     _finaliser_marque(lock_path, recu, secret)
     try:
         payload = payload_path.read_bytes()
