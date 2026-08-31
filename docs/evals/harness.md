@@ -89,8 +89,9 @@ sous-commandes `arm`/`execute` refusent tant que les trois jalons finaux ne sont
 Chaque attestation nomme aussi un artefact de preuve dont le SHA-256 est recalculé. L'armement
 demande l'autorisation interactive du secret scellé et inscrit un jeton authentifiable par son
 empreinte publique : modifier directement `lock.json` ne suffit pas. La tentative est consommée
-seulement après une garde complète — reçu lié, état armé, trois conditions vraies, tentative intacte
-et jeton authentique — exécutée avant toute interaction trousseau puis rejouée sous verrou OS. Une
+seulement après validation publique du reçu et du payload chiffré, puis une garde d'armement — état,
+trois conditions, tentative et jeton — avant toute interaction trousseau. La garde d'armement et
+l'absence de marque antérieure sont vérifiées à nouveau sous verrou OS. Une
 fois la garde passée, le secret est récupéré en mémoire et l'entrée trousseau irréversiblement
 révoquée avant la prise ; le jeton est effacé et la marque liée au secret avant déchiffrement. Une
 panne dès la révocation peut fermer le test sans résultat, mais ne peut jamais ouvrir un retry. Le

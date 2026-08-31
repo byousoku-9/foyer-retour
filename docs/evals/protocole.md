@@ -25,8 +25,9 @@ L'armement exige trois attestations distinctes et strictes, chacune liée aux oc
 preuve nommé dont le SHA-256 est recalculé, ainsi que l'autorisation interactive du secret scellé :
 elle produit un jeton dont seule l'empreinte figure dans le reçu. Une édition directe du verrou ne
 peut donc ni passer la vérification publique ni consommer la tentative. À l'exécution, une garde
-vérifie d'abord le lien au reçu, l'état armé, les trois conditions, la tentative intacte et le jeton,
-avant toute lecture ou révocation de clé ; la même garde est rejouée sous verrou OS. Seulement alors,
+vérifie d'abord le lien au reçu, le digest/volume du payload chiffré, l'état armé, les trois
+conditions, la tentative intacte et le jeton, avant toute lecture ou révocation de clé ; sous verrou
+OS, la partie armement et l'absence de marque antérieure sont vérifiées à nouveau. Seulement alors,
 le secret est récupéré en mémoire et l'entrée trousseau irréversiblement supprimée avant la prise
 one-shot. La prise crée une marque avec `O_EXCL`, efface le jeton et met l'état à `consumed`; la
 marque reçoit ensuite un HMAC du secret avant tout déchiffrement. Une panne à partir de la révocation
