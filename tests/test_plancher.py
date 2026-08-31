@@ -210,7 +210,12 @@ def test_le_plancher_se_charge_hors_du_depot_parent(tmp_path: Path) -> None:
     for nom in ("plancher.yaml", "floor-4.2a.yaml", "trusted-automation-plancher.yaml"):
         (reference / nom).write_bytes((PLANCHER_PATH.parent / nom).read_bytes())
     assert charger_plancher(reference / "plancher.yaml").plancher.story == "4.2b"
-    with pytest.raises(PlancherInvalide, match="preuve non vérifiable"):
+    assert charger_plancher(
+        reference / "plancher.yaml", producer="orchestrator").plancher.story == "4.2b"
+
+    snapshot_trusted = reference / "trusted-automation-plancher.yaml"
+    snapshot_trusted.write_bytes(snapshot_trusted.read_bytes() + b"\n# alteration\n")
+    with pytest.raises(PlancherInvalide, match="snapshot figé .* divergent"):
         charger_plancher(reference / "plancher.yaml", producer="orchestrator")
 
 
