@@ -13,7 +13,7 @@ import pytest
 from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
-from server.app.domain import Block, BlockRef, Document, Node
+from server.app.domain import Block, BlockRef, Check, Document, Node, Report
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
 from server.ingest.report import _printed_toc_check, _quality, _tree_category, report_from_validation_error
@@ -1303,6 +1303,35 @@ def test_ids_disparus_is_reported_when_text_moves(data: Path) -> None:
     check = next(c for c in report.checks if c.name == "ids_disparus")
     assert check.level == "alerte" and f"{DOC}:p1:1" in check.detail and entry.status == "servi"
     assert report.stats["ids_disparus"] > 0 and report.stats["ids_nouveaux"] > 0
+
+
+def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) -> None:
+    _run(data)
+    raw = Document.model_validate_json((data / "document.json").read_bytes())
+    target = next(block for block in raw.blocks if block.kind != "autre")
+    old_target = target.model_copy(update={
+        "kind": "condition", "kind_source": "model_verified", "kind_confidence": 0.93,
+        "structural_kind": target.kind,
+    }, deep=True)
+    previous = Document.model_validate(raw.model_copy(update={
+        "blocks": [old_target if block.block_id == target.block_id else block for block in raw.blocks],
+    }).model_dump())
+    proof = Report(doc_id=raw.doc_id, checks=[
+        Check(name="typage_clauses", level="info", detail="couverture complète"),
+    ]).model_dump_json().encode("utf-8")
+
+    reused, identities = p.reutiliser_typage_identique(raw, previous, proof)
+    assert identities[target.block_id] == 1
+    assert reused.block(target.block_id).kind == "condition"
+    assert reused.block(target.block_id).kind_source == "model_verified"
+
+    changed_target = target.model_copy(update={"text": target.text + " dérive"}, deep=True)
+    changed = Document.model_validate(raw.model_copy(update={
+        "blocks": [changed_target if block.block_id == target.block_id else block for block in raw.blocks],
+    }).model_dump())
+    not_reused, identities = p.reutiliser_typage_identique(changed, previous, proof)
+    assert target.block_id not in identities
+    assert not_reused.block(target.block_id).kind_source is None
 
 
 def test_duplicate_numbering_is_an_alert_with_suffixed_node(tmp_path: Path) -> None:

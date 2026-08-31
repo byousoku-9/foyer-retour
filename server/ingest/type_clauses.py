@@ -36,9 +36,10 @@ from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 from server.app.corpus.racine import Lecture, relire
-from server.ingest.artifacts import (STRUCTURE_FILE, LectureDuLot, document_json,
-                                     exiger_espace_installe, fusionner_et_publier,
-                                     publier_artefacts, verifier_couverture_du_lot)
+from server.ingest.artifacts import (STRUCTURE_FILE, TYPING_REUSED_IDS_STAT, LectureDuLot,
+                                     document_json, exiger_espace_installe,
+                                     fusionner_et_publier, publier_artefacts,
+                                     verifier_couverture_du_lot)
 from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
                                   pages_charabia)
 
@@ -178,8 +179,13 @@ def _structural_kind(block: Block) -> str:
     )
 
 
-def campaign_fingerprint(doc: Document, settings: Settings) -> str:
+def campaign_fingerprint(
+        doc: Document, settings: Settings, citable_blocks: list[Block] | None = None,
+) -> str:
     """Lie une campagne à toutes ses entrées et règles, sans inclure ses sorties automatiques."""
+    planned = citable_blocks if citable_blocks is not None else [
+        block for block in doc.blocks if is_citable(block)
+    ]
     projection = {
         "document": {
             "doc_id": doc.doc_id, "kind": doc.kind, "title": doc.title, "edition": doc.edition,
@@ -201,7 +207,7 @@ def campaign_fingerprint(doc: Document, settings: Settings) -> str:
         "schemas": {
             "first": [
                 _schema(tuple(block.block_id for block in chunk))
-                for chunk in _chunks(doc, [block for block in doc.blocks if is_citable(block)], settings)
+                for chunk in _chunks(doc, planned, settings)
             ],
             "second": _schema(),
         },
@@ -216,6 +222,25 @@ def campaign_fingerprint(doc: Document, settings: Settings) -> str:
     }
     encoded = json.dumps(projection, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _typing_reused_ids(report: Report, doc: Document) -> set[str]:
+    """Valide le certificat de delta structurel avant d'exclure le moindre bloc des requêtes."""
+    raw = report.stats.get(TYPING_REUSED_IDS_STAT, {})
+    if not isinstance(raw, dict) or any(
+            not isinstance(key, str) or isinstance(value, bool) or value != 1
+            for key, value in raw.items()
+    ):
+        raise ValueError(f"report.stats.{TYPING_REUSED_IDS_STAT} doit être un objet block_id→1")
+    by_id = {block.block_id: block for block in doc.blocks}
+    unknown = sorted(set(raw) - set(by_id))
+    non_citable = sorted(block_id for block_id in raw if block_id in by_id and not is_citable(by_id[block_id]))
+    if unknown or non_citable:
+        raise ValueError(
+            "certificat de réutilisation invalide: "
+            f"inconnus={unknown}, non_citables={non_citable}"
+        )
+    return set(raw)
 
 
 def _legacy_custom_id(reading: int, index: int, block_ids: tuple[str, ...]) -> str:
@@ -750,8 +775,9 @@ def definition_rejections(doc: Document, first: dict[str, ClauseLabel]) -> dict[
 
 
 def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, ClauseLabel],
-             settings: Settings) -> Document:
+             settings: Settings, *, preserve_block_ids: set[str] | None = None) -> Document:
     """Fusionne les lectures puis résout articles, relations et scopes sans heuristique documentaire."""
+    preserve_block_ids = preserve_block_ids or set()
     original_identity = [
         (block.block_id, block.text, block.loc, block.seq, block.page, block.bbox,
          block.continues, [line.model_dump() for line in block.lines])
@@ -762,6 +788,9 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
     for block in doc.blocks:
         structural_kind = _structural_kind(block)
         label = first.get(block.block_id)
+        if label is None and block.block_id in preserve_block_ids:
+            blocks.append(block.model_copy(deep=True))
+            continue
         # AD-2 : un titre structure l'arbre mais n'est jamais citable seul. Même si T1 l'étiquette
         # juridiquement, le code restaure sa nature structurelle et écarte toutes les métadonnées.
         if label is None or label.kind == "autre" or structural_kind == "heading":
@@ -1205,7 +1234,12 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     verifier_couverture_du_lot([doc_dir / "document.json", doc_dir / "report.json",
                                 doc_dir / "typing.manual.json", doc_dir.parent / "manifest.json"])
     doc, report, raw_manifest, old_entry, migration = _load(doc_dir)
-    campaign = campaign_fingerprint(doc, settings)
+    reused_block_ids = _typing_reused_ids(report, doc)
+    citable = [
+        block for block in doc.blocks
+        if is_citable(block) and block.block_id not in reused_block_ids
+    ]
+    campaign = campaign_fingerprint(doc, settings, citable)
     print(f"empreinte de campagne: {campaign}", file=output)
     if legacy_resume is not None and (not first_batch_id or not second_batch_id):
         raise ValueError("--legacy-resume exige les deux IDs de lots existants; aucune soumission n'est autorisée")
@@ -1243,13 +1277,12 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         raise ValueError(
             "les preuves --resume-* ne sont acceptées qu'avec --transport standard-resume"
         )
-    if transport == "standard" and (prior_cost_eur != 0 or any(value is not None for value in (
-            first_batch_id, second_batch_id, legacy_resume))):
+    if transport == "standard" and any(value is not None for value in (
+            first_batch_id, second_batch_id, legacy_resume)):
         raise ValueError(
-            "--transport standard part de zéro et interdit coût antérieur, IDs Batch et --legacy-resume"
+            "--transport standard interdit les IDs Batch et --legacy-resume"
         )
-    citable = [block for block in doc.blocks if is_citable(block)]
-    plan_campaign = resume_campaign if transport == "standard-resume" else None
+    plan_campaign = resume_campaign if transport == "standard-resume" else campaign
     first_plans = requests_for(
         doc, citable, 1, settings, legacy_custom_ids=legacy_resume is not None,
         campaign_override=plan_campaign,
@@ -1299,11 +1332,16 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         raise ValueError(
             f"coût réel déjà acquis {prior_cost_eur:.4f} € >= plafond {ceiling:.4f} €; aucun appel soumis"
         )
-    print(f"lecture 1: {len(citable)} bloc(s), {len(first_plans)} requête(s); lecture 2: au plus "
+    print(f"delta: {len(reused_block_ids)} bloc(s) réutilisé(s); lecture 1: {len(citable)} bloc(s), "
+          f"{len(first_plans)} requête(s); lecture 2: au plus "
           f"{len(citable)} bloc(s), {len(worst_second)} requête(s); {estimate_label} "
           f"/ plafond cumulé {ceiling:.4f} €", file=output)
-    if transport in {"batch", "standard"} and estimate > ceiling:
-        raise ValueError(f"majorant {estimate:.4f} € > plafond {ceiling:.4f} €; aucun lot soumis")
+    if transport in {"batch", "standard"} and prior_cost_eur + estimate > ceiling:
+        raise ValueError(
+            f"majorant cumulé {prior_cost_eur + estimate:.4f} € "
+            f"({prior_cost_eur:.4f} € acquis + {estimate:.4f} € delta) > plafond "
+            f"{ceiling:.4f} €; aucun lot soumis"
+        )
     if dry_run:
         return None
     if client is None:
@@ -1422,7 +1460,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     try:
         second = parse_reading(second_texts, second_plans, doc, settings, require_all_labels=False)
         rejected_definitions = definition_rejections(doc, first)
-        typed = assemble(doc, first, second, settings)
+        typed = assemble(doc, first, second, settings, preserve_block_ids=reused_block_ids)
         _check_migration(typed, migration)
     except ValueError as exc:
         raise BatchFailure(
@@ -1466,6 +1504,8 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             "typage_prior_cost_eur": round(prior_cost_eur, 4),
             "typage_cumulative_cost_eur": cumulative_cost,
             "typage_cost_ceiling_eur": round(ceiling, 4),
+            "blocs_typage_reutilises": len(reused_block_ids),
+            "blocs_typage_rejoues": len(citable),
         }
         if transport == "standard-resume":
             transport_stats.update({

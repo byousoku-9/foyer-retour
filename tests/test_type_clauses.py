@@ -19,7 +19,7 @@ from server.app.domain import Block, BlockRef, Document, ManifestEntry, Node, No
 from server.app.domain.ingest import Check, Gate
 from server.app.llm.pricing import cost_from_usage
 from server.evals.espace import EspaceNonInstalle, EspacePublie
-from server.ingest.artifacts import document_json
+from server.ingest.artifacts import TYPING_REUSED_IDS_STAT, document_json
 from server.ingest.report import enrich_typing_report
 from server.ingest import type_clauses as tc
 
@@ -95,6 +95,37 @@ def test_t1_t2_resolution_et_scopes_sont_du_code() -> None:
     assert typed.node_scope_kind("contrat:a3.1") == "special"  # signal enfant le plus proche prioritaire
     assert [(b.block_id, b.text, b.lines, b.bbox) for b in typed.blocks] == \
         [(b.block_id, b.text, b.lines, b.bbox) for b in doc.blocks]
+
+
+def test_le_delta_ne_rejoue_que_les_blocs_sans_certificat_fort() -> None:
+    doc = miniature()
+    reused_id = "contrat:p1:1"
+    reused = doc.block(reused_id).model_copy(update={
+        "kind": "garantie", "kind_source": "model_verified", "kind_confidence": 0.94,
+        "structural_kind": "para", "scope_node_id": "contrat:a1",
+    }, deep=True)
+    candidate = Document.model_validate(doc.model_copy(update={
+        "blocks": [reused, *doc.blocks[1:]],
+    }).model_dump())
+    report = Report(doc_id=doc.doc_id, stats={
+        TYPING_REUSED_IDS_STAT: {reused_id: 1},
+        "pages_charabia": {},
+    })
+    assert tc._typing_reused_ids(report, candidate) == {reused_id}
+
+    pending_id = "contrat:p2:1"
+    first = {pending_id: label(pending_id, "definition", defines="contenu")}
+    second = {pending_id: label(pending_id, "definition", defines="contenu")}
+    typed = tc.assemble(candidate, first, second, settings(), preserve_block_ids={reused_id})
+    assert typed.block(reused_id).kind == "garantie"
+    assert typed.block(reused_id).kind_source == "model_verified"
+    assert typed.block(pending_id).kind == "definition"
+
+    invalid = report.model_copy(update={
+        "stats": {TYPING_REUSED_IDS_STAT: {"contrat:p99:1": 1}, "pages_charabia": {}},
+    })
+    with pytest.raises(ValueError, match="inconnus"):
+        tc._typing_reused_ids(invalid, candidate)
 
 
 def test_an_overriding_definition_is_scoped_to_the_decisional_branch_not_its_article() -> None:

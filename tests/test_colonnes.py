@@ -115,6 +115,48 @@ def test_une_gouttiere_plus_etroite_que_le_seuil_nest_pas_une_colonne() -> None:
     assert serree.layout.boundaries == []
 
 
+def test_des_blocs_source_independants_prouvent_deux_colonnes_serrees_sans_abaisser_le_seuil() -> None:
+    """Une faible largeur de blanc ne suffit toujours pas ; la provenance native apporte la preuve.
+
+    Les puces et leur corps partagent chaque bloc source gauche : une frontière au retrait couperait
+    donc ces blocs et doit être refusée. La frontière entre colonnes garde au contraire six groupes
+    indépendants par côté, deux côtés remplis et des départs largement séparés.
+    """
+    lignes: list[p.PageLine] = []
+    for i in range(6):
+        y = 100.0 + i * 90.0
+        source_gauche = [f"p1:b-gauche-{i}"]
+        lignes += [
+            _ligne("•", GAUCHE_X, y, largeur=4.0, bullet=True, source_blocks=source_gauche),
+            _ligne(f"G{i} corps de la colonne gauche.", 74.0, y, largeur=226.0,
+                   source_blocks=source_gauche),
+            _ligne(f"D{i} corps de la colonne droite.", 304.0, y, largeur=230.0,
+                   source_blocks=[f"p1:b-droite-{i}"]),
+        ]
+    page = p.PageText(page=1, width=595, height=842, lines=_extrait(lignes))
+    p.ordonner_pages([page])
+    assert page.layout.boundaries == [304.0]
+    assert [line.text[:1] for line in page.lines] == [value for _ in range(6) for value in ("•", "G")] \
+        + ["D"] * 6
+    assert p.get_settings().column_gutter_min_pt == 18.0  # blanc physique : 4 pt seulement
+
+
+def test_une_frontiere_qui_coupe_un_bloc_source_est_refusee_meme_avec_un_blanc_franc() -> None:
+    """Une puce et son corps restent un même groupe natif, jamais deux colonnes."""
+    lignes: list[p.PageLine] = []
+    for i in range(6):
+        y = 100.0 + i * 90.0
+        source = [f"p1:b{i}"]
+        lignes += [
+            _ligne("•", GAUCHE_X, y, largeur=4.0, bullet=True, source_blocks=source),
+            _ligne(f"Texte {i} du même paragraphe.", 90.0, y, largeur=220.0,
+                   source_blocks=source),
+        ]
+    page = p.PageText(page=1, width=595, height=842, lines=_extrait(lignes))
+    p.ordonner_pages([page])
+    assert page.layout.boundaries == []
+
+
 def test_les_seuils_de_colonne_sont_des_reglages_publies_et_non_des_valeurs_en_dur(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Convention Seuils : les cinq bornes de colonne sont publiées, et chacune est un vrai levier."""

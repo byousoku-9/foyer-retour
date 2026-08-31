@@ -39,9 +39,10 @@ from server.app.config import get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
-from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE, LectureDuLot,
-                                     document_json, exiger_espace_installe, merge_manifest,
-                                     read_manifest, verifier_couverture_du_lot)
+from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE,
+                                     TYPING_REUSED_IDS_STAT, LectureDuLot, document_json,
+                                     exiger_espace_installe, merge_manifest, read_manifest,
+                                     verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
@@ -52,6 +53,8 @@ from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, Stru
 DOC_ID = "axa-lu-optihome-2017"
 TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
 DEFAULT_EDITION = "juin 2017"
+TYPING_REUSED_COUNT_STAT = "blocs_typage_reutilises"
+TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
 # story 4.2c : registre de lignes source, colonnes géométriques (lignes **et** tables), structure
@@ -78,6 +81,9 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "colonnes:gouttiere>=column_gutter_min_pt"
                       "&cotes>=column_min_lines(lignes+rangees_de_table)"
                       "&hauteur>=column_min_span_ratio=>lecture(bande,colonne,y0,x0);"
+                      "colonnes_serrees:blocs_source_disjoints>=column_min_lines_par_cote"
+                      "&departs_separes>=column_gutter_min_pt&remplissage>=column_min_fill_ratio"
+                      "=>gouttiere;bloc_source_partage=>gouttiere_ecartee;"
                       "rangee(lignes_seules):appariement>column_row_pairing_max_ratio"
                       "&remplissage<column_min_fill_ratio=>gouttiere_ecartee;"
                       "sans_gouttiere=>ordre_lecture=ordre_source;traversante=>colonne0+bande;"
@@ -166,6 +172,86 @@ def ingest_fingerprint(structure: StructureProposee | None = None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _identite_bloc_pour_typage(block: Block) -> str:
+    """Preuve transportable : identifiant, texte et lignes exacts, rien de sémantique."""
+    payload = {
+        "block_id": block.block_id,
+        "text": block.text,
+        "lines": [line.model_dump() for line in block.lines],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _ids_typage_precedemment_prouves(previous: Document, report_bytes: bytes | None) -> set[str]:
+    """IDs dont le rapport précédent prouve qu'ils ont traversé le typage complet."""
+    if report_bytes is None:
+        return set()
+    try:
+        report = Report.model_validate_json(report_bytes)
+    except (ValidationError, ValueError, UnicodeDecodeError):
+        return set()
+    if any(check.name == "typage_clauses" and check.level == "info" for check in report.checks):
+        return {block.block_id for block in previous.blocks if is_citable(block)}
+    raw = report.stats.get(TYPING_REUSED_IDS_STAT)
+    if not isinstance(raw, dict) or any(
+            not isinstance(key, str) or isinstance(value, bool) or value != 1
+            for key, value in raw.items()
+    ):
+        return set()
+    by_id = {block.block_id: block for block in previous.blocks}
+    return set(raw) & set(by_id)
+
+
+def reutiliser_typage_identique(
+        doc: Document, previous: Document | None, report_bytes: bytes | None,
+) -> tuple[Document, dict[str, int]]:
+    """Recopie un typage seulement sur le **même** bloc fort et vers des cibles encore existantes."""
+    if previous is None:
+        return doc, {}
+    proven = _ids_typage_precedemment_prouves(previous, report_bytes)
+    if not proven:
+        return doc, {}
+    previous_by_id = {block.block_id: block for block in previous.blocks}
+    block_ids = {block.block_id for block in doc.blocks}
+    node_ids = {node.node_id for node in doc.nodes}
+    reused: dict[str, int] = {}
+    blocks: list[Block] = []
+    for block in doc.blocks:
+        old = previous_by_id.get(block.block_id)
+        identity = _identite_bloc_pour_typage(block)
+        if (block.block_id not in proven or old is None or not is_citable(block)
+                or identity != _identite_bloc_pour_typage(old)):
+            blocks.append(block)
+            continue
+        semantic_blocks = [*old.refs, *([old.overrides] if old.overrides else []), *(
+            target for target in old.relation.model_dump().values() if target is not None
+        )]
+        semantic_nodes = [*(old.scope_node_ids or []), *(
+            [old.scope_node_id] if old.scope_node_id is not None else []
+        )]
+        if any(target not in block_ids for target in semantic_blocks) \
+                or any(target not in node_ids for target in semantic_nodes):
+            blocks.append(block)
+            continue
+        blocks.append(block.model_copy(update={
+            "kind": old.kind,
+            "structural_kind": block.structural_kind or block.kind,
+            "kind_confidence": old.kind_confidence,
+            "kind_source": old.kind_source,
+            "refs": list(old.refs),
+            "unresolved_refs": list(old.unresolved_refs),
+            "defines": old.defines,
+            "scope_node_id": old.scope_node_id,
+            "scope_node_ids": list(old.scope_node_ids),
+            "overrides": old.overrides,
+            "relation": old.relation.model_copy(deep=True),
+        }, deep=True))
+        reused[block.block_id] = 1
+    typed = doc.model_copy(update={"blocks": blocks}, deep=True)
+    return Document.model_validate(typed.model_dump()), reused
+
+
 @dataclass(frozen=True)
 class SourceLine:
     """Ligne source figée (story 4.2c) : l'ancre adressable de l'ingestion, avant toute mutation.
@@ -242,6 +328,10 @@ class PageLine:
     # (deux après `_merge_number_lines`) ; `colonne`/`bande`/`ordre_lecture` sont posés par
     # `_assign_reading_order` et valent respectivement 1 / 0 / l'ordre source sur une page mono-colonne.
     source_uids: list[str] = field(default_factory=list)
+    # Les blocs texte natifs de PyMuPDF sont une preuve géométrique distincte des seules boîtes de
+    # lignes. Ils ne sortent jamais dans `document.json` : ils servent uniquement à départager une
+    # vraie colonne serrée d'un retrait ou d'une puce appartenant au même paragraphe source.
+    source_blocks: list[str] = field(default_factory=list)
     colonne: int = 1
     bande: int = 0
     ordre_lecture: int = 0
@@ -331,7 +421,7 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
     options: dict[str, Any] = {"sort": FLAGS["sort"]}
     if textpage is not None:
         options["textpage"] = textpage
-    for b in page.get_text("dict", **options)["blocks"]:
+    for block_index, b in enumerate(page.get_text("dict", **options)["blocks"]):
         if b["type"] != 0:
             images += 1
             continue
@@ -367,7 +457,8 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
                     absorbante.source_uids.append(source.uid)
                 continue
             out.append(PageLine(text=text, bbox=bbox, size=size, bullet=bullet,
-                                source_uids=[source.uid] if source is not None else []))
+                                source_uids=[source.uid] if source is not None else [],
+                                source_blocks=[f"p{page_no}:b{block_index}"]))
     return out, images
 
 
@@ -541,6 +632,7 @@ def _merge_number_lines(lines: list[PageLine], tables: Sequence[PageTable] = ())
                 # La ligne fusionnée porte **deux** uid : le registre ne perd jamais une ligne source
                 # parce que le parseur en a réuni deux (story 4.2c).
                 cur.source_uids = [*cur.source_uids, *nxt.source_uids]
+                cur.source_blocks = list(dict.fromkeys([*cur.source_blocks, *nxt.source_blocks]))
                 i += 1
         out.append(cur)
         i += 1
@@ -695,15 +787,52 @@ def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
         right = [b for b in boites if b.bbox[0] >= candidate]
         if len(left) < s.column_min_lines or len(right) < s.column_min_lines:
             continue
+        crossing = [b for b in boites if b.bbox[0] < candidate < b.bbox[2]]
+        sources_left = {
+            source for b in left if b.ligne is not None for source in b.ligne.source_blocks
+        }
+        sources_right = {
+            source for b in right if b.ligne is not None for source in b.ligne.source_blocks
+        }
+        sources_crossing = {
+            source for b in crossing if b.ligne is not None for source in b.ligne.source_blocks
+        }
         gutter = min(b.bbox[0] for b in right) - max(b.bbox[2] for b in left)
+        lignes_gauche = [b.ligne for b in left if b.ligne is not None]
+        lignes_droite = [b.ligne for b in right if b.ligne is not None]
+        # Couper un bloc texte natif n'est un signal de faux positif que lorsque le côté ainsi
+        # détaché ne remplit pas sa largeur : c'est la signature d'une puce ou d'un retrait. PyMuPDF
+        # peut aussi regrouper deux vraies colonnes dans un seul bloc source ; si elles sont toutes
+        # deux pleines et que le blanc physique suffit, la preuve géométrique historique prévaut.
+        if sources_left & sources_right and lignes_gauche and lignes_droite:
+            source_split_pairing = _appariement_des_lignes_de_base(lignes_gauche, lignes_droite)
+            source_split_fill = _remplissage_minimal(lignes, lignes_gauche, lignes_droite)
+            if (source_split_pairing <= s.column_row_pairing_max_ratio
+                    or source_split_fill < s.column_min_fill_ratio):
+                continue
         if gutter < s.column_gutter_min_pt:
-            continue
+            # Une gouttière visuellement serrée n'abaisse pas le seuil de blanc. Elle emprunte une
+            # seconde preuve : assez de blocs source indépendants de chaque côté, aucun de ces blocs
+            # dans une boîte traversante, des départs de colonnes séparés par le seuil publié et deux
+            # côtés réellement remplis. Sans provenance source (PageText synthétique historique,
+            # table seule), le chemin reste strictement celui du blanc physique.
+            if (len(sources_left) < s.column_min_lines
+                    or len(sources_right) < s.column_min_lines
+                    or bool(sources_left & sources_right)
+                    or sources_crossing & (sources_left | sources_right)
+                    or not lignes_gauche or not lignes_droite):
+                continue
+            start_gap = min(line.bbox[0] for line in lignes_droite) - min(
+                line.bbox[0] for line in lignes_gauche
+            )
+            if (start_gap < s.column_gutter_min_pt
+                    or _remplissage_minimal(lignes, lignes_gauche, lignes_droite)
+                    < s.column_min_fill_ratio):
+                continue
         minimum_span = s.column_min_span_ratio * written_height
         if any(max(b.bbox[3] for b in side) - min(b.bbox[1] for b in side) < minimum_span
                for side in (left, right)):
             continue
-        lignes_gauche = [b.ligne for b in left if b.ligne is not None]
-        lignes_droite = [b.ligne for b in right if b.ligne is not None]
         if lignes_gauche and lignes_droite \
                 and _appariement_des_lignes_de_base(lignes_gauche, lignes_droite) \
                 > s.column_row_pairing_max_ratio \
@@ -1629,6 +1758,7 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # constat 3) : `run()` promet un check bloquant, jamais une trace Python, et `main()`
         # l'appelle sans `try`.
         rapport = echec
+        document_publie = doc
         structure_publiee: str | None = None
         if rapport is None:
             try:
@@ -1647,11 +1777,24 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
                                 "nommerait une structure que ce document n'applique pas — "
                                 "relancer l'ingestion")[:2000])])
                     raise _StructureAChange
+                precedent = lecture.document_precedent(data_dir / "document.json")
                 rapport = build_pdf_report(
-                    doc, lecture.document_precedent(data_dir / "document.json"), pages=pages,
+                    doc, precedent, pages=pages,
                     numbers=meta["numbers"], duplicates=meta["duplicates"],
                     continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
                     printed_toc=meta["printed_toc"], summary=summary, structure=rendu_structure)
+                document_publie, reused = reutiliser_typage_identique(
+                    doc, precedent, lecture.octets(data_dir / "report.json"),
+                )
+                pending = sum(
+                    is_citable(block) and block.block_id not in reused
+                    for block in document_publie.blocks
+                )
+                rapport.stats.update({
+                    TYPING_REUSED_IDS_STAT: reused,
+                    TYPING_REUSED_COUNT_STAT: len(reused),
+                    TYPING_PENDING_COUNT_STAT: pending,
+                })
             except _StructureAChange:
                 pass  # le rapport est déjà bâti, et il est bloquant
             except ValidationError as exc:
@@ -1670,8 +1813,8 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
         # non un par artefact. Une absence (`None`) est membre du lot comme un contenu : jamais un
         # artefact périmé à côté d'un manifest en quarantaine.
         artefacts: list[tuple[Path, str | None]] = []
-        if doc is not None and not rapport.blocking:
-            doc_text = document_json(doc)
+        if document_publie is not None and not rapport.blocking:
+            doc_text = document_json(document_publie)
             artefacts += [(data_dir / "document.json", doc_text), (data_dir / "summary.md", summary)]
             document_hash = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
         else:

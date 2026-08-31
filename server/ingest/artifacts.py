@@ -34,6 +34,7 @@ def document_json(doc: Document) -> str:
 
 OVERLAY_FILE = "typing.manual.json"
 STRUCTURE_FILE = "structure.json"
+TYPING_REUSED_IDS_STAT = "ids_typage_reutilises"
 
 
 # `overlay_hash`, `structure_hash` et `load_previous` ont été **supprimés** (story 4.5, revue du tour
