@@ -187,6 +187,18 @@ def test_un_verrou_absent_est_un_refus_ferme(tmp_path: Path) -> None:
     with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
         holdout.prendre_tentative_unique(tmp_path / "absent.json", "a" * 64)
 
+    repertoire = tmp_path / "repertoire"
+    repertoire.mkdir()
+    with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
+        holdout.prendre_tentative_unique(repertoire, "a" * 64)
+
+    cible = tmp_path / "cible.json"
+    cible.write_text("{}", encoding="utf-8")
+    lien = tmp_path / "lien.json"
+    lien.symlink_to(cible)
+    with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
+        holdout.prendre_tentative_unique(lien, "a" * 64)
+
 
 def test_un_verrou_arme_par_edition_directe_refuse_sans_jeton_authentique(tmp_path: Path) -> None:
     receipt_path, lock, payload, receipt = _public(tmp_path)
