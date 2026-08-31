@@ -89,10 +89,13 @@ sous-commandes `arm`/`execute` refusent tant que les trois jalons finaux ne sont
 Chaque attestation nomme aussi un artefact de preuve dont le SHA-256 est recalculé. L'armement
 demande l'autorisation interactive du secret scellé et inscrit un jeton authentifiable par son
 empreinte publique : modifier directement `lock.json` ne suffit pas. La tentative est consommée
-après récupération en mémoire et révocation irréversible de l'entrée trousseau ; le jeton est
-effacé et la marque est liée au secret avant déchiffrement. Une panne dès la révocation peut fermer
-le test sans résultat, mais ne peut jamais ouvrir un retry. Le lot est injecté directement en
-mémoire, sans loader de cas sur disque. La story 4.3 prépare ce chemin mais ne l'exécute jamais.
+seulement après une garde complète — reçu lié, état armé, trois conditions vraies, tentative intacte
+et jeton authentique — exécutée avant toute interaction trousseau puis rejouée sous verrou OS. Une
+fois la garde passée, le secret est récupéré en mémoire et l'entrée trousseau irréversiblement
+révoquée avant la prise ; le jeton est effacé et la marque liée au secret avant déchiffrement. Une
+panne dès la révocation peut fermer le test sans résultat, mais ne peut jamais ouvrir un retry. Le
+lot est injecté directement en mémoire, sans loader de cas sur disque. La story 4.3 prépare ce
+chemin mais ne l'exécute jamais.
 
 ## Protocole 4.2b : plancher, répétitions, budget de campagne, décisions
 
