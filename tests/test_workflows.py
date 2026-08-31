@@ -18,7 +18,8 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path, PurePosixPath
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -454,19 +455,87 @@ def test_le_credentiel_federe_ne_part_ni_dans_le_bucket_ni_dans_limage() -> None
             f"`{nom}` doit exclure le crédentiel écrit par `auth@v3` dans le répertoire de travail")
 
 
-def _entre_dans_le_contexte(fichier: Path, relatif: str) -> bool:
-    """Évalue les motifs ordonnés utiles de nos trois fichiers ignore, négations comprises."""
+def _chemins_admis_gitignore(fichier: Path, relatifs: set[str]) -> set[str]:
+    """Délègue la sémantique gitignore de gcloud au moteur Git, négations comprises."""
+    with tempfile.TemporaryDirectory(prefix="foyer-retour-gitignore-") as temporaire:
+        depot = Path(temporaire)
+        subprocess.run(["git", "init", "-q"], cwd=depot, check=True)
+        (depot / ".gitignore").write_bytes(fichier.read_bytes())
+        entree = "\0".join(sorted(relatifs)) + "\0"
+        resultat = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-z", "--stdin"], cwd=depot,
+            input=entree, capture_output=True, text=True, check=False,
+        )
+        assert resultat.returncode in (0, 1), resultat.stderr
+        exclus = {p for p in resultat.stdout.split("\0") if p}
+    return relatifs - exclus
+
+
+def _motif_moby_regex(motif: str) -> re.Pattern[str]:
+    """Compile les constructions Moby présentes dans ce `.dockerignore`.
+
+    Moby nettoie et ancre les motifs à la racine ; `*` ne traverse pas `/`, tandis que `**/`
+    représente zéro ou plusieurs répertoires. Le fichier ne contient volontairement ni classe de
+    caractères ni échappement : les refuser empêche cet oracle ciblé d'inventer une sémantique.
+    """
+    motif = motif.strip("/")
+    assert "[" not in motif and "\\" not in motif, f"construction Moby non couverte : {motif}"
+    morceaux: list[str] = ["^"]
+    i = 0
+    while i < len(motif):
+        if motif.startswith("**/", i):
+            morceaux.append("(?:.*/)?")
+            i += 3
+        elif motif.startswith("**", i):
+            morceaux.append(".*")
+            i += 2
+        elif motif[i] == "*":
+            morceaux.append("[^/]*")
+            i += 1
+        elif motif[i] == "?":
+            morceaux.append("[^/]")
+            i += 1
+        else:
+            morceaux.append(re.escape(motif[i]))
+            i += 1
+    morceaux.append("$")
+    return re.compile("".join(morceaux))
+
+
+def _chemin_admis_moby(fichier: Path, relatif: str) -> bool:
+    """Applique l'ordre Moby, y compris la propagation d'un match depuis un répertoire parent."""
     ignore = False
-    chemin = PurePosixPath(relatif)
+    parents = ["/".join(relatif.split("/")[:i]) for i in range(1, relatif.count("/") + 1)]
     for brute in fichier.read_text("utf-8").splitlines():
         motif = brute.strip()
-        if not motif or motif.startswith("#"):
+        if not motif or motif.startswith("#") or motif == ".":
             continue
         negation = motif.startswith("!")
         motif = motif[1:] if negation else motif
-        if chemin.match(motif.rstrip("/")):
+        compile = _motif_moby_regex(motif)
+        if compile.fullmatch(relatif) or any(compile.fullmatch(parent) for parent in parents):
             ignore = not negation
     return not ignore
+
+
+def _chemins_admis(fichier: Path, relatifs: set[str]) -> set[str]:
+    if fichier.name == ".dockerignore":
+        return {relatif for relatif in relatifs if _chemin_admis_moby(fichier, relatif)}
+    return _chemins_admis_gitignore(fichier, relatifs)
+
+
+def test_les_entrees_du_dockerfile_survivent_aux_deux_frontieres() -> None:
+    racine = WORKFLOWS.parents[1]
+    dockerfile = (racine / "Dockerfile").read_text("utf-8")
+    sources = {motif for ligne in dockerfile.splitlines()
+               if ligne.startswith("COPY ") and not ligne.startswith("COPY --")
+               for motif in ligne.split()[1:-1]}
+    necessaires = {"Dockerfile", "pyproject.toml", "uv.lock", "server", "data", "web", "tools"}
+    assert necessaires - {"Dockerfile"} <= sources, "toutes les sources COPY doivent être sondées"
+    assert all((racine / chemin).exists() for chemin in necessaires)
+    for nom in (".gcloudignore", ".dockerignore"):
+        admis = _chemins_admis(racine / nom, necessaires)
+        assert admis == necessaires, f"{nom} retire des entrées requises par le Dockerfile"
 
 
 def test_les_pdf_sont_exclus_generiquement_et_les_liens_du_checkout_restent_committes() -> None:
@@ -488,8 +557,8 @@ def test_les_pdf_sont_exclus_generiquement_et_les_liens_du_checkout_restent_comm
     for nom in (".dockerignore", ".gcloudignore", ".gitignore"):
         ignore = racine / nom
         assert "data/*/source.pdf" in ignore.read_text("utf-8"), nom
-        assert all(not _entre_dans_le_contexte(ignore, lien) for lien in liens), nom
-        assert all(not _entre_dans_le_contexte(ignore, secret) for secret in exclus), nom
+        sondes = set(liens) | set(exclus)
+        assert not (_chemins_admis(ignore, sondes) & sondes), nom
     suivis = subprocess.run(
         ["git", "ls-files", "--", *liens], cwd=racine, check=True,
         capture_output=True, text=True).stdout.splitlines()
@@ -497,21 +566,21 @@ def test_les_pdf_sont_exclus_generiquement_et_les_liens_du_checkout_restent_comm
 
 
 def _copier_contexte_filtre(racine: Path, destination: Path, ignore: Path) -> None:
-    for dossier in (racine / "server", racine / "data"):
-        for source in (dossier, *dossier.rglob("*")):
-            relatif = source.relative_to(racine).as_posix()
-            if source.is_dir() and not source.is_symlink():
-                continue
-            parents = [PurePosixPath(*PurePosixPath(relatif).parts[:i]).as_posix()
-                       for i in range(1, len(PurePosixPath(relatif).parts) + 1)]
-            if any(not _entre_dans_le_contexte(ignore, parent) for parent in parents):
-                continue
-            cible = destination / relatif
-            cible.parent.mkdir(parents=True, exist_ok=True)
-            if source.is_symlink():
-                os.symlink(os.readlink(source), cible)
-            else:
-                shutil.copy2(source, cible)
+    sources = [source for dossier in (racine / "server", racine / "data")
+               for source in (dossier, *dossier.rglob("*"))
+               if not (source.is_dir() and not source.is_symlink())]
+    relatifs = {source.relative_to(racine).as_posix() for source in sources}
+    admis = _chemins_admis(ignore, relatifs)
+    for source in sources:
+        relatif = source.relative_to(racine).as_posix()
+        if relatif not in admis:
+            continue
+        cible = destination / relatif
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_symlink():
+            os.symlink(os.readlink(source), cible)
+        else:
+            shutil.copy2(source, cible)
 
 
 def _octets_des_generations(racine: Path) -> dict[str, bytes]:
@@ -586,9 +655,12 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
         check=True, capture_output=True, text=True).stdout
     assert entree_git.startswith("120000 "), "le checkout autoritaire doit porter un blob symlink"
     for ignore in (racine / ".gcloudignore", racine / ".dockerignore"):
-        assert not _entre_dans_le_contexte(ignore, "data/.publie/courant")
-        assert all(_entre_dans_le_contexte(ignore, f"data/.publie/{generation}")
-                   for generation in generations)
+        chemins = {"data/.publie/courant"} | {
+            f"data/.publie/{generation}" for generation in generations
+        }
+        admis = _chemins_admis(ignore, chemins)
+        assert "data/.publie/courant" not in admis
+        assert chemins - {"data/.publie/courant"} <= admis
 
     source = tmp_path / "archive-source"
     for dossier in ("server", "data"):
@@ -596,26 +668,44 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
 
     generation_sonde = sorted(generations)[0]
     racine_docs = source / "data" / ".publie" / generation_sonde / "docs"
-    noms_interdits = (
+    fichiers_interdits = (
         ".env", ".env.production", "secret.key", "service-account-build.json",
         "gha-creds-ephemere.json", "source.pdf", "brouillon.tmp", ".verrou",
-        "type-clauses.lock",
+        "type-clauses.lock", "module.pyc",
+    )
+    dossiers_interdits = (
+        ".git", "_bmad", "_bmad-output", "_reference", ".claude", ".agents", "tests",
+        "scripts", ".venv", "venv", "__pycache__", ".pytest_cache", ".ruff_cache",
+        ".mypy_cache", "node_modules",
     )
     sentinelles = []
     for profondeur in ((), ("niveau-1",), ("niveau-1", "niveau-2")):
-        for nom in noms_interdits:
+        for nom in fichiers_interdits:
             sentinelle = racine_docs.joinpath(*profondeur, nom)
             sentinelle.parent.mkdir(parents=True, exist_ok=True)
             sentinelle.write_bytes(b"ne doit jamais entrer dans le contexte")
+            sentinelles.append(sentinelle.relative_to(source).as_posix())
+        for nom in dossiers_interdits:
+            sentinelle = racine_docs.joinpath(*profondeur, nom, "temoin.txt")
+            sentinelle.parent.mkdir(parents=True, exist_ok=True)
+            sentinelle.write_bytes(b"repertoire interne interdit")
             sentinelles.append(sentinelle.relative_to(source).as_posix())
     doc_necessaire = racine_docs / "niveau-1" / "niveau-2" / "preuve.json"
     doc_necessaire.write_bytes(b'{"publie": true}\n')
     relatif_necessaire = doc_necessaire.relative_to(source).as_posix()
 
     for ignore in (racine / ".gcloudignore", racine / ".dockerignore"):
-        assert all(not _entre_dans_le_contexte(ignore, chemin) for chemin in sentinelles), ignore
-        assert _entre_dans_le_contexte(ignore, relatif_necessaire), (
-            f"{ignore} doit conserver les docs publiés non sensibles")
+        admis = _chemins_admis(ignore, set(sentinelles) | {relatif_necessaire})
+        assert not (admis & set(sentinelles)), ignore
+        assert relatif_necessaire in admis, f"{ignore} doit conserver les docs publiés non sensibles"
+        sans_readmission = tmp_path / f"sans-readmission-{ignore.name.removeprefix('.')}" / ignore.name
+        sans_readmission.parent.mkdir()
+        sans_readmission.write_text("\n".join(
+            ligne for ligne in ignore.read_text("utf-8").splitlines()
+            if not ligne.strip().startswith("!")
+        ) + "\n", "utf-8")
+        assert relatif_necessaire not in _chemins_admis(sans_readmission, {relatif_necessaire}), (
+            f"les négations de {ignore} doivent rester nécessaires à la conservation des docs sûrs")
 
     attendu = {
         chemin: octets for chemin, octets in _octets_des_generations(source).items()
