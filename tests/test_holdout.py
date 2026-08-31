@@ -304,6 +304,141 @@ def test_executer_sur_jeton_falsifie_refuse_avant_toute_interaction_trousseau(tm
     assert not (tmp_path / "consumed.marker").exists()
 
 
+def test_executer_revalide_sous_flock_avant_toute_interaction_trousseau(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_path, lock, payload, receipt = _public(tmp_path)
+    verrou_ferme = lock.read_bytes()
+    arm_token = hmac.new(SECRET.encode(), b"holdout-c/arm-token/v1", hashlib.sha256).hexdigest()
+    verrou_arme = json.loads(verrou_ferme)
+    verrou_arme.update(
+        {
+            "state": "armed",
+            "conditions": {condition: True for condition in holdout.CONDITIONS},
+            "armed_at": "2026-09-01T00:00:00+00:00",
+            "arm_token": arm_token,
+        }
+    )
+    lock.write_bytes(holdout.json_canonique(verrou_arme) + b"\n")
+    verifier_original = holdout._verifier_armement
+    gardes_valides = 0
+    appels_trousseau: list[str] = []
+
+    def muter_apres_pregarde(verrou: holdout.VerrouPublic, *, receipt_digest: str, arm_token_digest: str) -> None:
+        nonlocal gardes_valides
+        verifier_original(
+            verrou,
+            receipt_digest=receipt_digest,
+            arm_token_digest=arm_token_digest,
+        )
+        gardes_valides += 1
+        if gardes_valides == 1:
+            lock.write_bytes(verrou_ferme)
+
+    def lire_secret(_receipt: holdout.RecuPublic) -> str:
+        appels_trousseau.append("lecture")
+        return SECRET
+
+    def supprimer_secret(_receipt: holdout.RecuPublic) -> None:
+        appels_trousseau.append("révocation")
+
+    monkeypatch.setattr(holdout, "_verifier_armement", muter_apres_pregarde)
+    monkeypatch.setattr(holdout, "_secret_keychain", lire_secret)
+    monkeypatch.setattr(holdout, "_supprimer_secret_keychain", supprimer_secret)
+    with pytest.raises(holdout.RefusHoldout, match="encore fermé"):
+        holdout.executer(
+            receipt_path=receipt_path,
+            lock_path=lock,
+            payload_path=payload,
+            runner_args=[],
+        )
+    assert gardes_valides == 1
+    assert appels_trousseau == []
+    assert lock.read_bytes() == verrou_ferme
+    assert holdout.lire_verrou(lock).attempts_remaining == 1
+    assert not (tmp_path / "consumed.marker").exists()
+    assert holdout.digest_json(receipt) == holdout.lire_verrou(lock).receipt_digest
+
+
+def test_executer_refuse_un_payload_absent_avant_toute_interaction_trousseau(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_path, lock, payload, receipt = _public(tmp_path)
+    arm_token = hmac.new(SECRET.encode(), b"holdout-c/arm-token/v1", hashlib.sha256).hexdigest()
+    verrou = json.loads(lock.read_text("utf-8"))
+    verrou.update(
+        {
+            "state": "armed",
+            "conditions": {condition: True for condition in holdout.CONDITIONS},
+            "armed_at": "2026-09-01T00:00:00+00:00",
+            "arm_token": arm_token,
+        }
+    )
+    lock.write_bytes(holdout.json_canonique(verrou) + b"\n")
+    verrou_arme = lock.read_bytes()
+    payload.unlink()
+    appels_trousseau: list[str] = []
+
+    def lire_secret(_receipt: holdout.RecuPublic) -> str:
+        appels_trousseau.append("lecture")
+        return SECRET
+
+    def supprimer_secret(_receipt: holdout.RecuPublic) -> None:
+        appels_trousseau.append("révocation")
+
+    monkeypatch.setattr(holdout, "_secret_keychain", lire_secret)
+    monkeypatch.setattr(holdout, "_supprimer_secret_keychain", supprimer_secret)
+    with pytest.raises(holdout.RefusHoldout, match="payload chiffré absent"):
+        holdout.executer(
+            receipt_path=receipt_path,
+            lock_path=lock,
+            payload_path=payload,
+            runner_args=[],
+        )
+    assert appels_trousseau == []
+    assert lock.read_bytes() == verrou_arme
+    assert holdout.lire_verrou(lock).attempts_remaining == 1
+    assert not (tmp_path / "consumed.marker").exists()
+    assert holdout.digest_json(receipt) == holdout.lire_verrou(lock).receipt_digest
+
+
+def test_executer_refuse_une_marque_existante_avant_toute_interaction_trousseau(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_path, lock, payload, _ = _public(tmp_path)
+    arm_token = hmac.new(SECRET.encode(), b"holdout-c/arm-token/v1", hashlib.sha256).hexdigest()
+    verrou = json.loads(lock.read_text("utf-8"))
+    verrou.update(
+        {
+            "state": "armed",
+            "conditions": {condition: True for condition in holdout.CONDITIONS},
+            "armed_at": "2026-09-01T00:00:00+00:00",
+            "arm_token": arm_token,
+        }
+    )
+    lock.write_bytes(holdout.json_canonique(verrou) + b"\n")
+    verrou_arme = lock.read_bytes()
+    marque = tmp_path / "consumed.marker"
+    marque.write_text("marque préexistante", encoding="utf-8")
+    appels_trousseau: list[str] = []
+
+    monkeypatch.setattr(
+        holdout,
+        "_secret_keychain",
+        lambda _receipt: appels_trousseau.append("lecture") or SECRET,
+    )
+    monkeypatch.setattr(
+        holdout,
+        "_supprimer_secret_keychain",
+        lambda _receipt: appels_trousseau.append("révocation"),
+    )
+    with pytest.raises(holdout.RefusHoldout, match="déjà consommée"):
+        holdout.executer(
+            receipt_path=receipt_path,
+            lock_path=lock,
+            payload_path=payload,
+            runner_args=[],
+        )
+    assert appels_trousseau == []
+    assert lock.read_bytes() == verrou_arme
+    assert holdout.lire_verrou(lock).attempts_remaining == 1
+    assert marque.read_text(encoding="utf-8") == "marque préexistante"
+
+
 def test_les_trois_preuves_arment_puis_lunique_prise_est_irreversible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt, lock, _, raw_receipt = _public(tmp_path)
     monkeypatch.setattr(holdout, "_secret_keychain", lambda _receipt: SECRET)
