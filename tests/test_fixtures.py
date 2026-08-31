@@ -92,6 +92,19 @@ async def test_record_plain_values_with_default_serializer(tmp_path: Path) -> No
     assert json.loads((tmp_path / "plain.json").read_text())["k"]["response"] == {"reply": {"texte": "x", "n": 1}, "path": "/a"}
 
 
+async def test_replay_accepte_un_alias_explicitement_audite(tmp_path: Path) -> None:
+    (tmp_path / "alias.json").write_text(json.dumps({
+        "__aliases__": {"requete-regeneree": "requete-source"},
+        "requete-source": {"request": "requete-source", "response": {"ok": True}},
+    }), encoding="utf-8")
+    replay = LLMRecorder("alias", fixtures_dir=tmp_path, api_key="")
+
+    async def fail() -> dict:
+        raise AssertionError("aucun appel fournisseur en replay")
+
+    assert await replay.call("requete-regeneree", fail) == {"ok": True}
+
+
 def test_request_key_hides_message_text() -> None:
     k = request_key("claude-x", [{"role": "user", "content": "texte confidentiel"}])
     assert "confidentiel" not in k and k.startswith("claude-x:")

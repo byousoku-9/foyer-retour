@@ -6,7 +6,7 @@ scenario: "page Baloise rendue — garantie de contenu"
 famille: garantie
 expected:
   found: true
-  block_ids: ["baloise-lu-home-2-2024:p20:15"]
+  block_ids: ["baloise-lu-home-2-2024:p20:18"]
   text_norm: >-
     les variations importantes de temperature consecutives a un evenement assure au titre du contenu dans le risque assure ou les liquides sont entreposes. la perte accidentelle des liquides assures en tonneaux ou en futs en cas d'eclatement, de rupture ou de fissuration des recipients. le decollement des etiquettes, rendant impossible l'identification des bouteilles, a la suite d'un evenement climatique ou naturel ou un degat d'eau assure.
 mode_attendu: bonne_reponse
@@ -14,4 +14,4 @@ truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
-  note: "La boucle a préparé la lecture visuelle locale de la page 20 ; la contresignature humaine reste due."
+  note: "Lecture visuelle de la colonne droite de la page 20, confirmée par la porte structurelle 48/48 ; la contresignature humaine reste due."

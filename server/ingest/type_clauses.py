@@ -40,7 +40,8 @@ from server.ingest.artifacts import (STRUCTURE_FILE, TYPING_REUSED_IDS_STAT, Lec
                                      document_json, exiger_espace_installe,
                                      fusionner_et_publier, publier_artefacts,
                                      verifier_couverture_du_lot)
-from server.ingest.report import (attester_arbre, attester_structure, enrich_typing_report,
+from server.ingest.report import (attester_arbre, attester_structure,
+                                  canoniser_transition_apres_typage, enrich_typing_report,
                                   pages_charabia)
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -1467,7 +1468,10 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"assemblage refusé après les deux lectures (coût réel cumulé {total_cost:.4f} €); "
             f"aucun artefact écrit: {exc}"
         ) from exc
-    typed_report = enrich_typing_report(report, typed, rejected_definitions=rejected_definitions)
+    typed_report = enrich_typing_report(
+        canoniser_transition_apres_typage(report), typed,
+        rejected_definitions=rejected_definitions,
+    )
     if transport in {"standard", "standard-resume"}:
         if transport == "standard":
             transport_detail = (

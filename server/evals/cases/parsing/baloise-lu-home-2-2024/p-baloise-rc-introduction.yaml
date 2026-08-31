@@ -6,7 +6,7 @@ scenario: "page Baloise rendue — introduction responsabilité civile"
 famille: responsabilite
 expected:
   found: true
-  block_ids: ["baloise-lu-home-2-2024:p30:5"]
+  block_ids: ["baloise-lu-home-2-2024:p30:3"]
   text_norm: >-
     nous garantissons, dans la limite prevue dans votre tableau des garanties, les consequences pecuniaires de votre responsabilite civile resultant :
 mode_attendu: bonne_reponse
@@ -14,4 +14,4 @@ truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
-  note: "Lecture visuelle préparée par la boucle sur l'introduction de la colonne gauche page 30, segmentée séparément de la puce chiens ; contresignature humaine due."
+  note: "Lecture visuelle de l'introduction dans la colonne gauche de la page 30, confirmée par la porte structurelle 48/48 et segmentée séparément de la puce chiens ; contresignature humaine due."

@@ -230,6 +230,27 @@ def ids_disparus(doc: Document, previous: Document | None, stats: dict[str, Any]
     return []
 
 
+def canoniser_transition_apres_typage(report: Report) -> Report:
+    """Retire du rapport final les diagnostics propres à la transition d'ingestion.
+
+    ``ids_disparus`` et ``ids_nouveaux`` comparent une reconstruction à la génération qui la
+    précédait. Ils sont utiles avant le typage pour mesurer la migration, mais ne décrivent pas le
+    corpus final : une régénération hermétique de ce corpus contre lui-même rend nécessairement
+    zéro. Les conserver après la double lecture rendait donc ``report.json`` dépendant de
+    l'historique local qui avait précédé la publication.
+
+    Le typage est la frontière où le candidat devient l'artefact final. À cette frontière, la
+    preuve de transition a déjà été consommée pour planifier le delta ; le rapport publié revient à
+    l'identité reproductible du corpus. Les autres checks et statistiques, notamment les
+    attestations d'arbre et les preuves de transport, restent inchangés.
+    """
+    stats = dict(report.stats)
+    stats["ids_disparus"] = 0
+    stats["ids_nouveaux"] = 0
+    checks = [check for check in report.checks if check.name != "ids_disparus"]
+    return report.model_copy(update={"checks": checks, "stats": stats})
+
+
 def _key(numero: str) -> tuple[int, ...]:
     return tuple(int(x) for x in numero.split("."))
 

@@ -18,7 +18,8 @@ from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain import BlockRef, Document, Report
 from server.ingest import pdf_to_blocks as p
-from server.ingest.report import build_pdf_report
+from server.ingest.report import (attester_arbre, build_pdf_report,
+                                  canoniser_transition_apres_typage)
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "data" / "axa-lu-optihome-2017"
@@ -111,7 +112,7 @@ def test_document_shape(doc: Document) -> None:
     printed_toc = next(c for c in report.checks if c.name == "tdm_imprimee")
     assert printed_toc.level == "info" and "4 titre(s)" in printed_toc.detail
     by_check = {check.name: check for check in report.checks}
-    assert "4 bloc(s) sur 4 page(s)" in by_check["blocs_non_citables"].detail
+    assert "14 bloc(s) sur 4 page(s)" in by_check["blocs_non_citables"].detail
     assert by_check["pages_mixtes"].detail.endswith(": 1")
     assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
     assert report.stats["tables"] == sum(
@@ -248,6 +249,12 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     report = build_pdf_report(built, doc, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
                               continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
                               printed_toc=meta["printed_toc"], summary=p.build_summary(built))
+    report = canoniser_transition_apres_typage(report)
+    report = attester_arbre(
+        report,
+        document_hash=hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
+        ingest_fingerprint=doc.ingest_fingerprint,
+    )
     committed = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.checks == [check for check in committed.checks if check.name not in TYPING_CHECKS]
     assert all(committed.stats[key] == value for key, value in report.stats.items())

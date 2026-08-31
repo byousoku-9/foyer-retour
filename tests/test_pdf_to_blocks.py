@@ -14,7 +14,7 @@ from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.domain import Block, BlockRef, Check, Document, Line, Node, NodeRef, Report
-from server.app.domain.document import Relation
+from server.app.domain.document import Relation, Scope
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
 from server.ingest.report import _printed_toc_check, _quality, _tree_category, report_from_validation_error
@@ -28,9 +28,10 @@ DECLARATION_EMPREINTE = re.compile(r"empreinte-committee-perimee:\s*([a-z0-9-]+)
 
 
 def empreintes_perimees_declarees() -> set[str]:
-    """Les `doc_id` dont `docs/choix-et-limites.md` déclare l'empreinte committée périmée."""
-    return set(DECLARATION_EMPREINTE.findall(
-        (ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")))
+    """Les déclarations actives, hors registre historique repliable."""
+    document = (ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")
+    synthese = document.partition("\n<details>\n")[0]
+    return set(DECLARATION_EMPREINTE.findall(synthese))
 
 
 def assert_empreinte_committee_declaree(doc_id: str, committee: str) -> None:
@@ -1388,6 +1389,7 @@ def _preuve_typage_complet(doc: Document) -> bytes:
 
 def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_autorite() -> None:
     previous = _document_metaphorique()
+    previous.nodes[1].scope = Scope(kind="special")
     current = _document_metaphorique(inverse=True)
     typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
 
@@ -1397,6 +1399,7 @@ def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_
     assert garantie.refs == [f"{DOC}:p1:1"]
     assert garantie.relation.specialise == f"{DOC}:p1:1"
     assert garantie.scope_node_id == f"{DOC}:a1"
+    assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "special"
 
 
 def test_reutilisation_metaphorique_refuse_provenance_noeud_et_dependance_modifies() -> None:

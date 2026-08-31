@@ -45,6 +45,7 @@ from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FIL
                                      verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
+                                  canoniser_transition_apres_typage, enrich_typing_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
 from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
                                      StructureRefusee, arbre, charger_octets, empreinte_proposition,
@@ -236,6 +237,46 @@ def _remapper_cible(target: str | None, old_to_new: dict[str, str]) -> str | Non
     return old_to_new[target] if target is not None else None
 
 
+def _reutiliser_portees_noeuds(
+        doc: Document, previous: Document, old_to_new: dict[str, str],
+) -> list[Node]:
+    """Transporte une portée sur chaque sous-arbre dont l'identité est bijective."""
+    precedents = {node.node_id: node for node in previous.nodes}
+    courants = {node.node_id: node for node in doc.nodes}
+    signatures_precedentes = _signatures_noeuds(previous)
+    signatures_courantes = _signatures_noeuds(doc)
+    memo: dict[str, bool] = {}
+
+    def identique(node_id: str) -> bool:
+        if node_id in memo:
+            return memo[node_id]
+        precedent = precedents.get(node_id)
+        courant = courants.get(node_id)
+        if (precedent is None or courant is None
+                or signatures_precedentes.get(node_id) != signatures_courantes.get(node_id)
+                or len(precedent.items) != len(courant.items)):
+            memo[node_id] = False
+            return False
+        memo[node_id] = False  # garde de cycle pour un document invalide
+        for ancien, nouveau in zip(precedent.items, courant.items, strict=True):
+            if isinstance(ancien, BlockRef) and isinstance(nouveau, BlockRef):
+                if old_to_new.get(ancien.block_id) != nouveau.block_id:
+                    return False
+            elif isinstance(ancien, NodeRef) and isinstance(nouveau, NodeRef):
+                if ancien.node_id != nouveau.node_id or not identique(ancien.node_id):
+                    return False
+            else:
+                return False
+        memo[node_id] = True
+        return True
+
+    return [
+        node.model_copy(update={"scope": precedents[node.node_id].scope}, deep=True)
+        if identique(node.node_id) else node
+        for node in doc.nodes
+    ]
+
+
 def _ids_typage_precedemment_prouves(previous: Document, report_bytes: bytes | None) -> set[str]:
     """IDs dont le rapport précédent prouve qu'ils ont traversé le typage complet."""
     if report_bytes is None:
@@ -307,7 +348,8 @@ def reutiliser_typage_identique(
             }, deep=True),
         }, deep=True))
         reused[block.block_id] = 1
-    typed = doc.model_copy(update={"blocks": blocks}, deep=True)
+    nodes = _reutiliser_portees_noeuds(doc, previous, old_to_new)
+    typed = doc.model_copy(update={"blocks": blocks, "nodes": nodes}, deep=True)
     return Document.model_validate(typed.model_dump()), reused
 
 
@@ -1185,7 +1227,8 @@ class _Builder:
         bbox = [min(l.bbox[0] for l in lines), min(l.bbox[1] for l in lines),
                 max(l.bbox[2] for l in lines), max(l.bbox[3] for l in lines)]
         block = Block(block_id=block_id, text="\n".join(l.text for l in lines), loc=loc, seq=seq, page=page,
-                      bbox=bbox, kind=kind, continues=continues, source_field=source_field,  # type: ignore[arg-type]
+                      bbox=bbox, kind=kind, structural_kind=kind, continues=continues,
+                      source_field=source_field,  # type: ignore[arg-type]
                       lines=[Line(line_id=f"{block_id}:l{i}", text=l.text, bbox=l.bbox) for i, l in enumerate(lines, 1)])
         self.blocks.append(block)
         self.block_uids[block_id] = [uid for line in lines for uid in line.source_uids]
@@ -1866,6 +1909,14 @@ def run(data_dir: Path, *, edition: str | None, doc_id: str = DOC_ID,
                     TYPING_REUSED_COUNT_STAT: len(reused),
                     TYPING_PENDING_COUNT_STAT: pending,
                 })
+                if pending == 0:
+                    # Une identité intégralement transportée a déjà traversé les deux lectures :
+                    # ses contrôles sémantiques se recalculent localement, sans appel fournisseur.
+                    # Le rapport final décrit alors le corpus publié, non la génération précédente
+                    # contre laquelle le delta d'ingestion a été mesuré.
+                    rapport = enrich_typing_report(
+                        canoniser_transition_apres_typage(rapport), document_publie,
+                    )
             except _StructureAChange:
                 pass  # le rapport est déjà bâti, et il est bloquant
             except ValidationError as exc:

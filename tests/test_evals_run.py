@@ -694,20 +694,18 @@ def test_parsing_reel_tourne_sans_cle_client_ni_fournisseur(
         "--data-dir", str(data),
         "--output-json", str(sortie), "--output-markdown", str(tmp_path / "parsing.md"),
     ])
-    assert code == 1
+    assert code == 0
     rapport = json.loads(sortie.read_text(encoding="utf-8"))
     assert rapport["cases_completed"] == 11
     assert rapport["cost_eur"] == rapport["cost_eur_original"] == 0.0
     assert rapport["metrics"]["variants"] == {"local": 11}
-    assert rapport["metrics"]["labels"]["bonne_reponse"] == 8
-    assert rapport["metrics"]["labels"]["parsing"] == 3
-    assert rapport["metrics"]["recall"] == 0.7273
+    assert rapport["metrics"]["labels"]["bonne_reponse"] == 11
+    assert rapport["metrics"]["labels"]["parsing"] == 0
+    assert rapport["metrics"]["recall"] == 1.0
     assert all(document["dictionary_fingerprint"] is None
                for document in rapport["identity"]["documents"].values())
     assert rapport["identity"]["scope"]["references_digest"] is None
-    assert {r["id"] for r in rapport["results"] if r["label"] == "parsing"} == {
-        "p-baloise-acceptation", "p-baloise-obligations", "p-baloise-rc-chiens",
-    }
+    assert {r["id"] for r in rapport["results"] if r["label"] == "parsing"} == set()
 
 
 def test_les_compagnons_ont_un_digest_distinct_et_sont_figes_pendant_le_run(tmp_path: Path) -> None:

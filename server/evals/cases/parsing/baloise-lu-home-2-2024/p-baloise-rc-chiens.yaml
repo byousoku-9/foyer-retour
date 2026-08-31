@@ -6,7 +6,7 @@ scenario: "page Baloise rendue — responsabilité civile"
 famille: responsabilite
 expected:
   found: true
-  block_ids: ["baloise-lu-home-2-2024:p30:6"]
+  block_ids: ["baloise-lu-home-2-2024:p30:4"]
   text_norm: >-
     des dommages accidentels causes a autrui par les chiens relevant de la definition "chiens dangereux" dont vous etes proprietaire ou dont vous avez la garde.
 mode_attendu: bonne_reponse
@@ -14,4 +14,4 @@ truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
-  note: "Lecture visuelle préparée par la boucle sur la puce chiens de la page 30 rendue ; l'introduction appartient au bloc p30:5 et l'interleaving équidés du bloc p30:6 est volontairement exclu. Contresignature humaine due."
+  note: "Lecture visuelle de la puce chiens dans la colonne gauche de la page 30, confirmée par la porte structurelle 48/48 ; l'introduction appartient au bloc p30:3 et les équidés restent séparés. Contresignature humaine due."

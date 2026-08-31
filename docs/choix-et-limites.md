@@ -58,8 +58,10 @@ servi dans ce contexte, mais ne vaut ni baseline générale ni preuve de justess
 
 Les rapports versionnés couvrent les pages et publient aussi leurs alertes. Ils prouvent une chaîne
 d'extraction inspectable, pas l'intégrité juridique du document, encore moins une validation
-d'assurance. Les PDF réels ne sont pas dans le dépôt et les empreintes de deux artefacts committés
-attendent une réingestion ; le registre technique en annexe conserve ce constat vérifiable.
+d'assurance. Les PDF réels ne sont pas redistribués dans le dépôt. Les deux artefacts servis ont
+toutefois été réingérés depuis leurs sources publiques aux SHA-256 vérifiés avec le parseur courant ;
+leurs tests de régénération rejouent cette identité à la porte de déploiement. Le registre technique
+en annexe conserve le constat historique antérieur à cette fermeture.
 
 ### Sujet 3 — calculer sur des tables, pas faire calculer le modèle
 

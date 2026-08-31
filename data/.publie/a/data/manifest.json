@@ -2,14 +2,15 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "b39fe6479cbf26438788520e34879e7d361fcde45a7f120cb18a66e441d4898a",
-    "document_hash": "00b449f7a462f5352dc5e01d69ee9a8689642aca2ce197637fc7b2c7cb072f0b",
+    "ingest_fingerprint": "4b5331b8ae75bbc71c841dee128df147ebbc5f8a482463ab79c1d4e62a1c4ed5",
+    "document_hash": "7266707ae69cbc78e1b74ee5df1172fc5c20a785f0deecb30cbf7b34397ae1a3",
     "edition": "juin 2017",
     "overlay_hash": null,
+    "structure_hash": null,
     "gate": {
       "profile": "vertical",
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-      "ingest_fingerprint": "b39fe6479cbf26438788520e34879e7d361fcde45a7f120cb18a66e441d4898a",
+      "ingest_fingerprint": "4b5331b8ae75bbc71c841dee128df147ebbc5f8a482463ab79c1d4e62a1c4ed5",
       "cases_hash": "b02293a7fe68ddb94a4c0c54922cb0542ffa15d65cf959bf9ef0dde3ac82c3e9",
       "pipeline_digest": "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e",
       "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
@@ -22,20 +23,28 @@
       "date": "2026-08-27T05:54:16Z",
       "overlay_hash": null,
       "cases": 1,
-      "countersigned": false
+      "countersigned": false,
+      "decisions": [],
+      "run_digest": null,
+      "pipeline_settings": {},
+      "plancher_digest": null,
+      "candidate_revision": null,
+      "report_digest": null,
+      "structure_hash": null
     }
   },
   "baloise-lu-home-2-2024": {
     "status": "servi",
     "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
-    "ingest_fingerprint": "b39fe6479cbf26438788520e34879e7d361fcde45a7f120cb18a66e441d4898a",
-    "document_hash": "8b656ab16aae0427249ee732cfd9e01f218be831ce06fc74751ebe74db39f436",
+    "ingest_fingerprint": "4b5331b8ae75bbc71c841dee128df147ebbc5f8a482463ab79c1d4e62a1c4ed5",
+    "document_hash": "998c170fa7ca6729c118a93b98a83bec120165461e169a16c2d3c64c62244ef1",
     "edition": "CG-HOME(2)-LUFR-09-24",
     "overlay_hash": null,
+    "structure_hash": null,
     "gate": {
       "profile": "vertical",
       "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
-      "ingest_fingerprint": "b39fe6479cbf26438788520e34879e7d361fcde45a7f120cb18a66e441d4898a",
+      "ingest_fingerprint": "4b5331b8ae75bbc71c841dee128df147ebbc5f8a482463ab79c1d4e62a1c4ed5",
       "cases_hash": "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8",
       "pipeline_digest": "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e",
       "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
@@ -48,7 +57,14 @@
       "date": "2026-08-27T05:55:02Z",
       "overlay_hash": null,
       "cases": 3,
-      "countersigned": false
+      "countersigned": false,
+      "decisions": [],
+      "run_digest": null,
+      "pipeline_settings": {},
+      "plancher_digest": null,
+      "candidate_revision": null,
+      "report_digest": null,
+      "structure_hash": null
     }
   },
   "lux-guide": {

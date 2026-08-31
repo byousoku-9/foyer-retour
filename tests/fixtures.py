@@ -100,9 +100,15 @@ class LLMRecorder:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps(self._entries, indent=2, ensure_ascii=False, sort_keys=True) + "\n", "utf-8")
             return result
+        requested = key
+        aliases = self._entries.get("__aliases__", {})
+        if key not in self._entries and isinstance(aliases, dict):
+            target = aliases.get(key)
+            if isinstance(target, str):
+                key = target
         if key not in self._entries:
             raise FixtureMissing(
-                f"fixture absente pour {key!r} dans {self.path} et ANTHROPIC_API_KEY vide : "
+                f"fixture absente pour {requested!r} dans {self.path} et ANTHROPIC_API_KEY vide : "
                 "lancer le test avec la clé pour l'enregistrer"
             )
         response = self._entries[key].get("response")

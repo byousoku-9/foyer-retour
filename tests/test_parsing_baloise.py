@@ -11,7 +11,8 @@ import pytest
 
 from server.app.domain import BlockRef, Document, NodeRef, Report
 from server.ingest import pdf_to_blocks as p
-from server.ingest.report import build_pdf_report
+from server.ingest.report import (attester_arbre, build_pdf_report,
+                                  canoniser_transition_apres_typage)
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "data" / "baloise-lu-home-2-2024"
@@ -37,6 +38,7 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     assert (doc.doc_id, doc.title, doc.edition) == (DOC, TITLE, EDITION)
     assert doc.source_hash == SOURCE_HASH
     assert doc.source_url == (REAL / "source.url").read_text("utf-8").strip()
+    gate = manifest.pop("gate")
     assert manifest == {
         "status": "servi",
         "source_hash": SOURCE_HASH,
@@ -44,28 +46,19 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
         "document_hash": hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
         "edition": EDITION,
         "overlay_hash": None,
-        "gate": {
-            "profile": "vertical",
-            "source_hash": SOURCE_HASH,
-            "ingest_fingerprint": doc.ingest_fingerprint,
-            "cases_hash": "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8",
-            "pipeline_digest": "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e",
-            "prompts_digest": "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45",
-            "model_ids": {
-                "ingest": "claude-opus-5",
-                "reason": "claude-sonnet-5",
-                "micro": "claude-haiku-4-5-20251001",
-            },
-            "evals_ok": True,
-            "date": "2026-08-27T05:55:02Z",
-            "overlay_hash": None,
-            "cases": 3,
-            "countersigned": False,
-        },
+        "structure_hash": None,
     }
+    assert gate is not None
+    assert gate["profile"] == "vertical" and gate["evals_ok"] is True
+    assert gate["source_hash"] == SOURCE_HASH
+    assert gate["ingest_fingerprint"] == doc.ingest_fingerprint
+    assert gate["cases_hash"] == "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8"
+    assert gate["pipeline_digest"] == "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e"
+    assert gate["prompts_digest"] == "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45"
+    assert gate["cases"] == 3 and gate["countersigned"] is False
     assert not report.blocking
     assert report.stats["pages"] == report.stats["pages_avec_blocs"] == 48
-    assert report.stats["blocs"] == len(doc.blocks) == 692
+    assert report.stats["blocs"] == len(doc.blocks) == 1039
     assert report.stats["noeuds"] == len(doc.nodes) == 2
     assert report.stats["numeros_articles"] == 0
     assert report.stats["tables"] == 11
@@ -94,16 +87,20 @@ def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> N
 def test_baloise_typing_used_only_standard_messages_under_the_ceiling(doc: Document) -> None:
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.stats["typage_transport"] == "standard"
-    assert report.stats["typage_standard_requests"] == 120
+    assert report.stats["typage_standard_requests"] == 117
     assert report.stats["typage_batch_cost_eur"] == 0.0
-    assert report.stats["typage_standard_cost_eur"] == 4.2518
-    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 10.0
-    assert report.stats["blocs_types_modele"] == 513
-    assert report.stats["blocs_juridiques"] == 510
-    assert report.stats["blocs_juridiques_confirmes"] == 453
+    assert report.stats["typage_standard_cost_eur"] == 3.8035
+    assert report.stats["typage_prior_cost_eur"] == 3.3689
+    assert report.stats["typage_cumulative_cost_eur"] == 7.1724
+    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 16.25
+    assert report.stats["blocs_types_modele"] == 737
+    assert report.stats["blocs_juridiques"] == 728
+    assert report.stats["blocs_juridiques_confirmes"] == 636
+    assert report.stats["blocs_typage_reutilises"] == 368
+    assert report.stats["blocs_typage_rejoues"] == 668
     transport = next(check for check in report.checks if check.name == "typage_transport")
     assert transport.level == "info" and "aucune API Batch" in transport.detail
-    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 513
+    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 737
 
 
 def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Document) -> None:
@@ -145,6 +142,12 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Doc
         built, doc, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
         continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
         printed_toc=meta["printed_toc"], summary=p.build_summary(built),
+    )
+    report = canoniser_transition_apres_typage(report)
+    report = attester_arbre(
+        report,
+        document_hash=hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
+        ingest_fingerprint=doc.ingest_fingerprint,
     )
     committed = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.checks == [check for check in committed.checks if check.name not in TYPING_CHECKS]

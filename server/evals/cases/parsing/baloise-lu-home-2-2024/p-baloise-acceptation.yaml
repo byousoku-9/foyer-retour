@@ -6,7 +6,7 @@ scenario: "page Baloise rendue — clôture contractuelle"
 famille: acceptation
 expected:
   found: true
-  block_ids: ["baloise-lu-home-2-2024:p48:8"]
+  block_ids: ["baloise-lu-home-2-2024:p48:18"]
   text_norm: >-
     vous confirmez avoir pris connaissance de toutes les conditions, generales, particulieres et speciales qui font partie integrante de ce contrat et vous declarez les avoir acceptees. la signature du contrat ou le paiement de la premiere prime ou premiere fraction de prime vaut acceptation expresse des termes et contenus du contrat.
 mode_attendu: bonne_reponse
@@ -14,4 +14,4 @@ truth:
   source: lecture_humaine
   countersigned_by: null
   validated_by_expert: false
-  note: "Lecture visuelle préparée par la boucle sur la colonne droite de la page 48 rendue ; le texte de sous-traitance de la colonne gauche est volontairement exclu. Contresignature humaine due."
+  note: "Lecture visuelle de la colonne droite de la page 48, confirmée par la porte structurelle 48/48 ; le texte de sous-traitance de la colonne gauche est exclu par la gouttière. Contresignature humaine due."

@@ -1381,6 +1381,26 @@ def test_les_attestations_de_structure_survivent_au_typage(tmp_path: Path) -> No
     assert structure.detail.count("document_hash=") == 1
 
 
+def test_le_rapport_final_ne_depend_plus_de_la_generation_precedente(tmp_path: Path) -> None:
+    """Le delta guide le typage, mais ne reste pas comme diagnostic du corpus final."""
+    doc_dir, _doc = write_data(tmp_path)
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    report.checks.append(Check(name="ids_disparus", level="alerte", detail="contrat:p1:1"))
+    report.stats.update({"ids_disparus": 1, "ids_nouveaux": 2})
+    (doc_dir / "report.json").write_text(
+        json.dumps(report.model_dump()), encoding="utf-8")
+
+    kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
+    client = FakeStandardClient(FakeBatches(kinds), kinds)
+    result = tc.run(doc_dir, settings=settings(type_clauses_standard_concurrency=2), client=client,
+                    transport="standard", max_cost=12, output=io.StringIO())
+    assert result is not None
+
+    final = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert all(check.name != "ids_disparus" for check in final.checks)
+    assert final.stats["ids_disparus"] == final.stats["ids_nouveaux"] == 0
+
+
 def test_le_typage_ne_fabrique_jamais_une_attestation_absente(tmp_path: Path) -> None:
     """L'autre sens, et il compte autant : absente avant ⇒ absente après.
 
