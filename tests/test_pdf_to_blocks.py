@@ -1337,6 +1337,28 @@ def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) 
     assert not_reused.block(target.block_id).kind_source is None
 
 
+def test_un_report_de_preuve_etranger_ne_reutilise_aucun_typage(data: Path) -> None:
+    _run(data)
+    raw = Document.model_validate_json((data / "document.json").read_bytes())
+    target = next(block for block in raw.blocks if is_citable(block))
+    previous = Document.model_validate(raw.model_copy(update={
+        "blocks": [
+            block.model_copy(update={
+                "kind": "garantie", "kind_source": "model_verified", "kind_confidence": 0.99,
+            }, deep=True) if block.block_id == target.block_id else block
+            for block in raw.blocks
+        ],
+    }, deep=True).model_dump())
+    foreign_proof = Report(doc_id="autre-document", checks=[
+        Check(name="typage_clauses", level="info", detail="couverture complète"),
+    ]).model_dump_json().encode("utf-8")
+
+    typed, reused = p.reutiliser_typage_identique(raw, previous, foreign_proof)
+
+    assert reused == {}
+    assert typed.block(target.block_id).kind_source is None
+
+
 def test_run_publie_sans_delta_en_transportant_portee_et_recalculant_le_rapport(
         data: Path) -> None:
     """Couvre directement la branche de publication ``pending == 0``, hors fournisseur."""
@@ -1465,6 +1487,17 @@ def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:
     assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "commun"
 
 
+def test_portee_dun_sous_arbre_vide_ne_se_transporte_pas() -> None:
+    previous = _document_metaphorique()
+    previous.nodes[2].scope = Scope(kind="special")
+    current = _document_metaphorique(inverse=True)
+    mapping = {f"{DOC}:p1:1": f"{DOC}:p1:2", f"{DOC}:p1:2": f"{DOC}:p1:1"}
+
+    nodes = p._reutiliser_portees_noeuds(current, previous, mapping)
+
+    assert next(node for node in nodes if node.node_id == f"{DOC}:a2").scope.kind == "commun"
+
+
 def test_portee_refuse_un_ancetre_modifie_ou_disparu() -> None:
     previous = _document_metaphorique()
     previous.nodes[1].scope = Scope(kind="special")
@@ -1486,6 +1519,70 @@ def test_portee_refuse_un_ancetre_modifie_ou_disparu() -> None:
     previous = Document.model_validate(previous.model_dump())
     disappeared = p._reutiliser_portees_noeuds(current, previous, mapping)
     assert next(node for node in disappeared if node.node_id == f"{DOC}:a1").scope.kind == "commun"
+
+
+def _ajouter_bloc_incompatible(doc: Document, node_id: str, text: str) -> Document:
+    block_id = f"{DOC}:p2:1"
+    block = Block(
+        block_id=block_id, text=text, loc="p2", seq=1, page=2,
+        bbox=[60.0, 100.0, 300.0, 114.0],
+        lines=[Line(line_id=f"{block_id}:l1", text=text,
+                    bbox=[60.0, 100.0, 300.0, 114.0])],
+    )
+    nodes = [
+        node.model_copy(update={"items": [*node.items, BlockRef(block_id=block_id)]}, deep=True)
+        if node.node_id == node_id else node
+        for node in doc.nodes
+    ]
+    return Document.model_validate(doc.model_copy(update={
+        "nodes": nodes, "blocks": [*doc.blocks, block],
+    }, deep=True).model_dump())
+
+
+def _imbriquer_noeud_scope(doc: Document) -> Document:
+    nodes = []
+    for node in doc.nodes:
+        if node.node_id == DOC:
+            nodes.append(node.model_copy(update={
+                "items": [NodeRef(node_id=f"{DOC}:a1")],
+            }, deep=True))
+        elif node.node_id == f"{DOC}:a1":
+            nodes.append(node.model_copy(update={
+                "items": [*node.items, NodeRef(node_id=f"{DOC}:a2")],
+            }, deep=True))
+        else:
+            nodes.append(node)
+    return Document.model_validate(doc.model_copy(update={"nodes": nodes}, deep=True).model_dump())
+
+
+@pytest.mark.parametrize("mutation", ["ancetre_proprietaire", "sous_arbre_proprietaire", "scope_nodes"])
+def test_typage_exige_ancetres_et_sous_arbres_compatibles_pour_tous_les_noeuds(
+        mutation: str) -> None:
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    if mutation == "ancetre_proprietaire":
+        previous.nodes[0].title = "Racine historique"
+    elif mutation == "sous_arbre_proprietaire":
+        previous = _ajouter_bloc_incompatible(previous, f"{DOC}:a1", "Ancien contenu")
+        current = _ajouter_bloc_incompatible(current, f"{DOC}:a1", "Nouveau contenu")
+    else:
+        previous = _imbriquer_noeud_scope(previous)
+        current = _imbriquer_noeud_scope(current)
+        garantie = previous.block(f"{DOC}:p1:1").model_copy(update={
+            "scope_node_ids": [f"{DOC}:a2"],
+        }, deep=True)
+        previous = Document.model_validate(previous.model_copy(update={
+            "blocks": [garantie, previous.block(f"{DOC}:p1:2")],
+        }, deep=True).model_dump())
+        previous = _ajouter_bloc_incompatible(previous, f"{DOC}:a2", "Ancienne portée")
+        current = _ajouter_bloc_incompatible(current, f"{DOC}:a2", "Nouvelle portée")
+
+    typed, reused = p.reutiliser_typage_identique(
+        current, previous, _preuve_typage_complet(previous),
+    )
+
+    assert f"{DOC}:p1:2" not in reused
+    assert typed.block(f"{DOC}:p1:2").kind_source is None
 
 
 def test_reutilisation_metaphorique_refuse_provenance_noeud_et_dependance_modifies() -> None:

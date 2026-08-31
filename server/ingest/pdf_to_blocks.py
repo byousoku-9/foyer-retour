@@ -229,22 +229,10 @@ def _parents_noeuds(doc: Document) -> dict[str, str]:
     return {child: node.node_id for node in doc.nodes for child in node.children}
 
 
-def _cibles_semantiques(block: Block) -> list[str]:
-    return [
-        *block.refs,
-        *([block.overrides] if block.overrides else []),
-        *(target for target in block.relation.model_dump().values() if target is not None),
-    ]
-
-
-def _remapper_cible(target: str | None, old_to_new: dict[str, str]) -> str | None:
-    return old_to_new[target] if target is not None else None
-
-
-def _reutiliser_portees_noeuds(
+def _compatibilite_recursive_noeuds(
         doc: Document, previous: Document, old_to_new: dict[str, str],
-) -> list[Node]:
-    """Transporte une portée si le sous-arbre et sa chaîne porteuse sont compatibles."""
+) -> dict[str, bool]:
+    """Prouve ensemble la chaîne d'ancêtres et le sous-arbre de chaque nœud."""
     precedents = {node.node_id: node for node in previous.nodes}
     courants = {node.node_id: node for node in doc.nodes}
     signatures_precedentes = _signatures_noeuds(previous)
@@ -298,9 +286,49 @@ def _reutiliser_portees_noeuds(
         memo[node_id] = True
         return True
 
+    for node_id in precedents.keys() | courants.keys():
+        identique(node_id)
+    return memo
+
+
+def _cibles_semantiques(block: Block) -> list[str]:
+    return [
+        *block.refs,
+        *([block.overrides] if block.overrides else []),
+        *(target for target in block.relation.model_dump().values() if target is not None),
+    ]
+
+
+def _remapper_cible(target: str | None, old_to_new: dict[str, str]) -> str | None:
+    return old_to_new[target] if target is not None else None
+
+
+def _reutiliser_portees_noeuds(
+        doc: Document, previous: Document, old_to_new: dict[str, str],
+) -> list[Node]:
+    """Transporte une portée si le sous-arbre et sa chaîne porteuse sont compatibles."""
+    precedents = {node.node_id: node for node in previous.nodes}
+    compatibles = _compatibilite_recursive_noeuds(doc, previous, old_to_new)
+    memo_bloc_reutilise: dict[str, bool] = {}
+
+    def contient_bloc_reutilise(node_id: str) -> bool:
+        if node_id in memo_bloc_reutilise:
+            return memo_bloc_reutilise[node_id]
+        node = precedents.get(node_id)
+        if node is None:
+            return False
+        memo_bloc_reutilise[node_id] = False  # garde de cycle pour un document invalide
+        present = any(
+            (isinstance(item, BlockRef) and item.block_id in old_to_new)
+            or (isinstance(item, NodeRef) and contient_bloc_reutilise(item.node_id))
+            for item in node.items
+        )
+        memo_bloc_reutilise[node_id] = present
+        return present
+
     return [
         node.model_copy(update={"scope": precedents[node.node_id].scope}, deep=True)
-        if identique(node.node_id) else node
+        if compatibles.get(node.node_id, False) and contient_bloc_reutilise(node.node_id) else node
         for node in doc.nodes
     ]
 
@@ -312,6 +340,8 @@ def _ids_typage_precedemment_prouves(previous: Document, report_bytes: bytes | N
     try:
         report = Report.model_validate_json(report_bytes)
     except (ValidationError, ValueError, UnicodeDecodeError):
+        return set()
+    if report.doc_id != previous.doc_id:
         return set()
     if any(check.name == "typage_clauses" and check.level == "info" for check in report.checks):
         return {block.block_id for block in previous.blocks if is_citable(block)}
@@ -336,8 +366,7 @@ def reutiliser_typage_identique(
             or doc.kind != previous.kind):
         return doc, {}
     old_to_new, new_to_old = _correspondance_bijective_blocs(doc, previous)
-    previous_nodes = _signatures_noeuds(previous)
-    current_nodes = _signatures_noeuds(doc)
+    noeuds_compatibles = _compatibilite_recursive_noeuds(doc, previous, old_to_new)
     reused: dict[str, int] = {}
     blocks: list[Block] = []
     for block in doc.blocks:
@@ -352,8 +381,8 @@ def reutiliser_typage_identique(
         semantic_blocks = _cibles_semantiques(old)
         continuation = old_to_new.get(old.continues) if old.continues is not None else None
         if (old_owner != current_owner
-                or previous_nodes.get(old_owner) != current_nodes.get(current_owner)
-                or any(previous_nodes.get(node_id) != current_nodes.get(node_id) for node_id in semantic_nodes)
+                or not noeuds_compatibles.get(old_owner, False)
+                or any(not noeuds_compatibles.get(node_id, False) for node_id in semantic_nodes)
                 or any(target not in old_to_new for target in semantic_blocks)
                 or (old.continues is not None and old.continues not in old_to_new)
                 or continuation != block.continues):

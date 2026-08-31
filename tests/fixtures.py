@@ -30,7 +30,7 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _ALIAS_FIELDS = frozenset({"request", "target", "certificate"})
 _CERTIFICATE_FIELDS = frozenset({
-    "version", "model", "messages_sha256", "tools_sha256", "schema_sha256",
+    "version", "model", "system_sha256", "messages_sha256", "tools_sha256", "schema_sha256",
 })
 
 
@@ -76,8 +76,9 @@ def request_certificate(model: str, messages: Any, **params: Any) -> dict[str, A
         "output_format": params.get("output_format"),
     }
     return {
-        "version": 1,
+        "version": 2,
         "model": model,
+        "system_sha256": _digest_canonique(params.get("system", [])),
         "messages_sha256": _digest_canonique(messages),
         "tools_sha256": _digest_canonique(params.get("tools", [])),
         "schema_sha256": _digest_canonique(schema),
@@ -93,10 +94,10 @@ def _request_model(key: str) -> str | None:
 def _validate_certificate(value: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != _CERTIFICATE_FIELDS:
         raise FixtureMissing(f"{context} : certificat de requête invalide")
-    if value["version"] != 1 or not isinstance(value["model"], str) or not value["model"]:
+    if value["version"] != 2 or not isinstance(value["model"], str) or not value["model"]:
         raise FixtureMissing(f"{context} : certificat de requête invalide")
     if any(not isinstance(value[field], str) or not _DIGEST.fullmatch(value[field])
-           for field in ("messages_sha256", "tools_sha256", "schema_sha256")):
+           for field in ("system_sha256", "messages_sha256", "tools_sha256", "schema_sha256")):
         raise FixtureMissing(f"{context} : empreinte canonique invalide")
     return value
 
@@ -211,6 +212,13 @@ class LLMRecorder:
                 "lancer le test avec la clé pour l'enregistrer"
             )
         response = self._entries[key].get("response")
+        if isinstance(response, dict) and "model" in response and request is not None:
+            certificate = _validate_certificate(request, context=f"requête {requested!r}")
+            if response["model"] != certificate["model"]:
+                raise FixtureMissing(
+                    f"fixture {self.path} : réponse enregistrée pour {response['model']!r}, "
+                    f"certificat pour {certificate['model']!r}"
+                )
         if isinstance(response, dict) and "__model__" in response:
             if model is not None:
                 if response["__model__"] != _model_name(model):

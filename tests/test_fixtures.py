@@ -210,6 +210,36 @@ def test_request_key_hides_message_text() -> None:
     assert "confidentiel" not in k and k.startswith("claude-x:")
 
 
+def test_certificat_distingue_le_prompt_systeme_des_messages() -> None:
+    messages = [{"role": "user", "content": "question stable"}]
+    premier = request_certificate("claude-x", messages, system="règle A")
+    second = request_certificate("claude-x", messages, system="règle B")
+
+    assert premier["messages_sha256"] == second["messages_sha256"]
+    assert premier["system_sha256"] != second["system_sha256"]
+
+
+async def test_replay_refuse_le_modele_expose_different_du_certificat_sans_modele_pydantic(
+        tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "q"}]
+    certificate = request_certificate("claude-x", messages, system="règle")
+    key = request_key("claude-x", messages, system="règle")
+    (tmp_path / "response-model.json").write_text(json.dumps({
+        key: {
+            "request": key,
+            "certificate": certificate,
+            "response": {"model": "claude-y", "content": []},
+        },
+    }), encoding="utf-8")
+    replay = LLMRecorder("response-model", fixtures_dir=tmp_path, api_key="")
+
+    async def never() -> dict:
+        raise AssertionError("aucun appel fournisseur en replay")
+
+    with pytest.raises(FixtureMissing, match="réponse enregistrée.*claude-y.*claude-x"):
+        await replay.call(key, never, request=certificate)
+
+
 def test_recording_mode_follows_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from server.app import config
 
