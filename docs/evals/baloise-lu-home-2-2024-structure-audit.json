@@ -1,5 +1,5 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "status": "vert",
   "doc_id": "baloise-lu-home-2-2024",
   "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
@@ -50,6 +50,8 @@
   "summary": {
     "pages_total": 48,
     "pages_audited": 38,
+    "pages_exempted_mechanically": 10,
+    "pages_accounted": 48,
     "source_lines": 5139,
     "candidate_blocks": 1039,
     "typing_reused_blocks": 368,
@@ -67,11 +69,62 @@
     "revue_visuelle_complete": {
       "ok": true,
       "errors": []
+    },
+    "denominateur_ferme": {
+      "ok": true,
+      "errors": []
     }
   },
   "pages": [
     {
+      "page": 1,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 4,
+      "tables": 0,
+      "blocks": 1,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "6257ba80e30e14bc961928afe74c2aa3e3875311f1832f32c1f00c6b63aa9d48",
+        "candidate_sha256": "6257ba80e30e14bc961928afe74c2aa3e3875311f1832f32c1f00c6b63aa9d48"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
       "page": 2,
+      "mode": "audit_visuel",
       "render_sha256": "9640a3416a58c1bdcb64074d1cf2327617d61dceda156e3377704fa58296222e",
       "boundaries": [
         303.64
@@ -80,6 +133,11 @@
       "tables": 0,
       "blocks": 2,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "9cb819161e5c02617b2ea1ca87c6e2d65152319fa4b53a7b200a9eefe67e04b0",
+        "candidate_sha256": "191aee6d1314ef3c78a3ca88b3dcb692d4f239bf48fd47582eb2893516e25f74"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -97,7 +155,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -106,6 +172,7 @@
     },
     {
       "page": 3,
+      "mode": "audit_visuel",
       "render_sha256": "aa803b84c950865a23085010b1eb08d3725d660938fa6651f0a79434bafd811b",
       "boundaries": [
         304.0
@@ -114,6 +181,11 @@
       "tables": 0,
       "blocks": 30,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "7343060aabc00009d640495009e2720069a3e276fc5f1e51e42236d6472372cb",
+        "candidate_sha256": "9fc5f946c19f76af8b55139c323d03e994b1cc72ae417dd86ace0f5c81e3623e"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -131,7 +203,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -140,6 +220,7 @@
     },
     {
       "page": 4,
+      "mode": "audit_visuel",
       "render_sha256": "0af805f8f7eca5784769552bbad06de870868a8a4cbcfbe5d0e98e2ee52216b2",
       "boundaries": [
         303.88
@@ -148,6 +229,11 @@
       "tables": 0,
       "blocks": 25,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "47a347a62137033e928827b2f2b04da01f8b69b2b65915d24f155ad9b91b4bb4",
+        "candidate_sha256": "1eacfe18da82654f045413dae67c0c228b398b8ec6ed7921f5492e3a617e3400"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -165,7 +251,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -174,6 +268,7 @@
     },
     {
       "page": 5,
+      "mode": "audit_visuel",
       "render_sha256": "3bbe07d9ac54df91c42f03e346498285fcd9f78117e4b5d7690b56ada1a57623",
       "boundaries": [
         303.64
@@ -182,6 +277,11 @@
       "tables": 0,
       "blocks": 31,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "317da8c84237bcfd5b7393e6780d3228f63fc7b0bd21a3ca30903b0d24e3411e",
+        "candidate_sha256": "6cec4c0ffb74732c659ee3ba2c7a7458ce1e95cde5bf14789b1cfc4ed54aafd6"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -199,7 +299,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -208,6 +316,7 @@
     },
     {
       "page": 6,
+      "mode": "audit_visuel",
       "render_sha256": "eb3ce2d7b2a1c6588ce3fd78d515bf21c4ea6389954e2f3f48744b63a2f886b6",
       "boundaries": [
         304.01
@@ -216,6 +325,11 @@
       "tables": 0,
       "blocks": 40,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "5accfbe81b6e9b1b46bf6d61b7a978df14a35da0ebc2c32f705cd675f94581c9",
+        "candidate_sha256": "21c294f6cddf53ccc543f6d7d8c460d57eddff05e60959de3c2c3c724b28edfc"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -233,7 +347,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -242,6 +364,7 @@
     },
     {
       "page": 7,
+      "mode": "audit_visuel",
       "render_sha256": "42e954cfd0a40007531fec63e9e8a9f96452f99ba17c7e346b3b1a49cb938d29",
       "boundaries": [
         304.0
@@ -250,6 +373,11 @@
       "tables": 0,
       "blocks": 28,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "b367e5f5959aa6766aa78895baf0990a70066e8ba6df05178a9d869437b28df7",
+        "candidate_sha256": "5de4ed4ecedf710c1a1bd389fc3ca797bbe788448d38432d30674f7482ba414c"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -267,7 +395,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -276,6 +412,7 @@
     },
     {
       "page": 8,
+      "mode": "audit_visuel",
       "render_sha256": "d80f96fa26864c05284ed5c0e1ec3a5f5fc2138b5518d7b9f6ef42b9222649e4",
       "boundaries": [
         304.01
@@ -284,6 +421,11 @@
       "tables": 0,
       "blocks": 34,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "08d33ea567c5227d98190d306fb3f640b849dd1633966a8cc539d1029cef64cd",
+        "candidate_sha256": "f611b7dbd8f066df8a8e4f445c57931fc3c1ac5b50b07b8a7d4f7652fabd39a3"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -301,7 +443,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -310,6 +460,7 @@
     },
     {
       "page": 9,
+      "mode": "audit_visuel",
       "render_sha256": "30e9c88a0ff2636ad4df8199449675d44b9b6323ac8719a0f18694248f63c0cc",
       "boundaries": [
         304.01
@@ -318,6 +469,11 @@
       "tables": 0,
       "blocks": 29,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "17bd32fee84d496cac2ed8c94e019517b825d8a38421f9abd9168fd65f804440",
+        "candidate_sha256": "bdec153af5d53537b2e4877a835ad67049c2d4dfc1ea547b932a680e705b0aa1"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -335,7 +491,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -344,6 +508,7 @@
     },
     {
       "page": 10,
+      "mode": "audit_visuel",
       "render_sha256": "3ab1b642f93c9cc97b822af181a524ba7d8b8dc49ce2b589ee802c8c9f468c0e",
       "boundaries": [
         304.0
@@ -352,6 +517,11 @@
       "tables": 0,
       "blocks": 26,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "25a51e64b364242b16aefa900acacbc87e9a9dc39e180127b4a3b7e24e271570",
+        "candidate_sha256": "1206dfb57d4ae1723b003295ca10cf51f935e79b4446f159765408bf5f5c29f4"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -369,7 +539,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -378,6 +556,7 @@
     },
     {
       "page": 11,
+      "mode": "audit_visuel",
       "render_sha256": "372b09b485577f42b8c56c65ebe70626a50a8b35048f27e0a2022264ffd799b3",
       "boundaries": [
         304.01
@@ -386,6 +565,11 @@
       "tables": 0,
       "blocks": 20,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "7bca58df5a229d8886b529d6ff3ada83be32b1c77afb1f50eab987b221be4591",
+        "candidate_sha256": "3b12abd7b1ea246fc416a5b60ccce99aa04d169eb11b8c0d850192aa3ec866c5"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -403,7 +587,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -412,6 +604,7 @@
     },
     {
       "page": 12,
+      "mode": "audit_visuel",
       "render_sha256": "1801292d214034feb5e101b6708dbb8563f0713210cff58b5e0de3f32484d7ce",
       "boundaries": [
         304.27
@@ -420,6 +613,11 @@
       "tables": 0,
       "blocks": 18,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "66cf8d8a0d7cbc718a729759d5fb0906e9764417c1c1add18ff3d78fcf6b0e5a",
+        "candidate_sha256": "53b939b089125da43234338b328d6c96a478c366faad431e33eaf9fc7cacefda"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -437,7 +635,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -446,6 +652,7 @@
     },
     {
       "page": 13,
+      "mode": "audit_visuel",
       "render_sha256": "40d461b6639af26c2991ac9c8bb93a845691e06f77f46aa8b40373630dfe0a08",
       "boundaries": [
         304.0
@@ -454,6 +661,11 @@
       "tables": 0,
       "blocks": 21,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "28f3cf8cfc26563ffe686628ed87cb1641c8aecf0c496a2d9a922d6e516deed8",
+        "candidate_sha256": "494d95a617afa6953c9f24f96d9fd7312d91654a830e70ffb2d40157bced3e0b"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -471,7 +683,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -480,6 +700,7 @@
     },
     {
       "page": 14,
+      "mode": "audit_visuel",
       "render_sha256": "39408ec91734f435212d23e26255bc045386db64f0e6bffa309a581b47d82dfc",
       "boundaries": [
         303.99
@@ -488,6 +709,11 @@
       "tables": 0,
       "blocks": 12,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "2aaff790351cdcc887b95d098c33dc57e9c2ce8a30f765366b8d96a3f123d6c5",
+        "candidate_sha256": "29bd5f851046c1b2b51e45ba96f9e4ae18e3c1ed5da0dcfe528b546570cf6ef8"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -505,7 +731,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -514,6 +748,7 @@
     },
     {
       "page": 15,
+      "mode": "audit_visuel",
       "render_sha256": "8952134c7b2331de729c1af0b69f05f876c02280ad028b8542e392499115d032",
       "boundaries": [
         304.0
@@ -522,6 +757,11 @@
       "tables": 0,
       "blocks": 21,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "cd1513cd4bc6f7f55c4e2aa1a8a11d2c372543d46b3d8cfcbe1e72a12afecb00",
+        "candidate_sha256": "8c200cd23fee732effcba2d9296a3c75419d22e16874c6ea8ba3a0386e10091a"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -539,7 +779,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -548,6 +796,7 @@
     },
     {
       "page": 16,
+      "mode": "audit_visuel",
       "render_sha256": "604ffd2dfd4b8fa839ed1cd022e565e9c8a3c183ff090f94250a6677b46dd167",
       "boundaries": [
         303.6
@@ -556,6 +805,11 @@
       "tables": 0,
       "blocks": 23,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "dd3d5fbdbcaa0430b8d3b9a3e5f8188bd169f071c1985fe756654e93d2a61395",
+        "candidate_sha256": "2986172fc8c3b051571b83efea2fb6dbf4868c1185e20564d026874079cc6102"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -573,7 +827,107 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 17,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 127,
+      "tables": 0,
+      "blocks": 11,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "afa2f3f444f8355341ad79309a13eed08da934e4abc96d9a55281b3c57797fe0",
+        "candidate_sha256": "afa2f3f444f8355341ad79309a13eed08da934e4abc96d9a55281b3c57797fe0"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 18,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 126,
+      "tables": 0,
+      "blocks": 12,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "9898aeee50f5c6cb954513da377b643b269e3367ea752533c2ee6fd1c5a4f732",
+        "candidate_sha256": "9898aeee50f5c6cb954513da377b643b269e3367ea752533c2ee6fd1c5a4f732"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -582,6 +936,7 @@
     },
     {
       "page": 19,
+      "mode": "audit_visuel",
       "render_sha256": "d33f8ba81897bfbc2ccfc37bb25b6036d28fca7a471d572a05be633eb1bb4a10",
       "boundaries": [
         303.61
@@ -590,6 +945,11 @@
       "tables": 0,
       "blocks": 18,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "5a199ca63265e3b209be92224ce6bceade55390f63edcbb2c7dff7c24250a4da",
+        "candidate_sha256": "622fc47756112f73d6bb907b39b00f28c255a5ae82feb316312ef2427bd7e5ed"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -607,7 +967,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -616,6 +984,7 @@
     },
     {
       "page": 20,
+      "mode": "audit_visuel",
       "render_sha256": "2bf28da09e31cfd8f04222b8d6188e8fe80f0de9c5c6b0c1660e41dfb23fe2e4",
       "boundaries": [
         303.64
@@ -624,6 +993,11 @@
       "tables": 0,
       "blocks": 20,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "cc88c743a026e6036f7ffa6105cadea550de56c4e6cbb62f416318956d73599c",
+        "candidate_sha256": "ea69077259e28faaf2274b8a60c658a7833a0412b19797db15d8bc80def82967"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -641,7 +1015,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -650,6 +1032,7 @@
     },
     {
       "page": 21,
+      "mode": "audit_visuel",
       "render_sha256": "2ada68acc8974d922128d80565b7ddab6cc2b8d9136902d9b143cebeddd550dd",
       "boundaries": [
         303.62
@@ -658,6 +1041,11 @@
       "tables": 0,
       "blocks": 23,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "a929cebd4244685c12e5dde8d21ecd6f8d579e254d3b45b2499dda3e20e232c5",
+        "candidate_sha256": "cba70e42efedff69778abec9fa1adbee3c3cc1d2c837b248fd37ce3a0ce9aa14"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -675,7 +1063,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -684,6 +1080,7 @@
     },
     {
       "page": 22,
+      "mode": "audit_visuel",
       "render_sha256": "e3920e28a205bd474b2729ded7ef7b29291724aa3cf0f339d4dd98d0f5a8b1ad",
       "boundaries": [
         303.59
@@ -692,6 +1089,11 @@
       "tables": 0,
       "blocks": 15,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "126d5c0cf7a10a31ea2ee75b50e31ccd1015b2a5451a2d519f1f9fbf03b99048",
+        "candidate_sha256": "2dfd5d4cea5dd333bb2ae9dfb53d7bab3ece5d3837d248242d4026f3b1b90117"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -709,7 +1111,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -718,6 +1128,7 @@
     },
     {
       "page": 23,
+      "mode": "audit_visuel",
       "render_sha256": "ce9dd340a90d70872e086d8a1901c1ac37cd4e69a467d3364cff0f27aad6742e",
       "boundaries": [
         303.62
@@ -726,6 +1137,11 @@
       "tables": 0,
       "blocks": 30,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "07efef4851fb523800e884bf17bdc6c0f1c8a3d29e307c7f7adc90a7e989d59d",
+        "candidate_sha256": "3a4cd2cc5952e035a867b933a5638e4b9db31ac3ac7ee2422d12f52a79dfc080"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -743,7 +1159,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -752,6 +1176,7 @@
     },
     {
       "page": 24,
+      "mode": "audit_visuel",
       "render_sha256": "96f477aa8ca78b88bdd682038ba3ada54f6f4aaaaf1540f4a0f1abf9e6111a78",
       "boundaries": [
         303.62
@@ -760,6 +1185,11 @@
       "tables": 0,
       "blocks": 33,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "b3d4b3e86847ad566fdbd48be0b6f6b53d1e0d6d5117a286a0485e15a57c8333",
+        "candidate_sha256": "c7588dc56115b3b99ca51317ba4fd77ef61b4b03b6b6f6b7fa3ef288e5f78fa6"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -777,7 +1207,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -786,6 +1224,7 @@
     },
     {
       "page": 25,
+      "mode": "audit_visuel",
       "render_sha256": "8d7eb7f657b31870869ec245c0cc670b649de043de63c25f32d0732cede4e4e4",
       "boundaries": [
         304.01
@@ -794,6 +1233,11 @@
       "tables": 0,
       "blocks": 20,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "d5a5f0cc616b12e99ee8132ec6cf5505b38e5aeea905278ee45fd83f349511aa",
+        "candidate_sha256": "f13fa9bd8beba89b9ddfa52b235f9f72e9aa619be2610615c58ffab5a9395ccf"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -811,7 +1255,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -820,6 +1272,7 @@
     },
     {
       "page": 26,
+      "mode": "audit_visuel",
       "render_sha256": "7862e3647d8c3335a97f84824aa53c32c343a24c91e6a7fa0bcbf8d1229dd904",
       "boundaries": [
         304.01
@@ -828,6 +1281,11 @@
       "tables": 0,
       "blocks": 22,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "98b8d1a07e3897b67cb0c9a46b60498e819f949314ab7f413f6f27cb05c0c99d",
+        "candidate_sha256": "248b166654878b08acd9f7d199f0159984617e932226f9126e71ad5bf7d6ade2"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -845,7 +1303,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -854,6 +1320,7 @@
     },
     {
       "page": 27,
+      "mode": "audit_visuel",
       "render_sha256": "22316bdee97bbca088ad5f4c23d7d76e1192af72487e43eb0c5cc6618ef78d3b",
       "boundaries": [
         303.99
@@ -862,6 +1329,11 @@
       "tables": 0,
       "blocks": 16,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "c17b1f18c9f8c708bd19b09321ba07f185ab9e8274d98507e1125aae3a93536b",
+        "candidate_sha256": "22be2b8c921bd24f2b36369efb1d048a3b0c4db54322c9813aab3fabe05f7c89"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -879,7 +1351,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -888,6 +1368,7 @@
     },
     {
       "page": 28,
+      "mode": "audit_visuel",
       "render_sha256": "e09956b33ce3b34eb1864e75db42130217dc6ab430e17cff070d8cf294951406",
       "boundaries": [
         303.99
@@ -896,6 +1377,11 @@
       "tables": 0,
       "blocks": 20,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "f23e641ed167621b47ed9e3e6f2a9d87ff887c0896e093b77d6e84db88c138eb",
+        "candidate_sha256": "adce322c516357ef9158401fd25f41916e8503f88112cdf96a1738edcefd0448"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -913,7 +1399,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -922,6 +1416,7 @@
     },
     {
       "page": 29,
+      "mode": "audit_visuel",
       "render_sha256": "de94050b62cda73cd0fa40d76dc9e3cecde725215ea54608f8174cf15d78f68b",
       "boundaries": [
         303.99
@@ -930,6 +1425,11 @@
       "tables": 0,
       "blocks": 31,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "85750c2a2ba3b0c39c52ff472dcbe3a99395be19efd0d92b0ae5fb0d93720e0a",
+        "candidate_sha256": "9ac2901527ec545f31ce18a37a5fe84ded68d94d952bff7f2ca7b3d9e0f6083f"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -947,7 +1447,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -956,6 +1464,7 @@
     },
     {
       "page": 30,
+      "mode": "audit_visuel",
       "render_sha256": "dc5b330445fd85c5f6043ca6cc214f875b610d2cfe982968e1e46ad95357b86d",
       "boundaries": [
         303.99
@@ -964,6 +1473,11 @@
       "tables": 0,
       "blocks": 25,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "df61eb960250372d4d93826f8c0b54f39a5788c80e43aa207edb1d2dd4b7ca1b",
+        "candidate_sha256": "0dacfd1dc0144eda26750cfe81d1ca994faa6b5bba7a132fb893c0f8e2c57930"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -981,7 +1495,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -990,6 +1512,7 @@
     },
     {
       "page": 31,
+      "mode": "audit_visuel",
       "render_sha256": "05db90856b71a3913c448aec7fc0a1a70177843e8573dce66c26738410314af9",
       "boundaries": [
         304.0
@@ -998,6 +1521,11 @@
       "tables": 0,
       "blocks": 9,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "7dfa92da0c289b123a24aa698df0a944d213cc318fe59e9bb3df0594e709f19c",
+        "candidate_sha256": "a2caa4edcb1dd39f17d0bc53afe7de30edb9d8d66779cca671b06749ac1d40ce"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1015,7 +1543,245 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 32,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 120,
+      "tables": 0,
+      "blocks": 12,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "e615e1d76d18bda1622c6ecccc983da5875ebe6921b9e86c564080e06672a99f",
+        "candidate_sha256": "e615e1d76d18bda1622c6ecccc983da5875ebe6921b9e86c564080e06672a99f"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 33,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 2,
+      "tables": 1,
+      "blocks": 3,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "b819ab55e9ce392936842fdb44542da17593b4927f2e435027f4d0537e1ee04b",
+        "candidate_sha256": "b819ab55e9ce392936842fdb44542da17593b4927f2e435027f4d0537e1ee04b"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 34,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 1,
+      "tables": 1,
+      "blocks": 2,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "b468f61b1db6956c2427f566a512495f27d217f5995e3132ce79e103391392d6",
+        "candidate_sha256": "b468f61b1db6956c2427f566a512495f27d217f5995e3132ce79e103391392d6"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 35,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 1,
+      "tables": 1,
+      "blocks": 2,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "5e8ca6a284fb025ba826f97d32ce4a64a9f999b86b55a076f2d661d53f3250d4",
+        "candidate_sha256": "5e8ca6a284fb025ba826f97d32ce4a64a9f999b86b55a076f2d661d53f3250d4"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 36,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 1,
+      "tables": 1,
+      "blocks": 2,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "a32353a0dab9c538ac2abede7d72ae6c62146168406a934cb5a9d0baf748cf70",
+        "candidate_sha256": "a32353a0dab9c538ac2abede7d72ae6c62146168406a934cb5a9d0baf748cf70"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1024,6 +1790,7 @@
     },
     {
       "page": 37,
+      "mode": "audit_visuel",
       "render_sha256": "02449cbc0906d33ea9187ddfb0e94e32b639da91a2039fd663d836df8a96f58e",
       "boundaries": [
         304.01
@@ -1032,6 +1799,11 @@
       "tables": 0,
       "blocks": 28,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "009a6076ddbf3fb086121bc27dba0a361311149bd972fa9319fa75e265055875",
+        "candidate_sha256": "daeb33112f58183dd63f35ef4eb35cadbbe37ab7cb4004f05aebeef13c2c64df"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1049,7 +1821,107 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 38,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 4,
+      "tables": 4,
+      "blocks": 7,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "a9f6720e5255e2758f2b52b2802d33e02dd8f068935900268027865692b895ac",
+        "candidate_sha256": "a9f6720e5255e2758f2b52b2802d33e02dd8f068935900268027865692b895ac"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
+          "ok": true,
+          "errors": []
+        }
+      },
+      "status": "vert"
+    },
+    {
+      "page": 39,
+      "mode": "exoneree",
+      "render_sha256": null,
+      "boundaries": [],
+      "lines": 35,
+      "tables": 3,
+      "blocks": 13,
+      "review_note": "Identité mécanique stricte du texte utile, des boîtes et de l'ordre avec l'artefact antérieur.",
+      "mechanical_identity": {
+        "ok": true,
+        "previous_sha256": "75d6ee621fd9061a6ba93f715152cc06ddbbb494f7fa9998c2ffb8e765ca5984",
+        "candidate_sha256": "75d6ee621fd9061a6ba93f715152cc06ddbbb494f7fa9998c2ffb8e765ca5984"
+      },
+      "checks": {
+        "couverture_texte_utile": {
+          "ok": true,
+          "errors": []
+        },
+        "affectation_unique": {
+          "ok": true,
+          "errors": []
+        },
+        "ordre_colonne_par_colonne": {
+          "ok": true,
+          "errors": []
+        },
+        "aucun_croisement": {
+          "ok": true,
+          "errors": []
+        },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
+        "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1058,6 +1930,7 @@
     },
     {
       "page": 40,
+      "mode": "audit_visuel",
       "render_sha256": "0771d4028a444dfe3ab43f5a0a0723a3ef20c3cf4fcf51b430120032d01469d0",
       "boundaries": [
         304.02
@@ -1066,6 +1939,11 @@
       "tables": 0,
       "blocks": 15,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "097526c146066ec138ffff85a5e4942c878625815d6f1e65a74cde19bf0ee31b",
+        "candidate_sha256": "6c40dc6d6beaabe8a4597836e762c5f24569930c648730da630784c8bf0883fb"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1083,7 +1961,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1092,6 +1978,7 @@
     },
     {
       "page": 41,
+      "mode": "audit_visuel",
       "render_sha256": "ed040784c335cd57af2785679a2349c089e1ce4d89b0ee0cc27b33722ad9e457",
       "boundaries": [
         304.01
@@ -1100,6 +1987,11 @@
       "tables": 0,
       "blocks": 37,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "1effaefc625ee3988513d3de8da1200ae9faa5fd92eff664a3013aae6431c560",
+        "candidate_sha256": "96731b4bf302a936d1e1ac79c0210356a77dbb201d5008240148983d81bede38"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1117,7 +2009,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1126,6 +2026,7 @@
     },
     {
       "page": 42,
+      "mode": "audit_visuel",
       "render_sha256": "96df70fa30e6ba97b34a3f47756514a4d02df60219a6d6b8ffa5c702c0d720de",
       "boundaries": [
         304.02
@@ -1134,6 +2035,11 @@
       "tables": 0,
       "blocks": 62,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "61759e466d81ab6e73628c51b6761c1635d006ac3e33f1209ee1488c94552fa9",
+        "candidate_sha256": "e9951148c5b9353c0565b4b44d51d4838a2c203ea2101e27085b33d81715fef2"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1151,7 +2057,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1160,6 +2074,7 @@
     },
     {
       "page": 43,
+      "mode": "audit_visuel",
       "render_sha256": "579a23a1b4460239378894427c74cc964a07d297699035d97336cb49aebac6ca",
       "boundaries": [
         316.77
@@ -1168,6 +2083,11 @@
       "tables": 0,
       "blocks": 55,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "8ef47cd6bb7249ff5d6b089a74dc2f50301afd7471c34b0aeca033049f5d0c61",
+        "candidate_sha256": "3eebc0c63714564c44a10e29e70ce0da565a3ba8df0d0c965afaa30bfd38560b"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1185,7 +2105,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1194,6 +2122,7 @@
     },
     {
       "page": 44,
+      "mode": "audit_visuel",
       "render_sha256": "a9e3be6ae0a61022ade10b8d49188e1cfc377b3231126922c5ba069fc6929bd7",
       "boundaries": [
         304.02
@@ -1202,6 +2131,11 @@
       "tables": 0,
       "blocks": 45,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "ba95041fb944b4ef95f7812ef29116bab26a01d48b296700b090b6d26cb77189",
+        "candidate_sha256": "f0bb6638886e683ae90e6b63b3d08a1cff7c42549e657b3d676adbaa6c1857d0"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1219,7 +2153,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1228,6 +2170,7 @@
     },
     {
       "page": 45,
+      "mode": "audit_visuel",
       "render_sha256": "7a1e6567b7d0e437cfd083c2140bc5f906b051501250f3a42bcd590908bdc306",
       "boundaries": [
         304.0
@@ -1236,6 +2179,11 @@
       "tables": 0,
       "blocks": 28,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "4caa907af2a8d84eb5328bf81a55d8f2254f51979449a684d254360e30e3a47f",
+        "candidate_sha256": "d49cdecc5225fa05f368e8dabe222d2721e5d1cade43092d76b381bc173c542b"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1253,7 +2201,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1262,6 +2218,7 @@
     },
     {
       "page": 46,
+      "mode": "audit_visuel",
       "render_sha256": "852a9c4e34ec96ec5cd1f7ae3c0dedc8c3f385830b0cd81f3ce5aa6eaf674e4d",
       "boundaries": [
         304.02
@@ -1270,6 +2227,11 @@
       "tables": 0,
       "blocks": 21,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "471673cbd494ff6735aa0f0d05a8037bb4ed8b80ccd7ccb22299c9f8e8aedb0d",
+        "candidate_sha256": "c0429bcd005e9a8a3bf7e628f5a7414333a5efa6083bcbe03ba707c867c86c52"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1287,7 +2249,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1296,6 +2266,7 @@
     },
     {
       "page": 47,
+      "mode": "audit_visuel",
       "render_sha256": "8639ea489937c9b658752d7b44c93e382c50a7001135430fbcd3da2ba20bfaed",
       "boundaries": [
         304.01
@@ -1304,6 +2275,11 @@
       "tables": 0,
       "blocks": 22,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "4bd2c4a0e7b05693ac2bee04be12aba10e0501bae19a79bc122e8877706a5cbc",
+        "candidate_sha256": "d5402c90ea70415b0554c0117ae97e0b313e375bedec0be9a236965d33fa0220"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1321,7 +2297,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }
@@ -1330,6 +2314,7 @@
     },
     {
       "page": 48,
+      "mode": "audit_visuel",
       "render_sha256": "2cb3e6a60bc0b2d538e5415fc2a9219856332fc340fc065f2ed30035bdbb5ee2",
       "boundaries": [
         304.02
@@ -1338,6 +2323,11 @@
       "tables": 0,
       "blocks": 19,
       "review_note": "Gouttière visible dans le blanc central ; contenus gauche et droite disjoints, sans ligne ni puce traversante.",
+      "mechanical_identity": {
+        "ok": false,
+        "previous_sha256": "6ae9c72d154027aaf283f5cba843d59b9bb0c6bc033088a97d49b7d641f14f97",
+        "candidate_sha256": "61738b1520a43d39a656552e010a6915900b2d9e48c336d18f9fe6235edff37e"
+      },
       "checks": {
         "couverture_texte_utile": {
           "ok": true,
@@ -1355,7 +2345,15 @@
           "ok": true,
           "errors": []
         },
+        "exoneration_mecanique": {
+          "ok": true,
+          "errors": []
+        },
         "revue_visuelle": {
+          "ok": true,
+          "errors": []
+        },
+        "mode_de_revue": {
           "ok": true,
           "errors": []
         }

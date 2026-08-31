@@ -1,9 +1,9 @@
 """Porte hors réseau sur la structure visuelle d'un PDF avant son typage.
 
-La porte reconstruit le document en mémoire, identifie les pages dont la lecture géométrique
-change, puis oppose à chacune les invariants du registre de lignes, de l'ordre des colonnes et de
-l'arbre. Une revue visuelle séparée est liée aux octets rendus par leur SHA-256 : une page absente,
-ambiguë ou revue sur un autre rendu garde la porte rouge.
+La porte reconstruit le document en mémoire et clôt le dénominateur entier de ses pages. Une page
+dont le texte utile ou l'ordre diffère doit être revue visuellement ; seule une identité mécanique
+stricte peut l'exonérer. Les revues visuelles sont liées aux octets rendus par leur SHA-256 : une
+page absente, ambiguë ou revue sur un autre rendu garde la porte rouge.
 
     uv run python -m server.ingest.pdf_structure_gate DOC_ID \
       --visual-review revue.json --output rapport.json
@@ -56,13 +56,13 @@ def _render_hashes(pdf_path: Path, pages: list[int], *, dpi: int) -> dict[int, s
 
 
 def _visual_review(path: Path, expected_pages: list[int], render_hashes: dict[int, str]) -> tuple[
-        dict[int, dict[str, str]], list[str], int]:
+        dict[int, dict[str, str | None]], list[str], int]:
     try:
         raw = json.loads(path.read_text("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return {}, [f"revue visuelle illisible: {type(exc).__name__}"], 144
-    if not isinstance(raw, dict) or raw.get("schema_version") != "1":
-        return {}, ["revue visuelle: schema_version 1 attendu"], 144
+    if not isinstance(raw, dict) or raw.get("schema_version") != "2":
+        return {}, ["revue visuelle: schema_version 2 attendu"], 144
     dpi = raw.get("dpi")
     if isinstance(dpi, bool) or not isinstance(dpi, int) or not 72 <= dpi <= 600:
         return {}, ["revue visuelle: dpi entier entre 72 et 600 attendu"], 144
@@ -72,14 +72,15 @@ def _visual_review(path: Path, expected_pages: list[int], render_hashes: dict[in
     entries = raw.get("pages")
     if not isinstance(entries, list):
         return {}, ["revue visuelle: liste pages attendue"], dpi
-    by_page: dict[int, dict[str, str]] = {}
+    by_page: dict[int, dict[str, str | None]] = {}
     errors: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
             errors.append("revue visuelle: entrée de page non objet")
             continue
-        page, rendered, verdict, note = (
-            entry.get("page"), entry.get("render_sha256"), entry.get("verdict"), entry.get("note", "")
+        page, mode, rendered, verdict, note = (
+            entry.get("page"), entry.get("mode"), entry.get("render_sha256"),
+            entry.get("verdict"), entry.get("note", ""),
         )
         if isinstance(page, bool) or not isinstance(page, int) or page < 1:
             errors.append("revue visuelle: numéro de page invalide")
@@ -87,8 +88,16 @@ def _visual_review(path: Path, expected_pages: list[int], render_hashes: dict[in
         if page in by_page:
             errors.append(f"revue visuelle: page {page} dupliquée")
             continue
-        if not isinstance(rendered, str) or _SHA256_RE.fullmatch(rendered) is None:
+        if mode not in {"audit_visuel", "exoneree"}:
+            errors.append(f"revue visuelle: page {page}, mode invalide")
+            continue
+        if mode == "audit_visuel" and (
+                not isinstance(rendered, str) or _SHA256_RE.fullmatch(rendered) is None
+        ):
             errors.append(f"revue visuelle: page {page}, render_sha256 invalide")
+            continue
+        if mode == "exoneree" and rendered is not None:
+            errors.append(f"revue visuelle: page {page}, rendu interdit pour une exonération")
             continue
         if verdict not in {"ok", "rouge", "ambigu"}:
             errors.append(f"revue visuelle: page {page}, verdict invalide")
@@ -96,19 +105,43 @@ def _visual_review(path: Path, expected_pages: list[int], render_hashes: dict[in
         if not isinstance(note, str):
             errors.append(f"revue visuelle: page {page}, note non textuelle")
             continue
-        by_page[page] = {"render_sha256": rendered, "verdict": verdict, "note": note}
+        by_page[page] = {
+            "mode": mode,
+            "render_sha256": rendered if isinstance(rendered, str) else None,
+            "verdict": verdict,
+            "note": note,
+        }
     if set(by_page) != set(expected_pages):
         errors.append(
-            "revue visuelle: pages différentes du delta "
+            "revue visuelle: dénominateur de pages incomplet ou divergent "
             f"(absentes={sorted(set(expected_pages) - set(by_page))}, "
             f"inattendues={sorted(set(by_page) - set(expected_pages))})"
         )
-    for page in set(by_page) & set(render_hashes):
-        if by_page[page]["render_sha256"] != render_hashes[page]:
+    for page, entry in by_page.items():
+        if entry["verdict"] != "ok":
+            errors.append(f"revue visuelle: page {page}, verdict {entry['verdict']}")
+        if entry["mode"] != "audit_visuel":
+            continue
+        if page not in render_hashes:
+            errors.append(f"revue visuelle: page {page}, revue visuelle non requise")
+        elif entry["render_sha256"] != render_hashes[page]:
             errors.append(f"revue visuelle: page {page}, rendu différent de celui audité")
-        if by_page[page]["verdict"] != "ok":
-            errors.append(f"revue visuelle: page {page}, verdict {by_page[page]['verdict']}")
     return by_page, errors, dpi
+
+
+def _page_identity(doc: Document, page: int) -> str:
+    """Empreinte l'ordre et la géométrie de chaque ligne effectivement servie sur une page."""
+    lines = [
+        {
+            "text": normalize(line.text),
+            "bbox": line.bbox,
+        }
+        for block in doc.blocks if block.page == page
+        for line in block.lines
+    ]
+    return hashlib.sha256(
+        json.dumps(lines, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _semantic_issues(doc: Document) -> list[str]:
@@ -165,13 +198,16 @@ def _page_issues(
             coverage.append(f"{uid}: texte absent de {block.block_id}")
 
     order: list[str] = []
-    keys = [(line.bande, line.colonne, line.bbox[1], line.bbox[0]) for line in page.lines]
-    if keys != sorted(keys):
-        order.append("les lignes ne sont pas ordonnées par bande, colonne, y puis x")
-    for (band, column), lines in _group_lines(page).items():
-        yx = [(line.bbox[1], line.bbox[0]) for line in lines]
-        if column > 0 and yx != sorted(yx):
-            order.append(f"bande {band}, colonne {column}: ordre visuel non monotone")
+    if page.layout.multi:
+        keys = [(line.bande, line.colonne, line.bbox[1], line.bbox[0]) for line in page.lines]
+        if keys != sorted(keys):
+            order.append("les lignes ne sont pas ordonnées par bande, colonne, y puis x")
+        for (band, column), lines in _group_lines(page).items():
+            yx = [(line.bbox[1], line.bbox[0]) for line in lines]
+            if column > 0 and yx != sorted(yx):
+                order.append(f"bande {band}, colonne {column}: ordre visuel non monotone")
+    elif [line.ordre_lecture for line in page.lines] != list(range(1, len(page.lines) + 1)):
+        order.append("les lignes mono-colonne ne conservent pas leur ordre source")
 
     crossings: list[str] = []
     for block in (candidate for candidate in doc.blocks if candidate.page == page.page):
@@ -209,10 +245,6 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
     previous_report_bytes = (doc_dir / "report.json").read_bytes()
     Report.model_validate_json(previous_report_bytes)
     pages, toc = extract_pages(pdf_path)
-    extraction_order = {
-        page.page: [tuple(line.source_uids) for line in page.lines]
-        for page in pages
-    }
     structure = charger_octets(doc_dir / "structure.json")[0] if presente(doc_dir / "structure.json") else None
     built, meta = build_document(
         pages,
@@ -225,17 +257,22 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
         structure=structure,
     )
     typed, reused = reutiliser_typage_identique(built, previous, previous_report_bytes)
-    changed_pages = [
-        page.page for page in pages
-        if page.layout.multi
-        or extraction_order[page.page] != [tuple(line.source_uids) for line in page.lines]
-    ]
-    review_raw = json.loads(visual_review_path.read_text("utf-8"))
+    page_numbers = [page.page for page in pages]
+    previous_identities = {page: _page_identity(previous, page) for page in page_numbers}
+    candidate_identities = {page: _page_identity(typed, page) for page in page_numbers}
+    mechanically_identical = {
+        page for page in page_numbers if previous_identities[page] == candidate_identities[page]
+    }
+    visual_pages = [page for page in page_numbers if page not in mechanically_identical]
+    try:
+        review_raw = json.loads(visual_review_path.read_text("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        review_raw = {}
     requested_dpi = review_raw.get("dpi", 144) if isinstance(review_raw, dict) else 144
     dpi = requested_dpi if isinstance(requested_dpi, int) and not isinstance(requested_dpi, bool) else 144
-    render_hashes = _render_hashes(pdf_path, changed_pages, dpi=dpi)
+    render_hashes = _render_hashes(pdf_path, visual_pages, dpi=dpi)
     visual, visual_errors, reviewed_dpi = _visual_review(
-        visual_review_path, changed_pages, render_hashes,
+        visual_review_path, page_numbers, render_hashes,
     )
     if reviewed_dpi != dpi:
         visual_errors.append("revue visuelle: dpi relu incohérent")
@@ -243,31 +280,54 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
     registry_issues = anomalies_registre(pages, meta["source_uids"])
     semantic_issues = _semantic_issues(typed)
     page_results: list[dict[str, Any]] = []
-    for page_number in changed_pages:
+    for page_number in page_numbers:
         page = pages[page_number - 1]
         checks = _page_issues(page, typed, meta["source_uids"])
         visual_entry = visual.get(page_number)
+        is_exempt = visual_entry is not None and visual_entry["mode"] == "exoneree"
+        is_visual = visual_entry is not None and visual_entry["mode"] == "audit_visuel"
+        checks["exoneration_mecanique"] = [] if (
+            not is_exempt or page_number in mechanically_identical
+        ) else ["exonération sans identité mécanique du texte utile et de l'ordre"]
         checks["revue_visuelle"] = [] if (
-            visual_entry is not None
-            and visual_entry["verdict"] == "ok"
-            and visual_entry["render_sha256"] == render_hashes[page_number]
+            not is_visual
+            or (
+                page_number in visual_pages
+                and visual_entry["verdict"] == "ok"
+                and visual_entry["render_sha256"] == render_hashes[page_number]
+            )
         ) else ["revue visuelle absente, ambiguë, rouge ou liée à un autre rendu"]
+        checks["mode_de_revue"] = [] if (
+            (page_number in mechanically_identical and is_exempt)
+            or (page_number in visual_pages and is_visual)
+        ) else ["mode de revue incompatible avec la preuve mécanique de la page"]
         page_results.append({
             "page": page_number,
-            "render_sha256": render_hashes[page_number],
+            "mode": visual_entry["mode"] if visual_entry is not None else None,
+            "render_sha256": render_hashes.get(page_number),
             "boundaries": page.layout.boundaries,
             "lines": len(page.lines),
             "tables": len(page.tables),
             "blocks": sum(block.page == page_number for block in typed.blocks),
             "review_note": visual_entry["note"] if visual_entry is not None else "",
+            "mechanical_identity": {
+                "ok": page_number in mechanically_identical,
+                "previous_sha256": previous_identities[page_number],
+                "candidate_sha256": candidate_identities[page_number],
+            },
             "checks": {name: {"ok": not errors, "errors": errors} for name, errors in checks.items()},
             "status": "vert" if all(not errors for errors in checks.values()) else "rouge",
         })
 
-    global_errors = [*registry_issues, *semantic_issues, *visual_errors]
+    visual_count = sum(page["mode"] == "audit_visuel" for page in page_results)
+    exempt_count = sum(page["mode"] == "exoneree" for page in page_results)
+    denominator_errors = [] if visual_count + exempt_count == len(pages) else [
+        "dénominateur non fermé: audit visuel + exonérations différent du nombre total de pages"
+    ]
+    global_errors = [*registry_issues, *semantic_issues, *visual_errors, *denominator_errors]
     status = "vert" if not global_errors and all(page["status"] == "vert" for page in page_results) else "rouge"
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "status": status,
         "doc_id": previous.doc_id,
         "source_hash": source_hash,
@@ -275,10 +335,12 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
         "candidate_ingest_fingerprint": built.ingest_fingerprint,
         "candidate_document_sha256": hashlib.sha256(document_json(typed).encode("utf-8")).hexdigest(),
         "visual_dpi": dpi,
-        "changed_pages": changed_pages,
+        "changed_pages": visual_pages,
         "summary": {
             "pages_total": len(pages),
-            "pages_audited": len(changed_pages),
+            "pages_audited": visual_count,
+            "pages_exempted_mechanically": exempt_count,
+            "pages_accounted": visual_count + exempt_count,
             "source_lines": sum(len(page.source.lines) for page in pages),
             "candidate_blocks": len(typed.blocks),
             "typing_reused_blocks": len(reused),
@@ -290,6 +352,7 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
             "registre_sans_orphelin": {"ok": not registry_issues, "errors": registry_issues},
             "arbre_portees_dependances": {"ok": not semantic_issues, "errors": semantic_issues},
             "revue_visuelle_complete": {"ok": not visual_errors, "errors": visual_errors},
+            "denominateur_ferme": {"ok": not denominator_errors, "errors": denominator_errors},
         },
         "pages": page_results,
     }

@@ -14,7 +14,7 @@ from server.ingest.artifacts import document_json
 from server.ingest.pdf_to_blocks import build_document, extract_pages
 
 
-def _corpus(tmp_path: Path) -> Path:
+def _corpus(tmp_path: Path, *, columns: bool = True) -> Path:
     doc_dir = tmp_path / "data" / "contrat-synthetique"
     doc_dir.mkdir(parents=True)
     pdf_path = doc_dir / "source.pdf"
@@ -26,9 +26,10 @@ def _corpus(tmp_path: Path) -> Path:
         page.insert_text(
             (56, y), f"G{index} texte utile assez long dans la colonne gauche.", fontsize=9
         )
-        page.insert_text(
-            (330, y), f"D{index} texte utile assez long dans la colonne droite.", fontsize=9
-        )
+        if columns:
+            page.insert_text(
+                (330, y), f"D{index} texte utile assez long dans la colonne droite.", fontsize=9
+            )
     pdf.save(pdf_path)
     pdf.close()
     source_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
@@ -55,23 +56,41 @@ def _corpus(tmp_path: Path) -> Path:
     return doc_dir
 
 
-def _review(doc_dir: Path, path: Path, *, verdict: str = "ok", rendered: str | None = None) -> None:
+def _review(
+        doc_dir: Path,
+        path: Path,
+        *,
+        verdict: str = "ok",
+        rendered: str | None = None,
+        mode: str = "audit_visuel",
+) -> None:
     actual = gate._render_hashes(doc_dir / "source.pdf", [1], dpi=144)[1]
+    page: dict[str, str | int] = {
+        "page": 1,
+        "mode": mode,
+        "verdict": verdict,
+        "note": "deux colonnes visuellement séparées",
+    }
+    if mode == "audit_visuel":
+        page["render_sha256"] = rendered or actual
     path.write_text(json.dumps({
-        "schema_version": "1",
+        "schema_version": "2",
         "reader": "lecteur indépendant synthétique",
         "dpi": 144,
-        "pages": [{
-            "page": 1,
-            "render_sha256": rendered or actual,
-            "verdict": verdict,
-            "note": "deux colonnes visuellement séparées",
-        }],
+        "pages": [page],
     }), "utf-8")
+
+
+def _historique_different(doc_dir: Path) -> None:
+    """Simule un ancien parseur sans toucher aux octets source ni à l'arbre du corpus."""
+    raw = json.loads((doc_dir / "document.json").read_text("utf-8"))
+    raw["blocks"][0]["lines"][0]["text"] = "texte historique différent"
+    (doc_dir / "document.json").write_text(json.dumps(raw, ensure_ascii=False), "utf-8")
 
 
 def test_la_porte_lie_chaque_page_changee_aux_invariants_et_au_rendu(tmp_path: Path) -> None:
     doc_dir = _corpus(tmp_path)
+    _historique_different(doc_dir)
     review = tmp_path / "review.json"
     _review(doc_dir, review)
 
@@ -80,6 +99,8 @@ def test_la_porte_lie_chaque_page_changee_aux_invariants_et_au_rendu(tmp_path: P
     assert report["status"] == "vert"
     assert report["changed_pages"] == [1]
     assert report["summary"]["pages_audited"] == 1
+    assert report["summary"]["pages_exempted_mechanically"] == 0
+    assert report["summary"]["pages_accounted"] == 1
     assert report["global_checks"]["registre_sans_orphelin"]["ok"]
     assert report["global_checks"]["arbre_portees_dependances"]["ok"]
     assert report["pages"][0]["boundaries"]
@@ -89,6 +110,7 @@ def test_la_porte_lie_chaque_page_changee_aux_invariants_et_au_rendu(tmp_path: P
 
 def test_un_rendu_different_ou_un_verdict_ambigu_garde_la_porte_rouge(tmp_path: Path) -> None:
     doc_dir = _corpus(tmp_path)
+    _historique_different(doc_dir)
     wrong_hash = "0" * 64
     for verdict, rendered in (("ok", wrong_hash), ("ambigu", None)):
         review = tmp_path / f"review-{verdict}-{rendered is None}.json"
@@ -99,3 +121,44 @@ def test_un_rendu_different_ou_un_verdict_ambigu_garde_la_porte_rouge(tmp_path: 
         assert report["status"] == "rouge"
         assert not report["global_checks"]["revue_visuelle_complete"]["ok"]
         assert not report["pages"][0]["checks"]["revue_visuelle"]["ok"]
+
+
+def test_une_page_identique_est_exoneree_seulement_par_preuve_mecanique(tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path, columns=False)
+    review = tmp_path / "review.json"
+    _review(doc_dir, review, mode="exoneree")
+
+    report = gate.audit(doc_dir, review)
+
+    assert report["status"] == "vert"
+    assert report["summary"]["pages_audited"] == 0
+    assert report["summary"]["pages_exempted_mechanically"] == 1
+    assert report["summary"]["pages_accounted"] == 1
+    assert report["pages"][0]["mechanical_identity"]["ok"]
+    assert report["pages"][0]["checks"]["exoneration_mecanique"]["ok"]
+    assert report["global_checks"]["denominateur_ferme"]["ok"]
+
+
+def test_un_delta_ne_peut_pas_sauto_exonerer_mecaniquement(tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path)
+    _historique_different(doc_dir)
+    review = tmp_path / "review.json"
+    _review(doc_dir, review, mode="exoneree")
+
+    report = gate.audit(doc_dir, review)
+
+    assert report["status"] == "rouge"
+    assert not report["pages"][0]["checks"]["exoneration_mecanique"]["ok"]
+    assert not report["pages"][0]["checks"]["mode_de_revue"]["ok"]
+
+
+def test_un_verdict_exonere_rouge_ou_ambigu_garde_la_porte_rouge(tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path, columns=False)
+    for verdict in ("rouge", "ambigu"):
+        review = tmp_path / f"review-exoneree-{verdict}.json"
+        _review(doc_dir, review, mode="exoneree", verdict=verdict)
+
+        report = gate.audit(doc_dir, review)
+
+        assert report["status"] == "rouge"
+        assert not report["global_checks"]["revue_visuelle_complete"]["ok"]
