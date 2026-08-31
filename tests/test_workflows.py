@@ -693,10 +693,26 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
     doc_necessaire = racine_docs / "niveau-1" / "niveau-2" / "preuve.json"
     doc_necessaire.write_bytes(b'{"publie": true}\n')
     relatif_necessaire = doc_necessaire.relative_to(source).as_posix()
+    documents_publies = sorted(
+        chemin for chemin in (
+            source / "data" / ".publie" / generation_sonde / "data"
+        ).iterdir()
+        if chemin.is_dir()
+    )
+    assert documents_publies, "la génération sondée doit contenir au moins un document"
+    pdf_authentifie = documents_publies[0] / "source.pdf"
+    pdf_authentifie.write_bytes(b"%PDF-1.7\nsource authentifiee temporaire\n%%EOF\n")
+    relatif_pdf_authentifie = pdf_authentifie.relative_to(source).as_posix()
 
     for ignore in (racine / ".gcloudignore", racine / ".dockerignore"):
-        admis = _chemins_admis(ignore, set(sentinelles) | {relatif_necessaire})
+        admis = _chemins_admis(
+            ignore,
+            set(sentinelles) | {relatif_necessaire, relatif_pdf_authentifie},
+        )
         assert not (admis & set(sentinelles)), ignore
+        assert relatif_pdf_authentifie not in admis, (
+            f"{ignore} doit retirer une source authentifiée déjà téléchargée"
+        )
         assert relatif_necessaire in admis, f"{ignore} doit conserver les docs publiés non sensibles"
         sans_readmission = tmp_path / f"sans-readmission-{ignore.name.removeprefix('.')}" / ignore.name
         sans_readmission.parent.mkdir()
@@ -709,7 +725,8 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
 
     attendu = {
         chemin: octets for chemin, octets in _octets_des_generations(source).items()
-        if f"data/.publie/{chemin}" not in sentinelles
+        if not chemin.endswith("/source.pdf")
+        and f"data/.publie/{chemin}" not in sentinelles
     }
     assert attendu, "le bundle publié doit contenir des octets dont on prouve la conservation"
     if archive_materialisee:
