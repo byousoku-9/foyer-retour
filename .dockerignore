@@ -7,8 +7,41 @@ __pycache__
 *.pyc
 .pytest_cache
 tests
-docs
+# Moby ancre un motif sans barre à la racine, contrairement à gitignore. `**/docs` porte donc ici
+# l'exclusion générique dont la réadmission publiée ci-dessous est l'exception nécessaire.
+**/docs
 scripts
+# `docs` vise la racine de travail ; ses octets déjà publiés appartiennent au bundle immuable.
+!data/.publie/*/docs
+!data/.publie/*/docs/**
+# Dernière autorité après toute négation : la réadmission porte sur les documents publiés sûrs,
+# jamais sur les secrets, sources, états d'exécution ou répertoires de travail qu'ils contiendraient.
+# Ces motifs sont ancrés sous le bundle : `uv.lock` à la racine reste une entrée de build obligatoire.
+data/.publie/*/docs/**/.env
+data/.publie/*/docs/**/.env.*
+data/.publie/*/docs/**/*.key
+data/.publie/*/docs/**/service-account*.json
+data/.publie/*/docs/**/gha-creds-*.json
+data/.publie/*/docs/**/source.pdf
+data/.publie/*/docs/**/*.tmp
+data/.publie/*/docs/**/.verrou
+data/.publie/*/docs/**/*.lock
+data/.publie/*/docs/**/.git
+data/.publie/*/docs/**/_bmad
+data/.publie/*/docs/**/_bmad-output
+data/.publie/*/docs/**/_reference
+data/.publie/*/docs/**/.claude
+data/.publie/*/docs/**/.agents
+data/.publie/*/docs/**/tests
+data/.publie/*/docs/**/scripts
+data/.publie/*/docs/**/.venv
+data/.publie/*/docs/**/venv
+data/.publie/*/docs/**/__pycache__
+data/.publie/*/docs/**/.pytest_cache
+data/.publie/*/docs/**/.ruff_cache
+data/.publie/*/docs/**/.mypy_cache
+data/.publie/*/docs/**/node_modules
+data/.publie/*/docs/**/*.pyc
 _bmad
 _bmad-output
 _reference
@@ -18,6 +51,9 @@ data/*/source.pdf
 # Les octets privés et les liens du checkout sont exclus génériquement. Le Dockerfile repose la
 # disposition depuis le manifest, hors réseau, avant `fetch_source --all`.
 data/.publie/*/data/*/source.pdf
+# Seul le pointeur reconstructible sort du contexte. Cette seconde frontière neutralise aussi une
+# archive source qui l'aurait déjà matérialisé en répertoire, sans retirer les générations.
+data/.publie/courant
 data/*/*.tmp
 # Story 4.5, N1 — le packaging emporte ce qui est **réellement résolu**, et rien de plus. Les cibles
 # servies (`data/manifest.json`, `data/evals-latest.json`, les artefacts par document) sont des
