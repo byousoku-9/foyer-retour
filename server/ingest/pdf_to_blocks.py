@@ -173,14 +173,67 @@ def ingest_fingerprint(structure: StructureProposee | None = None) -> str:
 
 
 def _identite_bloc_pour_typage(block: Block) -> str:
-    """Preuve transportable : identifiant, texte et lignes exacts, rien de sémantique."""
+    """Identité source hors ``block_id`` : texte normalisé, provenance et géométrie exactes."""
     payload = {
-        "block_id": block.block_id,
-        "text": block.text,
-        "lines": [line.model_dump() for line in block.lines],
+        "text_norm": normalize(block.text),
+        "provenance": {
+            "lang": block.lang,
+            "loc": block.loc,
+            "page": block.page,
+            "source_field": block.source_field,
+        },
+        "bbox": block.bbox,
+        # ``line_id`` contient le ``block_id`` et ne peut donc pas participer à une preuve qui
+        # doit survivre à un simple changement de rang. Le texte brut et la boîte de chaque
+        # ligne restent, eux, une provenance plus forte que le seul texte agrégé.
+        "lines": [{"text": line.text, "bbox": line.bbox} for line in block.lines],
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _correspondance_bijective_blocs(
+        doc: Document, previous: Document,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Rend les correspondances ancien→nouveau et nouveau→ancien prouvées sans ambiguïté."""
+    anciens: dict[str, list[str]] = {}
+    nouveaux: dict[str, list[str]] = {}
+    for block in previous.blocks:
+        anciens.setdefault(_identite_bloc_pour_typage(block), []).append(block.block_id)
+    for block in doc.blocks:
+        nouveaux.setdefault(_identite_bloc_pour_typage(block), []).append(block.block_id)
+    old_to_new: dict[str, str] = {}
+    new_to_old: dict[str, str] = {}
+    for identity, old_ids in anciens.items():
+        new_ids = nouveaux.get(identity, [])
+        # Tout doublon est un conflit de correspondance : le ``block_id`` ne sert jamais à le
+        # départager. Les splits, merges et disparitions n'ont, eux, pas de paire 1→1.
+        if len(old_ids) != 1 or len(new_ids) != 1:
+            continue
+        old_to_new[old_ids[0]] = new_ids[0]
+        new_to_old[new_ids[0]] = old_ids[0]
+    return old_to_new, new_to_old
+
+
+def _signatures_noeuds(doc: Document) -> dict[str, tuple[str, int, str | None]]:
+    """Identité structurelle minimale d'un nœud, hors blocs et portée sémantique."""
+    parent = {child: node.node_id for node in doc.nodes for child in node.children}
+    return {
+        node.node_id: (node.title, node.level, parent.get(node.node_id))
+        for node in doc.nodes
+    }
+
+
+def _cibles_semantiques(block: Block) -> list[str]:
+    return [
+        *block.refs,
+        *([block.overrides] if block.overrides else []),
+        *(target for target in block.relation.model_dump().values() if target is not None),
+    ]
+
+
+def _remapper_cible(target: str | None, old_to_new: dict[str, str]) -> str | None:
+    return old_to_new[target] if target is not None else None
 
 
 def _ids_typage_precedemment_prouves(previous: Document, report_bytes: bytes | None) -> set[str]:
@@ -206,32 +259,35 @@ def _ids_typage_precedemment_prouves(previous: Document, report_bytes: bytes | N
 def reutiliser_typage_identique(
         doc: Document, previous: Document | None, report_bytes: bytes | None,
 ) -> tuple[Document, dict[str, int]]:
-    """Recopie un typage seulement sur le **même** bloc fort et vers des cibles encore existantes."""
+    """Recopie un typage sur une bijection source exacte, jamais sur le seul ``block_id``."""
     if previous is None:
         return doc, {}
     proven = _ids_typage_precedemment_prouves(previous, report_bytes)
-    if not proven:
+    if (not proven or doc.doc_id != previous.doc_id or doc.source_hash != previous.source_hash
+            or doc.kind != previous.kind):
         return doc, {}
-    previous_by_id = {block.block_id: block for block in previous.blocks}
-    block_ids = {block.block_id for block in doc.blocks}
-    node_ids = {node.node_id for node in doc.nodes}
+    old_to_new, new_to_old = _correspondance_bijective_blocs(doc, previous)
+    previous_nodes = _signatures_noeuds(previous)
+    current_nodes = _signatures_noeuds(doc)
     reused: dict[str, int] = {}
     blocks: list[Block] = []
     for block in doc.blocks:
-        old = previous_by_id.get(block.block_id)
-        identity = _identite_bloc_pour_typage(block)
-        if (block.block_id not in proven or old is None or not is_citable(block)
-                or identity != _identite_bloc_pour_typage(old)):
+        old_id = new_to_old.get(block.block_id)
+        old = previous.block(old_id) if old_id is not None else None
+        if old is None or old_id not in proven or not is_citable(block):
             blocks.append(block)
             continue
-        semantic_blocks = [*old.refs, *([old.overrides] if old.overrides else []), *(
-            target for target in old.relation.model_dump().values() if target is not None
-        )]
-        semantic_nodes = [*(old.scope_node_ids or []), *(
-            [old.scope_node_id] if old.scope_node_id is not None else []
-        )]
-        if any(target not in block_ids for target in semantic_blocks) \
-                or any(target not in node_ids for target in semantic_nodes):
+        old_owner = previous.node_of(old.block_id)
+        current_owner = doc.node_of(block.block_id)
+        semantic_nodes = [*old.scope_node_ids, *([old.scope_node_id] if old.scope_node_id else [])]
+        semantic_blocks = _cibles_semantiques(old)
+        continuation = old_to_new.get(old.continues) if old.continues is not None else None
+        if (old_owner != current_owner
+                or previous_nodes.get(old_owner) != current_nodes.get(current_owner)
+                or any(previous_nodes.get(node_id) != current_nodes.get(node_id) for node_id in semantic_nodes)
+                or any(target not in old_to_new for target in semantic_blocks)
+                or (old.continues is not None and old.continues not in old_to_new)
+                or continuation != block.continues):
             blocks.append(block)
             continue
         blocks.append(block.model_copy(update={
@@ -239,13 +295,16 @@ def reutiliser_typage_identique(
             "structural_kind": block.structural_kind or block.kind,
             "kind_confidence": old.kind_confidence,
             "kind_source": old.kind_source,
-            "refs": list(old.refs),
+            "refs": [old_to_new[target] for target in old.refs],
             "unresolved_refs": list(old.unresolved_refs),
             "defines": old.defines,
             "scope_node_id": old.scope_node_id,
             "scope_node_ids": list(old.scope_node_ids),
-            "overrides": old.overrides,
-            "relation": old.relation.model_copy(deep=True),
+            "overrides": _remapper_cible(old.overrides, old_to_new),
+            "relation": old.relation.model_copy(update={
+                name: _remapper_cible(target, old_to_new)
+                for name, target in old.relation.model_dump().items()
+            }, deep=True),
         }, deep=True))
         reused[block.block_id] = 1
     typed = doc.model_copy(update={"blocks": blocks}, deep=True)

@@ -13,7 +13,8 @@ import pytest
 from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
-from server.app.domain import Block, BlockRef, Check, Document, Node, Report
+from server.app.domain import Block, BlockRef, Check, Document, Line, Node, NodeRef, Report
+from server.app.domain.document import Relation
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
 from server.ingest.report import _printed_toc_check, _quality, _tree_category, report_from_validation_error
@@ -1332,6 +1333,105 @@ def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) 
     not_reused, identities = p.reutiliser_typage_identique(changed, previous, proof)
     assert target.block_id not in identities
     assert not_reused.block(target.block_id).kind_source is None
+
+
+def _document_metaphorique(*, inverse: bool = False, dependance_deplacee: bool = False,
+                            proprietaire_change: bool = False) -> Document:
+    ids = (f"{DOC}:p1:2", f"{DOC}:p1:1") if inverse else (f"{DOC}:p1:1", f"{DOC}:p1:2")
+    garantie_id, condition_id = ids
+    condition_bbox = [60.0, 140.0, 300.0, 154.0]
+    if dependance_deplacee:
+        condition_bbox = [60.0, 141.0, 300.0, 155.0]
+    garantie = Block(
+        block_id=garantie_id, text="La garantie couvre l'incendie.", loc="p1",
+        seq=int(garantie_id.rsplit(":", 1)[1]), page=1, bbox=[60.0, 100.0, 300.0, 114.0],
+        kind="garantie" if not inverse else "para", structural_kind="para",
+        kind_source="model_verified" if not inverse else None,
+        kind_confidence=0.96 if not inverse else None,
+        scope_node_id=f"{DOC}:a1" if not inverse else None,
+        refs=[condition_id] if not inverse else [],
+        relation=Relation(specialise=condition_id) if not inverse else Relation(),
+        lines=[Line(line_id=f"{garantie_id}:l1", text="La garantie couvre l'incendie.",
+                    bbox=[60.0, 100.0, 300.0, 114.0])],
+    )
+    condition = Block(
+        block_id=condition_id, text="Sous réserve de la condition.", loc="p1",
+        seq=int(condition_id.rsplit(":", 1)[1]), page=1, bbox=condition_bbox,
+        kind="condition" if not inverse else "para", structural_kind="para",
+        kind_source="model_verified" if not inverse else None,
+        kind_confidence=0.91 if not inverse else None,
+        scope_node_id=f"{DOC}:a1" if not inverse else None,
+        lines=[Line(line_id=f"{condition_id}:l1", text="Sous réserve de la condition.",
+                    bbox=condition_bbox)],
+    )
+    owner = f"{DOC}:a2" if proprietaire_change else f"{DOC}:a1"
+    nodes = [
+        Node(node_id=DOC, items=[NodeRef(node_id=f"{DOC}:a1"), NodeRef(node_id=f"{DOC}:a2")]),
+        Node(node_id=f"{DOC}:a1", level=1, title="Garantie", items=[] if owner != f"{DOC}:a1" else [
+            BlockRef(block_id=garantie_id), BlockRef(block_id=condition_id),
+        ]),
+        Node(node_id=f"{DOC}:a2", level=1, title="Autre branche", items=[] if owner != f"{DOC}:a2" else [
+            BlockRef(block_id=garantie_id), BlockRef(block_id=condition_id),
+        ]),
+    ]
+    return Document(
+        doc_id=DOC, kind="contrat", title="Contrat métamorphique", edition="2026",
+        source_hash="a" * 64, nodes=nodes, blocks=[garantie, condition],
+    )
+
+
+def _preuve_typage_complet(doc: Document) -> bytes:
+    return Report(doc_id=doc.doc_id, checks=[
+        Check(name="typage_clauses", level="info", detail="couverture complète"),
+    ]).model_dump_json().encode("utf-8")
+
+
+def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_autorite() -> None:
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    garantie = typed.block(f"{DOC}:p1:2")
+    assert garantie.kind == "garantie" and garantie.kind_source == "model_verified"
+    assert garantie.refs == [f"{DOC}:p1:1"]
+    assert garantie.relation.specialise == f"{DOC}:p1:1"
+    assert garantie.scope_node_id == f"{DOC}:a1"
+
+
+def test_reutilisation_metaphorique_refuse_provenance_noeud_et_dependance_modifies() -> None:
+    previous = _document_metaphorique()
+    proof = _preuve_typage_complet(previous)
+
+    moved_dependency = _document_metaphorique(inverse=True, dependance_deplacee=True)
+    _typed, reused = p.reutiliser_typage_identique(moved_dependency, previous, proof)
+    assert reused == {}
+
+    moved_owner = _document_metaphorique(inverse=True, proprietaire_change=True)
+    _typed, reused = p.reutiliser_typage_identique(moved_owner, previous, proof)
+    assert reused == {}
+
+
+def test_reutilisation_metaphorique_refuse_toute_correspondance_ambigue() -> None:
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    duplicated = current.block(f"{DOC}:p1:2").model_copy(update={
+        "block_id": f"{DOC}:p1:3", "seq": 3,
+        "lines": [Line(line_id=f"{DOC}:p1:3:l1", text="La garantie couvre l'incendie.",
+                       bbox=[60.0, 100.0, 300.0, 114.0])],
+    }, deep=True)
+    node = current.nodes[1].model_copy(update={
+        "items": [*current.nodes[1].items, BlockRef(block_id=duplicated.block_id)],
+    }, deep=True)
+    ambiguous = Document.model_validate(current.model_copy(update={
+        "nodes": [current.nodes[0], node, current.nodes[2]],
+        "blocks": [*current.blocks, duplicated],
+    }, deep=True).model_dump())
+
+    typed, reused = p.reutiliser_typage_identique(ambiguous, previous, _preuve_typage_complet(previous))
+    assert f"{DOC}:p1:2" not in reused and f"{DOC}:p1:3" not in reused
+    assert typed.block(f"{DOC}:p1:2").kind_source is None
+    assert typed.block(f"{DOC}:p1:3").kind_source is None
 
 
 def test_duplicate_numbering_is_an_alert_with_suffixed_node(tmp_path: Path) -> None:
