@@ -158,6 +158,30 @@ def _serialize(value: Any) -> Any:
     return json.loads(json.dumps(value, default=_json_default))
 
 
+def _modele_expose(value: Any) -> tuple[bool, Any]:
+    if isinstance(value, BaseModel) and "model" in type(value).model_fields:
+        return True, value.model
+    if isinstance(value, dict):
+        if "model" in value:
+            return True, value["model"]
+        data = value.get("data")
+        if "__model__" in value and isinstance(data, dict) and "model" in data:
+            return True, data["model"]
+    return False, None
+
+
+def _valider_modele_reponse(value: Any, request: dict[str, Any] | None, *, context: str) -> None:
+    expose, response_model = _modele_expose(value)
+    if not expose or request is None:
+        return
+    certificate = _validate_certificate(request, context=f"requête {context!r}")
+    if response_model != certificate["model"]:
+        raise FixtureMissing(
+            f"fixture : réponse enregistrée pour {response_model!r}, "
+            f"certificat pour {certificate['model']!r}"
+        )
+
+
 class LLMRecorder:
     def __init__(self, test_name: str, fixtures_dir: Path = FIXTURES_DIR, api_key: str | None = None) -> None:
         self.path = fixtures_dir / f"{fixture_name(test_name)}.json"
@@ -190,6 +214,7 @@ class LLMRecorder:
                    request: dict[str, Any] | None = None) -> Any:
         if self.recording:
             result = await fn()
+            _valider_modele_reponse(result, request, context=key)
             self.calls_made += 1
             self._entries[key] = {"request": key, "response": _serialize(result)}
             if request is not None:
@@ -213,13 +238,7 @@ class LLMRecorder:
                 "lancer le test avec la clé pour l'enregistrer"
             )
         response = self._entries[key].get("response")
-        if isinstance(response, dict) and "model" in response and request is not None:
-            certificate = _validate_certificate(request, context=f"requête {requested!r}")
-            if response["model"] != certificate["model"]:
-                raise FixtureMissing(
-                    f"fixture {self.path} : réponse enregistrée pour {response['model']!r}, "
-                    f"certificat pour {certificate['model']!r}"
-                )
+        _valider_modele_reponse(response, request, context=requested)
         if isinstance(response, dict) and "__model__" in response:
             if model is not None:
                 if response["__model__"] != _model_name(model):

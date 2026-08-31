@@ -1487,6 +1487,26 @@ def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:
     assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "commun"
 
 
+def test_portee_ne_se_transporte_pas_via_deux_blocs_reutilises_non_types() -> None:
+    previous = _document_metaphorique()
+    previous.nodes[1].scope = Scope(kind="special")
+    previous = Document.model_validate(previous.model_copy(update={
+        "blocks": [
+            block.model_copy(update={"kind_source": None, "kind_confidence": None}, deep=True)
+            for block in previous.blocks
+        ],
+    }, deep=True).model_dump())
+    current = _document_metaphorique(inverse=True)
+
+    typed, reused = p.reutiliser_typage_identique(
+        current, previous, _preuve_typage_complet(previous),
+    )
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    assert all(block.kind_source is None for block in typed.blocks)
+    assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "commun"
+
+
 def test_portee_dun_sous_arbre_vide_ne_se_transporte_pas() -> None:
     previous = _document_metaphorique()
     previous.nodes[2].scope = Scope(kind="special")

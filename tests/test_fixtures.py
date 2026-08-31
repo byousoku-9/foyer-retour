@@ -93,6 +93,39 @@ async def test_record_plain_values_with_default_serializer(tmp_path: Path) -> No
     assert json.loads((tmp_path / "plain.json").read_text())["k"]["response"] == {"reply": {"texte": "x", "n": 1}, "path": "/a"}
 
 
+async def test_record_refuse_une_reponse_inter_modele_avant_compteur_et_ecriture(
+        tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "q"}]
+    certificate = request_certificate("claude-x", messages)
+    key = request_key("claude-x", messages)
+    rec = LLMRecorder("record-model-mismatch", fixtures_dir=tmp_path, api_key="k")
+
+    async def real() -> dict:
+        return {"model": "claude-y", "content": []}
+
+    with pytest.raises(FixtureMissing, match="réponse enregistrée.*claude-y.*claude-x"):
+        await rec.call(key, real, request=certificate)
+
+    assert rec.calls_made == 0
+    assert not rec.path.exists()
+
+
+async def test_record_accepte_une_reponse_du_modele_certifie(tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "q"}]
+    certificate = request_certificate("claude-x", messages)
+    key = request_key("claude-x", messages)
+    rec = LLMRecorder("record-model-match", fixtures_dir=tmp_path, api_key="k")
+
+    async def real() -> dict:
+        return {"model": "claude-x", "content": []}
+
+    result = await rec.call(key, real, request=certificate)
+
+    assert result == {"model": "claude-x", "content": []}
+    assert rec.calls_made == 1
+    assert json.loads(rec.path.read_text("utf-8"))[key]["response"] == result
+
+
 async def test_replay_accepte_un_alias_explicitement_audite(tmp_path: Path) -> None:
     messages = [{"role": "user", "content": "requête canonique"}]
     certificate = request_certificate(

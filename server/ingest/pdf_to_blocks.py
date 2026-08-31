@@ -319,7 +319,8 @@ def _reutiliser_portees_noeuds(
             return False
         memo_bloc_reutilise[node_id] = False  # garde de cycle pour un document invalide
         present = any(
-            (isinstance(item, BlockRef) and item.block_id in old_to_new)
+            (isinstance(item, BlockRef) and item.block_id in old_to_new
+             and previous.block(item.block_id).kind_source is not None)
             or (isinstance(item, NodeRef) and contient_bloc_reutilise(item.node_id))
             for item in node.items
         )
