@@ -178,26 +178,42 @@ def test_le_recu_public_ne_rend_que_digests_comptages_et_etat(tmp_path: Path) ->
 def test_le_verrou_ferme_refuse_avant_toute_consommation(tmp_path: Path) -> None:
     _, lock, _, receipt = _public(tmp_path)
     with pytest.raises(holdout.RefusHoldout, match="encore fermé"):
-        holdout.prendre_tentative_unique(lock, receipt["arm_token_digest"])
+        holdout.prendre_tentative_unique(
+            lock,
+            receipt_digest=holdout.digest_json(receipt),
+            arm_token_digest=receipt["arm_token_digest"],
+        )
     assert not (tmp_path / "consumed.marker").exists()
     assert holdout.lire_verrou(lock).attempts_remaining == 1
 
 
 def test_un_verrou_absent_est_un_refus_ferme(tmp_path: Path) -> None:
     with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
-        holdout.prendre_tentative_unique(tmp_path / "absent.json", "a" * 64)
+        holdout.prendre_tentative_unique(
+            tmp_path / "absent.json",
+            receipt_digest="b" * 64,
+            arm_token_digest="a" * 64,
+        )
 
     repertoire = tmp_path / "repertoire"
     repertoire.mkdir()
     with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
-        holdout.prendre_tentative_unique(repertoire, "a" * 64)
+        holdout.prendre_tentative_unique(
+            repertoire,
+            receipt_digest="b" * 64,
+            arm_token_digest="a" * 64,
+        )
 
     cible = tmp_path / "cible.json"
     cible.write_text("{}", encoding="utf-8")
     lien = tmp_path / "lien.json"
     lien.symlink_to(cible)
     with pytest.raises(holdout.RefusHoldout, match="absent ou illisible"):
-        holdout.prendre_tentative_unique(lien, "a" * 64)
+        holdout.prendre_tentative_unique(
+            lien,
+            receipt_digest="b" * 64,
+            arm_token_digest="a" * 64,
+        )
 
 
 def test_un_verrou_arme_par_edition_directe_refuse_sans_jeton_authentique(tmp_path: Path) -> None:
@@ -215,7 +231,76 @@ def test_un_verrou_arme_par_edition_directe_refuse_sans_jeton_authentique(tmp_pa
     with pytest.raises(holdout.RefusHoldout, match="jeton authentique"):
         holdout.verifier_public(receipt_path=receipt_path, lock_path=lock, payload_path=payload)
     with pytest.raises(holdout.RefusHoldout, match="jeton authentique"):
-        holdout.prendre_tentative_unique(lock, receipt["arm_token_digest"])
+        holdout.prendre_tentative_unique(
+            lock,
+            receipt_digest=holdout.digest_json(receipt),
+            arm_token_digest=receipt["arm_token_digest"],
+        )
+    assert not (tmp_path / "consumed.marker").exists()
+
+
+def test_executer_sur_verrou_ferme_refuse_avant_toute_interaction_trousseau(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt, lock, payload, _ = _public(tmp_path)
+    verrou_initial = lock.read_bytes()
+    appels_trousseau: list[str] = []
+
+    def lire_secret(_receipt: holdout.RecuPublic) -> str:
+        appels_trousseau.append("lecture")
+        return SECRET
+
+    def supprimer_secret(_receipt: holdout.RecuPublic) -> None:
+        appels_trousseau.append("révocation")
+
+    monkeypatch.setattr(holdout, "_secret_keychain", lire_secret)
+    monkeypatch.setattr(holdout, "_supprimer_secret_keychain", supprimer_secret)
+    with pytest.raises(holdout.RefusHoldout, match="encore fermé"):
+        holdout.executer(
+            receipt_path=receipt,
+            lock_path=lock,
+            payload_path=payload,
+            runner_args=[],
+        )
+    assert appels_trousseau == []
+    assert lock.read_bytes() == verrou_initial
+    assert holdout.lire_verrou(lock).attempts_remaining == 1
+    assert not (tmp_path / "consumed.marker").exists()
+
+
+def test_executer_sur_jeton_falsifie_refuse_avant_toute_interaction_trousseau(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_path, lock, payload, receipt = _public(tmp_path)
+    verrou = json.loads(lock.read_text("utf-8"))
+    verrou.update(
+        {
+            "state": "armed",
+            "conditions": {condition: True for condition in holdout.CONDITIONS},
+            "armed_at": "2026-09-01T00:00:00+00:00",
+            "arm_token": "0" * 64,
+        }
+    )
+    lock.write_bytes(holdout.json_canonique(verrou) + b"\n")
+    verrou_falsifie = lock.read_bytes()
+    appels_trousseau: list[str] = []
+
+    def lire_secret(_receipt: holdout.RecuPublic) -> str:
+        appels_trousseau.append("lecture")
+        return SECRET
+
+    def supprimer_secret(_receipt: holdout.RecuPublic) -> None:
+        appels_trousseau.append("révocation")
+
+    monkeypatch.setattr(holdout, "_secret_keychain", lire_secret)
+    monkeypatch.setattr(holdout, "_supprimer_secret_keychain", supprimer_secret)
+    with pytest.raises(holdout.RefusHoldout, match="jeton authentique"):
+        holdout.executer(
+            receipt_path=receipt_path,
+            lock_path=lock,
+            payload_path=payload,
+            runner_args=[],
+        )
+    assert appels_trousseau == []
+    assert lock.read_bytes() == verrou_falsifie
+    assert holdout.lire_verrou(lock).attempts_remaining == 1
+    assert holdout.digest_json(receipt) == holdout.lire_verrou(lock).receipt_digest
     assert not (tmp_path / "consumed.marker").exists()
 
 
@@ -243,11 +328,19 @@ def test_les_trois_preuves_arment_puis_lunique_prise_est_irreversible(tmp_path: 
         attestations.append(path)
     holdout.armer(receipt_path=receipt, lock_path=lock, attestations=attestations)
     assert holdout.lire_verrou(lock).state == "armed"
-    holdout.prendre_tentative_unique(lock, raw_receipt["arm_token_digest"])
+    holdout.prendre_tentative_unique(
+        lock,
+        receipt_digest=holdout.digest_json(raw_receipt),
+        arm_token_digest=raw_receipt["arm_token_digest"],
+    )
     consumed = holdout.lire_verrou(lock)
     assert consumed.state == "consumed" and consumed.arm_token is None
     with pytest.raises(holdout.RefusHoldout, match="encore fermé|déjà consommée"):
-        holdout.prendre_tentative_unique(lock, raw_receipt["arm_token_digest"])
+        holdout.prendre_tentative_unique(
+            lock,
+            receipt_digest=holdout.digest_json(raw_receipt),
+            arm_token_digest=raw_receipt["arm_token_digest"],
+        )
 
 
 def test_une_attestation_est_liee_aux_octets_de_sa_preuve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
