@@ -12,6 +12,17 @@ scripts
 # `docs` vise la racine de travail ; ses octets déjà publiés appartiennent au bundle immuable.
 !data/.publie/*/docs
 !data/.publie/*/docs/**
+# Dernière autorité après toute négation : aucun secret, PDF source, temporaire ou verrou ne peut
+# être réadmis sous un `docs` publié, quelle que soit sa profondeur.
+.env
+.env.*
+*.key
+service-account*.json
+gha-creds-*.json
+source.pdf
+*.tmp
+.verrou
+*.lock
 _bmad
 _bmad-output
 _reference

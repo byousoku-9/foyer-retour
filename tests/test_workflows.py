@@ -577,8 +577,6 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
     opérateur de supprimer une entrée existante d'un type inattendu.
     """
     racine = WORKFLOWS.parents[1]
-    attendu = _octets_des_generations(racine)
-    assert attendu, "le bundle publié doit contenir des octets dont on prouve la conservation"
     generations = {p.name for p in (racine / "data" / ".publie").iterdir()
                    if p.is_dir() and not p.is_symlink()}
     pointeur_checkout = racine / "data" / ".publie" / "courant"
@@ -592,11 +590,39 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
         assert all(_entre_dans_le_contexte(ignore, f"data/.publie/{generation}")
                    for generation in generations)
 
-    source = racine
+    source = tmp_path / "archive-source"
+    for dossier in ("server", "data"):
+        shutil.copytree(racine / dossier, source / dossier, symlinks=True)
+
+    generation_sonde = sorted(generations)[0]
+    racine_docs = source / "data" / ".publie" / generation_sonde / "docs"
+    noms_interdits = (
+        ".env", ".env.production", "secret.key", "service-account-build.json",
+        "gha-creds-ephemere.json", "source.pdf", "brouillon.tmp", ".verrou",
+        "type-clauses.lock",
+    )
+    sentinelles = []
+    for profondeur in ((), ("niveau-1",), ("niveau-1", "niveau-2")):
+        for nom in noms_interdits:
+            sentinelle = racine_docs.joinpath(*profondeur, nom)
+            sentinelle.parent.mkdir(parents=True, exist_ok=True)
+            sentinelle.write_bytes(b"ne doit jamais entrer dans le contexte")
+            sentinelles.append(sentinelle.relative_to(source).as_posix())
+    doc_necessaire = racine_docs / "niveau-1" / "niveau-2" / "preuve.json"
+    doc_necessaire.write_bytes(b'{"publie": true}\n')
+    relatif_necessaire = doc_necessaire.relative_to(source).as_posix()
+
+    for ignore in (racine / ".gcloudignore", racine / ".dockerignore"):
+        assert all(not _entre_dans_le_contexte(ignore, chemin) for chemin in sentinelles), ignore
+        assert _entre_dans_le_contexte(ignore, relatif_necessaire), (
+            f"{ignore} doit conserver les docs publiés non sensibles")
+
+    attendu = {
+        chemin: octets for chemin, octets in _octets_des_generations(source).items()
+        if f"data/.publie/{chemin}" not in sentinelles
+    }
+    assert attendu, "le bundle publié doit contenir des octets dont on prouve la conservation"
     if archive_materialisee:
-        source = tmp_path / "archive-source"
-        for dossier in ("server", "data"):
-            shutil.copytree(racine / dossier, source / dossier, symlinks=True)
         pointeur = source / "data" / ".publie" / "courant"
         cible = os.readlink(pointeur)
         pointeur.unlink()
@@ -611,6 +637,8 @@ def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_g
     pointeur_filtre = contexte / "data" / ".publie" / "courant"
     assert not pointeur_filtre.exists() and not pointeur_filtre.is_symlink()
     assert _octets_des_generations(contexte) == attendu
+    assert (contexte / relatif_necessaire).read_bytes() == b'{"publie": true}\n'
+    assert all(not (contexte / chemin).exists() for chemin in sentinelles)
 
     resultat = _poser_disposition(contexte)
     assert resultat.returncode == 0, resultat.stdout + resultat.stderr
