@@ -9,6 +9,9 @@ __pycache__
 tests
 docs
 scripts
+# `docs` vise la racine de travail ; ses octets déjà publiés appartiennent au bundle immuable.
+!data/.publie/*/docs
+!data/.publie/*/docs/**
 _bmad
 _bmad-output
 _reference
@@ -18,6 +21,9 @@ data/*/source.pdf
 # Les octets privés et les liens du checkout sont exclus génériquement. Le Dockerfile repose la
 # disposition depuis le manifest, hors réseau, avant `fetch_source --all`.
 data/.publie/*/data/*/source.pdf
+# Seul le pointeur reconstructible sort du contexte. Cette seconde frontière neutralise aussi une
+# archive source qui l'aurait déjà matérialisé en répertoire, sans retirer les générations.
+data/.publie/courant
 data/*/*.tmp
 # Story 4.5, N1 — le packaging emporte ce qui est **réellement résolu**, et rien de plus. Les cibles
 # servies (`data/manifest.json`, `data/evals-latest.json`, les artefacts par document) sont des

@@ -43,6 +43,9 @@ _reference
 tests
 docs
 scripts
+# `docs` vise la racine de travail ; ses octets déjà publiés appartiennent au bundle immuable.
+!data/.publie/*/docs
+!data/.publie/*/docs/**
 
 # Environnements et caches
 .venv
@@ -57,6 +60,9 @@ node_modules
 # Sources non redistribuées : `fetch_source --all` les télécharge au build (FR32)
 data/*/source.pdf
 data/.publie/*/data/*/source.pdf
+# Le pointeur est reconstructible par la pose Docker ; l'archiver risquerait de le déréférencer
+# en répertoire alors que les deux générations, elles, doivent quitter le runner intactes.
+data/.publie/courant
 data/*/*.tmp
 data/.publie/.verrou
 data/.publie/**/*.tmp

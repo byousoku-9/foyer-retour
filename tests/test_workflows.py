@@ -496,14 +496,15 @@ def test_les_pdf_sont_exclus_generiquement_et_les_liens_du_checkout_restent_comm
     assert sorted(suivis) == liens, "les liens racine du checkout doivent rester committés"
 
 
-def _copier_contexte_docker_filtre(racine: Path, destination: Path) -> None:
-    ignore = racine / ".dockerignore"
+def _copier_contexte_filtre(racine: Path, destination: Path, ignore: Path) -> None:
     for dossier in (racine / "server", racine / "data"):
         for source in (dossier, *dossier.rglob("*")):
             relatif = source.relative_to(racine).as_posix()
             if source.is_dir() and not source.is_symlink():
                 continue
-            if not _entre_dans_le_contexte(ignore, relatif):
+            parents = [PurePosixPath(*PurePosixPath(relatif).parts[:i]).as_posix()
+                       for i in range(1, len(PurePosixPath(relatif).parts) + 1)]
+            if any(not _entre_dans_le_contexte(ignore, parent) for parent in parents):
                 continue
             cible = destination / relatif
             cible.parent.mkdir(parents=True, exist_ok=True)
@@ -511,6 +512,26 @@ def _copier_contexte_docker_filtre(racine: Path, destination: Path) -> None:
                 os.symlink(os.readlink(source), cible)
             else:
                 shutil.copy2(source, cible)
+
+
+def _octets_des_generations(racine: Path) -> dict[str, bytes]:
+    espace = racine / "data" / ".publie"
+    return {
+        fichier.relative_to(espace).as_posix(): fichier.read_bytes()
+        for generation in espace.iterdir()
+        if generation.is_dir() and not generation.is_symlink()
+        for fichier in generation.rglob("*")
+        if fichier.is_file() and not fichier.is_symlink()
+    }
+
+
+def _poser_disposition(contexte: Path) -> subprocess.CompletedProcess[str]:
+    environnement = os.environ.copy()
+    environnement["PYTHONPATH"] = str(contexte)
+    return subprocess.run(
+        [sys.executable, "-m", "server.evals.espace", "--racine", str(contexte),
+         "--data-dir", str(contexte / "data"), "--depot", "--migrer"],
+        cwd=contexte, env=environnement, capture_output=True, text=True, check=False)
 
 
 def test_le_dockerfile_repose_vraiment_la_disposition_du_contexte_filtre_avant_le_batch(
@@ -530,15 +551,10 @@ def test_le_dockerfile_repose_vraiment_la_disposition_du_contexte_filtre_avant_l
                 f"{fichier} ne doit coder aucun chemin ou argument documentaire")
 
     contexte = tmp_path / "contexte"
-    _copier_contexte_docker_filtre(racine, contexte)
+    _copier_contexte_filtre(racine, contexte, racine / ".dockerignore")
     assert not list((contexte / "data").glob("*/source.pdf"))
     assert not list((contexte / "data" / ".publie").glob("*/data/*/source.pdf"))
-    environnement = os.environ.copy()
-    environnement["PYTHONPATH"] = str(contexte)
-    resultat = subprocess.run(
-        [sys.executable, "-m", "server.evals.espace", "--racine", str(contexte),
-         "--data-dir", str(contexte / "data"), "--depot", "--migrer"],
-        cwd=contexte, env=environnement, capture_output=True, text=True, check=False)
+    resultat = _poser_disposition(contexte)
     assert resultat.returncode == 0, resultat.stdout + resultat.stderr
 
     from server.app.corpus.racine import lecture_de
@@ -549,6 +565,61 @@ def test_le_dockerfile_repose_vraiment_la_disposition_du_contexte_filtre_avant_l
                for doc_id in doc_ids)
     assert not list((contexte / "data" / ".publie").glob("*/data/*/source.pdf")), (
         "la pose hors réseau ne doit inventer aucun octet PDF privé")
+
+
+@pytest.mark.parametrize("archive_materialisee", [False, True], ids=["checkout", "gcloud"])
+def test_gcloud_et_docker_excluent_le_pointeur_reconstructible_sans_perdre_les_generations(
+        tmp_path: Path, archive_materialisee: bool) -> None:
+    """Le pointeur n'est jamais un payload ; les générations sont le payload à préserver.
+
+    Le second cas reproduit la forme observée dans Cloud Build : `courant` arrive comme un
+    répertoire ordinaire. Le filtre Docker doit le retirer avant la pose, sans demander à l'API
+    opérateur de supprimer une entrée existante d'un type inattendu.
+    """
+    racine = WORKFLOWS.parents[1]
+    attendu = _octets_des_generations(racine)
+    assert attendu, "le bundle publié doit contenir des octets dont on prouve la conservation"
+    generations = {p.name for p in (racine / "data" / ".publie").iterdir()
+                   if p.is_dir() and not p.is_symlink()}
+    pointeur_checkout = racine / "data" / ".publie" / "courant"
+    assert pointeur_checkout.is_symlink() and os.readlink(pointeur_checkout) in generations
+    entree_git = subprocess.run(
+        ["git", "ls-files", "-s", "--", "data/.publie/courant"], cwd=racine,
+        check=True, capture_output=True, text=True).stdout
+    assert entree_git.startswith("120000 "), "le checkout autoritaire doit porter un blob symlink"
+    for ignore in (racine / ".gcloudignore", racine / ".dockerignore"):
+        assert not _entre_dans_le_contexte(ignore, "data/.publie/courant")
+        assert all(_entre_dans_le_contexte(ignore, f"data/.publie/{generation}")
+                   for generation in generations)
+
+    source = racine
+    if archive_materialisee:
+        source = tmp_path / "archive-source"
+        for dossier in ("server", "data"):
+            shutil.copytree(racine / dossier, source / dossier, symlinks=True)
+        pointeur = source / "data" / ".publie" / "courant"
+        cible = os.readlink(pointeur)
+        pointeur.unlink()
+        shutil.copytree(pointeur.parent / cible, pointeur, symlinks=True)
+        assert pointeur.is_dir() and not pointeur.is_symlink()
+        filtre = racine / ".dockerignore"
+    else:
+        filtre = racine / ".gcloudignore"
+
+    contexte = tmp_path / "contexte-pose"
+    _copier_contexte_filtre(source, contexte, filtre)
+    pointeur_filtre = contexte / "data" / ".publie" / "courant"
+    assert not pointeur_filtre.exists() and not pointeur_filtre.is_symlink()
+    assert _octets_des_generations(contexte) == attendu
+
+    resultat = _poser_disposition(contexte)
+    assert resultat.returncode == 0, resultat.stdout + resultat.stderr
+    assert pointeur_filtre.is_symlink()
+    assert os.readlink(pointeur_filtre) in generations
+    assert _octets_des_generations(contexte) == attendu
+    assert not [pdf for pdf in (contexte / "data" / ".publie").rglob("*.pdf")
+                if pdf.is_file() and not pdf.is_symlink()], (
+        "la pose hors réseau ne doit matérialiser aucun PDF")
 
 
 # --- `scripts/gcp_bootstrap.sh` : la frontière d'identité, côté GCP -------------------------------
