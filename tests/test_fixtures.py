@@ -110,6 +110,25 @@ async def test_record_refuse_une_reponse_inter_modele_avant_compteur_et_ecriture
     assert not rec.path.exists()
 
 
+@pytest.mark.parametrize("fixture_preexistante", [False, True])
+async def test_record_refuse_un_modele_expose_sans_certificat_avant_tout_effet(
+        tmp_path: Path, fixture_preexistante: bool) -> None:
+    path = tmp_path / "record-model-without-certificate.json"
+    if fixture_preexistante:
+        path.write_text(json.dumps(_entry("claude-x:existant")), encoding="utf-8")
+    contenu_initial = path.read_bytes() if path.exists() else None
+    rec = LLMRecorder("record-model-without-certificate", fixtures_dir=tmp_path, api_key="k")
+
+    async def real() -> dict:
+        return {"model": "claude-x", "content": []}
+
+    with pytest.raises(FixtureMissing, match="certificat de requête invalide"):
+        await rec.call("claude-x:nouveau", real)
+
+    assert rec.calls_made == 0
+    assert (path.read_bytes() if path.exists() else None) == contenu_initial
+
+
 async def test_record_accepte_une_reponse_du_modele_certifie(tmp_path: Path) -> None:
     messages = [{"role": "user", "content": "q"}]
     certificate = request_certificate("claude-x", messages)
@@ -287,6 +306,44 @@ async def test_replay_refuse_le_modele_expose_different_du_certificat_sans_model
 
     with pytest.raises(FixtureMissing, match="réponse enregistrée.*claude-y.*claude-x"):
         await replay.call(key, never, request=certificate)
+
+
+async def test_replay_refuse_un_modele_expose_sans_certificat_avant_retour(tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "q"}]
+    certificate = request_certificate("claude-x", messages)
+    key = request_key("claude-x", messages)
+    (tmp_path / "response-model-without-certificate.json").write_text(json.dumps({
+        key: {
+            "request": key,
+            "certificate": certificate,
+            "response": {"model": "claude-x", "content": []},
+        },
+    }), encoding="utf-8")
+    replay = LLMRecorder("response-model-without-certificate", fixtures_dir=tmp_path, api_key="")
+
+    async def never() -> dict:
+        raise AssertionError("aucun appel fournisseur en replay")
+
+    with pytest.raises(FixtureMissing, match="certificat de requête invalide"):
+        await replay.call(key, never)
+
+    assert replay.calls_made == 0
+
+
+async def test_replay_accepte_le_modele_expose_egal_au_certificat(tmp_path: Path) -> None:
+    messages = [{"role": "user", "content": "q"}]
+    certificate = request_certificate("claude-x", messages)
+    key = request_key("claude-x", messages)
+    response = {"model": "claude-x", "content": []}
+    (tmp_path / "response-model-match.json").write_text(json.dumps({
+        key: {"request": key, "certificate": certificate, "response": response},
+    }), encoding="utf-8")
+    replay = LLMRecorder("response-model-match", fixtures_dir=tmp_path, api_key="")
+
+    async def never() -> dict:
+        raise AssertionError("aucun appel fournisseur en replay")
+
+    assert await replay.call(key, never, request=certificate) == response
 
 
 def test_recording_mode_follows_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

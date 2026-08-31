@@ -172,7 +172,7 @@ def _modele_expose(value: Any) -> tuple[bool, Any]:
 
 def _valider_modele_reponse(value: Any, request: dict[str, Any] | None, *, context: str) -> None:
     expose, response_model = _modele_expose(value)
-    if not expose or request is None:
+    if not expose:
         return
     certificate = _validate_certificate(request, context=f"requête {context!r}")
     if response_model != certificate["model"]:
