@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import re
+import stat
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,11 +61,30 @@ class Comptages(ModeleFige):
         return self
 
 
+class SondesFichiers(ModeleFige):
+    generator_stage: Literal[True]
+    generator_product_code: Literal[False]
+    generator_cases_a: Literal[False]
+    generator_parent: Literal[False]
+    validator_product_code: Literal[True]
+    validator_corpora: Literal[False]
+    sealer_parent: Literal[False]
+    sealer_product: Literal[False]
+    sealer_generator_runtime: Literal[False]
+
+
+class SondesEgress(ModeleFige):
+    allowed_hosts: tuple[Literal["chatgpt.com"], ...] = Field(min_length=1, max_length=1)
+    provider_via_relay: Literal[True]
+    public_repository_via_relay: Literal[False]
+    direct_external_egress: Literal[False]
+
+
 class IsolationPublique(ModeleFige):
-    sandbox: Literal["sandbox-exec+codex-workspace"]
-    code_readable: Literal[False]
-    cases_a_readable: Literal[False]
-    outside_allowlist_readable: Literal[False]
+    sandbox: Literal["sandbox-exec+provider-relay"]
+    filesystem_probes: SondesFichiers
+    egress: SondesEgress
+    runtime_validated: Literal[True]
     stdout_contains_cleartext: Literal[False]
     stderr_contains_cleartext: Literal[False]
 
@@ -112,17 +132,12 @@ class VerrouPublic(ModeleFige):
     def _coherence(self) -> VerrouPublic:
         if set(self.conditions) != set(CONDITIONS):
             raise ValueError("les trois préconditions one-shot sont obligatoires")
-        if self.state == "sealed" and (
-                any(self.conditions.values()) or self.attempts_remaining != 1
-                or self.arm_token is not None):
+        if self.state == "sealed" and (any(self.conditions.values()) or self.attempts_remaining != 1 or self.arm_token is not None):
             raise ValueError("un verrou sealed est fermé et conserve son unique tentative")
-        if self.state == "armed" and (
-                not all(self.conditions.values()) or self.attempts_remaining != 1
-                or self.arm_token is None):
+        if self.state == "armed" and (not all(self.conditions.values()) or self.attempts_remaining != 1 or self.arm_token is None):
             raise ValueError("un verrou armed exige les trois preuves et une tentative")
-        if self.state == "consumed" and (
-                self.attempts_remaining != 0 or self.arm_token is None):
-            raise ValueError("un verrou consumed ne conserve aucune tentative")
+        if self.state == "consumed" and (not all(self.conditions.values()) or self.attempts_remaining != 0 or self.arm_token is not None):
+            raise ValueError("un verrou consumed garde les conditions vraies, sans tentative ni jeton")
         return self
 
 
@@ -134,6 +149,7 @@ class Attestation(ModeleFige):
         "derniers_correctifs_termines",
     ]
     completed: Literal[True]
+    evidence_file: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
     evidence_digest: str = Field(pattern=SHA256)
     completed_at: str = Field(min_length=1)
 
@@ -148,6 +164,8 @@ class CasScelle(ModeleFige):
             raise ValueError("un cas C exige profile=full et truth.source=codex")
         if self.case.truth.countersigned_by is not None:
             raise ValueError("C ne peut pas inventer de contresignature humaine")
+        if self.case.suite == "guide" and self.case.famille == "multilingue":
+            raise ValueError("C exclut la famille multilingue sans contrôle de retraduction scellé")
         if self.case.suite == "guide" and self.doc_id is not None:
             raise ValueError("un cas guide ne porte pas de doc_id")
         if self.case.suite == "sinistre" and not self.doc_id:
@@ -175,12 +193,10 @@ class LotScelle(ModeleFige):
 
     @property
     def cases_hash(self) -> str:
-        objets = [item.model_dump(mode="json") for item in sorted(
-            self.cases, key=lambda value: value.case.id)]
+        objets = [item.model_dump(mode="json") for item in sorted(self.cases, key=lambda value: value.case.id)]
         return digest_json(objets)
 
-    def pour_runner(self, cases_hash: str, *, observed_cases_hash: str | None = None) \
-            -> runner.LotCasesFournis:
+    def pour_runner(self, cases_hash: str, *, observed_cases_hash: str | None = None) -> runner.LotCasesFournis:
         if (observed_cases_hash or self.cases_hash) != cases_hash:
             raise RefusHoldout("cases_hash du payload différent du reçu public")
         cas = []
@@ -188,8 +204,7 @@ class LotScelle(ModeleFige):
             modele = item.case.model_copy(deep=True)
             modele._doc_id = item.doc_id
             cas.append(modele)
-        reference_dump = [value.model_dump(mode="json") for value in sorted(
-            self.references, key=lambda value: value.case_id)]
+        reference_dump = [value.model_dump(mode="json") for value in sorted(self.references, key=lambda value: value.case_id)]
         references = runner.ReferencesSnapshot(digest_json(reference_dump))
         snapshot = runner.CasesSnapshot(cases_hash)
         return runner.LotCasesFournis(tuple(cas), references, snapshot)
@@ -200,6 +215,19 @@ def _lire_json(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RefusHoldout(f"artefact public invalide : {path.name}") from exc
+
+
+def _lire_octets_reguliers(path: Path, *, objet: str) -> bytes:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb", closefd=True) as flux:
+            if not stat.S_ISREG(os.fstat(flux.fileno()).st_mode):
+                raise RefusHoldout(f"{objet} doit être un fichier régulier")
+            return flux.read()
+    except RefusHoldout:
+        raise
+    except OSError as exc:
+        raise RefusHoldout(f"{objet} absent ou illisible") from exc
 
 
 def lire_recu(path: Path) -> RecuPublic:
@@ -227,10 +255,18 @@ def verifier_public(*, receipt_path: Path, lock_path: Path, payload_path: Path) 
         raise RefusHoldout("payload chiffré différent du reçu")
     if digest_json(recu.model_dump(mode="json")) != verrou.receipt_digest:
         raise RefusHoldout("verrou lié à un autre reçu")
-    if verrou.state != "sealed" and (
-            verrou.arm_token is None or hashlib.sha256(
-                bytes.fromhex(verrou.arm_token)).hexdigest() != recu.arm_token_digest):
+    if verrou.state == "armed" and (verrou.arm_token is None or hashlib.sha256(bytes.fromhex(verrou.arm_token)).hexdigest() != recu.arm_token_digest):
         raise RefusHoldout("verrou armé sans jeton authentique")
+    if verrou.state == "consumed":
+        marque = lock_path.with_name("consumed.marker")
+        brut_marque = _lire_json(marque)
+        if (
+            not isinstance(brut_marque, dict)
+            or brut_marque.get("receipt_digest") != verrou.receipt_digest
+            or brut_marque.get("kind") != "secret-hmac-sha256-v1"
+            or re.fullmatch(SHA256, str(brut_marque.get("proof", ""))) is None
+        ):
+            raise RefusHoldout("marque one-shot absente ou invalide")
     return {
         "cases_hash": recu.cases_hash,
         "schema_digest": recu.schema_digest,
@@ -253,23 +289,34 @@ def armer(*, receipt_path: Path, lock_path: Path, attestations: list[Path]) -> N
         raise RefusHoldout("seul un verrou sealed peut être armé")
     if digest_json(recu.model_dump(mode="json")) != verrou.receipt_digest:
         raise RefusHoldout("verrou lié à un autre reçu")
+    preuves: list[Attestation] = []
     try:
-        preuves = [Attestation.model_validate(_lire_json(path)) for path in attestations]
+        for path in attestations:
+            preuve = Attestation.model_validate(_lire_json(path))
+            evidence_path = path.with_name(preuve.evidence_file)
+            if evidence_path == path:
+                raise RefusHoldout("une attestation ne peut pas être sa propre preuve")
+            evidence = _lire_octets_reguliers(evidence_path, objet="preuve d'attestation")
+            if not hmac.compare_digest(hashlib.sha256(evidence).hexdigest(), preuve.evidence_digest):
+                raise RefusHoldout("digest de preuve d'attestation différent de l'artefact")
+            preuves.append(preuve)
     except ValidationError as exc:
         raise RefusHoldout("attestation invalide") from exc
     if {preuve.condition for preuve in preuves} != set(CONDITIONS) or len(preuves) != len(CONDITIONS):
         raise RefusHoldout("les trois attestations distinctes sont requises")
     secret = _secret_keychain(recu)
-    arm_token = hmac.new(
-        secret.encode(), b"holdout-c/arm-token/v1", hashlib.sha256).hexdigest()
+    arm_token = hmac.new(secret.encode(), b"holdout-c/arm-token/v1", hashlib.sha256).hexdigest()
     if hashlib.sha256(bytes.fromhex(arm_token)).hexdigest() != recu.arm_token_digest:
         raise RefusHoldout("jeton d'armement différent du reçu")
-    arme = VerrouPublic.model_validate(verrou.model_dump(mode="json") | {
-        "state": "armed",
-        "conditions": {condition: True for condition in CONDITIONS},
-        "armed_at": datetime.now(UTC).isoformat(),
-        "arm_token": arm_token,
-    })
+    arme = VerrouPublic.model_validate(
+        verrou.model_dump(mode="json")
+        | {
+            "state": "armed",
+            "conditions": {condition: True for condition in CONDITIONS},
+            "armed_at": datetime.now(UTC).isoformat(),
+            "arm_token": arm_token,
+        }
+    )
     _ecrire_json_atomique(lock_path, arme.model_dump(mode="json"))
 
 
@@ -289,8 +336,19 @@ def _ecrire_json_atomique(path: Path, value: Any) -> None:
             pass
 
 
+def _preuve_marque(secret: bytes, receipt_digest: str) -> str:
+    return hmac.new(
+        secret,
+        b"holdout-c/consumed/v1:" + receipt_digest.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPublic:
-    fd = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        fd = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise RefusHoldout("verrou absent ou illisible") from exc
     marque = lock_path.with_name("consumed.marker")
     with os.fdopen(fd, "r+b", closefd=True) as flux:
         fcntl.flock(flux.fileno(), fcntl.LOCK_EX)
@@ -300,23 +358,35 @@ def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPu
             raise RefusHoldout("verrou illisible") from exc
         if verrou.state != "armed" or not all(verrou.conditions.values()):
             raise RefusHoldout("holdout encore fermé")
-        if verrou.arm_token is None or hashlib.sha256(
-                bytes.fromhex(verrou.arm_token)).hexdigest() != arm_token_digest:
+        if verrou.arm_token is None or hashlib.sha256(bytes.fromhex(verrou.arm_token)).hexdigest() != arm_token_digest:
             raise RefusHoldout("verrou armé sans jeton authentique")
         try:
-            marque_fd = os.open(
-                marque, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            marque_fd = os.open(marque, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         except FileExistsError as exc:
             raise RefusHoldout("tentative one-shot déjà consommée") from exc
         with os.fdopen(marque_fd, "wb", closefd=True) as marque_flux:
-            marque_flux.write((verrou.receipt_digest + "\n").encode())
+            marque_flux.write(
+                json_canonique(
+                    {
+                        "schema_version": 1,
+                        "receipt_digest": verrou.receipt_digest,
+                        "kind": "arm-token-derived-hmac-sha256-v1",
+                        "proof": _preuve_marque(bytes.fromhex(verrou.arm_token), verrou.receipt_digest),
+                    }
+                )
+                + b"\n"
+            )
             marque_flux.flush()
             os.fsync(marque_flux.fileno())
-        consomme = verrou.model_copy(update={
-            "state": "consumed",
-            "attempts_remaining": 0,
-            "consumed_at": datetime.now(UTC).isoformat(),
-        })
+        consomme = VerrouPublic.model_validate(
+            verrou.model_dump(mode="json")
+            | {
+                "state": "consumed",
+                "attempts_remaining": 0,
+                "consumed_at": datetime.now(UTC).isoformat(),
+                "arm_token": None,
+            }
+        )
         flux.seek(0)
         flux.truncate()
         flux.write(json_canonique(consomme.model_dump(mode="json")) + b"\n")
@@ -327,13 +397,38 @@ def prendre_tentative_unique(lock_path: Path, arm_token_digest: str) -> VerrouPu
 
 def _secret_keychain(recu: RecuPublic) -> str:
     resultat = subprocess.run(
-        ["/usr/bin/security", "find-generic-password", "-s", recu.key_service,
-         "-a", recu.key_account, "-w"],
-        check=False, capture_output=True, text=True,
+        ["/usr/bin/security", "find-generic-password", "-s", recu.key_service, "-a", recu.key_account, "-w"],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if resultat.returncode != 0 or not resultat.stdout.strip():
         raise RefusHoldout("clé one-shot indisponible ou interaction utilisateur refusée")
     return resultat.stdout.strip()
+
+
+def _supprimer_secret_keychain(recu: RecuPublic) -> None:
+    resultat = subprocess.run(
+        ["/usr/bin/security", "delete-generic-password", "-s", recu.key_service, "-a", recu.key_account],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if resultat.returncode != 0:
+        raise RefusHoldout("révocation de la clé one-shot impossible après consommation")
+
+
+def _finaliser_marque(lock_path: Path, recu: RecuPublic, secret: str) -> None:
+    marque = lock_path.with_name("consumed.marker")
+    _ecrire_json_atomique(
+        marque,
+        {
+            "schema_version": 1,
+            "receipt_digest": digest_json(recu.model_dump(mode="json")),
+            "kind": "secret-hmac-sha256-v1",
+            "proof": _preuve_marque(secret.encode(), digest_json(recu.model_dump(mode="json"))),
+        },
+    )
 
 
 def _openssl(payload: bytes, secret: str, *, decrypt: bool) -> bytes:
@@ -343,14 +438,26 @@ def _openssl(payload: bytes, secret: str, *, decrypt: bool) -> bytes:
     finally:
         os.close(ecriture)
     commande = [
-        "openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-md", "sha256",
-        "-iter", "200000", "-pass", f"fd:{lecture}",
+        "openssl",
+        "enc",
+        "-aes-256-cbc",
+        "-pbkdf2",
+        "-md",
+        "sha256",
+        "-iter",
+        "200000",
+        "-pass",
+        f"fd:{lecture}",
     ]
     if decrypt:
         commande.insert(2, "-d")
     try:
         resultat = subprocess.run(
-            commande, input=payload, check=False, capture_output=True, pass_fds=(lecture,),
+            commande,
+            input=payload,
+            check=False,
+            capture_output=True,
+            pass_fds=(lecture,),
         )
     finally:
         os.close(lecture)
@@ -369,31 +476,31 @@ def dechiffrer(payload: bytes, recu: RecuPublic, secret: str) -> bytes:
     return _openssl(payload, secret, decrypt=True)
 
 
-def executer(*, receipt_path: Path, lock_path: Path, payload_path: Path,
-             runner_args: list[str]) -> int:
-    """Consomme d'abord l'essai : même une panne ultérieure ne permet aucun retry."""
+def executer(*, receipt_path: Path, lock_path: Path, payload_path: Path, runner_args: list[str]) -> int:
+    """Révoque d'abord la clé : même une panne ou restauration ultérieure interdit tout retry."""
     recu = lire_recu(receipt_path)
     verrou = lire_verrou(lock_path)
     if digest_json(recu.model_dump(mode="json")) != verrou.receipt_digest:
         raise RefusHoldout("verrou lié à un autre reçu")
-    prendre_tentative_unique(lock_path, recu.arm_token_digest)
     secret = _secret_keychain(recu)
+    _supprimer_secret_keychain(recu)
+    prendre_tentative_unique(lock_path, recu.arm_token_digest)
+    _finaliser_marque(lock_path, recu, secret)
     try:
         payload = payload_path.read_bytes()
     except OSError as exc:
         raise RefusHoldout("payload chiffré absent ou illisible après consommation") from exc
-    clair = dechiffrer(payload, recu, secret)
+    clair = bytearray(dechiffrer(payload, recu, secret))
     try:
         brut = json.loads(clair)
-        observed_cases_hash = digest_json(sorted(
-            brut["cases"], key=lambda item: item["case"]["id"]))
+        observed_cases_hash = digest_json(sorted(brut["cases"], key=lambda item: item["case"]["id"]))
         lot = LotScelle.model_validate(brut)
         fourni = lot.pour_runner(recu.cases_hash, observed_cases_hash=observed_cases_hash)
         return runner.main(runner_args, lot_cases_fourni=fourni)
     except (json.JSONDecodeError, KeyError, TypeError, ValidationError) as exc:
         raise RefusHoldout("payload clair hors schéma") from exc
     finally:
-        clair = b""
+        clair[:] = b"\0" * len(clair)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -416,15 +523,23 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "status":
-            print(json_canonique(verifier_public(
-                receipt_path=args.receipt, lock_path=args.lock, payload_path=args.payload,
-            )).decode())
+            print(
+                json_canonique(
+                    verifier_public(
+                        receipt_path=args.receipt,
+                        lock_path=args.lock,
+                        payload_path=args.payload,
+                    )
+                ).decode()
+            )
         elif args.command == "arm":
             armer(receipt_path=args.receipt, lock_path=args.lock, attestations=args.attestation)
         else:
             runner_args = args.runner_args[1:] if args.runner_args[:1] == ["--"] else args.runner_args
             return executer(
-                receipt_path=args.receipt, lock_path=args.lock, payload_path=args.payload,
+                receipt_path=args.receipt,
+                lock_path=args.lock,
+                payload_path=args.payload,
                 runner_args=runner_args,
             )
     except RefusHoldout as exc:
