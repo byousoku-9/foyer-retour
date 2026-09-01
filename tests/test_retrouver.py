@@ -212,6 +212,111 @@ def _corpus_fondatrices_classees(
     )), fondatrices
 
 
+def _corpus_hits_bruts_a_fondatrice_tardive(
+        *, kind_source: str = "manual") -> tuple[Corpus, list[Block]]:
+    candidats = [
+        Block(
+            block_id="d:p1:1", text="Signalbrut signalbrut signalbrut signalbrut auxiliaire.",
+            loc="p1", seq=1, kind="condition", kind_source="manual"),
+        Block(
+            block_id="d:p2:1", text="Signalbrut signalbrut signalbrut auxiliaire.",
+            loc="p2", seq=1, kind="definition", kind_source="manual", defines="terme neutre"),
+        Block(
+            block_id="d:p3:1", text="Signalbrut signalbrut auxiliaire.",
+            loc="p3", seq=1, kind="para"),
+        Block(
+            block_id="d:p4:1", text="Signalbrut règle décisionnelle.",
+            loc="p4", seq=1, kind="garantie", kind_source=kind_source),
+    ]
+    corpus = _corpus_neutre_par_noeuds(*(
+        (f"branche-{rang}", [candidat])
+        for rang, candidat in enumerate(candidats, start=1)
+    ))
+    return corpus, candidats
+
+
+async def test_outils_priorise_une_fondatrice_confirmee_parmi_les_hits_bruts_sous_la_derniere_ouverture(
+        ) -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive()
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signalbrut"], limit=4, doc_id="d")] == [
+            candidat.block_id for candidat in candidats]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=4,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [candidats[0].block_id, candidats[3].block_id]
+    assert result.discarded_block_ids == [
+        candidats[1].block_id, candidats[2].block_id]
+
+
+async def test_outils_ne_priorise_pas_un_kind_fondateur_non_confirme_parmi_les_hits_bruts(
+        ) -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive(kind_source="model")
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=4,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [candidats[0].block_id, candidats[1].block_id]
+    assert candidats[3].block_id not in result.opened_block_ids
+
+
+async def test_outils_garde_lordre_des_hits_bruts_sans_besoin_declare() -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive()
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=4,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0))
+
+    assert result.opened_block_ids == [candidats[0].block_id]
+    assert result.discarded_block_ids == [
+        candidats[1].block_id, candidats[2].block_id, candidats[3].block_id]
+
+
+async def test_outils_ne_cree_aucune_ouverture_quand_le_quota_est_epuise() -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive()
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=1, node_window=1, search_limit=4,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [candidats[0].block_id]
+    assert candidats[3].block_id not in result.opened_block_ids
+    assert result.truncated is True
+
+
 @pytest.mark.parametrize("ordre", [
     ("avant", "initiale", "apres"),
     ("initiale", "avant", "apres"),

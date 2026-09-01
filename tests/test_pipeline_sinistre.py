@@ -1658,6 +1658,64 @@ async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatr
     assert answer.verdict is not None and answer.verdict.value == "couvert"
 
 
+def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existant(
+        neutre: CorpusNeutre) -> None:
+    """La route conserve le quota et laisse *vérifier* calculer seul l'applicabilité."""
+    from fastapi.testclient import TestClient
+
+    from server.app.api.main import create_app
+
+    termes = ["registre", "prise", "objet"]
+    auxiliaire = neutre.bloc("inscription")
+    fondatrice = neutre.bloc("prise_en_charge")
+    assert neutre.cles(block_id for block_id, _node_id in neutre.index.chercher(
+        termes, limit=20, doc_id=neutre.identite.doc_id)) == [
+            "inscription", "definition_objet", "prise_en_charge", "ecart_socle"]
+    texte_fondateur = neutre.index.corpus.documents[neutre.identite.doc_id].block(
+        fondatrice).text
+    navigation_auxiliaire = _outils(
+        termes=termes,
+        node_id=neutre.identite.noeud(neutre.identite.socle),
+        focus_block_id=auxiliaire)
+    fin_navigation = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
+    claim_fondatrice = (
+        "k1", "Le texte prend en charge la situation décrite.",
+        [(fondatrice, texte_fondateur)])
+    fake = FakeAnthropic([
+        _comprendre_neutre(neutre, termes=termes), navigation_auxiliaire, fin_navigation,
+        _rediger(claim_fondatrice),
+        _verifier(("k1", True, True, False, False, None, [], [])),
+    ])
+    reglages = _settings_neutre(
+        neutre.identite, env="dev", allow_ungated=True,
+        node_window=1, max_opens=2, profil_max_opens=0)
+
+    async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
+        kw["client"] = LlmClient(kw["settings"], anthropic_client=fake)
+        return await sinistre.run(doc_id, question, faits, **kw)
+
+    app = create_app(reglages)
+    with TestClient(app) as client:
+        etat = app.state.foyer
+        etat.corpus, etat.index = neutre.index.corpus, neutre.index
+        etat.pipeline_sinistre = pipeline_http
+        reponse = client.post("/api/v1/sinistre", json={
+            "doc_id": neutre.identite.doc_id, "question": QUESTION_NEUTRE,
+            "faits": FAITS_NEUTRES.model_dump()})
+
+    assert reponse.status_code == 200, reponse.text
+    corps = reponse.json()
+    assert fake.remaining_script == 0
+    retrouver = corps["trace"]["steps"][1]
+    roles_ouverts = neutre.cles(retrouver["opened_block_ids"])
+    assert roles_ouverts[0] == "inscription"
+    assert "prise_en_charge" in roles_ouverts
+    assert len(retrouver["calls"]) == 2
+    assert corps["answer"]["claims"][0]["quotes"][0]["block_id"] == fondatrice
+    assert corps["answer"]["claims"][0]["status"]["applicable"] == "oui"
+    assert corps["answer"]["verdict"]["value"] == "couvert"
+
+
 async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
         neutre: CorpusNeutre) -> None:
     auxiliaire = neutre.bloc("inscription")

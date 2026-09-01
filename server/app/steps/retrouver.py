@@ -687,7 +687,24 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if not completion_necessaire and not replay_apres_suffisance:
             return
         if completion_necessaire:
-            for block_id in tool_search_candidates:
+            candidats_a_completer = tool_search_candidates
+            if kinds_suffisants is not None:
+                # La complétion est explicitement chargée d'atteindre l'un de ces kinds. Une
+                # partition stable présente donc d'abord les seuls hits déjà rendus dont le
+                # typage corpus est confirmé, sans changer l'ordre interne d'aucun groupe ni
+                # créer de candidat, d'ouverture ou de capacité.
+                candidats_prioritaires = [
+                    block_id for block_id in tool_search_candidates
+                    if block(block_id).kind in kinds_suffisants
+                    and block(block_id).kind_confirmed
+                ]
+                prioritaires_ids = set(candidats_prioritaires)
+                candidats_a_completer = [
+                    *candidats_prioritaires,
+                    *(block_id for block_id in tool_search_candidates
+                      if block_id not in prioritaires_ids),
+                ]
+            for block_id in candidats_a_completer:
                 if block_id in admitted_set or block_id in focused_windows_attempted:
                     continue
                 candidat = block(block_id)
