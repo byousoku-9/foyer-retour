@@ -552,7 +552,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 retrieval, step_retrouver = await retrouver_outils(
                     parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
                     client=client, request_budget=budget, doc_id=doc_id,
-                    dictionnaire=dictionnaire, candidats_out=candidats_outils)
+                    dictionnaire=dictionnaire, candidats_out=candidats_outils,
+                    kinds_suffisants=KINDS_FONDATEURS)
             except PipelineError as exc:
                 # AD-16, comme au guide : l'étape partielle voyage avec l'erreur. Sans cela, un
                 # échec pendant la navigation ressortirait en 503 sans dire ce qui avait été appelé.

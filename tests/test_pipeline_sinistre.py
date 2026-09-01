@@ -1625,6 +1625,68 @@ async def test_sans_variante_le_sinistre_navigue_par_outils(neutre: CorpusNeutre
     assert answer.found and answer.verdict is not None
 
 
+async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatrice(
+        neutre: CorpusNeutre) -> None:
+    """La suffisance du sinistre atteint une claim fondatrice sans forcer son applicabilité."""
+    auxiliaire = neutre.bloc("inscription")
+    navigation_auxiliaire = _outils(
+        termes=neutre.identite.termes(),
+        node_id=neutre.identite.noeud(neutre.identite.socle),
+        focus_block_id=auxiliaire)
+    fin_navigation = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
+    reglages = _settings_neutre(
+        neutre.identite, node_window=1, max_opens=2, profil_max_opens=0)
+
+    answer, trace, fake = await _run_neutre(
+        neutre,
+        [_comprendre_neutre(neutre), navigation_auxiliaire, fin_navigation,
+         _rediger_neutre(neutre), _verifier_neutre()],
+        settings=reglages)
+
+    assert fake.remaining_script == 0
+    retrouver = trace.steps[1]
+    roles_ouverts = neutre.cles(retrouver.opened_block_ids)
+    assert roles_ouverts[0] == "inscription"
+    assert "prise_en_charge" in roles_ouverts
+    assert len(answer.claims) == 1
+    assert answer.claims[0].quotes[0].block_id == neutre.bloc("prise_en_charge")
+    assert answer.claims[0].status.applicable == "oui"
+    assert answer.verdict is not None and answer.verdict.value == "couvert"
+
+
+async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
+        neutre: CorpusNeutre) -> None:
+    auxiliaire = neutre.bloc("inscription")
+    fondatrice = neutre.bloc("prise_en_charge")
+    texte_auxiliaire = neutre.index.corpus.documents[neutre.identite.doc_id].block(auxiliaire).text
+    navigation_auxiliaire = _outils(
+        termes=neutre.identite.termes(),
+        node_id=neutre.identite.noeud(neutre.identite.socle),
+        focus_block_id=auxiliaire)
+    tentative_bornee = _outils(
+        node_id=neutre.identite.noeud(neutre.identite.socle),
+        focus_block_id=fondatrice)
+    reglages = _settings_neutre(
+        neutre.identite, node_window=1, max_opens=1, profil_max_opens=0)
+    claim_auxiliaire = (
+        "k-aux", "Une formalité déclarative est mentionnée.",
+        [(auxiliaire, texte_auxiliaire)])
+
+    answer, trace, fake = await _run_neutre(
+        neutre,
+        [_comprendre_neutre(neutre), navigation_auxiliaire, tentative_bornee,
+         _rediger(claim_auxiliaire),
+         _verifier(("k-aux", True, True, False, False, None, [], []))],
+        settings=reglages)
+
+    assert fake.remaining_script == 0
+    assert auxiliaire in trace.steps[1].opened_block_ids
+    assert fondatrice not in trace.steps[1].opened_block_ids
+    assert trace.truncations >= 1
+    assert all(quote.block_id != fondatrice for claim in answer.claims for quote in claim.quotes)
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+
+
 def test_une_requete_http_sans_variante_sert_la_navigation_par_outils(
         neutre: CorpusNeutre) -> None:
     """AC centrale : c'est parce que le corps ne nomme aucune variante que le défaut est **servi**.
@@ -1785,12 +1847,23 @@ async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
     reglages = _settings_neutre(neutre.identite, retrieval_max_blocks=4)
     candidats_outils = [b for b, _ in neutre.index.chercher(
         neutre.identite.termes(), limit=reglages.search_limit, doc_id=neutre.identite.doc_id)]
-    # Un premier tour qui **cherche sans ouvrir**, puis un tour qui conclut : la navigation a des
-    # candidats et aucun bloc admis, et le repli hérite donc de candidats à publier.
+
+    async def navigation_vide(*args: Any, **kw: Any):
+        # Le test vise la fusion du repli, pas la politique de complétion. Depuis que le pipeline
+        # déclare une suffisance fondatrice, une vraie recherche ne reste justement plus vide tant
+        # qu'un candidat admissible tient. Ce seam reproduit donc la sortie bornée qui arme le repli.
+        kw["candidats_out"].extend(candidats_outils)
+        step = StepTrace(name="retrouver", tier=reglages.retrouver_outils_tier)
+        step.discarded_block_ids = list(candidats_outils)
+        step.checks.append(CheckResult(
+            name="candidats_non_ouverts", ok=False,
+            detail=f"{len(candidats_outils)} candidat(s) non lu(s)"))
+        return RetrievalResult(
+            discarded_block_ids=list(candidats_outils), truncated=True), step
+
+    monkeypatch.setattr(sinistre, "retrouver_outils", navigation_vide)
     answer, trace, fake = await _run_neutre(
-        neutre, [_comprendre_neutre(neutre), _navigation(neutre),
-                 _navigation(neutre, chercher=False, stop_reason="end_turn"),
-                 _rediger_neutre(neutre), _verifier_neutre(),
+        neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre), _verifier_neutre(),
                  _rediger_neutre(neutre)], settings=reglages)
 
     assert fake.remaining_script == 0

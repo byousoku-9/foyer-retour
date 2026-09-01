@@ -211,10 +211,16 @@ def _navigation(index: Index) -> dict:
     ])
 
 
-def _script_outils(index: Index) -> list:
+def _script_outils(index: Index, *, besoin_fondateur: bool = False) -> list:
     """Le même scénario, sur la variante **servie** : le tour d'outils s'insère après *comprendre*."""
     ferme = _bloc_ferme(index)
-    return [_comprendre(), _navigation(index), _rediger(ferme), _rediger(ferme)]
+    navigation = [_navigation(index)]
+    if besoin_fondateur:
+        # Le corpus de lecture partielle ne contient volontairement que des paragraphes. Le
+        # sinistre emploie donc son second tour borné avant de conclure qu'aucune fondatrice
+        # confirmée n'est disponible ; le guide conserve son arrêt substantiel historique.
+        navigation.append(fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]))
+    return [_comprendre(), *navigation, _rediger(ferme), _rediger(ferme)]
 
 
 # --- 1. les deux pipelines rendent une réponse -----------------------------------------------------
@@ -298,7 +304,8 @@ async def test_le_guide_rend_la_meme_reponse_sur_la_variante_servie() -> None:
 async def test_le_sinistre_rend_la_meme_reponse_sur_la_variante_servie() -> None:
     """Le pendant sinistre, sur la variante servie — verdict compris."""
     index = _index("doc-contrat", kind="contrat")
-    answer, trace, fake = await _run_sinistre(index, _script_outils(index), variant="outils")
+    answer, trace, fake = await _run_sinistre(
+        index, _script_outils(index, besoin_fondateur=True), variant="outils")
 
     assert fake.remaining_script == 0 and trace.variant == "outils"
     assert answer.found is False and answer.complete is False and answer.reason is None

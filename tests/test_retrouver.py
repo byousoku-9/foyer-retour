@@ -24,7 +24,7 @@ from server.app.domain import (
 )
 from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import ParsedQuestion, QuestionScope
-from server.app.domain.verdict import KINDS_DECISIONNELS
+from server.app.domain.verdict import KINDS_DECISIONNELS, KINDS_FONDATEURS
 from server.app.llm.models import STEP_TIERS, TIERS
 from server.app.llm.client import LlmClient
 from server.app.llm.budget import RequestBudget
@@ -112,7 +112,8 @@ def test_retrieval_budget_enforces_the_tool_turn_invariant_for_direct_callers(
 
 async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None = None,
                        parsed: ParsedQuestion | None = None, budget: RetrievalBudget | None = None,
-                       settings: Settings | None = None, dictionnaire=None):
+                       settings: Settings | None = None, dictionnaire=None,
+                       kinds_suffisants: frozenset[str] | None = None):
     corpus = corpus or _corpus()
     settings = settings or _s(max_cost_eur_per_request=1.0)
     fake = FakeAnthropic(script)
@@ -121,7 +122,8 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
     result, step = await retrouver_outils(
         parsed or _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=budget or _budget(max_blocks=30, max_tokens=6000), settings=settings,
-        client=client, request_budget=request_budget, doc_id="d", dictionnaire=dictionnaire)
+        client=client, request_budget=request_budget, doc_id="d", dictionnaire=dictionnaire,
+        kinds_suffisants=kinds_suffisants)
     return result, step, fake, request_budget
 
 
@@ -143,6 +145,171 @@ def _corpus_contexte_puis_regle() -> Corpus:
     return Corpus(documents={"d": Document(
         doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
         summaries={"d": "root > contexte, regle"})
+
+
+def _corpus_auxiliaire_puis_fondatrice(
+        kind_fondateur: str, *, permute: bool = False) -> tuple[Corpus, str, str]:
+    """Même relation métier sous deux identités et ordres documentaires synthétiques."""
+    page_aux, page_fondatrice = (("p8", "p3") if permute else ("p1", "p2"))
+    auxiliaire_id = f"d:{page_aux}:7"
+    fondatrice_id = f"d:{page_fondatrice}:4"
+    auxiliaire = Block(
+        block_id=auxiliaire_id, text="La règle utile dépend d'une formalité déclarée.",
+        loc=page_aux, seq=7, kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id=fondatrice_id, text="La règle utile régit la situation décrite.",
+        loc=page_fondatrice, seq=4, kind=kind_fondateur, kind_source="manual")
+    noms = (("branche-z", auxiliaire, "branche-a", fondatrice) if permute
+            else ("branche-a", auxiliaire, "branche-z", fondatrice))
+    noeuds = [
+        Node(node_id="root", items=[NodeRef(node_id=noms[0]), NodeRef(node_id=noms[2])]),
+        Node(node_id=noms[0], items=[BlockRef(block_id=noms[1].block_id)]),
+        Node(node_id=noms[2], items=[BlockRef(block_id=noms[3].block_id)]),
+    ]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="Texte synthétique", edition="e",
+        nodes=noeuds, blocks=[auxiliaire, fondatrice])},
+        summaries={"d": "root > deux branches"})
+    return corpus, auxiliaire_id, fondatrice_id
+
+
+@pytest.mark.parametrize(("kind_fondateur", "permute"), [
+    ("garantie", False),
+    ("exclusion", True),
+])
+async def test_outils_complete_une_auxiliaire_par_une_fondatrice_confirmee(
+        kind_fondateur: str, permute: bool) -> None:
+    corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice(
+        kind_fondateur, permute=permute)
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id, fondatrice_id]
+    assert result.blocs[-1].kind == kind_fondateur and result.blocs[-1].kind_confirmed
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:
+    corpus, auxiliaire_id, _fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000))
+
+    assert result.opened_block_ids == [auxiliaire_id]
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_outils_sarrete_des_quune_fondatrice_confirmee_est_admise() -> None:
+    corpus, _auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice("exclusion")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(fondatrice_id),
+                  focus_block_id=fondatrice_id)),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [fondatrice_id]
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_outils_ninvente_pas_de_fondatrice_absente() -> None:
+    corpus, auxiliaire_id, autre_id = _corpus_auxiliaire_puis_fondatrice("para")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id, autre_id]
+    assert all(block.kind not in KINDS_FONDATEURS for block in result.blocs)
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_outils_ne_depasse_pas_le_quota_pour_atteindre_une_fondatrice() -> None:
+    corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+        _tool_message(
+            _tool("ouvrir_noeud", "t3", node_id=corpus.documents["d"].node_of(fondatrice_id),
+                  focus_block_id=fondatrice_id)),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=1, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id]
+    assert result.truncated is True
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_outils_complete_une_recherche_sans_ouverture_jusqua_la_fondatrice() -> None:
+    corpus, _auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["règle utile"])),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert fondatrice_id in result.opened_block_ids
+    assert result.blocs[-1].kind == "garantie" and result.blocs[-1].kind_confirmed
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_outils_ignore_une_fondatrice_non_confirmee_pour_la_suffisance() -> None:
+    corpus, non_confirmee_id, confirmee_id = _corpus_auxiliaire_puis_fondatrice("exclusion")
+    non_confirmee = corpus.documents["d"].block(non_confirmee_id)
+    non_confirmee.kind = "garantie"
+    non_confirmee.kind_source = "model"
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(non_confirmee_id),
+                  focus_block_id=non_confirmee_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [non_confirmee_id, confirmee_id]
+    assert not result.blocs[0].kind_confirmed
+    assert result.blocs[1].kind == "exclusion" and result.blocs[1].kind_confirmed
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
+async def test_outils_marque_partielle_une_ouverture_directe_sans_preuve_dabsence() -> None:
+    corpus, auxiliaire_id, _fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool(
+            "ouvrir_noeud", "t1", node_id=corpus.documents["d"].node_of(auxiliaire_id))),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        settings=_s(retrieval_mechanism_order="outils,sommaire,dictionnaire,faq"),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id]
+    assert result.truncated is True
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_outils_poursuit_apres_un_premier_tour_exclusivement_contextuel() -> None:

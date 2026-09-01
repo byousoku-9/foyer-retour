@@ -3,7 +3,9 @@
 La variante `deterministe` (J+1) reste du code pur. La variante `outils` (story 2.6) laisse le tier
 configuré parcourir le sommaire avec exactement quatre outils, en deux tours au plus ; elle ne change
 ni la chaîne du pipeline, ni `RetrievalResult`, ni la vérification aval. Le premier tour utile suffit
-dès qu'il a admis un bloc autre qu'un titre ou une définition sans laisser de pagination ouverte.
+dès qu'il a admis un bloc autre qu'un titre ou une définition sans laisser de pagination ouverte,
+sauf si son appelant a déclaré des kinds suffisants : un bloc de l'un de ces kinds doit alors être
+confirmé par le corpus. Cette exigence ne classe rien et n'infère aucune applicabilité.
 
 Dans cette variante, après les ouvertures du navigateur et à la frontière de la phase `outils`, les
 réservations de facettes encore absentes sont complétées depuis le classement unique de
@@ -286,8 +288,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                             request_budget: Any, doc_id: str,
                             dictionnaire: Dictionnaire | None = None,
                             candidats_out: list[str] | None = None,
+                            kinds_suffisants: frozenset[str] | None = None,
                             ) -> tuple[RetrievalResult, StepTrace]:
-    """Variante bornée de navigation par les quatre outils d'AD-1, sur deux tours au plus."""
+    """Navigation bornée, avec une suffisance optionnelle fondée sur les kinds confirmés du corpus."""
     t0 = time.monotonic()
     # L'amendement 2.6 autorise explicitement l'arbitrage du tier de navigation. Le déterministe
     # conserve l'affectation historique `reason`; la variante appelée publie son tier réel.
@@ -615,16 +618,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
                 execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
 
-    def complete_contextual_search_candidates() -> None:
-        # Le navigateur peut honnêtement conclure après l'ouverture qu'impose son prompt, même si
-        # celle-ci n'a transmis que du contexte. Ses propres hits restent alors le seul classement
-        # autorisé : on les essaie dans leur ordre initial, après les réservations et via l'outil
-        # commun, afin de conserver fenêtres, dépendances, atomicité et budgets sans capacité cachée.
-        def exclusively_contextual() -> bool:
-            return bool(admitted) and all(
-                block(block_id).kind in _KINDS_CONTEXTUELS for block_id in admitted)
+    def suffisance_atteinte() -> bool:
+        if kinds_suffisants is not None:
+            return any(
+                block(block_id).kind in kinds_suffisants and block(block_id).kind_confirmed
+                for block_id in admitted)
+        return any(block(block_id).kind not in _KINDS_CONTEXTUELS for block_id in admitted)
 
-        if not exclusively_contextual():
+    def complete_search_candidates_for_sufficiency() -> None:
+        # Le navigateur peut honnêtement conclure après l'ouverture qu'impose son prompt, même si
+        # celle-ci n'a pas encore satisfait le besoin déclaré par l'appelant. Ses propres hits
+        # restent alors le seul classement autorisé : on les essaie dans leur ordre initial, après
+        # les réservations et via l'outil commun, afin de conserver fenêtres, dépendances,
+        # atomicité et budgets sans capacité cachée. Sans besoin déclaré, le comportement
+        # historique reste strictement limité à une lecture exclusivement contextuelle.
+        if kinds_suffisants is None:
+            completion_necessaire = bool(admitted) and all(
+                block(block_id).kind in _KINDS_CONTEXTUELS for block_id in admitted)
+        else:
+            completion_necessaire = not suffisance_atteinte()
+        if not completion_necessaire:
             return
         for block_id in tool_search_candidates:
             if block_id in admitted_set or block_id in focused_windows_attempted:
@@ -632,7 +645,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             node_id = document.node_of(block_id)
             _payload, is_error = execute(
                 "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
-            if is_error or not exclusively_contextual():
+            if is_error or suffisance_atteinte():
                 break
 
     used_tools = False
@@ -685,12 +698,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if is_error:
                     item["is_error"] = True
                 tool_results.append(item)
-            # Un titre ou une définition éclaire les candidats sans fournir encore la règle utile.
-            # Tout autre bloc admis conserve l'arrêt froid historique ; la pagination garde sa
-            # propre priorité et continue de gouverner le tour suivant.
-            substantiel_admis = any(
-                block(block_id).kind not in _KINDS_CONTEXTUELS for block_id in admitted)
-            if turn == 0 and substantiel_admis and not pagination_expected:
+            # Sans besoin déclaré, un titre ou une définition éclaire les candidats sans fournir
+            # encore la règle utile et tout autre bloc conserve l'arrêt froid historique. Lorsqu'un
+            # appelant déclare des kinds suffisants, seuls un kind demandé **et confirmé** satisfait
+            # cet arrêt. La pagination garde dans les deux cas sa propre priorité.
+            if turn == 0 and suffisance_atteinte() and not pagination_expected:
                 break
             if turn + 1 < budget.max_llm_turns:
                 messages.extend([
@@ -720,13 +732,16 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # complétion ne voit que les recherches des phases antérieures et de ce tour outils ;
             # un sommaire placé après ne peut donc jamais ouvrir rétroactivement un candidat caché.
             complete_reservations()
-            complete_contextual_search_candidates()
+            complete_search_candidates_for_sufficiency()
     expected_search = canonical_forms(terms)
     covered_search = canonical_forms(searched_terms)
     # Un refus `zero_hit` n'est honnête que si au moins un terme canonique existait et si les
     # recherches réellement exécutées les ont tous couverts. Une recherche vide, inventée ou
     # partielle ne devient jamais une preuve d'absence.
     absence_proven = bool(expected_search) and expected_search <= covered_search
+    if (kinds_suffisants is not None and not suffisance_atteinte()
+            and (search_candidates or not absence_proven)):
+        truncated = True
     if (not used_tools and not admitted) or (
             not admitted and (search_candidates or not absence_proven)):
         truncated = True
