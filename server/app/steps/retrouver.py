@@ -647,7 +647,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             completion_necessaire = not suffisance_initiale
         # Pour l'appel générique, l'arrêt substantiel reste historique. Pour une demande
         # décisionnelle, une fondatrice déjà admise confirme seulement son kind : le replay filtré
-        # ci-dessous peut encore présenter les candidates canoniquement mieux classées.
+        # ci-dessous peut encore présenter toutes les autres fondatrices qui tiennent dans les bornes.
         if not completion_necessaire and kinds_suffisants is None:
             return
         if not suffisance_initiale:
@@ -733,12 +733,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if block_id not in search_candidates:
                 search_candidates.append(block_id)
             if block_id in admitted_set:
-                # Si le navigateur avait déjà choisi une fondatrice, son retour dans le classement
-                # filtré clôt la recherche : seules les candidates mieux classées qui la précèdent
-                # ont été ajoutées. Son kind n'est pas pris pour une preuve de pertinence, mais son
-                # rang canonique et la priorité d'ouverture directe restent tous deux préservés.
-                if suffisance_initiale:
-                    return
+                # L'ouverture initiale reste dédupliquée, sans servir d'arrêt : son kind confirmé
+                # ne prouve pas sa pertinence et les fondatrices suivantes restent à examiner.
                 continue
             if block_id in focused_windows_attempted:
                 continue

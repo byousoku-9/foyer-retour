@@ -256,10 +256,10 @@ async def test_outils_rejoue_apres_une_fondatrice_initiale_seulement_typee() -> 
         block_id="d:p2:1", text="Signal décisionnel règle utile.", loc="p2", seq=1,
         kind="garantie", kind_source="manual")
     corpus = _corpus_neutre_par_noeuds(("etrangere", [etrangere]), ("utile", [utile]))
-    termes = ["signal décisionnel", "règle utile"]
+    termes = ["signal décisionnel"]
     assert [block_id for block_id, _node_id in Index(corpus).chercher(
         termes, limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)] == [
-            utile.block_id, etrangere.block_id]
+            etrangere.block_id, utile.block_id]
 
     result, _step, _fake, _request_budget = await _run_outils([
         _tool_message(
