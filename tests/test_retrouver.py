@@ -251,6 +251,187 @@ def _corpus_facettes_distinctes() -> tuple[Corpus, ParsedQuestion]:
     return corpus, parsed
 
 
+def _corpus_facette_titre(*, heading: bool = True) -> tuple[Corpus, ParsedQuestion]:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1,
+              kind="heading" if heading else "para"),
+        Block(block_id="d:p2:2", text="Corps explicatif à citer.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    return corpus, parsed
+
+
+async def test_une_reservation_heading_emporte_son_premier_corps_dans_les_deux_variantes() -> None:
+    corpus, parsed = _corpus_facette_titre()
+    budget = _budget(max_opens=2, node_window=1, search_limit=2,
+                     max_blocks=4, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:1", "d:p2:2"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert len(fake.requests) == request_budget.attempts == 1
+
+
+async def test_une_reservation_heading_est_refusee_atomiquement_si_son_corps_ne_tient_pas() -> None:
+    corpus, parsed = _corpus_facette_titre()
+    budget = _budget(max_opens=2, node_window=1, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_le_corps_visible_nest_pas_retente_apres_le_refus_du_focus_heading() -> None:
+    corpus, parsed = _corpus_facette_titre()
+    budget = _budget(max_opens=2, node_window=2, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_un_compagnon_aussi_hit_garde_son_unite_primaire_historique() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1,
+              kind="heading"),
+        Block(block_id="d:p2:2", text="Seconde démarche utile expliquée.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=2, search_limit=3,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1", "d:p2:2"]
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_un_focus_heading_sans_corps_est_refuse_dans_les_deux_variantes() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1,
+              kind="heading"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=2, search_limit=2,
+                     max_blocks=4, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_le_focus_heading_prime_localement_sans_changer_lordre_rendu() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Contexte voisin contingent.", loc="p2", seq=1),
+        Block(block_id="d:p2:2", text="Seconde démarche utile.", loc="p2", seq=2,
+              kind="heading"),
+        Block(block_id="d:p2:3", text="Corps explicatif à citer.", loc="p2", seq=3),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2"),
+                                        BlockRef(block_id="d:p2:3")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=3, search_limit=2,
+                     max_blocks=3, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:2", "d:p2:3"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert deterministe.truncated and outils.truncated
+
+
+async def test_une_reservation_primaire_ordinaire_reste_seule() -> None:
+    corpus, parsed = _corpus_facette_titre(heading=False)
+    budget = _budget(max_opens=2, node_window=1, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1", "d:p2:1"]
+
+
 async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_variantes() -> None:
     corpus, parsed = _corpus_facettes_distinctes()
     budget = _budget(max_opens=2, node_window=1, search_limit=2,

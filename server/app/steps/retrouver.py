@@ -5,10 +5,19 @@ configuré parcourir le sommaire avec exactement quatre outils, en deux tours au
 ni la chaîne du pipeline, ni `RetrievalResult`, ni la vérification aval. Le premier tour utile suffit
 dès qu'il a admis des blocs sans laisser de pagination ouverte.
 
-Dans cette variante, un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
-`discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu. Un check
-`candidats_non_ouverts` en publie le compte afin que les évals distinguent ce choix d'une fenêtre lue
-puis bornée. Le déterministe, lui, marque la borne quand des nœuds candidats dépassent son quota.
+Dans cette variante, après les ouvertures du navigateur et à la frontière de la phase `outils`, les
+réservations de facettes encore absentes sont complétées depuis le classement unique de
+`groupes_prioritaires`. Elles passent par les mêmes fenêtres, unités atomiques, quotas et budgets,
+sans appel modèle supplémentaire. Les ouvertures du navigateur gardent la priorité ; dans une
+fenêtre de complétion seulement, le focus passe avant ses voisins. L'ordre d'admission reste stable :
+navigation d'abord, puis réservations dans l'ordre du classement et membres structurels dans l'ordre
+de lecture.
+
+Un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
+`discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu, sauf si la complétion
+ci-dessus le transmet finalement. Un check `candidats_non_ouverts` en publie le compte afin que les
+évals distinguent ce choix d'une fenêtre lue puis bornée. Le déterministe, lui, marque la borne quand
+des nœuds candidats dépassent son quota.
 
 `chercher(terms + scope.themes, limit=search_limit)`, puis ouverture groupée des nœuds candidats par
 score (≤ `max_opens` nœuds, fenêtre `node_window` contenant le meilleur hit du nœud), puis suivi
@@ -27,7 +36,7 @@ absence du corpus (AD-1) et ne voit que `ParsedQuestion` — jamais l'historique
 `StepTrace(tier=STEP_TIERS["retrouver"], calls=[])` : AD-9 fixe l'affectation étape → tier **sans
 exception** (`retrouver → reason`) ; c'est `calls=[]` — et lui seul — qui dit que la variante
 déterministe n'a appelé aucun modèle (revue Codex 1.4, B3). `discarded_block_ids` reste exactement
-ce qu'AD-10 en dit : les candidats de `chercher` non transmis au modèle.
+ce qu'AD-10 en dit : les candidats de `chercher` finalement non transmis, complétion comprise.
 
 **Le `RetrievalBudget` borne toute l'étape** (AD-1 : « nœuds, blocs, tokens, définitions et renvois
 inclus »). `max_blocks` et `max_tokens` sont appliqués ensemble par unités de dépendance : un bloc de
@@ -214,6 +223,22 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
             # dont le corpus prouve le lien, ou dont la proximité dépasse le seuil configuré,
             # accompagnent la garantie ; le plafond reste lui aussi une hypothèse de configuration.
     return out
+
+
+def _unite_primaire(block_id: str, *, kind: str, index: Index,
+                     dependances: Iterable[str]) -> list[str] | None:
+    """Unité atomique commune : primaire structurel, puis dépendances directes.
+
+    `Index.unite_de_renvoi` est l'autorité structurelle : un titre emporte son premier corps
+    non-titre, tandis qu'un primaire ordinaire reste seul. Les dépendances sont celles du bloc
+    demandé seulement ; le corps ajouté n'est jamais parcouru récursivement. Un titre sans corps
+    non-titre ne forme aucune unité transmissible : `None` ordonne à l'appelant de le refuser et de
+    publier la troncature.
+    """
+    structure = index.unite_de_renvoi(block_id)
+    if kind == "heading" and structure == [block_id]:
+        return None
+    return list(dict.fromkeys((*structure, *dependances)))
 
 
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
@@ -413,9 +438,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             primary: list[str] = []
             newly: list[str] = []
             window_blocks = list(window.blocks)
+            focus_companions = (set(index.unite_de_renvoi(focus)[1:])
+                                if focus is not None else set())
             if prioritize_focus and focus is not None:
                 window_blocks.sort(key=lambda item: item.block_id != focus)
             for item in window_blocks:
+                # Un compagnon structurel non candidat appartient exclusivement à l'unité du
+                # focus. S'il est lui-même un hit du cohort pertinent, il conserve en revanche son
+                # unité primaire historique et peut être admis indépendamment.
+                if (item.block_id in focus_companions
+                        and item.block_id not in relevant_candidates):
+                    continue
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
                 # l'unité entière entre, ou le primaire n'est pas transmis isolément.
                 dependencies = _dependances_directes(
@@ -426,7 +459,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     related_cache=related_cache,
                     search_related=item.block_id == focus or item.block_id in relevant_candidates,
                 )
-                unit = [item.block_id, *dependencies]
+                unit = (_unite_primaire(
+                    item.block_id, kind=item.kind, index=index, dependances=dependencies)
+                    if item.block_id == focus else [item.block_id, *dependencies])
+                if unit is None:
+                    truncated = True
+                    continue
                 got = admit(unit)
                 if item.block_id in got:
                     primary.append(item.block_id)
@@ -993,7 +1031,33 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         unites: list[list[str]] = []
         dependances_par_primaire: dict[str, list[str]] = {}
         candidats = [block_id for block_id, _node_id in hits]
-        for block_id in fenetres:
+        focus_ids = {best_hit[node_id] for node_id in ouverts}
+        focus_companions = {
+            membre
+            for focus_id in focus_ids
+            for membre in index.unite_de_renvoi(focus_id)[1:]
+        }
+        compagnons_candidats = focus_companions & set(candidats)
+        # Chaque nœud garde sa place relative. Dans sa fenêtre seulement, le `best_hit` focal est
+        # tenté avant les voisins ; son compagnon structurel n'est retraité que s'il est lui-même
+        # un candidat de recherche. L'ordre rendu reste celui de `fenetres` ci-dessous.
+        primaires: list[str] = []
+        for node_id in ouverts:
+            focus_id = best_hit[node_id]
+            voisins = [
+                candidate for candidate in fenetres
+                if noeud_de[candidate] == node_id and candidate not in focus_companions
+            ]
+            if bloc(focus_id).kind == "heading" and focus_id in voisins:
+                primaires.append(focus_id)
+                primaires.extend(candidate for candidate in voisins if candidate != focus_id)
+            else:
+                primaires.extend(voisins)
+        # Un compagnon qui est aussi hit garde son unité historique, mais après les primaires des
+        # autres nœuds : sa double qualité structurelle ne lui donne aucune priorité supplémentaire.
+        primaires.extend(
+            candidate for candidate in fenetres if candidate in compagnons_candidats)
+        for block_id in primaires:
             directes = _dependances_directes(
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
                 search_candidates=candidats, related_limit=budget.search_limit,
@@ -1001,7 +1065,13 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 proximity_min=settings.limite_liee_proximite_min,
                 related_cache=related_cache, search_related=block_id in candidats,
             )
-            unites.append([block_id, *directes])
+            unite = (_unite_primaire(
+                block_id, kind=bloc(block_id).kind, index=index, dependances=directes)
+                if block_id in focus_ids else [block_id, *directes])
+            if unite is None:
+                tronque = True
+                continue
+            unites.append(unite)
             if bloc(block_id).kind in {"garantie", "exclusion"}:
                 dependances_par_primaire[block_id] = directes
         # Le pré-contrôle AD-5 interroge aussi `definitions()` : si aucun texte n'a de hit mais
