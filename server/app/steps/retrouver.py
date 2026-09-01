@@ -740,7 +740,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # partielle ne devient jamais une preuve d'absence.
     absence_proven = bool(expected_search) and expected_search <= covered_search
     if (kinds_suffisants is not None and not suffisance_atteinte()
-            and (search_candidates or not absence_proven)):
+            and (any(b not in admitted_set for b in search_candidates) or not absence_proven)):
         truncated = True
     if (not used_tools and not admitted) or (
             not admitted and (search_candidates or not absence_proven)):

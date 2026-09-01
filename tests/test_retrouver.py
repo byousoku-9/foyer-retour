@@ -239,6 +239,7 @@ async def test_outils_ninvente_pas_de_fondatrice_absente() -> None:
 
     assert result.opened_block_ids == [auxiliaire_id, autre_id]
     assert all(block.kind not in KINDS_FONDATEURS for block in result.blocs)
+    assert result.truncated is False
     assert len(fake.requests) == request_budget.attempts == 2
 
 
