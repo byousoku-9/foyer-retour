@@ -1532,6 +1532,57 @@ def _corpus_neutre(identite: IdentiteNeutre) -> CorpusNeutre:
         identite=identite, par_cle=par_cle)
 
 
+def _corpus_http_a_fondatrice_tardive() -> CorpusNeutre:
+    """Quatre hits indépendants : seule la dernière place départage l'auxiliaire et la règle."""
+    identite = IdentiteNeutre(
+        doc_id="texte-neutre-priorite", page_socle=1, page_annexe=4, seq_depart=1,
+        socle="n1", annexe="n4", racine="n0")
+    clauses = (
+        ("auxiliaire_initiale", "condition",
+         "Signalbrut signalbrut signalbrut signalbrut formalité déclarée."),
+        ("auxiliaire_definition", "definition",
+         "Signalbrut signalbrut signalbrut objet inventorié."),
+        ("auxiliaire_contexte", "para", "Signalbrut signalbrut contexte général."),
+        ("fondatrice", "garantie", "Signalbrut règle décisionnelle de prise en charge."),
+    )
+    par_cle: dict[str, str] = {}
+    blocs: list[dict[str, Any]] = []
+    noeuds: list[Node] = []
+    for rang, (cle, kind, texte) in enumerate(clauses, start=1):
+        node_id = f"{identite.doc_id}:n{rang}"
+        block_id = f"{identite.doc_id}:p{rang}:1"
+        par_cle[cle] = block_id
+        bloc: dict[str, Any] = {
+            "block_id": block_id, "loc": f"p{rang}", "seq": 1,
+            "kind": kind, "text": texte,
+        }
+        if kind in {"condition", "definition", "garantie"}:
+            bloc["kind_source"] = "manual"
+            bloc["scope_node_id"] = node_id
+        if kind == "definition":
+            bloc["defines"] = "objet inventorié"
+        blocs.append(bloc)
+        noeuds.append(Node(
+            node_id=node_id, level=1, title=f"Section {rang}",
+            items=[{"block_id": block_id}]))
+    noeuds.append(Node(
+        node_id=identite.noeud(identite.racine), level=0, title="Texte applicable",
+        items=[{"node_id": node.node_id} for node in noeuds]))
+    document = Document(
+        doc_id=identite.doc_id, kind="contrat", title="Texte neutre", edition="2030",
+        nodes=noeuds, blocks=blocs)
+    for bloc in document.blocks:
+        bloc.text_norm = normalize(bloc.text)
+    manifest = {identite.doc_id: ManifestEntry(
+        status="servi", source_hash=f"sha-{identite.doc_id}", ingest_fingerprint="fp-priorite",
+        document_hash="sha-doc", edition="2030")}
+    return CorpusNeutre(
+        index=Index(Corpus(
+            documents={identite.doc_id: document}, manifest=manifest,
+            summaries={identite.doc_id: "# Texte neutre\n- quatre sections indépendantes"})),
+        identite=identite, par_cle=par_cle)
+
+
 @pytest.fixture
 def neutre() -> CorpusNeutre:
     return _corpus_neutre(IDENTITE_NEUTRE)
@@ -1658,19 +1709,19 @@ async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatr
     assert answer.verdict is not None and answer.verdict.value == "couvert"
 
 
-def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existant(
-        neutre: CorpusNeutre) -> None:
+def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existant() -> None:
     """La route conserve le quota et laisse *vérifier* calculer seul l'applicabilité."""
     from fastapi.testclient import TestClient
 
     from server.app.api.main import create_app
 
-    termes = ["registre", "prise", "objet"]
-    auxiliaire = neutre.bloc("inscription")
-    fondatrice = neutre.bloc("prise_en_charge")
+    neutre = _corpus_http_a_fondatrice_tardive()
+    termes = ["signalbrut"]
+    auxiliaire = neutre.bloc("auxiliaire_initiale")
+    fondatrice = neutre.bloc("fondatrice")
     assert neutre.cles(block_id for block_id, _node_id in neutre.index.chercher(
         termes, limit=20, doc_id=neutre.identite.doc_id)) == [
-            "inscription", "definition_objet", "prise_en_charge", "ecart_socle"]
+            "auxiliaire_initiale", "auxiliaire_definition", "auxiliaire_contexte", "fondatrice"]
     texte_fondateur = neutre.index.corpus.documents[neutre.identite.doc_id].block(
         fondatrice).text
     navigation_auxiliaire = _outils(
@@ -1682,13 +1733,17 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
         "k1", "Le texte prend en charge la situation décrite.",
         [(fondatrice, texte_fondateur)])
     fake = FakeAnthropic([
-        _comprendre_neutre(neutre, termes=termes), navigation_auxiliaire, fin_navigation,
+        _comprendre(
+            terms=termes, question_resolue=QUESTION_RESOLUE_NEUTRE, facettes=[],
+            bien="objet inventorié", evenement="épisode répertorié",
+            lieu="local déclaré", cause="agent externe", moment="période déclarée"),
+        navigation_auxiliaire, fin_navigation,
         _rediger(claim_fondatrice),
         _verifier(("k1", True, True, False, False, None, [], [])),
     ])
     reglages = _settings_neutre(
         neutre.identite, env="dev", allow_ungated=True,
-        node_window=1, max_opens=2, profil_max_opens=0)
+        node_window=1, max_opens=2, profil_max_opens=0, retrieval_max_blocks=2)
 
     async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
         kw["client"] = LlmClient(kw["settings"], anthropic_client=fake)
@@ -1708,8 +1763,7 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
     assert fake.remaining_script == 0
     retrouver = corps["trace"]["steps"][1]
     roles_ouverts = neutre.cles(retrouver["opened_block_ids"])
-    assert roles_ouverts[0] == "inscription"
-    assert "prise_en_charge" in roles_ouverts
+    assert roles_ouverts == ["auxiliaire_initiale", "fondatrice"]
     assert len(retrouver["calls"]) == 2
     assert corps["answer"]["claims"][0]["quotes"][0]["block_id"] == fondatrice
     assert corps["answer"]["claims"][0]["status"]["applicable"] == "oui"

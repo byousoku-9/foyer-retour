@@ -689,11 +689,24 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if completion_necessaire:
             candidats_a_completer = tool_search_candidates
             prioritaires_ids: set[str] = set()
-            if kinds_suffisants is not None:
+            candidats_disponibles = [
+                block_id for block_id in tool_search_candidates
+                if block_id not in admitted_set and block_id not in focused_windows_attempted
+            ]
+            noeuds_disponibles = {
+                document.node_of(block_id) for block_id in candidats_disponibles
+            }
+            capacite_contestee = (
+                (budget.max_blocks is not None
+                 and len(candidats_disponibles) > budget.max_blocks - len(admitted))
+                or len(noeuds_disponibles) > budget.max_opens - opens
+            )
+            if kinds_suffisants is not None and capacite_contestee:
                 # La complétion est explicitement chargée d'atteindre l'un de ces kinds. Une
-                # partition stable présente donc d'abord les seuls hits déjà rendus dont le
-                # typage corpus est confirmé, sans changer l'ordre interne d'aucun groupe ni
-                # créer de candidat, d'ouverture ou de capacité.
+                # partition stable présente les hits confirmés avant les autres seulement quand
+                # les places blocs ou ouvertures restantes ne peuvent pas accueillir tous les
+                # candidats. Sans compétition, l'ordre historique reste intact et tous les hits
+                # conservent leur capacité disponible.
                 candidats_prioritaires = [
                     block_id for block_id in tool_search_candidates
                     if block(block_id).kind in kinds_suffisants

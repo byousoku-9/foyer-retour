@@ -259,6 +259,27 @@ async def test_outils_priorise_une_fondatrice_confirmee_parmi_les_hits_bruts_sou
         candidats[1].block_id, candidats[2].block_id]
 
 
+async def test_outils_garde_tous_les_hits_bruts_quand_la_capacite_est_abondante(
+        ) -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive()
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=4, node_window=1, search_limit=4,
+                       max_blocks=4, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [candidat.block_id for candidat in candidats]
+    assert result.discarded_block_ids == []
+    assert result.truncated is False
+
+
 async def test_outils_priorise_le_focus_fondateur_dans_sa_fenetre_sous_la_derniere_place(
         ) -> None:
     initiale = Block(
