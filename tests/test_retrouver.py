@@ -2572,6 +2572,43 @@ async def test_outils_ne_reutilise_pas_la_limite_d_une_recherche_sans_rapport() 
     assert "d:p2:1" not in outils.opened_block_ids
 
 
+async def test_la_prelecture_de_contention_ne_pollue_pas_le_cache_des_limites() -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Signalinitial règle indépendante.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    garantie_non_confirmee = Block(
+        block_id="d:p1:2",
+        text="Signalfondation les dommages soudains aux objets sont couverts.",
+        loc="p1", seq=2, kind="garantie", kind_source="model")
+    limite = Block(
+        block_id="d:p9:1",
+        text="Les dommages soudains aux objets sont couverts sous condition particulière.",
+        loc="p9", seq=1, kind="condition", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("noeud-partage", [initiale, garantie_non_confirmee]),
+        ("limite-liee", [limite]),
+    )
+    index = Index(corpus)
+    assert index.chercher(["signalinitial"], limit=3, doc_id="d") == [
+        (initiale.block_id, "noeud-partage")]
+    assert index.chercher(["signalfondation"], limit=3, doc_id="d") == [
+        (garantie_non_confirmee.block_id, "noeud-partage")]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalinitial"]),
+            _tool("chercher", "t2", termes=["signalfondation"])),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalinitial"]),
+        budget=_budget(max_opens=1, node_window=2, search_limit=3,
+                       max_blocks=3, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        initiale.block_id, garantie_non_confirmee.block_id]
+    assert limite.block_id not in result.opened_block_ids
+
+
 async def test_une_limite_ne_partageant_que_des_mots_outils_nest_pas_attachee() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="La garantie est acquise pour le bien.", loc="p1", seq=1,

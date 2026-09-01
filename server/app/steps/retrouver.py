@@ -699,6 +699,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # déterministe ne réserve aucune capacité ; elle mesure l'union des blocs que les
             # mêmes fenêtres et unités atomiques présenteraient à `admit()`.
             blocs_potentiels: set[str] = set()
+            cache_prelecture = dict(related_cache)
             for candidat_id in candidats_disponibles:
                 node_id = document.node_of(candidat_id)
                 window = index.ouvrir_noeud(
@@ -720,7 +721,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         related_limit=budget.search_limit,
                         related_max=settings.limite_liee_max,
                         proximity_min=settings.limite_liee_proximite_min,
-                        related_cache=related_cache,
+                        related_cache=cache_prelecture,
                         search_related=(
                             item.block_id == candidat_id
                             or item.block_id in relevant_candidates),
