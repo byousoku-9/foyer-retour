@@ -414,6 +414,104 @@ async def test_outils_remplace_dynamiquement_un_candidat_admis_par_la_fenetre_pr
     assert result.truncated is False
 
 
+async def test_outils_garde_atomique_une_limite_classee_apres_sa_garantie() -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère gamma règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    garantie = Block(
+        block_id="d:p2:1", text="Alphaunique fondement.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    limite = Block(
+        block_id="d:p3:1", text="Betaunique restriction.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual",
+        relation={"exception_de": garantie.block_id})
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("garantie", [garantie]), ("limite", [limite]))
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d",
+        _groupes={
+            "facette relationnelle": (
+                "facette relationnelle", "alphaunique", "betaunique"),
+        },
+        _canoniques={"facette relationnelle": ("facette relationnelle",)})
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        dictionnaire.expand(["facette relationnelle"]), limit=2, doc_id="d",
+        kinds_confirmes=KINDS_FONDATEURS,
+    )] == [garantie.block_id, limite.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["gamma"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus, dictionnaire=dictionnaire,
+        parsed=_parsed(["gamma"], facettes=[
+            "facette relationnelle", "branche distincte",
+        ]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id]
+    assert garantie.block_id not in result.opened_block_ids
+    assert limite.block_id not in result.opened_block_ids
+    assert result.truncated is True
+
+
+async def test_outils_ne_rejoue_pas_les_facettes_sans_appel_outil_chercher(
+        ) -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Repère beta contexte.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id="d:p2:1", text="Première facette règle utile.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("auxiliaire", [auxiliaire]), ("fondatrice", [fondatrice]))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool(
+            "ouvrir_noeud", "t1", node_id="auxiliaire",
+            focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["première facette", "branche distincte"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire.block_id]
+    assert fondatrice.block_id not in result.opened_block_ids
+
+
+async def test_outils_parcourt_les_sources_faibles_apres_les_facettes() -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    faible = Block(
+        block_id="d:p2:1", text="Repère beta règle secondaire.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    forte = Block(
+        block_id="d:p3:1", text="Première facette règle utile.", loc="p3", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("faible", [faible]), ("forte", [forte]))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["première facette", "branche distincte"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id, forte.block_id, faible.block_id]
+    assert result.truncated is False
+
+
 @pytest.mark.parametrize("avec_source_distincte", [False, True])
 async def test_outils_dedoublonne_les_sources_de_facettes_apres_expansion(
         avec_source_distincte: bool) -> None:

@@ -633,6 +633,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return any(block(block_id).kind not in _KINDS_CONTEXTUELS for block_id in admitted)
 
     def complete_search_candidates_for_sufficiency() -> None:
+        nonlocal truncated
         # Le navigateur peut honnêtement conclure après l'ouverture qu'impose son prompt, même si
         # celle-ci n'a pas encore satisfait le besoin déclaré par l'appelant. Ses propres hits
         # restent alors le seul classement autorisé : on les essaie dans leur ordre initial, après
@@ -672,10 +673,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # Sans facette, le replay décisionnel acquis sur la baseline reste disponible depuis la
         # requête effective. Une facette unique conserve son arrêt historique ; plusieurs facettes
         # activent en plus leurs sources fortes dédupliquées.
+        recherche_outils_effective = bool(tool_search_mappings)
         replay_apres_suffisance = (
             kinds_suffisants is not None
             and len(mappings_facettes_effectifs) != 1
-            and bool(tool_search_mappings)
+            and recherche_outils_effective
         )
         if kinds_suffisants is None:
             completion_necessaire = bool(admitted) and all(
@@ -729,7 +731,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # multifacette et après au moins une recherche du navigateur, chacune conserve donc sa
         # propre source forte, avec le même état effectif du dictionnaire que le tour outils.
         sources_facettes = (
-            mappings_facettes_effectifs if len(mappings_facettes_effectifs) > 1 else [])
+            mappings_facettes_effectifs
+            if len(mappings_facettes_effectifs) > 1 and recherche_outils_effective
+            else [])
         sources_faibles = list(tool_search_mappings)
 
         # Le repli lexical acquis sur les auxiliaires demeure ensuite disponible. Ses graines
@@ -753,55 +757,84 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return
 
         # Chaque source conserve son propre classement : concaténer les requêtes ou les textes
-        # diluerait un lien sous les signaux des autres. La fusion équitable choisit et ouvre un
-        # candidat à la fois : une fenêtre peut ainsi admettre le suivant sans que celui-ci consomme
-        # encore une place, et la source fournit alors son prochain candidat canonique.
+        # diluerait un lien sous les signaux des autres. La fusion équitable prépare tout le cohort
+        # encore présentable avant d'en ouvrir le premier : une limite classée après sa garantie
+        # participe ainsi à son unité atomique. Après chaque fenêtre, le cohort est recalculé ; un
+        # candidat admis comme dépendance ne consomme donc aucune place et libère la suivante.
         presentes = 0
         presentes_ids: set[str] = set()
+        presentes_ordre: list[str] = []
         run: list[str] = []
 
-        def ouvrir_depuis(sources: list[dict[str, list[str]] | list[str]]) -> bool:
-            nonlocal presentes, truncated
-            while presentes < budget.search_limit:
+        def fusionner_sources(
+                sources: list[dict[str, list[str]] | list[str]], limite: int,
+                exclus: set[str]) -> list[tuple[str, str]]:
+            retenus: list[tuple[str, str]] = []
+            retenus_ids = set(exclus)
+            while len(retenus) < limite:
                 progression = False
                 for mapping in sources:
                     classement = classement_disponible(mapping)
                     suivant = next(
-                        (hit for hit in classement if hit[0] not in presentes_ids), None)
+                        (hit for hit in classement if hit[0] not in retenus_ids), None)
                     if suivant is None:
                         continue
-                    block_id, node_id = suivant
-                    # Les candidats au-delà de la capacité restante n'ont jamais été présentés
-                    # au navigateur. Ils ne créent aucune fausse troncature après suffisance ;
-                    # une insuffisance encore ouverte reste, elle, honnêtement tronquée.
-                    if opens >= budget.max_opens:
-                        if not suffisance_atteinte():
-                            truncated = True
-                        return False
-                    presentes_ids.add(block_id)
-                    presentes += 1
-                    run.append(block_id)
-                    best_hit_by_node.setdefault(node_id, block_id)
-                    if block_id not in search_candidates:
-                        search_candidates.append(block_id)
-                    _payload, is_error = execute(
-                        "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
-                        prioritize_focus=True)
+                    retenus.append(suivant)
+                    retenus_ids.add(suivant[0])
                     progression = True
-                    if is_error:
-                        return False
-                    if presentes == budget.search_limit:
+                    if len(retenus) == limite:
                         break
                 if not progression:
                     break
-            return True
+            return retenus
+
+        def cohorte_disponible() -> list[tuple[str, str]]:
+            restante = budget.search_limit - presentes
+            fortes = fusionner_sources(sources_facettes, restante, presentes_ids)
+            fortes_ids = {block_id for block_id, _node_id in fortes}
+            faibles = fusionner_sources(
+                sources_faibles, restante - len(fortes), presentes_ids | fortes_ids)
+            return [*fortes, *faibles]
 
         # Les sources fortes remplissent d'abord la coupe, équitablement entre facettes. Les
         # requêtes variables puis les graines auxiliaires ne reçoivent que la capacité restante.
         search_runs.append(run)
-        if not ouvrir_depuis(sources_facettes):
-            return
-        ouvrir_depuis(sources_faibles)
+        cohorte_precedente: list[tuple[str, str]] = []
+        while presentes < budget.search_limit:
+            nouvelle_cohorte = cohorte_disponible()
+            # L'ouverture précédente ne remet pas la fusion au début : les candidats encore
+            # disponibles gardent leur rang, seuls ceux admis ou tentés sont remplacés.
+            indisponibles = admitted_set | focused_windows_attempted | presentes_ids
+            cohorte = [
+                hit for hit in cohorte_precedente if hit[0] not in indisponibles
+            ]
+            cohorte_ids = {block_id for block_id, _node_id in cohorte}
+            cohorte.extend(
+                hit for hit in nouvelle_cohorte if hit[0] not in cohorte_ids)
+            cohorte = cohorte[:budget.search_limit - presentes]
+            if not cohorte:
+                break
+            run[:] = [*presentes_ordre, *(block_id for block_id, _node_id in cohorte)]
+            block_id, node_id = cohorte[0]
+            # Les candidats au-delà de la capacité restante ne sont jamais présentés à la
+            # recherche. Ils ne créent aucune fausse troncature après suffisance ; une
+            # insuffisance encore ouverte reste, elle, honnêtement tronquée.
+            if opens >= budget.max_opens:
+                if not suffisance_atteinte():
+                    truncated = True
+                return
+            presentes_ids.add(block_id)
+            presentes_ordre.append(block_id)
+            presentes += 1
+            best_hit_by_node.setdefault(node_id, block_id)
+            if block_id not in search_candidates:
+                search_candidates.append(block_id)
+            _payload, is_error = execute(
+                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                prioritize_focus=True)
+            if is_error:
+                return
+            cohorte_precedente = cohorte[1:]
 
     used_tools = False
 
