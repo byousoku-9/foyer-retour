@@ -639,30 +639,35 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # les réservations et via l'outil commun, afin de conserver fenêtres, dépendances,
         # atomicité et budgets sans capacité cachée. Sans besoin déclaré, le comportement
         # historique reste strictement limité à une lecture exclusivement contextuelle.
+        suffisance_initiale = suffisance_atteinte()
         if kinds_suffisants is None:
             completion_necessaire = bool(admitted) and all(
                 block(block_id).kind in _KINDS_CONTEXTUELS for block_id in admitted)
         else:
-            completion_necessaire = not suffisance_atteinte()
-        if not completion_necessaire:
+            completion_necessaire = not suffisance_initiale
+        # Pour l'appel générique, l'arrêt substantiel reste historique. Pour une demande
+        # décisionnelle, une fondatrice déjà admise confirme seulement son kind : le replay filtré
+        # ci-dessous peut encore présenter les candidates canoniquement mieux classées.
+        if not completion_necessaire and kinds_suffisants is None:
             return
-        for block_id in tool_search_candidates:
-            if block_id in admitted_set or block_id in focused_windows_attempted:
-                continue
-            candidat = block(block_id)
-            # Une fondatrice rencontrée pendant la complétion confirme seulement son typage. Les
-            # fondatrices suivantes restent donc livrables au vérificateur, mais les auxiliaires
-            # restants ne reprennent pas de capacité après ce premier résultat décisionnel.
-            if suffisance_atteinte():
-                if kinds_suffisants is None:
-                    return
-                if candidat.kind not in kinds_suffisants or not candidat.kind_confirmed:
+        if not suffisance_initiale:
+            for block_id in tool_search_candidates:
+                if block_id in admitted_set or block_id in focused_windows_attempted:
                     continue
-            node_id = document.node_of(block_id)
-            _payload, is_error = execute(
-                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
-            if is_error:
-                return
+                candidat = block(block_id)
+                # Une fondatrice rencontrée pendant la complétion confirme seulement son typage.
+                # Les fondatrices suivantes restent donc livrables au vérificateur, mais les
+                # auxiliaires restants ne reprennent pas de capacité après ce premier résultat.
+                if suffisance_atteinte():
+                    if kinds_suffisants is None:
+                        return
+                    if candidat.kind not in kinds_suffisants or not candidat.kind_confirmed:
+                        continue
+                node_id = document.node_of(block_id)
+                _payload, is_error = execute(
+                    "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+                if is_error:
+                    return
 
         # Une suffisance explicitement déclarée autorise ensuite un rappel borné, mais seulement
         # après l'épuisement des hits bruts du navigateur. On rejoue d'abord les requêtes effectives
@@ -727,7 +732,15 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             best_hit_by_node.setdefault(node_id, block_id)
             if block_id not in search_candidates:
                 search_candidates.append(block_id)
-            if block_id in admitted_set or block_id in focused_windows_attempted:
+            if block_id in admitted_set:
+                # Si le navigateur avait déjà choisi une fondatrice, son retour dans le classement
+                # filtré clôt la recherche : seules les candidates mieux classées qui la précèdent
+                # ont été ajoutées. Son kind n'est pas pris pour une preuve de pertinence, mais son
+                # rang canonique et la priorité d'ouverture directe restent tous deux préservés.
+                if suffisance_initiale:
+                    return
+                continue
+            if block_id in focused_windows_attempted:
                 continue
             # Les candidats au-delà de la capacité restante n'ont jamais été présentés au
             # navigateur : ne pas provoquer un appel condamné qui transformerait à tort leur

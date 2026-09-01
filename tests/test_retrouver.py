@@ -248,6 +248,32 @@ async def test_outils_ne_confond_pas_premiere_fondatrice_confirmee_et_pertinence
         auxiliaire.block_id, premiere.block_id, suivante.block_id]
 
 
+async def test_outils_rejoue_apres_une_fondatrice_initiale_seulement_typee() -> None:
+    etrangere = Block(
+        block_id="d:p1:1", text="Signal décisionnel règle étrangère.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    utile = Block(
+        block_id="d:p2:1", text="Signal décisionnel règle utile.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(("etrangere", [etrangere]), ("utile", [utile]))
+    termes = ["signal décisionnel", "règle utile"]
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        termes, limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)] == [
+            utile.block_id, etrangere.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="etrangere",
+                  focus_block_id=etrangere.block_id)),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [etrangere.block_id, utile.block_id]
+
+
 async def test_outils_rejoue_la_requete_effective_dans_les_kinds_fondateurs() -> None:
     auxiliaire = Block(
         block_id="d:p1:1", text="Entrée administrative alpha.", loc="p1", seq=1,
