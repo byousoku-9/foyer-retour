@@ -354,6 +354,38 @@ async def test_un_compagnon_aussi_hit_garde_son_unite_primaire_historique() -> N
     assert deterministe.truncated and outils.truncated
 
 
+async def test_un_compagnon_hit_reste_dans_lordre_de_sa_fenetre_avant_le_noeud_suivant() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première facette utile.", loc="p1", seq=1,
+              kind="heading"),
+        Block(block_id="d:p1:2", text="Première facette utile expliquée.", loc="p1", seq=2),
+        Block(block_id="d:p2:1", text="Seconde facette utile.", loc="p2", seq=1),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1"),
+                                        BlockRef(block_id="d:p1:2")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première facette", "seconde facette"],
+                     facettes=["première facette", "seconde facette"])
+    budget = _budget(max_opens=2, node_window=2, search_limit=3,
+                     max_blocks=1, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première facette", "seconde facette"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:2"]
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
 async def test_un_focus_heading_sans_corps_est_refuse_dans_les_deux_variantes() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),

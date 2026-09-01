@@ -1787,20 +1787,23 @@ async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
         neutre.identite.termes(), limit=reglages.search_limit, doc_id=neutre.identite.doc_id)]
     # Un premier tour qui **cherche sans ouvrir**, puis un tour qui conclut : la navigation a des
     # candidats et aucun bloc admis, et le repli hérite donc de candidats à publier.
-    redaction_focus = _rediger((
-        "k1", "La prise en charge exige que le local reste inscrit au registre déclaré.",
-        [(neutre.bloc("inscription"),
-          "La prise en charge n'est acquise que si le local reste inscrit au registre déclaré.")],
-    ))
     answer, trace, fake = await _run_neutre(
         neutre, [_comprendre_neutre(neutre), _navigation(neutre),
                  _navigation(neutre, chercher=False, stop_reason="end_turn"),
-                 redaction_focus, _verifier_neutre()], settings=reglages)
+                 _rediger_neutre(neutre), _verifier_neutre(),
+                 _rediger_neutre(neutre)], settings=reglages)
 
-    assert fake.remaining_script == 0 and answer.found
+    assert fake.remaining_script == 0
     retrouver = trace.steps[1]
     assert [c.name for c in retrouver.checks] == [
         "candidats_non_ouverts", "repli_deterministe", "controle_deterministe"]
+    # La réservation survivante est une `condition`, donc déjà décisionnelle au sens D7. Elle peut
+    # légitimement évincer la garantie sous cette borne ; le contenu est prouvé indépendamment du
+    # faux draft, et AD-6 garde la décision fail-closed faute de fondatrice affichée.
+    assert neutre.cles(retrouver.opened_block_ids) == [
+        "titre", "inscription", "definition_objet", "ecart_socle"]
+    assert answer.claims == []
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     ouverts = set(retrouver.opened_block_ids)
     assert retrouver.discarded_block_ids == [b for b in candidats_outils if b not in ouverts]
     assert retrouver.discarded_block_ids and not answer.complete

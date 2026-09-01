@@ -420,7 +420,7 @@ async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None
 async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: Index) -> None:
     """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne.
 
-    **Revue Codex 2.3 (B3), puis story 4.2f.** La borne mord au point que le bloc cité par BONNE
+    **Revue Codex 2.3 (B3), puis story 4.2f.** La borne mord au point que le bloc École cité
     n'est plus transmis, la claim est rejetée (« bloc non fourni »), la relance rejoue la même
     ébauche. La 2.3 avait fermé le mensonge — publier un `AbsenceProof` au terme d'une lecture
     tronquée affirme l'exhaustivité que la troncature dément — par un échec terminal 503. La 4.2f
@@ -428,11 +428,13 @@ async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: 
     `found=false` qui ne prouve aucune absence mais chiffre ce qui a été lu.
     """
     settings = _settings(retrieval_max_blocks=1)
-    answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _rediger(BONNE)],
+    answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE_2), _rediger(BONNE_2)],
                                       settings=settings)
     retrouver = trace.steps[1]
     assert retrouver.name == "retrouver"
-    assert len(retrouver.opened_block_ids) == 1  # sans la borne, plusieurs blocs partaient
+    # I2 rend d'abord le compagnon hit de la fenêtre Arrivée ; le bloc École du draft reste donc
+    # explicitement hors budget, ce qui conserve la preuve de rejet visée par ce test.
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:2"]
     assert trace.truncations == 1
     # toute la chaîne a bien tourné, relance comprise (la seconde ébauche est identique, donc pas
     # de seconde vérification), et *restituer* la termine désormais au lieu d'une exception.

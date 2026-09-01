@@ -1125,10 +1125,12 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 voisins, focus_id, reserve=_focus_est_reserve(
                     focus_id, node_id, reservations=reserved_candidates,
                     best_hit_by_node=best_hit)))
-        # Un compagnon qui est aussi hit garde son unité historique, mais après les primaires des
-        # autres nœuds : sa double qualité structurelle ne lui donne aucune priorité supplémentaire.
-        primaires.extend(
-            candidate for candidate in fenetres if candidate in compagnons_candidats)
+            # Un compagnon qui est aussi hit garde son unité historique juste après les autres
+            # primaires de sa propre fenêtre. Sa double qualité structurelle ne le fait donc pas
+            # passer avant eux, mais elle ne le repousse pas non plus après les nœuds suivants.
+            primaires.extend(
+                candidate for candidate in fenetres
+                if noeud_de[candidate] == node_id and candidate in compagnons_candidats)
         for block_id in primaires:
             directes = _dependances_directes(
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
