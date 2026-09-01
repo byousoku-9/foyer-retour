@@ -615,6 +615,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
                 execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
 
+    def complete_contextual_search_candidates() -> None:
+        # Le navigateur peut honnêtement conclure après l'ouverture qu'impose son prompt, même si
+        # celle-ci n'a transmis que du contexte. Ses propres hits restent alors le seul classement
+        # autorisé : on les essaie dans leur ordre initial, après les réservations et via l'outil
+        # commun, afin de conserver fenêtres, dépendances, atomicité et budgets sans capacité cachée.
+        def exclusively_contextual() -> bool:
+            return bool(admitted) and all(
+                block(block_id).kind in _KINDS_CONTEXTUELS for block_id in admitted)
+
+        if not exclusively_contextual():
+            return
+        for block_id in tool_search_candidates:
+            if block_id in admitted_set or block_id in focused_windows_attempted:
+                continue
+            node_id = document.node_of(block_id)
+            _payload, is_error = execute(
+                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+            if is_error or not exclusively_contextual():
+                break
+
     used_tools = False
 
     async def navigate() -> None:
@@ -700,6 +720,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # complétion ne voit que les recherches des phases antérieures et de ce tour outils ;
             # un sommaire placé après ne peut donc jamais ouvrir rétroactivement un candidat caché.
             complete_reservations()
+            complete_contextual_search_candidates()
     expected_search = canonical_forms(terms)
     covered_search = canonical_forms(searched_terms)
     # Un refus `zero_hit` n'est honnête que si au moins un terme canonique existait et si les

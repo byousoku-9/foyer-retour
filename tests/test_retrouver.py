@@ -150,8 +150,7 @@ async def test_outils_poursuit_apres_un_premier_tour_exclusivement_contextuel() 
     result, _step, fake, request_budget = await _run_outils([
         _tool_message(_tool("chercher", "t1", termes=["règle utile"]),
                       _tool("ouvrir_noeud", "t2", node_id="contexte")),
-        _tool_message(_tool("ouvrir_noeud", "t3", node_id="regle",
-                            focus_block_id="d:p2:1")),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
     ], corpus=corpus, parsed=_parsed(["règle utile"]),
         budget=_budget(max_opens=2, node_window=2, max_blocks=3, max_tokens=6000))
 
