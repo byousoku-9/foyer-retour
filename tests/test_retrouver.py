@@ -512,6 +512,76 @@ async def test_outils_parcourt_les_sources_faibles_apres_les_facettes() -> None:
     assert result.truncated is False
 
 
+async def test_outils_preserve_le_rappel_auxiliaire_admis_avec_une_fondatrice() -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Entrée commune pontunique.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    initiale = Block(
+        block_id="d:p2:1", text="Entrée commune règle initiale.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    suivante = Block(
+        block_id="d:p3:1", text="Pontunique règle suivante.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("auxiliaire", [auxiliaire]), ("initiale", [initiale]),
+        ("suivante", [suivante]))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["entrée commune"]),
+            _tool("ouvrir_noeud", "t2", node_id="auxiliaire",
+                  focus_block_id=auxiliaire.block_id),
+            _tool("ouvrir_noeud", "t3", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus, parsed=_parsed(["entrée commune"], facettes=[]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        auxiliaire.block_id, initiale.block_id, suivante.block_id]
+    assert result.truncated is False
+
+
+async def test_outils_classe_chaque_source_une_fois_par_fusion(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    premiere = Block(
+        block_id="d:p2:1", text="Première facette règle utile.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    seconde = Block(
+        block_id="d:p3:1", text="Seconde facette règle utile.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("premiere", [premiere]), ("seconde", [seconde]))
+    original = Index.chercher
+    appels = {("première facette",): 0, ("seconde facette",): 0}
+
+    def compter(self: Index, mapping, *args, **kwargs):
+        cle = tuple(mapping) if isinstance(mapping, list) else None
+        if cle in appels:
+            appels[cle] += 1
+        return original(self, mapping, *args, **kwargs)
+
+    monkeypatch.setattr(Index, "chercher", compter)
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["première facette", "seconde facette"]),
+        budget=_budget(max_opens=1, node_window=1, search_limit=3,
+                       max_blocks=3, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id]
+    assert appels == {("première facette",): 1, ("seconde facette",): 1}
+    assert result.truncated is False
+
+
 @pytest.mark.parametrize("avec_source_distincte", [False, True])
 async def test_outils_dedoublonne_les_sources_de_facettes_apres_expansion(
         avec_source_distincte: bool) -> None:
@@ -697,7 +767,8 @@ async def test_outils_ne_confond_pas_premiere_fondatrice_confirmee_et_pertinence
         auxiliaire.block_id, premiere.block_id, suivante.block_id]
 
 
-async def test_outils_rejoue_apres_une_fondatrice_initiale_seulement_typee() -> None:
+async def test_outils_rejoue_sans_facette_apres_une_fondatrice_initiale_seulement_typee(
+        ) -> None:
     etrangere = Block(
         block_id="d:p1:1", text="Signal décisionnel règle étrangère.", loc="p1", seq=1,
         kind="garantie", kind_source="manual")
@@ -715,7 +786,7 @@ async def test_outils_rejoue_apres_une_fondatrice_initiale_seulement_typee() -> 
             _tool("chercher", "t1", termes=termes),
             _tool("ouvrir_noeud", "t2", node_id="etrangere",
                   focus_block_id=etrangere.block_id)),
-    ], corpus=corpus, parsed=_parsed(termes),
+    ], corpus=corpus, parsed=_parsed(termes, facettes=[]),
         budget=_budget(max_opens=2, node_window=1, search_limit=2,
                        max_blocks=2, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)

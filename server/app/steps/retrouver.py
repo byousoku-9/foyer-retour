@@ -740,19 +740,18 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # viennent uniquement des hits qu'il a effectivement fait admettre ; ni un voisin de
         # fenêtre, ni un candidat jamais lu ne peut orienter cette recherche. Les mots-outils déjà
         # neutralisés pour les liens de clauses ne suffisent pas à créer une correspondance.
-        if not suffisance_initiale:
-            for block_id in tool_search_candidates:
-                if block_id not in admitted_set:
-                    continue
-                candidat = block(block_id)
-                if candidat.kind in kinds_suffisants and candidat.kind_confirmed:
-                    continue
-                graines: list[str] = []
-                for mot in forme(candidat.text).split():
-                    if mot.isalnum() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
-                        graines.append(mot)
-                if graines:
-                    sources_faibles.append(graines)
+        for block_id in tool_search_candidates:
+            if block_id not in admitted_set:
+                continue
+            candidat = block(block_id)
+            if candidat.kind in kinds_suffisants and candidat.kind_confirmed:
+                continue
+            graines: list[str] = []
+            for mot in forme(candidat.text).split():
+                if mot.isalnum() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
+                    graines.append(mot)
+            if graines:
+                sources_faibles.append(graines)
         if not sources_facettes and not sources_faibles:
             return
 
@@ -769,12 +768,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         def fusionner_sources(
                 sources: list[dict[str, list[str]] | list[str]], limite: int,
                 exclus: set[str]) -> list[tuple[str, str]]:
+            if limite <= 0 or not sources:
+                return []
             retenus: list[tuple[str, str]] = []
             retenus_ids = set(exclus)
+            classements = [classement_disponible(mapping) for mapping in sources]
             while len(retenus) < limite:
                 progression = False
-                for mapping in sources:
-                    classement = classement_disponible(mapping)
+                for classement in classements:
                     suivant = next(
                         (hit for hit in classement if hit[0] not in retenus_ids), None)
                     if suivant is None:
@@ -798,7 +799,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
 
         # Les sources fortes remplissent d'abord la coupe, équitablement entre facettes. Les
         # requêtes variables puis les graines auxiliaires ne reçoivent que la capacité restante.
-        search_runs.append(run)
+        run_enregistre = False
         cohorte_precedente: list[tuple[str, str]] = []
         while presentes < budget.search_limit:
             nouvelle_cohorte = cohorte_disponible()
@@ -814,7 +815,6 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             cohorte = cohorte[:budget.search_limit - presentes]
             if not cohorte:
                 break
-            run[:] = [*presentes_ordre, *(block_id for block_id, _node_id in cohorte)]
             block_id, node_id = cohorte[0]
             # Les candidats au-delà de la capacité restante ne sont jamais présentés à la
             # recherche. Ils ne créent aucune fausse troncature après suffisance ; une
@@ -823,6 +823,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if not suffisance_atteinte():
                     truncated = True
                 return
+            if not run_enregistre:
+                search_runs.append(run)
+                run_enregistre = True
+            run[:] = [*presentes_ordre, *(block_id for block_id, _node_id in cohorte)]
             presentes_ids.add(block_id)
             presentes_ordre.append(block_id)
             presentes += 1
