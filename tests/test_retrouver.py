@@ -386,6 +386,42 @@ async def test_un_compagnon_hit_reste_dans_lordre_de_sa_fenetre_avant_le_noeud_s
     assert deterministe.truncated == outils.truncated is True
 
 
+async def test_h_c_x_garde_le_compagnon_hit_dans_lordre_unique_de_la_fenetre() -> None:
+    """H échoue atomiquement ; C doit être tenté avant X, sans réinjection tardive."""
+    blocks = [
+        Block(block_id="d:p1:1", text="Facette utile.", loc="p1", seq=1, kind="heading"),  # H
+        Block(block_id="d:p1:2", text="Facette utile développée.", loc="p1", seq=2),  # C
+        Block(block_id="d:p1:3", text="Facette utile voisine.", loc="p1", seq=3),  # X
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=block.block_id) for block in blocks])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["facette utile"], facettes=["facette utile"])
+    budget = _budget(max_opens=1, node_window=3, search_limit=3,
+                     max_blocks=1, max_tokens=6000)
+
+    index = Index(corpus)
+    reservations: list[tuple[str, str]] = []
+    hits = index.chercher(
+        parsed.termes_de_recherche(), limit=budget.search_limit, doc_id="d",
+        groupes_prioritaires=parsed.facettes, reservations_out=reservations)
+    assert [block_id for block_id, _node_id in hits] == ["d:p1:1", "d:p1:2", "d:p1:3"]
+    assert reservations == [("d:p1:1", "n")]
+
+    deterministe, _ = _run(parsed, corpus, index, budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["facette utile"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:2"]
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
 async def test_un_focus_heading_sans_corps_est_refuse_dans_les_deux_variantes() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
