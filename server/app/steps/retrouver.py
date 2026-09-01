@@ -3,7 +3,7 @@
 La variante `deterministe` (J+1) reste du code pur. La variante `outils` (story 2.6) laisse le tier
 configuré parcourir le sommaire avec exactement quatre outils, en deux tours au plus ; elle ne change
 ni la chaîne du pipeline, ni `RetrievalResult`, ni la vérification aval. Le premier tour utile suffit
-dès qu'il a admis des blocs sans laisser de pagination ouverte.
+dès qu'il a admis un bloc autre qu'un titre ou une définition sans laisser de pagination ouverte.
 
 Dans cette variante, après les ouvertures du navigateur et à la frontière de la phase `outils`, les
 réservations de facettes encore absentes sont complétées depuis le classement unique de
@@ -129,6 +129,7 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 
 
 _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
+_KINDS_CONTEXTUELS = frozenset({"heading", "definition"})
 _MOTS_OUTILS_LIMITES = frozenset({
     "a", "au", "aux", "avec", "ce", "ces", "dans", "de", "des", "du", "elle", "en", "est",
     "et", "il", "ils", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
@@ -664,9 +665,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if is_error:
                     item["is_error"] = True
                 tool_results.append(item)
-            # Le premier tour nominal regroupe recherche et ouvertures. Si des blocs sont admis et
-            # qu'aucun curseur ne reste à suivre, un second appel ne peut qu'alourdir le chemin froid.
-            if turn == 0 and admitted and not pagination_expected:
+            # Un titre ou une définition éclaire les candidats sans fournir encore la règle utile.
+            # Tout autre bloc admis conserve l'arrêt froid historique ; la pagination garde sa
+            # propre priorité et continue de gouverner le tour suivant.
+            substantiel_admis = any(
+                block(block_id).kind not in _KINDS_CONTEXTUELS for block_id in admitted)
+            if turn == 0 and substantiel_admis and not pagination_expected:
                 break
             if turn + 1 < budget.max_llm_turns:
                 messages.extend([

@@ -125,6 +125,58 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
     return result, step, fake, request_budget
 
 
+def _corpus_contexte_puis_regle() -> Corpus:
+    blocks = [
+        Block(block_id="d:p1:1", text="Titre de contexte", loc="p1", seq=1,
+              kind="heading"),
+        Block(block_id="d:p1:2", text="Alpha désigne le contexte initial.", loc="p1", seq=2,
+              kind="definition", defines="alpha"),
+        Block(block_id="d:p2:1", text="La règle utile décide le cas.", loc="p2", seq=1,
+              kind="garantie"),
+    ]
+    nodes = [
+        Node(node_id="root", items=[NodeRef(node_id="contexte"), NodeRef(node_id="regle")]),
+        Node(node_id="contexte", items=[
+            BlockRef(block_id="d:p1:1"), BlockRef(block_id="d:p1:2")]),
+        Node(node_id="regle", items=[BlockRef(block_id="d:p2:1")]),
+    ]
+    return Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > contexte, regle"})
+
+
+async def test_outils_poursuit_apres_un_premier_tour_exclusivement_contextuel() -> None:
+    corpus = _corpus_contexte_puis_regle()
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["règle utile"]),
+                      _tool("ouvrir_noeud", "t2", node_id="contexte")),
+        _tool_message(_tool("ouvrir_noeud", "t3", node_id="regle",
+                            focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=2, node_window=2, max_blocks=3, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p2:1"]
+    assert len(fake.requests) == request_budget.attempts == 2
+    first_results = fake.requests[1]["messages"][-1]["content"]
+    assert '"block_id": "d:p1:1"' in first_results[1]["content"]
+    assert '"block_id": "d:p1:2"' in first_results[1]["content"]
+
+
+async def test_outils_ne_recree_pas_de_capacite_apres_un_tour_contextuel() -> None:
+    corpus = _corpus_contexte_puis_regle()
+    result, _step, fake, request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["règle utile"]),
+                      _tool("ouvrir_noeud", "t2", node_id="contexte")),
+        _tool_message(_tool("ouvrir_noeud", "t3", node_id="regle",
+                            focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+        budget=_budget(max_opens=1, node_window=2, max_blocks=3, max_tokens=6000))
+
+    assert result.opened_block_ids == ["d:p1:1", "d:p1:2"]
+    assert result.truncated is True
+    assert len(fake.requests) == request_budget.attempts == 2
+
+
 async def test_outils_nominal_exposes_four_tools_and_stops_after_one_useful_turn() -> None:
     result, step, fake, request_budget = await _run_outils([
         _tool_message(_tool("chercher", "t1", termes=["matricule"]),
@@ -2202,6 +2254,7 @@ async def test_un_bloc_transmis_sans_fenetre_a_quand_meme_sa_section() -> None:
     corpus = _corpus()
     result, _step, _fake, _rb = await _run_outils([
         _tool_message(_tool("definitions", "t1", termes=["contenu"])),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
     ], corpus=corpus, parsed=_parsed(["contenu"]))
     assert result.opened_block_ids == ["d:p3:1"]
     assert result.opened_node_ids == ["n3"]

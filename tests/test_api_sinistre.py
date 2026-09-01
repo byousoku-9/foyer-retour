@@ -1350,7 +1350,8 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
          "input": {"termes": ["chaleur"]}},
         {"type": "tool_use", "id": "t-ouvrir", "name": "ouvrir_noeud",
          "input": {"node_id": f"{DOC_ID}:socle", "focus_block_id": f"{DOC_ID}:p9:2"}}])
-    script = [comprendre, navigation,
+    navigation_fin = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
+    script = [comprendre, navigation, navigation_fin,
               fake_message(model=TIERS["reason"], text=_json.dumps(ebauche)),
               fake_message(model=TIERS["reason"], text=_json.dumps(ebauche))]
     etat.pipeline_sinistre = _pipeline_sinistre_reel(script, retrieval_max_blocks=1)
