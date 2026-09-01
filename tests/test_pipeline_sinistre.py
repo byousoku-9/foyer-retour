@@ -1758,6 +1758,11 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
             "doc_id": neutre.identite.doc_id, "question": QUESTION_NEUTRE,
             "faits": FAITS_NEUTRES.model_dump()})
 
+    redactions = [request for request in fake.requests if request["model"] == TIERS["reason"]]
+    assert redactions
+    blocs_transmis = str(redactions[0]["messages"])
+    assert auxiliaire in blocs_transmis
+    assert fondatrice in blocs_transmis
     assert reponse.status_code == 200, reponse.text
     corps = reponse.json()
     assert fake.remaining_script == 0

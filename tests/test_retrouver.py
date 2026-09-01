@@ -280,6 +280,107 @@ async def test_outils_garde_tous_les_hits_bruts_quand_la_capacite_est_abondante(
     assert result.truncated is False
 
 
+async def test_outils_compte_une_ouverture_par_focus_meme_dans_un_noeud_partage(
+        ) -> None:
+    candidats = [
+        Block(block_id="d:p1:1", text="Signalouverture signalouverture initial.",
+              loc="p1", seq=1, kind="condition", kind_source="manual"),
+        Block(block_id="d:p2:1", text="Signalouverture signalouverture auxiliaire alpha.",
+              loc="p2", seq=1, kind="definition", kind_source="manual",
+              defines="terme alpha"),
+        Block(block_id="d:p2:2", text="Signalouverture auxiliaire beta.",
+              loc="p2", seq=2, kind="para"),
+        Block(block_id="d:p4:1", text="Signalouverture règle décisionnelle.",
+              loc="p4", seq=1, kind="garantie", kind_source="manual"),
+    ]
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [candidats[0]]),
+        ("auxiliaires-partagees", candidats[1:3]),
+        ("fondatrice", [candidats[3]]),
+    )
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signalouverture"], limit=4, doc_id="d")] == [
+            candidat.block_id for candidat in candidats]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalouverture"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalouverture"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=4,
+                       max_blocks=5, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        candidats[0].block_id, candidats[3].block_id, candidats[1].block_id]
+    assert result.discarded_block_ids == [candidats[2].block_id]
+
+
+async def test_outils_compte_tous_les_blocs_de_la_fenetre_auxiliaire(
+        ) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Signalquota signalquota signalquota initial.",
+        loc="p1", seq=1, kind="condition", kind_source="manual")
+    auxiliaire = Block(
+        block_id="d:p2:1", text="Signalquota signalquota auxiliaire.",
+        loc="p2", seq=1, kind="condition", kind_source="manual")
+    compagnon = Block(
+        block_id="d:p2:2", text="Compagnon neutre de la fenêtre auxiliaire.",
+        loc="p2", seq=2, kind="para")
+    fondatrice = Block(
+        block_id="d:p4:1", text="Signalquota règle décisionnelle.",
+        loc="p4", seq=1, kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]),
+        ("fenetre-auxiliaire", [auxiliaire, compagnon]),
+        ("fondatrice", [fondatrice]),
+    )
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signalquota"], limit=3, doc_id="d")] == [
+            initiale.block_id, auxiliaire.block_id, fondatrice.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalquota"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalquota"]),
+        budget=_budget(max_opens=3, node_window=2, search_limit=3,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        initiale.block_id, fondatrice.block_id, auxiliaire.block_id]
+    assert result.discarded_block_ids == []
+
+
+async def test_outils_garde_les_hits_qui_tiennent_apres_la_priorite_fondatrice(
+        ) -> None:
+    corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive()
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalbrut"]),
+            _tool("ouvrir_noeud", "t2", node_id="branche-1",
+                  focus_block_id=candidats[0].block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalbrut"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=4,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        candidats[0].block_id, candidats[3].block_id, candidats[1].block_id]
+    assert result.discarded_block_ids == [candidats[2].block_id]
+    assert result.truncated is False
+
+
 async def test_outils_priorise_le_focus_fondateur_dans_sa_fenetre_sous_la_derniere_place(
         ) -> None:
     initiale = Block(
@@ -1451,7 +1552,7 @@ async def test_outils_ne_depasse_pas_le_quota_pour_atteindre_une_fondatrice() ->
 
 
 async def test_outils_complete_une_recherche_sans_ouverture_jusqua_la_fondatrice() -> None:
-    corpus, _auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
+    corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
     result, _step, fake, request_budget = await _run_outils([
         _tool_message(_tool("chercher", "t1", termes=["règle utile"])),
         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
@@ -1459,8 +1560,9 @@ async def test_outils_complete_une_recherche_sans_ouverture_jusqua_la_fondatrice
         budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)
 
-    assert fondatrice_id in result.opened_block_ids
-    assert result.blocs[-1].kind == "garantie" and result.blocs[-1].kind_confirmed
+    assert result.opened_block_ids == [fondatrice_id, auxiliaire_id]
+    fondatrice = next(bloc for bloc in result.blocs if bloc.block_id == fondatrice_id)
+    assert fondatrice.kind == "garantie" and fondatrice.kind_confirmed
     assert len(fake.requests) == request_budget.attempts == 2
 
 

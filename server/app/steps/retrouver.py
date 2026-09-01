@@ -693,13 +693,49 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 block_id for block_id in tool_search_candidates
                 if block_id not in admitted_set and block_id not in focused_windows_attempted
             ]
-            noeuds_disponibles = {
-                document.node_of(block_id) for block_id in candidats_disponibles
-            }
+            # La contention porte sur ce que les appels consommeront réellement : chaque focus
+            # restant coûte une ouverture, même si plusieurs focus appartiennent au même nœud, et
+            # une fenêtre peut admettre plusieurs primaires ou dépendances. Cette prélecture
+            # déterministe ne réserve aucune capacité ; elle mesure l'union des blocs que les
+            # mêmes fenêtres et unités atomiques présenteraient à `admit()`.
+            blocs_potentiels: set[str] = set()
+            for candidat_id in candidats_disponibles:
+                node_id = document.node_of(candidat_id)
+                window = index.ouvrir_noeud(
+                    node_id, focus_block_id=candidat_id, node_window=budget.node_window)
+                relevant_candidates: list[str] = []
+                for run in search_runs:
+                    if candidat_id in run:
+                        relevant_candidates.extend(
+                            candidate for candidate in run
+                            if candidate not in relevant_candidates)
+                focus_companions = set(index.unite_de_renvoi(candidat_id)[1:])
+                for item in window.blocks:
+                    if (item.block_id in focus_companions
+                            and item.block_id not in relevant_candidates):
+                        continue
+                    dependencies = _dependances_directes(
+                        item.block_id, block=block, index=index, terms=terms, doc_id=doc_id,
+                        search_candidates=relevant_candidates,
+                        related_limit=budget.search_limit,
+                        related_max=settings.limite_liee_max,
+                        proximity_min=settings.limite_liee_proximite_min,
+                        related_cache=related_cache,
+                        search_related=(
+                            item.block_id == candidat_id
+                            or item.block_id in relevant_candidates),
+                    )
+                    unit = (_unite_primaire(
+                        item.block_id, kind=item.kind, index=index, dependances=dependencies)
+                        if item.block_id == candidat_id
+                        else [item.block_id, *dependencies])
+                    if unit is not None:
+                        blocs_potentiels.update(unit)
+            blocs_potentiels.difference_update(admitted_set)
             capacite_contestee = (
                 (budget.max_blocks is not None
-                 and len(candidats_disponibles) > budget.max_blocks - len(admitted))
-                or len(noeuds_disponibles) > budget.max_opens - opens
+                 and len(blocs_potentiels) > budget.max_blocks - blocks_used)
+                or len(candidats_disponibles) > budget.max_opens - opens
             )
             if kinds_suffisants is not None and capacite_contestee:
                 # La complétion est explicitement chargée d'atteindre l'un de ces kinds. Une
@@ -721,15 +757,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for block_id in candidats_a_completer:
                 if block_id in admitted_set or block_id in focused_windows_attempted:
                     continue
-                candidat = block(block_id)
-                # Une fondatrice rencontrée pendant la complétion confirme seulement son typage. Les
-                # fondatrices suivantes restent donc livrables au vérificateur, mais les auxiliaires
-                # restants ne reprennent pas de capacité après ce premier résultat décisionnel.
-                if suffisance_atteinte():
-                    if kinds_suffisants is None:
-                        return
-                    if candidat.kind not in kinds_suffisants or not candidat.kind_confirmed:
-                        continue
+                if suffisance_atteinte() and kinds_suffisants is None:
+                    return
+                # La priorité change seulement l'ordre. Elle ne crée aucune capacité et ne retire
+                # aucun hit qui tient encore réellement sous les quotas existants.
+                if opens >= budget.max_opens:
+                    break
+                if budget.max_blocks is not None and blocks_used >= budget.max_blocks:
+                    break
                 node_id = document.node_of(block_id)
                 _payload, is_error = execute(
                     "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
