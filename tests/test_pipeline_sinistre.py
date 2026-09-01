@@ -1787,10 +1787,15 @@ async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
         neutre.identite.termes(), limit=reglages.search_limit, doc_id=neutre.identite.doc_id)]
     # Un premier tour qui **cherche sans ouvrir**, puis un tour qui conclut : la navigation a des
     # candidats et aucun bloc admis, et le repli hérite donc de candidats à publier.
+    redaction_focus = _rediger((
+        "k1", "La prise en charge exige que le local reste inscrit au registre déclaré.",
+        [(neutre.bloc("inscription"),
+          "La prise en charge n'est acquise que si le local reste inscrit au registre déclaré.")],
+    ))
     answer, trace, fake = await _run_neutre(
         neutre, [_comprendre_neutre(neutre), _navigation(neutre),
                  _navigation(neutre, chercher=False, stop_reason="end_turn"),
-                 _rediger_neutre(neutre), _verifier_neutre()], settings=reglages)
+                 redaction_focus, _verifier_neutre()], settings=reglages)
 
     assert fake.remaining_script == 0 and answer.found
     retrouver = trace.steps[1]

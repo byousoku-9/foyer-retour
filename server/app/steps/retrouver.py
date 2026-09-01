@@ -9,9 +9,10 @@ Dans cette variante, après les ouvertures du navigateur et à la frontière de 
 réservations de facettes encore absentes sont complétées depuis le classement unique de
 `groupes_prioritaires`. Elles passent par les mêmes fenêtres, unités atomiques, quotas et budgets,
 sans appel modèle supplémentaire. Les ouvertures du navigateur gardent la priorité ; dans une
-fenêtre de complétion seulement, le focus passe avant ses voisins. L'ordre d'admission reste stable :
-navigation d'abord, puis réservations dans l'ordre du classement et membres structurels dans l'ordre
-de lecture.
+fenêtre de complétion seulement, le focus réservé passe avant ses voisins selon la même règle que
+dans le déterministe. Cette priorité décide uniquement quelles unités tiennent dans le budget : les
+primaires transmis retrouvent ensuite l'ordre documentaire de la fenêtre, avec leurs compagnons et
+leurs dépendances admises, sans double comptage.
 
 Un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
 `discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu, sauf si la complétion
@@ -241,6 +242,18 @@ def _unite_primaire(block_id: str, *, kind: str, index: Index,
     return list(dict.fromkeys((*structure, *dependances)))
 
 
+def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve: bool) -> list[str]:
+    """Ordre d'essai partagé : un focus réellement réservé passe avant ses frères.
+
+    Cet ordre sert uniquement à l'admission sous budget. Les appelants conservent séparément
+    l'ordre documentaire nécessaire au rendu. Un focus non réservé reste dans cet ordre.
+    """
+    ids = list(block_ids)
+    if not reserve or focus_id is None or focus_id not in ids:
+        return ids
+    return [focus_id, *(block_id for block_id in ids if block_id != focus_id)]
+
+
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                             budget: RetrievalBudget, settings: Settings, client: Any,
                             request_budget: Any, doc_id: str,
@@ -437,18 +450,22 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         candidate for candidate in run if candidate not in relevant_candidates)
             primary: list[str] = []
             newly: list[str] = []
+            admitted_before_window = set(admitted_set)
+            promoted_dependency = False
             window_blocks = list(window.blocks)
+            window_ids = [item.block_id for item in window_blocks]
+            window_block_by_id = {item.block_id: item for item in window_blocks}
             focus_companions = (set(index.unite_de_renvoi(focus)[1:])
                                 if focus is not None else set())
-            if prioritize_focus and focus is not None:
-                window_blocks.sort(key=lambda item: item.block_id != focus)
-            for item in window_blocks:
-                # Un compagnon structurel non candidat appartient exclusivement à l'unité du
-                # focus. S'il est lui-même un hit du cohort pertinent, il conserve en revanche son
-                # unité primaire historique et peut être admis indépendamment.
-                if (item.block_id in focus_companions
-                        and item.block_id not in relevant_candidates):
-                    continue
+            primary_ids = [
+                item.block_id for item in window_blocks
+                if not (item.block_id in focus_companions
+                        and item.block_id not in relevant_candidates)
+            ]
+            admission_ids = _prioriser_focus(
+                primary_ids, focus, reserve=prioritize_focus)
+            for primary_id in admission_ids:
+                item = window_block_by_id[primary_id]
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
                 # l'unité entière entre, ou le primaire n'est pas transmis isolément.
                 dependencies = _dependances_directes(
@@ -471,12 +488,39 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if item.block_id in admitted_set:
                     if item.block_id not in window_opened:
                         window_opened.append(item.block_id)
+                    if (item.block_id in admitted_before_window
+                            and item.block_id not in primary_node_by_block):
+                        promoted_dependency = True
                     primary_node_by_block[item.block_id] = node_id
                     if item.kind in {"garantie", "exclusion"}:
                         decision_dependencies.extend(
                             candidate for candidate in dependencies
                             if candidate in admitted_set and candidate not in decision_dependencies)
                 newly.extend(got)
+            if newly:
+                # `admit()` a déjà pris sa décision dans l'ordre prioritaire. Pour le rendu, les
+                # membres présents dans la fenêtre retrouvent l'ordre documentaire ; les autres
+                # dépendances admises restent ensuite dans leur ordre atomique, sans être recomptées.
+                newly_set = set(newly)
+                window_new = [block_id for block_id in window_ids if block_id in newly_set]
+                window_new_set = set(window_new)
+                newly = [*window_new,
+                         *(block_id for block_id in newly if block_id not in window_new_set)]
+                admitted[-len(newly):] = newly
+            if promoted_dependency:
+                # Un bloc admis plus tôt comme dépendance peut devenir le primaire d'une fenêtre
+                # ultérieure. Il quitte alors sa position de dépendance et rejoint, sans nouveau
+                # coût, les autres membres admis de cette fenêtre dans leur ordre documentaire.
+                window_admitted = [
+                    block_id for block_id in window_ids if block_id in admitted_set]
+                window_admitted_set = set(window_admitted)
+                external_new = [
+                    block_id for block_id in newly if block_id not in window_admitted_set]
+                moved = window_admitted_set | set(external_new)
+                admitted[:] = [block_id for block_id in admitted if block_id not in moved]
+                admitted.extend((*window_admitted, *external_new))
+            primary_set = set(primary)
+            primary = [block_id for block_id in window_ids if block_id in primary_set]
             dependances_rendues = [b for b in newly if b not in primary]
             return {
                 "node_id": window.node_id, "title": window.title,
@@ -532,7 +576,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     def complete_reservations() -> None:
         # Une fenêtre valide suffit à établir que le navigateur a commencé sa lecture, même si son
         # unité atomique n'a pas tenu. Ne pas retenter un focus déjà essayé laisse le budget
-        # restant aux autres facettes. Pour ces seules ouvertures automatiques, le bloc réservé est
+        # restant aux autres facettes. Pour ces seules ouvertures automatiques, le focus réservé est
         # essayé avant ses frères de fenêtre afin qu'un frère contingent ne consomme pas sa place.
         if not valid_window_attempted:
             return
@@ -966,6 +1010,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # source. Il n'y a aucun retri global des hits documentaires.
     nodes: list[str] = []
     best_hit: dict[str, str] = {}
+    reserved_candidates: list[tuple[str, str]] = []
     for mechanism in mechanisms:
         if mechanism == "dictionnaire":
             dictionary_ready = elargi
@@ -984,10 +1029,15 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if dictionary_ready:
                 expanded_search = dictionnaire.expand(terms)
             cherches: dict[str, list[str]] | list[str] = expanded_search or terms
+            phase_reservations: list[tuple[str, str]] = []
             phase_hits = index.chercher(
                 cherches, limit=budget.search_limit, doc_id=doc_id,
                 kinds_prioritaires=kinds_prioritaires,
-                groupes_prioritaires=parsed.facettes)
+                groupes_prioritaires=parsed.facettes,
+                reservations_out=phase_reservations)
+            reserved_candidates.extend(
+                reservation for reservation in phase_reservations
+                if reservation in phase_hits and reservation not in reserved_candidates)
             for block_id, node_id in phase_hits:
                 if block_id not in {candidate for candidate, _node in hits}:
                     hits.append((block_id, node_id))
@@ -1032,6 +1082,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         dependances_par_primaire: dict[str, list[str]] = {}
         candidats = [block_id for block_id, _node_id in hits]
         focus_ids = {best_hit[node_id] for node_id in ouverts}
+        reserved_focus_ids = {block_id for block_id, _node_id in reserved_candidates}
         focus_companions = {
             membre
             for focus_id in focus_ids
@@ -1048,11 +1099,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 candidate for candidate in fenetres
                 if noeud_de[candidate] == node_id and candidate not in focus_companions
             ]
-            if bloc(focus_id).kind == "heading" and focus_id in voisins:
-                primaires.append(focus_id)
-                primaires.extend(candidate for candidate in voisins if candidate != focus_id)
-            else:
-                primaires.extend(voisins)
+            primaires.extend(_prioriser_focus(
+                voisins, focus_id, reserve=focus_id in reserved_focus_ids))
         # Un compagnon qui est aussi hit garde son unité historique, mais après les primaires des
         # autres nœuds : sa double qualité structurelle ne lui donne aucune priorité supplémentaire.
         primaires.extend(

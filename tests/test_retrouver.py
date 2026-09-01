@@ -20,6 +20,7 @@ from server.app.domain import (
     Node,
     NodeRef,
     RetrievalBudget,
+    RetrievalResult,
 )
 from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import ParsedQuestion, QuestionScope
@@ -400,20 +401,29 @@ async def test_le_focus_heading_prime_localement_sans_changer_lordre_rendu() -> 
         summaries={"d": "root > n1, n2"})
     parsed = _parsed(["première démarche", "seconde démarche"],
                      facettes=["première démarche", "seconde démarche"])
-    budget = _budget(max_opens=2, node_window=3, search_limit=2,
-                     max_blocks=3, max_tokens=6000)
+    async def executer(max_blocks: int) -> tuple[RetrievalResult, RetrievalResult]:
+        budget = _budget(max_opens=2, node_window=3, search_limit=2,
+                         max_blocks=max_blocks, max_tokens=6000)
+        deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+        outils, _step, _fake, _request_budget = await _run_outils([
+            _tool_message(_tool("chercher", "t1",
+                                termes=["première démarche", "seconde démarche"]),
+                          _tool("ouvrir_noeud", "t2", node_id="n1",
+                                focus_block_id="d:p1:1")),
+        ], corpus=corpus, parsed=parsed, budget=budget)
+        return deterministe, outils
 
-    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
-    outils, _step, _fake, _request_budget = await _run_outils([
-        _tool_message(_tool("chercher", "t1",
-                            termes=["première démarche", "seconde démarche"]),
-                      _tool("ouvrir_noeud", "t2", node_id="n1",
-                            focus_block_id="d:p1:1")),
-    ], corpus=corpus, parsed=parsed, budget=budget)
+    deterministe_serre, outils_serre = await executer(3)
+    attendu_serre = ["d:p1:1", "d:p2:2", "d:p2:3"]
+    assert deterministe_serre.opened_block_ids == outils_serre.opened_block_ids == attendu_serre
+    assert deterministe_serre.blocs == outils_serre.blocs
+    assert deterministe_serre.truncated == outils_serre.truncated is True
 
-    attendu = ["d:p1:1", "d:p2:2", "d:p2:3"]
-    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
-    assert deterministe.truncated and outils.truncated
+    deterministe_large, outils_large = await executer(4)
+    attendu_large = ["d:p1:1", "d:p2:1", "d:p2:2", "d:p2:3"]
+    assert deterministe_large.opened_block_ids == outils_large.opened_block_ids == attendu_large
+    assert deterministe_large.blocs == outils_large.blocs
+    assert deterministe_large.truncated == outils_large.truncated is False
 
 
 async def test_une_reservation_primaire_ordinaire_reste_seule() -> None:
@@ -545,18 +555,55 @@ async def test_la_completion_tente_le_focus_avant_son_frere_de_fenetre() -> None
     parsed = _parsed(["première démarche", "seconde démarche"],
                      facettes=["première démarche", "seconde démarche"])
 
-    result, _step, _fake, _request_budget = await _run_outils([
+    budget = _budget(max_opens=2, node_window=2, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
         _tool_message(_tool("chercher", "t1",
                             termes=["première démarche", "seconde démarche"]),
                       _tool("ouvrir_noeud", "t2", node_id="n1",
                             focus_block_id="d:p1:1")),
-    ], corpus=corpus, parsed=parsed,
-        budget=_budget(max_opens=2, node_window=2, search_limit=2,
-                       max_blocks=2, max_tokens=6000))
+    ], corpus=corpus, parsed=parsed, budget=budget)
 
-    assert result.opened_block_ids == ["d:p1:1", "d:p2:2"]
-    assert "d:p2:1" not in result.opened_block_ids
-    assert result.truncated is True
+    attendu = ["d:p1:1", "d:p2:2"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_une_dependance_deja_admise_retrouve_lordre_de_sa_fenetre_primaire() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1,
+              refs=["d:p2:2"]),
+        Block(block_id="d:p2:1", text="Passage voisin contingent.", loc="p2", seq=1),
+        Block(block_id="d:p2:2", text="Seconde démarche utile.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=2, search_limit=2,
+                     max_blocks=3, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2",
+                            focus_block_id="d:p2:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:1", "d:p2:2"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is False
 
 
 async def test_deux_facettes_du_meme_noeud_sont_completees_fenetre_par_fenetre() -> None:
