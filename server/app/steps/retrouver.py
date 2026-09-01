@@ -698,6 +698,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 search_candidates.append(block_id)
             if block_id in admitted_set or block_id in focused_windows_attempted:
                 continue
+            # Les candidats au-delà de la capacité restante n'ont jamais été présentés au
+            # navigateur : ne pas provoquer un appel condamné qui transformerait à tort leur
+            # simple non-ouverture en troncature, notamment après admission d'une fondatrice.
+            if opens >= budget.max_opens:
+                return
             _payload, is_error = execute(
                 "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
                 prioritize_focus=True)

@@ -467,6 +467,41 @@ async def test_outils_tente_dabord_la_premiere_fondatrice_du_classement_compleme
     assert seconde.block_id not in result.opened_block_ids
 
 
+@pytest.mark.parametrize("max_opens", [2, 3])
+async def test_outils_ne_tronque_pas_sur_les_fondatrices_excedant_la_capacite_restante(
+        max_opens: int) -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Dossier auxiliaire avec signal rappel.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrices = [
+        Block(
+            block_id=f"d:p{page}:1", text=f"Signal rappel fondatrice {rang}.",
+            loc=f"p{page}", seq=1, kind="garantie", kind_source="manual")
+        for rang, page in enumerate(range(2, 5), start=1)
+    ]
+    corpus = _corpus_neutre_par_noeuds(
+        ("aux", [auxiliaire]),
+        *((f"fondatrice-{rang}", [fondatrice])
+          for rang, fondatrice in enumerate(fondatrices, start=1)))
+    termes = ["dossier auxiliaire"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=max_opens, node_window=1, search_limit=3,
+                       max_blocks=4, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        auxiliaire.block_id,
+        *(fondatrice.block_id for fondatrice in fondatrices[:max_opens - 1]),
+    ]
+    assert result.truncated is False
+
+
 async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:
     corpus, auxiliaire_id, _fondatrice_id = _corpus_auxiliaire_puis_fondatrice("garantie")
     result, _step, fake, request_budget = await _run_outils([
