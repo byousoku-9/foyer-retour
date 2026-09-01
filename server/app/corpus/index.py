@@ -158,6 +158,7 @@ class Index:
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None,
+                 kinds_confirmes: Iterable[str] | None = None,
                  groupes_prioritaires: Iterable[str] | None = None,
                  reservations_out: list[tuple[str, str]] | None = None,
                  ) -> list[tuple[str, str]]:
@@ -191,6 +192,10 @@ class Index:
         paragraphe qui répond vraiment. Le pipeline sinistre y passe les quatre kinds décisionnels
         d'AD-6 ; le guide ne passe rien et son ordre de recherche est inchangé.
 
+        `kinds_confirmes`, lorsqu'il est fourni, restreint au contraire les candidats aux kinds
+        demandés dont le typage est confirmé par le corpus. La sélection précède le classement et
+        `limit` ; son défaut `None` laisse donc tous les appels historiques strictement inchangés.
+
         `groupes_prioritaires` préserve, avant `limit`, au plus un candidat pleinement couvert par
         libellé, de préférence dans un nœud encore non réservé. Cette diversification reste contenue
         dans les hits de `termes` : une facette réordonne le rappel, elle n'ajoute aucun document.
@@ -203,6 +208,8 @@ class Index:
             raise TypeError("termes : dict[str, list[str]] ou liste de termes attendus, pas une chaîne")
         if doc_id is not None and doc_id not in self.corpus.documents:
             raise KeyError(doc_id)
+        if isinstance(kinds_confirmes, str):
+            raise TypeError("kinds_confirmes : liste de kinds attendue, pas une chaîne")
         mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
 
         def groupes(mapping_: dict[str, list[str]]) -> list[list[frozenset[str]]]:
@@ -221,6 +228,8 @@ class Index:
         if not groups:
             return []
         prioritaires = frozenset(kinds_prioritaires or ())
+        selection_confirmed = (frozenset(kinds_confirmes)
+                               if kinds_confirmes is not None else None)
 
         def classer(groupes_: list[list[frozenset[str]]]) -> list[tuple[str, str]]:
             scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
@@ -228,6 +237,10 @@ class Index:
                 if doc_id is not None and e.doc_id != doc_id:
                     continue
                 if not is_citable(e.block):
+                    continue
+                if (selection_confirmed is not None
+                        and (e.block.kind not in selection_confirmed
+                             or not e.block.kind_confirmed)):
                     continue
                 pleins = 0
                 precision_plein = Fraction()

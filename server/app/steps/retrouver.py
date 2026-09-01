@@ -646,7 +646,45 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             _payload, is_error = execute(
                 "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
             if is_error or suffisance_atteinte():
-                break
+                return
+
+        # Une suffisance explicitement déclarée autorise un dernier rappel lexical, mais seulement
+        # après l'épuisement des hits bruts du navigateur. Les graines viennent des hits
+        # auxiliaires qu'il a effectivement fait admettre ; ni un voisin de fenêtre, ni un candidat
+        # jamais lu ne peut donc orienter cette recherche. Les mots-outils déjà neutralisés pour
+        # les liens de clauses ne suffisent pas à créer une correspondance.
+        if kinds_suffisants is None or suffisance_atteinte():
+            return
+        graines: list[str] = []
+        for block_id in tool_search_candidates:
+            if block_id not in admitted_set:
+                continue
+            candidat = block(block_id)
+            if candidat.kind in kinds_suffisants and candidat.kind_confirmed:
+                continue
+            for mot in forme(candidat.text).split():
+                if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
+                    graines.append(mot)
+        if not graines:
+            return
+
+        complementaires = index.chercher(
+            graines, limit=budget.search_limit, doc_id=doc_id,
+            kinds_confirmes=kinds_suffisants)
+        if not complementaires:
+            return
+        run = [block_id for block_id, _node_id in complementaires]
+        search_runs.append(run)
+        for block_id, node_id in complementaires:
+            best_hit_by_node.setdefault(node_id, block_id)
+            if block_id not in search_candidates:
+                search_candidates.append(block_id)
+            if block_id in admitted_set or block_id in focused_windows_attempted:
+                continue
+            _payload, is_error = execute(
+                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+            if is_error or suffisance_atteinte():
+                return
 
     used_tools = False
 

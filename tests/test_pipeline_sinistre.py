@@ -1548,9 +1548,9 @@ def _tier_de_navigation() -> str:
     return Settings(_env_file=None, anthropic_api_key="").retrouver_outils_tier
 
 
-def _comprendre_neutre(corpus: CorpusNeutre, **champs) -> dict:
+def _comprendre_neutre(corpus: CorpusNeutre, *, termes: list[str] | None = None, **champs) -> dict:
     """La sortie de *comprendre*, à vocabulaire entièrement neutre : rien du cas témoin n'y entre."""
-    return _comprendre(terms=corpus.identite.termes(),
+    return _comprendre(terms=termes if termes is not None else corpus.identite.termes(),
                        question_resolue=QUESTION_RESOLUE_NEUTRE,
                        facettes=["prise en charge"],
                        bien="objet inventorié", evenement="épisode répertorié",
@@ -1628,9 +1628,13 @@ async def test_sans_variante_le_sinistre_navigue_par_outils(neutre: CorpusNeutre
 async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatrice(
         neutre: CorpusNeutre) -> None:
     """La suffisance du sinistre atteint une claim fondatrice sans forcer son applicabilité."""
-    auxiliaire = neutre.bloc("inscription")
+    auxiliaire = neutre.bloc("definition_objet")
+    termes = ["désigne"]
+    assert neutre.index.chercher(
+        termes, limit=20, doc_id=neutre.identite.doc_id) == [
+            (auxiliaire, neutre.identite.noeud(neutre.identite.socle))]
     navigation_auxiliaire = _outils(
-        termes=neutre.identite.termes(),
+        termes=termes,
         node_id=neutre.identite.noeud(neutre.identite.socle),
         focus_block_id=auxiliaire)
     fin_navigation = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
@@ -1639,14 +1643,14 @@ async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatr
 
     answer, trace, fake = await _run_neutre(
         neutre,
-        [_comprendre_neutre(neutre), navigation_auxiliaire, fin_navigation,
+        [_comprendre_neutre(neutre, termes=termes), navigation_auxiliaire, fin_navigation,
          _rediger_neutre(neutre), _verifier_neutre()],
         settings=reglages)
 
     assert fake.remaining_script == 0
     retrouver = trace.steps[1]
     roles_ouverts = neutre.cles(retrouver.opened_block_ids)
-    assert roles_ouverts[0] == "inscription"
+    assert roles_ouverts[0] == "definition_objet"
     assert "prise_en_charge" in roles_ouverts
     assert len(answer.claims) == 1
     assert answer.claims[0].quotes[0].block_id == neutre.bloc("prise_en_charge")

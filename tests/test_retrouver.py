@@ -148,16 +148,23 @@ def _corpus_contexte_puis_regle() -> Corpus:
 
 
 def _corpus_auxiliaire_puis_fondatrice(
-        kind_fondateur: str, *, permute: bool = False) -> tuple[Corpus, str, str]:
+        kind_fondateur: str, *, permute: bool = False,
+        hit_auxiliaire_seul: bool = False) -> tuple[Corpus, str, str]:
     """Même relation métier sous deux identités et ordres documentaires synthétiques."""
     page_aux, page_fondatrice = (("p8", "p3") if permute else ("p1", "p2"))
     auxiliaire_id = f"d:{page_aux}:7"
     fondatrice_id = f"d:{page_fondatrice}:4"
+    texte_auxiliaire = ("Le signal de rappel apparaît dans le dossier auxiliaire."
+                        if hit_auxiliaire_seul
+                        else "La règle utile dépend d'une formalité déclarée.")
+    texte_fondateur = ("Le signal de rappel gouverne la règle applicable."
+                       if hit_auxiliaire_seul
+                       else "La règle utile régit la situation décrite.")
     auxiliaire = Block(
-        block_id=auxiliaire_id, text="La règle utile dépend d'une formalité déclarée.",
+        block_id=auxiliaire_id, text=texte_auxiliaire,
         loc=page_aux, seq=7, kind="condition", kind_source="manual")
     fondatrice = Block(
-        block_id=fondatrice_id, text="La règle utile régit la situation décrite.",
+        block_id=fondatrice_id, text=texte_fondateur,
         loc=page_fondatrice, seq=4, kind=kind_fondateur, kind_source="manual")
     noms = (("branche-z", auxiliaire, "branche-a", fondatrice) if permute
             else ("branche-a", auxiliaire, "branche-z", fondatrice))
@@ -180,20 +187,70 @@ def _corpus_auxiliaire_puis_fondatrice(
 async def test_outils_complete_une_auxiliaire_par_une_fondatrice_confirmee(
         kind_fondateur: str, permute: bool) -> None:
     corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice(
-        kind_fondateur, permute=permute)
+        kind_fondateur, permute=permute, hit_auxiliaire_seul=True)
+    termes = ["dossier auxiliaire"]
+    assert Index(corpus).chercher(termes, limit=20, doc_id="d") == [
+        (auxiliaire_id, corpus.documents["d"].node_of(auxiliaire_id))]
     result, _step, fake, request_budget = await _run_outils([
         _tool_message(
-            _tool("chercher", "t1", termes=["règle utile"]),
+            _tool("chercher", "t1", termes=termes),
             _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
                   focus_block_id=auxiliaire_id)),
         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
-    ], corpus=corpus, parsed=_parsed(["règle utile"]),
+    ], corpus=corpus, parsed=_parsed(termes),
         budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)
 
     assert result.opened_block_ids == [auxiliaire_id, fondatrice_id]
     assert result.blocs[-1].kind == kind_fondateur and result.blocs[-1].kind_confirmed
     assert len(fake.requests) == request_budget.attempts == 2
+
+
+@pytest.mark.parametrize("cas", ["non_confirmee", "hors_kind", "sans_signal"])
+async def test_outils_ne_fabrique_pas_de_fondatrice_depuis_un_hit_auxiliaire(cas: str) -> None:
+    corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice(
+        "garantie", hit_auxiliaire_seul=True)
+    fondatrice = corpus.documents["d"].block(fondatrice_id)
+    if cas == "non_confirmee":
+        fondatrice.kind_source = "model"
+    elif cas == "hors_kind":
+        fondatrice.kind = "condition"
+    else:
+        fondatrice.text = "Une clause distincte ne partage aucun terme significatif."
+    termes = ["dossier auxiliaire"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id]
+    assert all(not (block.kind in KINDS_FONDATEURS and block.kind_confirmed)
+               for block in result.blocs)
+
+
+async def test_outils_ne_recree_pas_de_capacite_pour_le_rappel_depuis_auxiliaire() -> None:
+    corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice(
+        "garantie", hit_auxiliaire_seul=True)
+    termes = ["dossier auxiliaire"]
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id=corpus.documents["d"].node_of(auxiliaire_id),
+                  focus_block_id=auxiliaire_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=1, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire_id]
+    assert fondatrice_id not in result.opened_block_ids
+    assert result.truncated is True
 
 
 async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:

@@ -204,6 +204,30 @@ def test_chercher_puts_decisional_blocks_first_at_equal_score_only() -> None:
     assert len(ix.chercher(termes, limit=5, kinds_prioritaires={"garantie"})) == 3
 
 
+def test_chercher_filtre_les_kinds_confirmes_avant_la_coupe_sans_changer_le_defaut() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Signal commun.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Signal commun.", loc="p1", seq=2,
+              kind="garantie", kind_source="model"),
+        Block(block_id="d:p1:3", text="Signal commun.", loc="p1", seq=3,
+              kind="garantie", kind_source="manual"),
+        Block(block_id="d:p1:4", text="Signal commun.", loc="p1", seq=4,
+              kind="exclusion", kind_source="manual"),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    ix = Index(Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)}))
+    historique = [(block.block_id, "n") for block in blocks]
+
+    assert ix.chercher(["signal"], limit=4) == historique
+    assert ix.chercher(["signal"], limit=1, kinds_confirmes={"garantie"}) == [
+        ("d:p1:3", "n")]
+    assert ix.chercher(["signal"], limit=4, kinds_confirmes={"exclusion"}) == [
+        ("d:p1:4", "n")]
+    assert ix.chercher(["signal"], limit=4, kinds_confirmes=set()) == []
+
+
 def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
     hits = mini_index.chercher({"commune": ["biergercenter"], "matricule": []}, limit=20)
     # corps[2] « matricule, délivré par la commune » touche les deux termes ; il précède tout bloc à un seul terme
