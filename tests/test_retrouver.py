@@ -180,6 +180,19 @@ def _corpus_auxiliaire_puis_fondatrice(
     return corpus, auxiliaire_id, fondatrice_id
 
 
+def _corpus_neutre_par_noeuds(*contenu: tuple[str, list[Block]]) -> Corpus:
+    """Petit corpus contractuel dont seul l'ordre explicite des nœuds et blocs fait autorité."""
+    nodes = [Node(node_id="root", items=[NodeRef(node_id=node_id) for node_id, _blocks in contenu])]
+    blocks: list[Block] = []
+    for node_id, node_blocks in contenu:
+        blocks.extend(node_blocks)
+        nodes.append(Node(node_id=node_id, items=[
+            BlockRef(block_id=block.block_id) for block in node_blocks]))
+    return Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="Texte synthétique", edition="e",
+        nodes=nodes, blocks=blocks)}, summaries={"d": "root > branches neutres"})
+
+
 @pytest.mark.parametrize(("kind_fondateur", "permute"), [
     ("garantie", False),
     ("exclusion", True),
@@ -251,6 +264,207 @@ async def test_outils_ne_recree_pas_de_capacite_pour_le_rappel_depuis_auxiliaire
     assert result.opened_block_ids == [auxiliaire_id]
     assert fondatrice_id not in result.opened_block_ids
     assert result.truncated is True
+
+
+async def test_outils_priorise_le_focus_complementaire_dans_sa_fenetre_sans_reordonner_le_rendu(
+        ) -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Dossier auxiliaire avec signal pont.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    voisin = Block(block_id="d:p2:1", text="Voisin documentaire.", loc="p2", seq=1)
+    fondatrice = Block(
+        block_id="d:p2:2", text="Le signal pont fonde la règle.", loc="p2", seq=2,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("aux", [auxiliaire]), ("regle", [voisin, fondatrice]))
+    termes = ["dossier auxiliaire"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=2, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire.block_id, fondatrice.block_id]
+    assert voisin.block_id not in result.opened_block_ids
+
+    rendu_complet, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=2, max_blocks=3, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+    assert rendu_complet.opened_block_ids == [
+        auxiliaire.block_id, voisin.block_id, fondatrice.block_id]
+
+
+async def test_outils_fusionne_equitablement_sans_exclure_le_lien_dun_auxiliaire_suivant(
+        ) -> None:
+    auxiliaire_bruyante = Block(
+        block_id="d:p1:1", text="Entrée brute beta gamma delta epsilon.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    auxiliaire_liee = Block(
+        block_id="d:p2:1", text="Entrée brute alpha pontx zeta eta theta.", loc="p2", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id="d:p3:1", text="Pontx règle fondatrice.", loc="p3", seq=1,
+        kind="garantie", kind_source="manual")
+    distracteur_1 = Block(
+        block_id="d:p4:1", text="Beta gamma delta clause.", loc="p4", seq=1,
+        kind="garantie", kind_source="manual")
+    distracteur_2 = Block(
+        block_id="d:p5:1", text="Beta gamma epsilon clause.", loc="p5", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("aux-1", [auxiliaire_bruyante]), ("aux-2", [auxiliaire_liee]),
+        ("fondatrice", [fondatrice]), ("leurre-1", [distracteur_1]),
+        ("leurre-2", [distracteur_2]))
+    index = Index(corpus)
+    assert [block_id for block_id, _node_id in index.chercher(
+        ["entrée brute"], limit=2, doc_id="d")] == [
+            auxiliaire_bruyante.block_id, auxiliaire_liee.block_id]
+    assert [block_id for block_id, _node_id in index.chercher(
+        ["entree", "brute", "beta", "gamma", "delta", "epsilon"],
+        limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)] == [
+            distracteur_1.block_id, distracteur_2.block_id]
+    assert [block_id for block_id, _node_id in index.chercher(
+        ["entree", "brute", "alpha", "pontx"],
+        limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)][0] == fondatrice.block_id
+    assert fondatrice.block_id not in [
+        block_id for block_id, _node_id in index.chercher(
+            ["entree", "brute", "beta", "gamma", "delta", "epsilon",
+             "alpha", "pontx"],
+            limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)]
+    termes = ["entrée brute"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux-1",
+                  focus_block_id=auxiliaire_bruyante.block_id),
+            _tool("ouvrir_noeud", "t3", node_id="aux-2",
+                  focus_block_id=auxiliaire_liee.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=4, node_window=1, search_limit=2,
+                       max_blocks=4, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        auxiliaire_bruyante.block_id, auxiliaire_liee.block_id,
+        distracteur_1.block_id, fondatrice.block_id]
+
+
+@pytest.mark.parametrize("signal", ["x42", "2027"])
+async def test_outils_accepte_un_pont_lexical_alphanumerique_ou_numerique(signal: str) -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text=f"Dossier auxiliaire porte {signal}.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id="d:p2:1", text=f"{signal} gouverne la clause.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(("aux", [auxiliaire]), ("regle", [fondatrice]))
+    termes = ["dossier auxiliaire"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire.block_id, fondatrice.block_id]
+
+
+async def test_outils_ne_seme_ni_un_hit_refuse_atomiquement_ni_un_voisin_non_hit() -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Recherche brute signalaux.", loc="p1", seq=1,
+        kind="condition", kind_source="manual", refs=["d:p3:1", "d:p4:1"])
+    voisin = Block(block_id="d:p1:2", text="Signalvoisin admis.", loc="p1", seq=2)
+    dependance_1 = Block(block_id="d:p3:1", text="Dépendance une.", loc="p3", seq=1)
+    dependance_2 = Block(block_id="d:p4:1", text="Dépendance deux.", loc="p4", seq=1)
+    fondatrice = Block(
+        block_id="d:p2:1", text="Signalaux signalvoisin fondent la règle.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("lecture", [auxiliaire, voisin]), ("regle", [fondatrice]),
+        ("dep-1", [dependance_1]), ("dep-2", [dependance_2]))
+    termes = ["recherche brute"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="lecture",
+                  focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=2, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [voisin.block_id]
+    assert fondatrice.block_id not in result.opened_block_ids
+    assert result.discarded_block_ids == [auxiliaire.block_id]
+
+
+async def test_outils_ignore_un_mot_outil_comme_seul_pont_vers_une_fondatrice() -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Dossier auxiliaire avec annexe.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id="d:p2:1", text="Avec une clause étrangère.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(("aux", [auxiliaire]), ("regle", [fondatrice]))
+    termes = ["dossier auxiliaire"]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire.block_id]
+
+
+async def test_outils_tente_dabord_la_premiere_fondatrice_du_classement_complementaire(
+        ) -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Dossier auxiliaire signal canonique.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    premiere = Block(
+        block_id="d:p8:1", text="Signal canonique première règle.", loc="p8", seq=1,
+        kind="garantie", kind_source="manual")
+    seconde = Block(
+        block_id="d:p2:1", text="Signal canonique seconde règle.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("aux", [auxiliaire]), ("premiere", [premiere]), ("seconde", [seconde]))
+    termes = ["dossier auxiliaire"]
+    classement = Index(corpus).chercher(
+        ["signal", "canonique"], limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)
+    assert [block_id for block_id, _node_id in classement] == [
+        premiere.block_id, seconde.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(termes),
+        budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [auxiliaire.block_id, premiere.block_id]
+    assert seconde.block_id not in result.opened_block_ids
 
 
 async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:

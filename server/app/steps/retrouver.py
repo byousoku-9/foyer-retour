@@ -392,7 +392,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
-    def execute(name: str, args: object, *, mechanism: bool = False) -> tuple[dict[str, Any], bool]:
+    def execute(name: str, args: object, *, mechanism: bool = False,
+                prioritize_focus: bool = False) -> tuple[dict[str, Any], bool]:
         nonlocal opens, truncated, valid_window_attempted
         if not isinstance(args, dict):
             return invalid()
@@ -493,9 +494,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if not (item.block_id in focus_companions
                         and item.block_id not in relevant_candidates)
             ]
-            focus_reserve = _focus_est_reserve(
+            focus_reserve = (prioritize_focus or _focus_est_reserve(
                 focus, node_id, reservations=reserved_candidates,
-                best_hit_by_node=best_hit_by_node)
+                best_hit_by_node=best_hit_by_node))
             admission_ids = _prioriser_focus(
                 primary_ids, focus, reserve=focus_reserve)
             for primary_id in admission_ids:
@@ -655,22 +656,38 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # les liens de clauses ne suffisent pas à créer une correspondance.
         if kinds_suffisants is None or suffisance_atteinte():
             return
-        graines: list[str] = []
+        classements: list[list[tuple[str, str]]] = []
         for block_id in tool_search_candidates:
             if block_id not in admitted_set:
                 continue
             candidat = block(block_id)
             if candidat.kind in kinds_suffisants and candidat.kind_confirmed:
                 continue
+            graines: list[str] = []
             for mot in forme(candidat.text).split():
-                if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
+                if mot.isalnum() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
                     graines.append(mot)
-        if not graines:
+            if graines:
+                classements.append(index.chercher(
+                    graines, limit=budget.search_limit, doc_id=doc_id,
+                    kinds_confirmes=kinds_suffisants))
+        if not classements:
             return
 
-        complementaires = index.chercher(
-            graines, limit=budget.search_limit, doc_id=doc_id,
-            kinds_confirmes=kinds_suffisants)
+        # Chaque auxiliaire conserve son propre classement : concaténer leurs textes diluerait un
+        # lien fort avec l'un d'eux sous les signaux des autres. La fusion équitable prend le même
+        # rang de chaque source dans l'ordre des hits, puis passe au rang suivant. Elle préserve
+        # ainsi l'ordre canonique interne de chaque classement sans laisser le premier remplir seul
+        # le plafond global historique `search_limit`.
+        complementaires: list[tuple[str, str]] = []
+        for rang in range(max(map(len, classements), default=0)):
+            for classement in classements:
+                if rang < len(classement) and classement[rang] not in complementaires:
+                    complementaires.append(classement[rang])
+                    if len(complementaires) == budget.search_limit:
+                        break
+            if len(complementaires) == budget.search_limit:
+                break
         if not complementaires:
             return
         run = [block_id for block_id, _node_id in complementaires]
@@ -682,8 +699,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if block_id in admitted_set or block_id in focused_windows_attempted:
                 continue
             _payload, is_error = execute(
-                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
-            if is_error or suffisance_atteinte():
+                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                prioritize_focus=True)
+            # Sur ce rappel lexical faible, le kind confirmé ne prouve aucune pertinence : tous
+            # les candidats fusionnés qui tiennent encore dans les bornes doivent rester tentés.
+            # Le court-circuit antérieur à cette phase demeure, lui, inchangé.
+            if is_error:
                 return
 
     used_tools = False
