@@ -193,6 +193,189 @@ def _corpus_neutre_par_noeuds(*contenu: tuple[str, list[Block]]) -> Corpus:
         nodes=nodes, blocks=blocks)}, summaries={"d": "root > branches neutres"})
 
 
+def _corpus_fondatrices_classees(
+        ordre: tuple[str, ...] = ("avant", "initiale", "apres"),
+        *, initiale_refs: list[str] | None = None) -> tuple[Corpus, dict[str, Block]]:
+    fondatrices = {
+        "avant": Block(
+            block_id="d:p1:1", text="Signal partagé règle alpha.", loc="p1", seq=1,
+            kind="garantie", kind_source="manual"),
+        "initiale": Block(
+            block_id="d:p2:1", text="Signal partagé règle beta.", loc="p2", seq=1,
+            kind="garantie", kind_source="manual", refs=initiale_refs or []),
+        "apres": Block(
+            block_id="d:p3:1", text="Signal partagé règle gamma.", loc="p3", seq=1,
+            kind="exclusion", kind_source="manual"),
+    }
+    return _corpus_neutre_par_noeuds(*(
+        (nom, [fondatrices[nom]]) for nom in ordre
+    )), fondatrices
+
+
+@pytest.mark.parametrize("ordre", [
+    ("avant", "initiale", "apres"),
+    ("initiale", "avant", "apres"),
+])
+async def test_outils_rejoue_les_fondatrices_autour_du_doublon_initial(
+        ordre: tuple[str, ...]) -> None:
+    corpus, fondatrices = _corpus_fondatrices_classees(ordre)
+    classement = Index(corpus).chercher(
+        ["signal partagé"], limit=3, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)
+    assert [block_id for block_id, _node_id in classement] == [
+        fondatrices[nom].block_id for nom in ordre]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=fondatrices["initiale"].block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["signal partagé", "branche distincte"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        fondatrices["initiale"].block_id,
+        fondatrices["avant"].block_id,
+        fondatrices["apres"].block_id,
+    ]
+    assert result.truncated is False
+
+
+async def test_outils_filtre_le_doublon_avant_la_coupe_sans_recreer_de_capacite() -> None:
+    corpus, fondatrices = _corpus_fondatrices_classees(
+        ("initiale", "avant", "apres"))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=fondatrices["initiale"].block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["signal partagé", "branche distincte"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        fondatrices["initiale"].block_id,
+        fondatrices["avant"].block_id,
+    ]
+    assert fondatrices["apres"].block_id not in result.opened_block_ids
+    assert result.truncated is False
+
+
+async def test_outils_filtre_un_focus_deja_tente_avant_la_coupe_globale() -> None:
+    tentee = Block(
+        block_id="d:p1:1", text="Signal partagé règle alpha.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual", refs=["d:p4:1", "d:p5:1"])
+    initiale = Block(
+        block_id="d:p2:1", text="Signal partagé règle beta.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    suivante = Block(
+        block_id="d:p3:1", text="Signal partagé règle gamma.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual")
+    dependance_1 = Block(
+        block_id="d:p4:1", text="Première dépendance directe.", loc="p4", seq=1,
+        kind="condition", kind_source="manual")
+    dependance_2 = Block(
+        block_id="d:p5:1", text="Seconde dépendance directe.", loc="p5", seq=1,
+        kind="condition", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("tentee", [tentee]), ("initiale", [initiale]), ("suivante", [suivante]),
+        ("dependance-1", [dependance_1]), ("dependance-2", [dependance_2]))
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signal partagé"], limit=3, doc_id="d", kinds_confirmes=KINDS_FONDATEURS
+    )] == [tentee.block_id, initiale.block_id, suivante.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha"]),
+            _tool("chercher", "t2", termes=["beta"]),
+            _tool("ouvrir_noeud", "t3", node_id="tentee", focus_block_id=tentee.block_id),
+            _tool("ouvrir_noeud", "t4", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["signal partagé", "branche distincte"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=1,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id, suivante.block_id]
+    assert tentee.block_id in result.discarded_block_ids
+    assert result.truncated is True
+
+
+async def test_outils_priorise_les_facettes_effectives_et_leur_expansion_avant_la_coupe(
+        ) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    faible = Block(
+        block_id="d:p2:1", text="Repère beta règle secondaire.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    premiere = Block(
+        block_id="d:p3:1", text="Première facette règle utile.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual")
+    seconde = Block(
+        block_id="d:p4:1", text="Variante validée règle utile.", loc="p4", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("faible", [faible]),
+        ("premiere", [premiere]), ("seconde", [seconde]))
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d",
+        _groupes={"seconde facette": ("seconde facette", "variante validee")},
+        _canoniques={"seconde facette": ("seconde facette",)})
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus, dictionnaire=dictionnaire,
+        parsed=_parsed(["beta"], facettes=[
+            "  première facette  ", "première facette", " ",
+            " seconde facette ", "seconde facette",
+        ]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id, premiere.block_id, seconde.block_id]
+    assert faible.block_id not in result.opened_block_ids
+    assert result.truncated is False
+
+
+@pytest.mark.parametrize(("facettes", "kinds_suffisants"), [
+    (["signal partagé"], KINDS_FONDATEURS),
+    (["signal partagé", "branche distincte"], None),
+])
+async def test_outils_preserve_larret_historique_hors_replay_multifacette(
+        facettes: list[str], kinds_suffisants: frozenset[str] | None) -> None:
+    corpus, fondatrices = _corpus_fondatrices_classees(
+        ("initiale", "avant", "apres"))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=fondatrices["initiale"].block_id)),
+    ], corpus=corpus, parsed=_parsed(["beta"], facettes=facettes),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=kinds_suffisants)
+
+    assert result.opened_block_ids == [fondatrices["initiale"].block_id]
+    assert result.truncated is False
+
+
 @pytest.mark.parametrize(("kind_fondateur", "permute"), [
     ("garantie", False),
     ("exclusion", True),
