@@ -571,6 +571,199 @@ async def test_la_completion_tente_le_focus_avant_son_frere_de_fenetre() -> None
     assert deterministe.truncated == outils.truncated is True
 
 
+async def test_le_navigateur_priorise_lui_meme_un_focus_ordinaire_reserve() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Passage voisin contingent.", loc="p2", seq=1),
+        Block(block_id="d:p2:2", text="Seconde démarche utile.", loc="p2", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=2, search_limit=2,
+                     max_blocks=2, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2",
+                            focus_block_id="d:p2:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:2"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_le_navigateur_priorise_lui_meme_un_focus_heading_reserve() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Contexte voisin contingent.", loc="p2", seq=1),
+        Block(block_id="d:p2:2", text="Seconde démarche utile.", loc="p2", seq=2,
+              kind="heading"),
+        Block(block_id="d:p2:3", text="Corps explicatif à citer.", loc="p2", seq=3),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+             Node(node_id="n1", items=[BlockRef(block_id="d:p1:1")]),
+             Node(node_id="n2", items=[BlockRef(block_id="d:p2:1"),
+                                        BlockRef(block_id="d:p2:2"),
+                                        BlockRef(block_id="d:p2:3")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n1, n2"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=2, node_window=3, search_limit=2,
+                     max_blocks=3, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n1",
+                            focus_block_id="d:p1:1"),
+                      _tool("ouvrir_noeud", "t3", node_id="n2",
+                            focus_block_id="d:p2:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    attendu = ["d:p1:1", "d:p2:2", "d:p2:3"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_une_reservation_non_best_hit_ne_recoit_pas_de_priorite() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Seconde démarche utile.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"),
+                                      BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["première démarche", "seconde démarche"],
+                     facettes=["première démarche", "seconde démarche"])
+    budget = _budget(max_opens=1, node_window=2, search_limit=2,
+                     max_blocks=1, max_tokens=6000)
+    reservations: list[tuple[str, str]] = []
+    Index(corpus).chercher(
+        parsed.termes_de_recherche(), limit=budget.search_limit, doc_id="d",
+        groupes_prioritaires=parsed.facettes, reservations_out=reservations)
+    assert reservations == [("d:p1:1", "n"), ("d:p1:2", "n")]
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1",
+                            termes=["première démarche", "seconde démarche"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_un_best_hit_faq_precede_le_focus_lexical_reserve_dans_les_deux_variantes() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Contexte FAQ voisin.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Cible lexicale réservée.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"),
+                                      BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["cible lexicale réservée"], facettes=["cible lexicale réservée"])
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d", _candidate_questions={"n": ("q",)})
+    settings = _s(retrieval_mechanism_order="faq,sommaire,outils,dictionnaire")
+    budget = _budget(max_opens=1, node_window=2, search_limit=2,
+                     max_blocks=1, max_tokens=6000)
+
+    deterministe, _ = _run(
+        parsed, corpus, Index(corpus), budget, settings=settings, doc_id="d",
+        dictionnaire=dictionnaire)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["cible lexicale réservée"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget, settings=settings,
+        dictionnaire=dictionnaire)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_un_best_hit_non_reserve_conserve_lordre_documentaire() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Contexte voisin sans terme.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Cible lexicale unique.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"),
+                                      BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["cible lexicale unique"])
+    budget = _budget(max_opens=1, node_window=2, search_limit=2,
+                     max_blocks=1, max_tokens=6000)
+
+    deterministe, _ = _run(parsed, corpus, Index(corpus), budget)
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["cible lexicale unique"]),
+                      _tool("ouvrir_noeud", "t2", node_id="n",
+                            focus_block_id="d:p1:2")),
+    ], corpus=corpus, parsed=parsed, budget=budget)
+
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.blocs == outils.blocs
+    assert deterministe.truncated == outils.truncated is True
+
+
+async def test_une_recherche_ulterieure_ne_remplace_pas_le_best_hit_first_wins() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Alpha repère initial.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Oméga cible finale.", loc="p1", seq=2),
+    ]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id="d:p1:1"),
+                                      BlockRef(block_id="d:p1:2")])]
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)},
+        summaries={"d": "root > n"})
+    parsed = _parsed(["oméga cible finale"], facettes=["oméga cible finale"])
+
+    outils, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["alpha repère initial"]),
+                      _tool("chercher", "t2", termes=["oméga cible finale"]),
+                      _tool("ouvrir_noeud", "t3", node_id="n",
+                            focus_block_id="d:p1:2")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=1, node_window=2, search_limit=2,
+                       max_blocks=1, max_tokens=6000),
+        settings=_s(retrieval_mechanism_order="outils,sommaire,dictionnaire,faq"))
+
+    # La seconde recherche réserve bien `p1:2`, mais `p1:1` reste l'autorité first-wins du nœud.
+    assert outils.opened_block_ids == ["d:p1:1"]
+    assert outils.truncated is True
+
+
 async def test_une_dependance_deja_admise_retrouve_lordre_de_sa_fenetre_primaire() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1,

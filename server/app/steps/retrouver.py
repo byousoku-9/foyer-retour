@@ -9,10 +9,10 @@ Dans cette variante, après les ouvertures du navigateur et à la frontière de 
 réservations de facettes encore absentes sont complétées depuis le classement unique de
 `groupes_prioritaires`. Elles passent par les mêmes fenêtres, unités atomiques, quotas et budgets,
 sans appel modèle supplémentaire. Les ouvertures du navigateur gardent la priorité ; dans une
-fenêtre de complétion seulement, le focus réservé passe avant ses voisins selon la même règle que
-dans le déterministe. Cette priorité décide uniquement quelles unités tiennent dans le budget : les
-primaires transmis retrouvent ensuite l'ordre documentaire de la fenêtre, avec leurs compagnons et
-leurs dépendances admises, sans double comptage.
+fenêtre focalisée seulement, le focus réservé qui est aussi le meilleur hit effectif du nœud passe
+avant ses voisins selon la même règle que dans le déterministe. Cette priorité décide uniquement
+quelles unités tiennent dans le budget : les primaires transmis retrouvent ensuite l'ordre
+documentaire de la fenêtre, avec leurs compagnons et leurs dépendances admises, sans double comptage.
 
 Un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
 `discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu, sauf si la complétion
@@ -254,6 +254,32 @@ def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve:
     return [focus_id, *(block_id for block_id in ids if block_id != focus_id)]
 
 
+def _focus_est_reserve(block_id: str | None, node_id: str, *,
+                       reservations: Iterable[tuple[str, str]],
+                       best_hit_by_node: dict[str, str]) -> bool:
+    """Autorité commune : réservation survivante et meilleur hit effectif du nœud."""
+    return (block_id is not None
+            and best_hit_by_node.get(node_id) == block_id
+            and (block_id, node_id) in reservations)
+
+
+def _ajouter_best_hits_faq(node_ids: Iterable[str], *, index: Index,
+                           best_hit_by_node: dict[str, str]) -> list[str]:
+    """Inscrit les premiers blocs FAQ selon la règle first-wins commune aux variantes."""
+    added: list[str] = []
+    for node_id in node_ids:
+        if node_id in best_hit_by_node:
+            continue
+        try:
+            window = index.ouvrir_noeud(node_id, node_window=1)
+        except (KeyError, ValueError):
+            continue
+        if window.blocks:
+            best_hit_by_node[node_id] = window.blocks[0].block_id
+            added.append(node_id)
+    return added
+
+
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                             budget: RetrievalBudget, settings: Settings, client: Any,
                             request_budget: Any, doc_id: str,
@@ -303,6 +329,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     tool_search_candidates: list[str] = []
     search_runs: list[list[str]] = []
     reserved_candidates: list[tuple[str, str]] = []
+    best_hit_by_node: dict[str, str] = {}
     valid_window_attempted = False
     focused_windows_attempted: set[str] = set()
     related_cache: dict[str, list[str]] = {}
@@ -361,8 +388,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
-    def execute(name: str, args: object, *, mechanism: bool = False,
-                prioritize_focus: bool = False) -> tuple[dict[str, Any], bool]:
+    def execute(name: str, args: object, *, mechanism: bool = False) -> tuple[dict[str, Any], bool]:
         nonlocal opens, truncated, valid_window_attempted
         if not isinstance(args, dict):
             return invalid()
@@ -394,7 +420,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             for reservation in run_reservations:
                 if reservation in hits and reservation not in reserved_candidates:
                     reserved_candidates.append(reservation)
-            for block_id, _node_id in hits:
+            for block_id, hit_node_id in hits:
+                best_hit_by_node.setdefault(hit_node_id, block_id)
                 if block_id not in search_candidates:
                     search_candidates.append(block_id)
                 if not mechanism and block_id not in tool_search_candidates:
@@ -462,8 +489,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if not (item.block_id in focus_companions
                         and item.block_id not in relevant_candidates)
             ]
+            focus_reserve = _focus_est_reserve(
+                focus, node_id, reservations=reserved_candidates,
+                best_hit_by_node=best_hit_by_node)
             admission_ids = _prioriser_focus(
-                primary_ids, focus, reserve=prioritize_focus)
+                primary_ids, focus, reserve=focus_reserve)
             for primary_id in admission_ids:
                 item = window_block_by_id[primary_id]
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
@@ -576,14 +606,13 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     def complete_reservations() -> None:
         # Une fenêtre valide suffit à établir que le navigateur a commencé sa lecture, même si son
         # unité atomique n'a pas tenu. Ne pas retenter un focus déjà essayé laisse le budget
-        # restant aux autres facettes. Pour ces seules ouvertures automatiques, le focus réservé est
-        # essayé avant ses frères de fenêtre afin qu'un frère contingent ne consomme pas sa place.
+        # restant aux autres facettes. L'origine de l'ouverture ne change pas la priorité : tout
+        # focus réservé qui est le meilleur hit effectif du nœud passe avant ses frères.
         if not valid_window_attempted:
             return
         for block_id, node_id in reserved_candidates:
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
-                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
-                        prioritize_focus=True)
+                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
 
     used_tools = False
 
@@ -651,6 +680,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if mechanism == "dictionnaire":
             dictionary_ready = elargi
         elif mechanism == "faq":
+            _ajouter_best_hits_faq(
+                faq_candidates, index=index, best_hit_by_node=best_hit_by_node)
             if faq_candidates:
                 question["faq_candidates"] = list(faq_candidates)
         elif mechanism == "sommaire":
@@ -1015,16 +1046,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if mechanism == "dictionnaire":
             dictionary_ready = elargi
         elif mechanism == "faq":
-            for node_id in faq_nodes:
-                if node_id in best_hit:
-                    continue
-                try:
-                    window = index.ouvrir_noeud(node_id, node_window=1)
-                except (KeyError, ValueError):
-                    continue
-                if window.blocks:
-                    nodes.append(node_id)
-                    best_hit[node_id] = window.blocks[0].block_id
+            nodes.extend(_ajouter_best_hits_faq(
+                faq_nodes, index=index, best_hit_by_node=best_hit))
         elif mechanism == "sommaire" and terms:
             if dictionary_ready:
                 expanded_search = dictionnaire.expand(terms)
@@ -1082,7 +1105,6 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         dependances_par_primaire: dict[str, list[str]] = {}
         candidats = [block_id for block_id, _node_id in hits]
         focus_ids = {best_hit[node_id] for node_id in ouverts}
-        reserved_focus_ids = {block_id for block_id, _node_id in reserved_candidates}
         focus_companions = {
             membre
             for focus_id in focus_ids
@@ -1100,7 +1122,9 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if noeud_de[candidate] == node_id and candidate not in focus_companions
             ]
             primaires.extend(_prioriser_focus(
-                voisins, focus_id, reserve=focus_id in reserved_focus_ids))
+                voisins, focus_id, reserve=_focus_est_reserve(
+                    focus_id, node_id, reservations=reserved_candidates,
+                    best_hit_by_node=best_hit)))
         # Un compagnon qui est aussi hit garde son unité historique, mais après les primaires des
         # autres nœuds : sa double qualité structurelle ne lui donne aucune priorité supplémentaire.
         primaires.extend(
