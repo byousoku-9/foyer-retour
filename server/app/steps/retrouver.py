@@ -133,8 +133,8 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
 _KINDS_CONTEXTUELS = frozenset({"heading", "definition"})
 _MOTS_OUTILS_LIMITES = frozenset({
-    "a", "au", "aux", "avec", "ce", "ces", "dans", "de", "des", "du", "elle", "en", "est",
-    "et", "il", "ils", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
+    "a", "au", "aux", "avec", "ce", "ces", "d", "dans", "de", "des", "du", "elle", "en",
+    "est", "et", "il", "ils", "l", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
     "par", "pas", "pour", "que", "qui", "sa", "se", "ses", "son", "sur", "un", "une",
 })
 
@@ -331,6 +331,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     primary_node_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
     tool_search_candidates: list[str] = []
+    tool_search_mappings: list[dict[str, list[str]] | list[str]] = []
     search_runs: list[list[str]] = []
     reserved_candidates: list[tuple[str, str]] = []
     best_hit_by_node: dict[str, str] = {}
@@ -408,6 +409,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             mapping: dict[str, list[str]] | list[str] = termes
             if dictionary_ready:
                 mapping = dictionnaire.expand(termes)
+            if not mechanism:
+                mapping_effectif = ({canon: list(variantes) for canon, variantes in mapping.items()}
+                                     if isinstance(mapping, dict) else list(mapping))
+                if mapping_effectif not in tool_search_mappings:
+                    tool_search_mappings.append(mapping_effectif)
             for terme in termes:
                 if forme(terme) not in {forme(t) for t in searched_terms}:
                     searched_terms.append(terme)
@@ -643,20 +649,38 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         for block_id in tool_search_candidates:
             if block_id in admitted_set or block_id in focused_windows_attempted:
                 continue
+            candidat = block(block_id)
+            # Une fondatrice rencontrée pendant la complétion confirme seulement son typage. Les
+            # fondatrices suivantes restent donc livrables au vérificateur, mais les auxiliaires
+            # restants ne reprennent pas de capacité après ce premier résultat décisionnel.
+            if suffisance_atteinte():
+                if kinds_suffisants is None:
+                    return
+                if candidat.kind not in kinds_suffisants or not candidat.kind_confirmed:
+                    continue
             node_id = document.node_of(block_id)
             _payload, is_error = execute(
                 "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
-            if is_error or suffisance_atteinte():
+            if is_error:
                 return
 
-        # Une suffisance explicitement déclarée autorise un dernier rappel lexical, mais seulement
-        # après l'épuisement des hits bruts du navigateur. Les graines viennent des hits
-        # auxiliaires qu'il a effectivement fait admettre ; ni un voisin de fenêtre, ni un candidat
-        # jamais lu ne peut donc orienter cette recherche. Les mots-outils déjà neutralisés pour
-        # les liens de clauses ne suffisent pas à créer une correspondance.
-        if kinds_suffisants is None or suffisance_atteinte():
+        # Une suffisance explicitement déclarée autorise ensuite un rappel borné, mais seulement
+        # après l'épuisement des hits bruts du navigateur. On rejoue d'abord les requêtes effectives
+        # réellement classées — expansion dictionnaire comprise — en filtrant avant `limit` sur les
+        # kinds confirmés. Cette seconde vue ne fabrique aucune pertinence : elle conserve le score
+        # et l'ordre canoniques de l'index, tout en empêchant les auxiliaires de consommer la coupe.
+        if kinds_suffisants is None:
             return
-        classements: list[list[tuple[str, str]]] = []
+        classements: list[list[tuple[str, str]]] = [
+            index.chercher(mapping, limit=budget.search_limit, doc_id=doc_id,
+                           kinds_confirmes=kinds_suffisants)
+            for mapping in tool_search_mappings
+        ]
+
+        # Le repli lexical acquis sur les auxiliaires demeure ensuite disponible. Ses graines
+        # viennent uniquement des hits qu'il a effectivement fait admettre ; ni un voisin de
+        # fenêtre, ni un candidat jamais lu ne peut orienter cette recherche. Les mots-outils déjà
+        # neutralisés pour les liens de clauses ne suffisent pas à créer une correspondance.
         for block_id in tool_search_candidates:
             if block_id not in admitted_set:
                 continue
@@ -674,19 +698,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if not classements:
             return
 
-        # Chaque auxiliaire conserve son propre classement : concaténer leurs textes diluerait un
-        # lien fort avec l'un d'eux sous les signaux des autres. La fusion équitable prend le même
-        # rang de chaque source dans l'ordre des hits, puis passe au rang suivant. Elle préserve
-        # ainsi l'ordre canonique interne de chaque classement sans laisser le premier remplir seul
-        # le plafond global historique `search_limit`.
+        # Chaque source conserve son propre classement : concaténer les requêtes ou les textes
+        # diluerait un lien sous les signaux des autres. La fusion équitable prend le prochain
+        # candidat encore inédit de chaque source ; un doublon déjà retenu n'en consomme donc pas le
+        # tour. L'ordre canonique interne reste intact et aucune source ne remplit seule `limit`.
         complementaires: list[tuple[str, str]] = []
-        for rang in range(max(map(len, classements), default=0)):
-            for classement in classements:
-                if rang < len(classement) and classement[rang] not in complementaires:
-                    complementaires.append(classement[rang])
-                    if len(complementaires) == budget.search_limit:
-                        break
-            if len(complementaires) == budget.search_limit:
+        positions = [0] * len(classements)
+        while len(complementaires) < budget.search_limit:
+            progression = False
+            for source, classement in enumerate(classements):
+                while (positions[source] < len(classement)
+                       and classement[positions[source]] in complementaires):
+                    positions[source] += 1
+                if positions[source] >= len(classement):
+                    continue
+                complementaires.append(classement[positions[source]])
+                positions[source] += 1
+                progression = True
+                if len(complementaires) == budget.search_limit:
+                    break
+            if not progression:
                 break
         if not complementaires:
             return
