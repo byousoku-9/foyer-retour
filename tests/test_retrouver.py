@@ -259,6 +259,54 @@ async def test_outils_priorise_une_fondatrice_confirmee_parmi_les_hits_bruts_sou
         candidats[1].block_id, candidats[2].block_id]
 
 
+async def test_outils_priorise_le_focus_fondateur_dans_sa_fenetre_sous_la_derniere_place(
+        ) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Signalfenetre signalfenetre signalfenetre initial.",
+        loc="p1", seq=1, kind="condition", kind_source="manual")
+    auxiliaire = Block(
+        block_id="d:p2:1", text="Signalfenetre signalfenetre auxiliaire.",
+        loc="p2", seq=1, kind="condition", kind_source="manual")
+    fondatrice = Block(
+        block_id="d:p2:2", text="Signalfenetre règle décisionnelle.",
+        loc="p2", seq=2, kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("fenetre-partagee", [auxiliaire, fondatrice]))
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signalfenetre"], limit=3, doc_id="d")] == [
+            initiale.block_id, auxiliaire.block_id, fondatrice.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalfenetre"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalfenetre"]),
+        budget=_budget(max_opens=2, node_window=2, search_limit=3,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [initiale.block_id, fondatrice.block_id]
+    assert result.discarded_block_ids == [auxiliaire.block_id]
+
+    result_complet, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signalfenetre"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=_parsed(["signalfenetre"]),
+        budget=_budget(max_opens=2, node_window=2, search_limit=3,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result_complet.opened_block_ids == [
+        initiale.block_id, auxiliaire.block_id, fondatrice.block_id]
+
+
 async def test_outils_ne_priorise_pas_un_kind_fondateur_non_confirme_parmi_les_hits_bruts(
         ) -> None:
     corpus, candidats = _corpus_hits_bruts_a_fondatrice_tardive(kind_source="model")

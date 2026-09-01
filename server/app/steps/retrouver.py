@@ -688,6 +688,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return
         if completion_necessaire:
             candidats_a_completer = tool_search_candidates
+            prioritaires_ids: set[str] = set()
             if kinds_suffisants is not None:
                 # La complétion est explicitement chargée d'atteindre l'un de ces kinds. Une
                 # partition stable présente donc d'abord les seuls hits déjà rendus dont le
@@ -718,7 +719,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         continue
                 node_id = document.node_of(block_id)
                 _payload, is_error = execute(
-                    "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+                    "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                    prioritize_focus=block_id in prioritaires_ids)
                 if is_error:
                     return
 
