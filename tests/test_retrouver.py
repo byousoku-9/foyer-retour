@@ -376,6 +376,174 @@ async def test_outils_preserve_larret_historique_hors_replay_multifacette(
     assert result.truncated is False
 
 
+async def test_outils_remplace_dynamiquement_un_candidat_admis_par_la_fenetre_precedente(
+        ) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    premiere = Block(
+        block_id="d:p2:1", text="Signal commun règle alpha.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    voisine = Block(
+        block_id="d:p2:2", text="Signal commun règle delta.", loc="p2", seq=2,
+        kind="exclusion", kind_source="manual")
+    suivante = Block(
+        block_id="d:p3:1", text="Signal commun règle gamma.", loc="p3", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("groupe", [premiere, voisine]),
+        ("suivante", [suivante]))
+    assert [block_id for block_id, _node_id in Index(corpus).chercher(
+        ["signal commun"], limit=3, doc_id="d", kinds_confirmes=KINDS_FONDATEURS
+    )] == [premiere.block_id, voisine.block_id, suivante.block_id]
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["signal commun", "branche distincte"]),
+        budget=_budget(max_opens=3, node_window=2, search_limit=2,
+                       max_blocks=4, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [
+        initiale.block_id, premiere.block_id, voisine.block_id, suivante.block_id]
+    assert result.truncated is False
+
+
+@pytest.mark.parametrize("avec_source_distincte", [False, True])
+async def test_outils_dedoublonne_les_sources_de_facettes_apres_expansion(
+        avec_source_distincte: bool) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    premiere = Block(
+        block_id="d:p2:1", text="Groupe commun règle alpha.", loc="p2", seq=1,
+        kind="garantie", kind_source="manual")
+    doublon = Block(
+        block_id="d:p3:1", text="Groupe commun règle delta.", loc="p3", seq=1,
+        kind="exclusion", kind_source="manual")
+    distincte = Block(
+        block_id="d:p4:1", text="Facette tierce règle gamma.", loc="p4", seq=1,
+        kind="garantie", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(
+        ("initiale", [initiale]), ("premiere", [premiere]),
+        ("doublon", [doublon]), ("distincte", [distincte]))
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d",
+        _groupes={
+            "groupe commun": ("groupe commun", "alias commun"),
+            "alias commun": ("groupe commun", "alias commun"),
+        },
+        _canoniques={
+            "groupe commun": ("groupe commun",),
+            "alias commun": ("groupe commun",),
+        })
+    facettes = ["groupe commun", "alias commun"]
+    if avec_source_distincte:
+        facettes.append("facette tierce")
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus, dictionnaire=dictionnaire,
+        parsed=_parsed(["beta"], facettes=facettes),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    attendu = ([initiale.block_id, premiere.block_id, distincte.block_id]
+               if avec_source_distincte else [initiale.block_id])
+    assert result.opened_block_ids == attendu
+    assert doublon.block_id not in result.opened_block_ids
+    assert result.truncated is False
+
+
+async def test_outils_reduit_les_facettes_brutes_vides_et_repetes_a_une_seule_source(
+        ) -> None:
+    corpus, fondatrices = _corpus_fondatrices_classees(
+        ("initiale", "avant", "apres"))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=fondatrices["initiale"].block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=[
+            "  signal partagé  ", "signal partagé", " ", "signal   partagé",
+        ]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [fondatrices["initiale"].block_id]
+    assert result.truncated is False
+
+
+async def test_outils_nactive_pas_le_replay_multifacette_sans_recherche_outils_reelle(
+        ) -> None:
+    corpus, fondatrices = _corpus_fondatrices_classees(
+        ("initiale", "avant", "apres"))
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(_tool(
+            "ouvrir_noeud", "t1", node_id="initiale",
+            focus_block_id=fondatrices["initiale"].block_id)),
+    ], corpus=corpus,
+        parsed=_parsed(["beta"], facettes=["signal partagé", "branche distincte"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=2,
+                       max_blocks=3, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.opened_block_ids == [fondatrices["initiale"].block_id]
+    assert result.truncated is False
+
+
+@pytest.mark.parametrize(("ordre_mecanismes", "variante_attendue"), [
+    ("dictionnaire,faq,sommaire,outils", True),
+    ("outils,sommaire,dictionnaire,faq", False),
+])
+async def test_outils_rejoue_une_variante_selon_letat_du_dictionnaire_au_tour_outils(
+        ordre_mecanismes: str, variante_attendue: bool) -> None:
+    initiale = Block(
+        block_id="d:p1:1", text="Repère beta règle initiale.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual")
+    variante = Block(
+        block_id="d:p2:1", text="Variante validée règle suivante.", loc="p2", seq=1,
+        kind="exclusion", kind_source="manual")
+    corpus = _corpus_neutre_par_noeuds(("initiale", [initiale]), ("variante", [variante]))
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id="d",
+        _groupes={"seconde facette": ("seconde facette", "variante validee")},
+        _canoniques={"seconde facette": ("seconde facette",)})
+
+    result, _step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale",
+                  focus_block_id=initiale.block_id)),
+    ], corpus=corpus, dictionnaire=dictionnaire,
+        parsed=_parsed(["beta"], facettes=["branche distincte", "seconde facette"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=1,
+                       max_blocks=2, max_tokens=6000),
+        settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0,
+                    retrieval_mechanism_order=ordre_mecanismes),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    attendu = [initiale.block_id, variante.block_id] if variante_attendue else [initiale.block_id]
+    assert result.opened_block_ids == attendu
+    assert result.truncated is False
+
+
 @pytest.mark.parametrize(("kind_fondateur", "permute"), [
     ("garantie", False),
     ("exclusion", True),

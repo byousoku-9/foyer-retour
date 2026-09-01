@@ -648,10 +648,33 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 formes_facettes.add(cle)
                 facettes_effectives.append(facette_effective)
 
+        mappings_facettes_effectifs: list[dict[str, list[str]] | list[str]] = []
+        signatures_facettes: set[frozenset[str]] = set()
+        for facette in facettes_effectives:
+            mapping_facette: dict[str, list[str]] | list[str] = [facette]
+            if dictionary_ready and dictionnaire is not None:
+                mapping_facette = dictionnaire.expand([facette])
+            formes_mapping = (
+                (canon, *variantes)
+                for canon, variantes in mapping_facette.items()
+            ) if isinstance(mapping_facette, dict) else (mapping_facette,)
+            signature = frozenset(
+                forme(valeur)
+                for groupe in formes_mapping
+                for valeur in groupe
+                if forme(valeur)
+            )
+            if signature and signature not in signatures_facettes:
+                signatures_facettes.add(signature)
+                mappings_facettes_effectifs.append(mapping_facette)
+
         suffisance_initiale = suffisance_atteinte()
-        replay_multifacette = (
+        # Sans facette, le replay décisionnel acquis sur la baseline reste disponible depuis la
+        # requête effective. Une facette unique conserve son arrêt historique ; plusieurs facettes
+        # activent en plus leurs sources fortes dédupliquées.
+        replay_apres_suffisance = (
             kinds_suffisants is not None
-            and len(facettes_effectives) > 1
+            and len(mappings_facettes_effectifs) != 1
             and bool(tool_search_mappings)
         )
         if kinds_suffisants is None:
@@ -659,7 +682,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 block(block_id).kind in _KINDS_CONTEXTUELS for block_id in admitted)
         else:
             completion_necessaire = not suffisance_initiale
-        if not completion_necessaire and not replay_multifacette:
+        if not completion_necessaire and not replay_apres_suffisance:
             return
         if completion_necessaire:
             for block_id in tool_search_candidates:
@@ -687,7 +710,6 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # et l'ordre canoniques de l'index, tout en empêchant les auxiliaires de consommer la coupe.
         if kinds_suffisants is None:
             return
-        indisponibles = admitted_set | focused_windows_attempted
 
         def classement_disponible(
                 mapping: dict[str, list[str]] | list[str]) -> list[tuple[str, str]]:
@@ -695,6 +717,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # consomment donc aucune place de la coupe globale. Le surclassement local compense
             # seulement ces identifiants connus ; le nombre de candidats retenus reste borné par
             # `search_limit`.
+            indisponibles = admitted_set | focused_windows_attempted
             hits = index.chercher(
                 mapping, limit=budget.search_limit + len(indisponibles), doc_id=doc_id,
                 kinds_confirmes=kinds_suffisants)
@@ -705,17 +728,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # Les facettes ont été arrêtées en amont par *comprendre*. Pour une question réellement
         # multifacette et après au moins une recherche du navigateur, chacune conserve donc sa
         # propre source forte, avec le même état effectif du dictionnaire que le tour outils.
-        classements_facettes: list[list[tuple[str, str]]] = []
-        if replay_multifacette:
-            for facette in facettes_effectives:
-                mapping_facette: dict[str, list[str]] | list[str] = [facette]
-                if dictionary_ready and dictionnaire is not None:
-                    mapping_facette = dictionnaire.expand([facette])
-                classements_facettes.append(classement_disponible(mapping_facette))
-
-        classements_faibles: list[list[tuple[str, str]]] = [
-            classement_disponible(mapping) for mapping in tool_search_mappings
-        ]
+        sources_facettes = (
+            mappings_facettes_effectifs if len(mappings_facettes_effectifs) > 1 else [])
+        sources_faibles = list(tool_search_mappings)
 
         # Le repli lexical acquis sur les auxiliaires demeure ensuite disponible. Ses graines
         # viennent uniquement des hits qu'il a effectivement fait admettre ; ni un voisin de
@@ -733,65 +748,60 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     if mot.isalnum() and mot not in _MOTS_OUTILS_LIMITES and mot not in graines:
                         graines.append(mot)
                 if graines:
-                    classements_faibles.append(classement_disponible(graines))
-        if not classements_facettes and not classements_faibles:
+                    sources_faibles.append(graines)
+        if not sources_facettes and not sources_faibles:
             return
 
         # Chaque source conserve son propre classement : concaténer les requêtes ou les textes
-        # diluerait un lien sous les signaux des autres. La fusion équitable prend le prochain
-        # candidat encore inédit de chaque source ; un doublon déjà retenu n'en consomme donc pas le
-        # tour. L'ordre canonique interne reste intact et aucune source ne remplit seule `limit`.
-        complementaires: list[tuple[str, str]] = []
+        # diluerait un lien sous les signaux des autres. La fusion équitable choisit et ouvre un
+        # candidat à la fois : une fenêtre peut ainsi admettre le suivant sans que celui-ci consomme
+        # encore une place, et la source fournit alors son prochain candidat canonique.
+        presentes = 0
+        presentes_ids: set[str] = set()
+        run: list[str] = []
 
-        def fusionner(classements: list[list[tuple[str, str]]]) -> None:
-            positions = [0] * len(classements)
-            while len(complementaires) < budget.search_limit:
+        def ouvrir_depuis(sources: list[dict[str, list[str]] | list[str]]) -> bool:
+            nonlocal presentes, truncated
+            while presentes < budget.search_limit:
                 progression = False
-                for source, classement in enumerate(classements):
-                    while (positions[source] < len(classement)
-                           and classement[positions[source]] in complementaires):
-                        positions[source] += 1
-                    if positions[source] >= len(classement):
+                for mapping in sources:
+                    classement = classement_disponible(mapping)
+                    suivant = next(
+                        (hit for hit in classement if hit[0] not in presentes_ids), None)
+                    if suivant is None:
                         continue
-                    complementaires.append(classement[positions[source]])
-                    positions[source] += 1
+                    block_id, node_id = suivant
+                    # Les candidats au-delà de la capacité restante n'ont jamais été présentés
+                    # au navigateur. Ils ne créent aucune fausse troncature après suffisance ;
+                    # une insuffisance encore ouverte reste, elle, honnêtement tronquée.
+                    if opens >= budget.max_opens:
+                        if not suffisance_atteinte():
+                            truncated = True
+                        return False
+                    presentes_ids.add(block_id)
+                    presentes += 1
+                    run.append(block_id)
+                    best_hit_by_node.setdefault(node_id, block_id)
+                    if block_id not in search_candidates:
+                        search_candidates.append(block_id)
+                    _payload, is_error = execute(
+                        "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                        prioritize_focus=True)
                     progression = True
-                    if len(complementaires) == budget.search_limit:
+                    if is_error:
+                        return False
+                    if presentes == budget.search_limit:
                         break
                 if not progression:
                     break
+            return True
 
         # Les sources fortes remplissent d'abord la coupe, équitablement entre facettes. Les
         # requêtes variables puis les graines auxiliaires ne reçoivent que la capacité restante.
-        fusionner(classements_facettes)
-        fusionner(classements_faibles)
-        if not complementaires:
-            return
-        run = [block_id for block_id, _node_id in complementaires]
         search_runs.append(run)
-        for block_id, node_id in complementaires:
-            best_hit_by_node.setdefault(node_id, block_id)
-            if block_id not in search_candidates:
-                search_candidates.append(block_id)
-            if block_id in admitted_set:
-                # L'ouverture initiale reste dédupliquée, sans servir d'arrêt : son kind confirmé
-                # ne prouve pas sa pertinence et les fondatrices suivantes restent à examiner.
-                continue
-            if block_id in focused_windows_attempted:
-                continue
-            # Les candidats au-delà de la capacité restante n'ont jamais été présentés au
-            # navigateur : ne pas provoquer un appel condamné qui transformerait à tort leur
-            # simple non-ouverture en troncature, notamment après admission d'une fondatrice.
-            if opens >= budget.max_opens:
-                return
-            _payload, is_error = execute(
-                "ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
-                prioritize_focus=True)
-            # Sur ce rappel lexical faible, le kind confirmé ne prouve aucune pertinence : tous
-            # les candidats fusionnés qui tiennent encore dans les bornes doivent rester tentés.
-            # Le court-circuit antérieur à cette phase demeure, lui, inchangé.
-            if is_error:
-                return
+        if not ouvrir_depuis(sources_facettes):
+            return
+        ouvrir_depuis(sources_faibles)
 
     used_tools = False
 
