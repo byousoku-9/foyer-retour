@@ -27,6 +27,17 @@ from .document import DomainModel
 from .retrieval import BudgetSnapshot
 
 
+# Les étapes qui n'appellent **jamais** un modèle. C'est le même fait que `llm.models.STEP_TIERS`
+# — leur tier y vaut `None` — énoncé dans la couche que `pipelines` a le droit de lire : la table
+# des couches interdit à un pipeline de voir `llm`, et ce fait-là n'appartient pas au fournisseur,
+# il appartient à la chaîne. `tests/test_tables_partagees.py` interdit aux deux de diverger.
+#
+# Ce que la distinction sert (correctif du tour 4) : la deadline protège le budget d'appels. Une
+# étape qui ne dépense rien est une **remise**, pas une dépense ; son dépassement se dit, il ne se
+# paie pas d'un 503 sur un travail déjà payé.
+ETAPES_SANS_APPEL: frozenset[str] = frozenset({"restituer"})
+
+
 class Usage(DomainModel):
     """AD-9 : usage réel renvoyé par l'API, coût en euros calculé depuis cet usage."""
 

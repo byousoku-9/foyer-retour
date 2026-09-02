@@ -1156,7 +1156,7 @@ class Settings(BaseSettings):
         plus_longue = max(self.verifier_sinistre_max_tokens, self.verifier_max_tokens,
                           self.rediger_max_tokens, self.comprendre_max_tokens,
                           self.retrouver_outils_max_tokens)
-        duree_majoree = plus_longue / self.llm_output_tokens_per_s_min + self.llm_latence_marge_s
+        duree_majoree = self.duree_majoree_pour(plus_longue)
         if duree_majoree > self.llm_timeout_s:
             raise ValueError(
                 f"llm_timeout_s ({self.llm_timeout_s} s) ne laisse pas écrire la plus longue "
@@ -1225,6 +1225,23 @@ class Settings(BaseSettings):
         if self.llm_audit_exact is not None:
             return self.llm_audit_exact
         return self.env != "prod"
+
+    def duree_majoree_pour(self, max_tokens: int) -> float:
+        """Le temps qu'il faut, au pire, pour écrire `max_tokens` de sortie : la seule dérivation.
+
+        Correctif du tour 4 (C2). Le tour 3 avait écrit ce calcul pour lier le délai d'appel au
+        plafond de sortie **au démarrage** ; il n'existait nulle part à l'exécution. Un appel a donc
+        été envoyé avec 24,08 s de deadline restante pour une sortie qui en demande 45,66 : il ne
+        pouvait pas aboutir, il a coûté 24 s et zéro token, et il a emporté la marge dont la remise
+        de la réponse avait besoin.
+
+        Le débit est **minoré** et la latence est une amorce, tous deux mesurés : majorer une durée
+        demande de sous-estimer la vitesse, pas de la moyenner. Une seule méthode, lue par la
+        validation de configuration, par le budget de requête et par les gardes de second cycle —
+        trois copies auraient divergé, et c'est exactement ce qui s'est produit entre le délai
+        d'appel et la marge de relance.
+        """
+        return max_tokens / self.llm_output_tokens_per_s_min + self.llm_latence_marge_s
 
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""

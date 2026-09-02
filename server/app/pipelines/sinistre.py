@@ -54,7 +54,8 @@ from server.app.domain.errors import (
 )
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion, QuestionScope
-from server.app.domain.trace import CheckResult, StepTrace, Trace
+from server.app.domain.trace import (ETAPES_SANS_APPEL, CheckResult, StepTrace,
+                                     Trace)
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
     KINDS_FONDATEURS,
@@ -154,7 +155,49 @@ def _contexte_non_relu(verification: Verification, *, lecture_bornee: bool) -> V
     return verification.model_copy(update={"complete": False, "lacunes": lacunes})
 
 
-def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) -> bool:
+def _cite_une_fondatrice_confirmee(claim: Any, *, corpus: Any, index: Any) -> bool:
+    """Cette affirmation s'appuie-t-elle sur une garantie ou une exclusion que l'ingestion confirme ?
+
+    Le `kind` et sa confirmation sont relus dans le corpus : ni le texte de la claim, ni son
+    identifiant, ni le document ne décident.
+    """
+    for quote in claim.quotes:
+        try:
+            document = corpus.documents[index.doc_of(quote.block_id)]
+            bloc = document.block(quote.block_id)
+        except KeyError:
+            continue
+        if bloc.kind in KINDS_FONDATEURS and bloc.kind_confirmed:
+            return True
+    return False
+
+
+def _base_decisionnelle_par_facette(verification: Verification, parsed: ParsedQuestion, *,
+                                    corpus: Any, index: Any) -> bool:
+    """Chaque sous-question porte-t-elle déjà une affirmation retenue citant une fondatrice confirmée ?
+
+    Correctif du tour 4 (C3). C'est la question que `_fondatrice_rejetee` prétend défendre — « sans
+    relance, `found=True` ne signifie pas qu'AD-6 dispose encore d'une base décisionnelle » — et
+    qu'elle ne posait jamais. Sa jumelle `_fondatrices_omises` a été raffinée par sous-question au
+    tour 2 sur exactement ce raisonnement ; les deux se disent complémentaires, et l'une n'avait pas
+    suivi.
+
+    Sans découpage rendu, il n'y a rien à mesurer : la fonction ne prétend rien, et la règle
+    historique s'applique telle quelle.
+    """
+    if not parsed.facettes:
+        return False
+    retenues = {claim.claim_id: claim for claim in verification.claims}
+    for rang in range(len(parsed.facettes)):
+        identifiants = verification.facettes_claims.get(rang, [])
+        if not any(_cite_une_fondatrice_confirmee(retenues[cid], corpus=corpus, index=index)
+                   for cid in identifiants if cid in retenues):
+            return False
+    return True
+
+
+def _fondatrice_rejetee(verification: Verification, parsed: ParsedQuestion, *,
+                        corpus: Any, index: Any) -> bool:
     """Une claim fondatrice rejetée exige la relance sinistre, même si une auxiliaire survit.
 
     Revue 3.3 post-suite : le budget de rédaction peut réserver une place à une définition ou une
@@ -162,7 +205,18 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     sur sa pertinence, `found=True` ne signifie pas qu'AD-6 dispose encore d'une base décisionnelle :
     sans relance, les qualités contractuelles de la fondatrice disparaissent aussi des questions au
     client. Le `kind` est relu dans le corpus ; ni le texte de la claim ni le document ne décident.
+
+    **Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question.** Le
+    déclencheur s'armait dès qu'une claim rejetée pour une raison corrigeable citait une fondatrice,
+    sans regarder si la base qu'il prétend défendre existe déjà. Mesuré sur A16 : une claim
+    auxiliaire rejetée `non_soutenue` sur une exclusion hors périmètre a déclenché un cycle complet
+    — 43,3 s, 0,052 €, deux appels — alors que **les deux** sous-questions portaient déjà chacune
+    une affirmation retenue citant une fondatrice confirmée. Ce cycle n'a rien produit et a fini en
+    503. La propriété historique reste entière : une sous-question qui perd sa seule fondatrice sur
+    un rejet corrigeable relance toujours.
     """
+    if _base_decisionnelle_par_facette(verification, parsed, corpus=corpus, index=index):
+        return False
     for claim in verification.rejected_claims:
         if claim.rejection_kind != "non_pertinente":
             continue
@@ -187,6 +241,7 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
             if kind in KINDS_FONDATEURS:
                 return True
     return False
+
 
 
 def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Settings,
@@ -501,6 +556,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         ingest_fingerprint=document.ingest_fingerprint)
 
     steps: list[StepTrace] = []
+    # Les étapes sans tier dont la deadline était déjà dépassée : elles ne dépensent rien,
+    # elles sont servies, et le fait est publié plutôt que payé d'un 503 (correctif C1).
+    depassements: list[str] = []
     relances = 0
     truncated = False
     intent: str | None = None
@@ -509,9 +567,38 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     question_comprise: ParsedQuestion | None = None
 
     def echeance(avant: str) -> None:
-        """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
-        if budget.remaining() <= 0:
+        """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup.
+
+        **Correctif du tour 4 (C1) : une étape qui ne dépense rien est une remise, pas une
+        dépense.** La deadline protège le budget d'appels du fournisseur — c'est son unique objet.
+        Elle refusait pourtant *restituer* comme les autres, alors que cette étape n'appelle aucun
+        modèle (`STEP_TIERS["restituer"] is None`, `calls=[]`, **0 ms mesuré**) et ne fait que
+        composer l'`Answer` à partir d'un travail déjà payé. Mesuré sur A16 : une réponse conforme,
+        vérifiée et servable à 56,7 s a été jetée en 503 pour `remaining = -0,011 s`, après
+        0,24 € dépensés. Un dépassement sur une remise se **dit** — la trace publie déjà
+        `deadline_remaining_s`, et le check le nomme —, il ne se **paie** pas d'une erreur.
+
+        Le fait employé est celui de la table des étapes (`ETAPES_SANS_APPEL`, jumelle de
+        `STEP_TIERS` dont le tier y vaut `None`) : aucun nom n'est décidé ici. Un court-circuit
+        de code pur, absent de la table des tiers, y est traité comme ce qu'il est — quelque
+        chose qui ne dépense rien.
+
+        La latence réelle reste bornée ailleurs, et rien n'y touche : `client_abort_margin_s`
+        côté navigateur (AD-11) et le délai d'infrastructure au déploiement.
+        """
+        if budget.remaining() > 0:
+            return
+        if avant not in ETAPES_SANS_APPEL:
             raise Timeout(f"deadline épuisée avant l'étape {avant} ({budget.remaining():.1f} s restantes)")
+        depassements.append(f"{avant} ({budget.remaining():.1f} s)")
+
+    def noter_depassement(step: StepTrace) -> None:
+        """AD-10 : le dépassement d'une étape sans appel est nommé dans la trace, jamais tu."""
+        if depassements:
+            step.checks.append(CheckResult(
+                name="deadline_depassee", ok=False,
+                detail=f"deadline dépassée avant {', '.join(depassements)} : l'étape n'appelle "
+                       "aucun modèle, la réponse déjà payée est servie plutôt que refusée"))
 
     def tracer() -> Trace:
         digest_pipeline, digest_prompts = (pipeline_digest_hex, prompts_digest_hex)
@@ -584,7 +671,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 lang_fallback: bool = False,
                 scope: QuestionScope | None = None,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
-        echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
+        # *restituer* ne dépense rien : un dépassement y est nommé, pas payé (correctif C1).
+        echeance("restituer")
         compris, ignores = faits_compris(scope)
         answer, step = restituer(language=language, lang_fallback=lang_fallback,
                                  reason=absence(kind, parsed),
@@ -593,6 +681,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                  faits_compris=compris,
                                  registre=REGISTRE_SINISTRE)
         noter_hors_borne(step, ignores)
+        noter_depassement(step)
         steps.append(step)
         return answer, tracer()
 
@@ -849,7 +938,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             consigne_facette = None
         relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
-            or _fondatrice_rejetee(verification, corpus=corpus, index=index)
+            or _fondatrice_rejetee(verification, parsed, corpus=corpus, index=index)
         )) or omises or consigne_facette)
         if relance_due:
             # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
@@ -896,8 +985,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             appels_avant = budget.attempts
             redaction_relancee = False
             try:
-                if budget.remaining() <= settings.llm_retry_margin_s:
-                    raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
+                # C2 : le temps que le **cycle entier** demande, au débit minoré — la somme des
+                # durées majorées de ses deux appels —, et non un nombre de secondes sans rapport
+                # avec ce qu'il va écrire. Mesuré sur A16 : la porte s'ouvrait à 43,3 s restantes
+                # pour un cycle qui en demande 74,8 ; les deux appels sont partis, le second a
+                # expiré sans écrire un token, et il a emporté la marge de la remise.
+                duree_du_cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+                                  + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
+                if budget.remaining() <= duree_du_cycle:
+                    raise Timeout(f"temps insuffisant pour la relance : {duree_du_cycle:.1f} s "
+                                  f"requises au débit minoré, {budget.remaining():.1f} s restantes")
                 if budget.attempts + APPELS_DE_LA_RELANCE > budget.max_attempts:
                     raise BudgetExceeded(
                         f"plafond d'appels trop bas pour la relance et sa vérification "
@@ -1019,8 +1116,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             acquise = verification
             appels_avant = budget.attempts
             place = None
-            if budget.remaining() <= settings.llm_retry_margin_s:
-                place = f"marge insuffisante ({budget.remaining():.1f} s restantes)"
+            # C2 : la reprise ne coûte qu'une vérification (`APPELS_DE_LA_REPRISE`) ; c'est donc sa
+            # seule durée majorée qui décide, au lieu d'une marge fixe.
+            duree_de_la_reprise = settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens)
+            if budget.remaining() <= duree_de_la_reprise:
+                place = (f"temps insuffisant : {duree_de_la_reprise:.1f} s requises au débit "
+                         f"minoré, {budget.remaining():.1f} s restantes")
             elif budget.attempts + APPELS_DE_LA_REPRISE > budget.max_attempts:
                 place = (f"plafond d'appels trop bas ({budget.attempts}/{budget.max_attempts}, "
                          f"{APPELS_DE_LA_REPRISE} requis)")
@@ -1179,6 +1280,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 lecture_partielle=lecture_partielle_de(retrieval, doc_id=doc_id),
                 faits_compris=compris, registre=REGISTRE_SINISTRE)
             noter_hors_borne(step_restituer, ignores)
+            noter_depassement(step_restituer)
             steps.append(step_restituer)
             return answer, tracer()
         if not verification.found:
@@ -1199,6 +1301,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
         noter_hors_borne(step_restituer, ignores)
+        noter_depassement(step_restituer)
         steps.append(step_restituer)
         return answer, tracer()
 

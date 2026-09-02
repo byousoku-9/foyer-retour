@@ -137,7 +137,7 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 30.0) -> RequestBudget:
+def _budget(deadline_s: float = 100.0) -> RequestBudget:
     return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
 
 
@@ -327,7 +327,12 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
     assert raisons == {"c1": None, "c2": None, "c3": "hors_portee"}
     rendered_claims = {claim["claim_id"]: claim for claim in answer.model_dump(mode="json")["claims"]}
     assert rendered_claims["c3"]["status"]["applicable_reason"] == "hors_portee"
-    assert verdict.missing.faits == ["caractère subit de l'action de la chaleur"]
+    # Correctif du tour 4 : la garantie nomme un fait manquant, donc elle vise le cas et reste
+    # ouverte — le texte de la clause est relu et le qualificatif « soudain » qu'elle écrit sans que
+    # le modèle l'ait nommé part lui aussi en question au client. Miroir exact du cas live, où c'est
+    # « subit » que le modèle nomme et « soudain » que le code ajoute.
+    assert verdict.missing.faits == ["caractère subit de l'action de la chaleur",
+                                     "caractère « soudain » exigé par la clause citée"]
     # matrice I/O : `ask_client` cite les options / conditions particulières **et** la nature « subite »
     assert any("caractère subit" in q for q in verdict.ask_client)
     assert any("options" in q for q in verdict.ask_client)
@@ -2471,7 +2476,7 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     (AD-1, « aucun retry ne démarre sans marge »), la réponse vérifiée est servie, et elle n'est pas
     donnée pour complète — avec une phrase qui dit pourquoi.
     """
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)
+    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, False, False, False, None))], budget=budget)
@@ -2588,7 +2593,7 @@ async def _run_par_facette(corpus: CorpusNeutre, script: list, **kw):
     # Le plafond d'appels par défaut du fichier (6) est calibré sur une chaîne sans navigation à
     # deux tours ; ces témoins en ont une, et la relance d'AD-3 en coûte deux de plus. Le plafond
     # est relevé pour que le budget ne décide pas à la place du mécanisme mesuré.
-    kw.setdefault("budget", RequestBudget(deadline_s=30.0, max_attempts=8, max_cost_eur=0.20))
+    kw.setdefault("budget", RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
     return await _run(corpus.index, script,
                       settings=_settings_neutre(corpus.identite),
                       question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE, **kw)
@@ -2660,7 +2665,7 @@ async def test_une_facette_introuvable_est_dite_absente_sans_claim_inventee(
             _rediger_inventaire(par_facette),
             _verifier_une_facette()],
         settings=reglages, question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE,
-        budget=RequestBudget(deadline_s=30.0, max_attempts=8, max_cost_eur=0.20))
+        budget=RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
 
     assert fake.remaining_script == 0
     retrouver = next(s for s in trace.steps if s.name == "retrouver")
@@ -2886,12 +2891,19 @@ def test_un_hors_objet_narme_plus_la_relance_mais_un_defaut_de_redaction_si(inde
         return Verification.model_construct(
             claims=[], rejected_claims=[_rejetee("c1", fondatrice, raison)], found=True)
 
-    assert not sinistre._fondatrice_rejetee(rejetee("hors_objet"), corpus=index.corpus, index=index)
-    assert sinistre._fondatrice_rejetee(rejetee("non_soutenue"), corpus=index.corpus, index=index)
-    assert sinistre._fondatrice_rejetee(rejetee("conclusion_ajoutee"),
-                                        corpus=index.corpus, index=index)
+    # Sans découpage rendu, la base décisionnelle ne se mesure pas par sous-question : la règle
+    # historique s'applique telle quelle, et c'est elle que ce témoin tient.
+    sans_facette = ParsedQuestion(question_resolue=QUESTION, intent="question")
+
+    def arme(raison: str | None) -> bool:
+        return sinistre._fondatrice_rejetee(rejetee(raison), sans_facette,
+                                            corpus=index.corpus, index=index)
+
+    assert not arme("hors_objet")
+    assert arme("non_soutenue")
+    assert arme("conclusion_ajoutee")
     # Sans raison fermée rendue par le contrôle, le doute profite à la relance, comme avant.
-    assert sinistre._fondatrice_rejetee(rejetee(None), corpus=index.corpus, index=index)
+    assert arme(None)
 
 
 def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index: Index) -> None:
@@ -3085,3 +3097,191 @@ def test_un_bloc_a_correspondance_partielle_nentre_pas_dans_les_fondatrices_omis
         FacetteCouverture(rang=0, block_ids=(par_facette.bloc("regle_inventaire"),), candidats=1),
         FacetteCouverture(rang=1, block_ids=(), candidats=0)]})
     assert sinistre._fondatrices_omises(verification, partielle, reglages, parsed) == []
+
+
+# --- Correctif du tour 4 (C1) : une remise ne se refuse pas pour la deadline -------------------
+
+
+class _BudgetQuiExpire(RequestBudget):
+    """Budget dont la deadline s'épuise juste après le n-ième appel facturé (horloge factice).
+
+    Compter les appels plutôt que les secondes rend le témoin déterministe : l'instant d'expiration
+    est exactement l'entre-deux-étapes que l'on veut éprouver.
+    """
+
+    def __init__(self, apres_appels: int) -> None:
+        super().__init__(deadline_s=100.0, max_attempts=8, max_cost_eur=0.30)
+        self._restants = apres_appels
+
+    def note_call(self, usage) -> None:
+        super().note_call(usage)
+        self._restants -= 1
+
+    def remaining(self) -> float:
+        return 100.0 if self._restants > 0 else -0.011
+
+
+async def test_une_reponse_verifiee_nest_pas_jetee_pour_onze_millisecondes(index: Index) -> None:
+    """C1 — mesuré sur A16 : une réponse conforme, vérifiée et servable, rendue en 503.
+
+    Le pipeline avait la réponse en main à 56,7 s ; `echeance("restituer")` a levé `Timeout` à
+    `remaining = -0,011 s` et l'API a rendu 503, après 0,24 € dépensés. *restituer* n'appelle
+    pourtant aucun modèle et coûte 0 ms mesuré : la deadline protège le budget d'appels, pas la
+    remise d'un travail déjà payé.
+    """
+    answer, trace, fake = await _run(
+        index, [_comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
+        budget=_BudgetQuiExpire(3))
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.verdict is not None
+    assert [q.block_id for c in answer.claims for q in c.quotes] == [f"{DOC_ID}:p1:2"]
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    (depassement,) = [c for c in restituer.checks if c.name == "deadline_depassee"]
+    assert not depassement.ok and "n'appelle aucun modèle" in depassement.detail
+
+
+async def test_la_deadline_ferme_toujours_la_porte_devant_une_etape_qui_depense(
+        index: Index) -> None:
+    """La borne du correctif : devant un appel, la porte se ferme comme avant."""
+    with pytest.raises(Timeout, match="verifier"):
+        await _run(index, [_comprendre(), _rediger(GAR),
+                           _verifier(("c1", True, True, False, False, None))],
+                   budget=_BudgetQuiExpire(2))
+
+
+async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Index) -> None:
+    """C2 — la porte de la relance mesure ce que le cycle va écrire, pas une marge fixe.
+
+    Mesuré sur A16 : la garde s'ouvrait à 43,3 s restantes (`llm_retry_margin_s = 5`) pour un cycle
+    qui en demande 74,8 au débit minoré. Les deux appels sont partis, le second a expiré sans écrire
+    un token, et il a emporté la marge de la remise — 43,3 s et 0,052 € pour rien, puis un 503.
+    """
+    settings = _settings()
+    cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+             + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
+    # De quoi écrire chaque appel de la chaîne, jamais le cycle entier.
+    budget = RequestBudget(deadline_s=cycle - 5, max_attempts=8, max_cost_eur=0.30)
+
+    answer, trace, fake = await _run(
+        index, [_comprendre(), _rediger(GAR, MAUVAISE),
+                _verifier(("c1", True, True, False, False, None))], budget=budget)
+
+    assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
+    assert answer.found is True and answer.complete is False
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
+    assert "temps insuffisant pour la relance" in abandon.detail
+
+
+# --- Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question -------------
+
+
+def _verification_a_deux_facettes_pourvues(bloc_fondateur: str) -> Verification:
+    """Deux sous-questions, chacune portée par une affirmation retenue citant une fondatrice."""
+    def retenue(rang: int) -> VerifiedClaim:
+        return VerifiedClaim(
+            claim_id=f"k{rang}", text=f"Clause {rang}.",
+            quotes=[VerifiedQuote(block_id=bloc_fondateur, quote=Q_GARANTIE, start=0,
+                                  end=len(Q_GARANTIE), text_start=0, text_end=len(Q_GARANTIE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+
+    return Verification.model_construct(
+        claims=[retenue(0), retenue(1)],
+        rejected_claims=[_rejetee("c9", f"{DOC_ID}:p1:5", "non_soutenue")],
+        found=True, facettes_couvertes=[0, 1], facettes_claims={0: ["k0"], 1: ["k1"]})
+
+
+async def test_une_auxiliaire_rejetee_ne_relance_pas_quand_chaque_facette_a_sa_fondatrice(
+        index: Index) -> None:
+    """C3 — le déclencheur ne posait jamais la question qu'il prétend défendre.
+
+    Mesuré sur A16 : une claim auxiliaire rejetée `non_soutenue` sur une exclusion hors périmètre a
+    déclenché un cycle complet — 43,3 s, 0,052 €, deux appels — alors que les **deux**
+    sous-questions portaient déjà chacune une affirmation retenue citant une fondatrice confirmée.
+    Le cycle n'a rien produit, et il a fini en 503.
+    """
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    pourvue = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:2")
+
+    assert not sinistre._fondatrice_rejetee(pourvue, parsed, corpus=index.corpus, index=index)
+
+
+async def test_une_facette_qui_perd_sa_seule_fondatrice_relance_toujours(index: Index) -> None:
+    """La propriété historique, entière : c'est elle que le correctif ne doit pas emporter."""
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    depourvue = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:2").model_copy(
+        # La seconde sous-question n'a plus d'affirmation retenue : sa base décisionnelle a disparu
+        # avec la claim rejetée.
+        update={"facettes_couvertes": [0], "facettes_claims": {0: ["k0"]}})
+
+    assert sinistre._fondatrice_rejetee(depourvue, parsed, corpus=index.corpus, index=index)
+
+
+async def test_une_facette_couverte_par_une_auxiliaire_seule_relance_toujours(index: Index) -> None:
+    """« Couverte » ne suffit pas : la sous-question doit porter une **fondatrice** confirmée."""
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    # `p1:4` est la définition du contrat témoin : citée, elle couvre la facette sans la fonder.
+    auxiliaire = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:4")
+
+    assert sinistre._fondatrice_rejetee(auxiliaire, parsed, corpus=index.corpus, index=index)
+
+
+# --- Correctif du tour 4 (C4) : une absence mesurée ne s'efface pas par déclaration ------------
+
+
+async def test_le_controle_ne_peut_pas_couvrir_une_sous_question_sans_candidat(
+        par_facette: CorpusNeutre) -> None:
+    """C4 — mesuré sur A16 : la facette « fumée » déclarée couverte par une clause de chaleur.
+
+    *retrouver* avait publié `facettes_retrouvees ok=false` (« le contrat lu n'en porte aucun pour
+    le rang 1 ») et `verdict_par_facette : verdict contredit par la mesure du code (qui fait foi) ».
+    Le contrôle a néanmoins attribué le rang 1 à une claim citant la clause de chaleur : plus de
+    rang non couvert, donc pas de reprise, pas de garde, pas de lacune — la réponse servie ne disait
+    pas un mot de la fumée et ne le disait pas non plus.
+
+    La sous-question introuvable de ce corpus n'a **aucun** candidat ; la voie existante reprend la
+    main : reprise ciblée sans rien à rouvrir, absence dite, réponse incomplète.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_INTROUVABLE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_inventaire(par_facette),
+        # Le contrôle attribue **les deux** rangs à l'unique claim affichée.
+        _verifier(("k1", True, True, False, False, None, [], []), facettes=[["k1"], ["k1"]])])
+
+    assert fake.remaining_script == 0
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    (contredit,) = [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
+    assert not contredit.ok and "la mesure du code fait foi" in contredit.detail
+    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["facettes_sans_clause"][0].format(n=1) in answer.unknown
+
+
+async def test_une_attribution_sur_une_sous_question_pourvue_nest_jamais_contredite(
+        par_facette: CorpusNeutre) -> None:
+    """La borne du correctif, et elle est voulue : le code ne corrige jamais une bonne attribution.
+
+    Un classement **non vide** ne dit rien de l'attribution ; seul le vide est une mesure, et il ne
+    fait que refuser d'être effacé.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_les_deux(par_facette),
+        # Les deux rangs sont pourvus par le classement ; l'attribution du contrôle fait foi, même
+        # croisée (la claim du registre est portée au rang 0 et inversement).
+        _verifier(("k1", True, True, False, False, None, [], []),
+                  ("k2", True, True, False, False, None, [], []),
+                  facettes=[["k2"], ["k1"]])])
+
+    assert fake.remaining_script == 0
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert not [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
+    assert not [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
+    assert len(answer.claims) == 2

@@ -82,7 +82,7 @@ async def test_cache_hit_recrit_un_evenement_exact_sans_fuite_dans_la_trace_publ
     )
 
     async def call(document_uid: str, line_uid: str):
-        budget = RequestBudget(deadline_s=30, max_attempts=2, max_cost_eur=1)
+        budget = RequestBudget(deadline_s=100, max_attempts=2, max_cost_eur=1)
         budget.bind_artifact(
             document_uid=document_uid, source_hash=f"source:{document_uid}",
             ingest_fingerprint=f"ingest:{document_uid}",
@@ -115,7 +115,7 @@ async def test_cache_hit_recrit_un_evenement_exact_sans_fuite_dans_la_trace_publ
     memory = await memory_client.parse(
         tier="micro", system_prefix="p", messages=[{"role": "user", "content": "q"}],
         output_model=_Answer,
-        budget=RequestBudget(deadline_s=30, max_attempts=2, max_cost_eur=1),
+        budget=RequestBudget(deadline_s=100, max_attempts=2, max_cost_eur=1),
         step=StepTrace(name="api"),
     )
     assert not memory.call.audit_persisted
@@ -140,7 +140,7 @@ async def test_client_en_ligne_ne_persiste_ni_question_historique_termes_ni_bloc
         tier="micro", system_prefix=secrets["bloc"],
         messages=[{"role": "user", "content": json.dumps(secrets)}],
         output_model=_Answer,
-        budget=RequestBudget(deadline_s=30, max_attempts=1, max_cost_eur=1),
+        budget=RequestBudget(deadline_s=100, max_attempts=1, max_cost_eur=1),
         step=StepTrace(name="api"),
     )
 
@@ -168,7 +168,7 @@ async def test_reponse_reellement_recue_mais_invalide_conserve_enveloppe_et_erre
         await client.parse(
             tier="micro", system_prefix="p", messages=[{"role": "user", "content": "q"}],
             output_model=_Answer,
-            budget=RequestBudget(deadline_s=30, max_attempts=1, max_cost_eur=1),
+            budget=RequestBudget(deadline_s=100, max_attempts=1, max_cost_eur=1),
             step=StepTrace(name="api"),
         )
     row = json.loads(path.read_text("utf-8"))

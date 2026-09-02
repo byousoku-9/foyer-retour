@@ -232,3 +232,45 @@ def test_relever_la_deadline_ne_rallonge_aucune_requete() -> None:
     tenu = RequestBudget(deadline_s=settings.deadline_s, max_attempts=1, max_cost_eur=1.0)
     tenu._t0 -= 60.0    # type: ignore[attr-defined]
     assert epuise.remaining() < 0 <= tenu.remaining()
+
+
+def test_un_appel_qui_na_pas_le_temps_daboutir_nest_pas_envoye() -> None:
+    """C2 — mesuré sur A16 : un appel envoyé avec 24,08 s pour une sortie qui en demande 45,66.
+
+    `timeout_for_call` tronquait le délai au temps restant sans jamais demander si ce temps
+    suffisait. L'appel ne pouvait pas aboutir : il a coûté 24 s, **zéro token**, zéro euro, et la
+    totalité de la marge dont la remise de la réponse avait besoin.
+    """
+    from server.app.config import Settings
+    from server.app.domain.errors import Timeout
+
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    demande = settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens)
+
+    large = RequestBudget(deadline_s=demande + 10, max_attempts=4, max_cost_eur=1.0)
+    large.exiger_le_temps_decrire(demande, etape="verifier")  # passe, rien n'est levé
+
+    etroit = RequestBudget(deadline_s=demande - 10, max_attempts=4, max_cost_eur=1.0)
+    with pytest.raises(Timeout, match="appel non envoyé"):
+        etroit.exiger_le_temps_decrire(demande, etape="verifier")
+    # Rien n'a été envoyé : ni appel compté, ni euro engagé.
+    assert etroit.attempts == 0 and etroit.cost_eur == 0.0
+
+
+def test_la_validation_de_configuration_et_lexecution_lisent_la_meme_derivation() -> None:
+    """Une seule dérivation, trois lecteurs : configuration, budget de requête, gardes de cycle.
+
+    Trois copies auraient divergé — et c'est exactement ce qui s'était produit entre le délai
+    d'appel et la marge de relance, un nombre fixe sans rapport avec ce que le cycle allait écrire.
+    """
+    from server.app.config import Settings
+
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    for max_tokens in (256, 1024, 2048, 3456, 4096):
+        attendu = max_tokens / settings.llm_output_tokens_per_s_min + settings.llm_latence_marge_s
+        assert settings.duree_majoree_pour(max_tokens) == attendu
+    # L'invariante de démarrage est cette même dérivation appliquée à la plus longue sortie.
+    plus_longue = max(settings.verifier_sinistre_max_tokens, settings.verifier_max_tokens,
+                      settings.rediger_max_tokens, settings.comprendre_max_tokens,
+                      settings.retrouver_outils_max_tokens)
+    assert settings.duree_majoree_pour(plus_longue) <= settings.llm_timeout_s

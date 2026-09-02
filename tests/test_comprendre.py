@@ -32,7 +32,7 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 30.0) -> RequestBudget:
+def _budget(deadline_s: float = 100.0) -> RequestBudget:
     return RequestBudget(deadline_s=deadline_s, max_attempts=4, max_cost_eur=0.10)
 
 

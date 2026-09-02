@@ -465,6 +465,11 @@ class LlmClient:
                 )
             self._refuser_hors_campagne(estimate)
 
+            # C2 : un appel dont la durée majorée dépasse le temps restant est refusé **avant**
+            # l'envoi. La même dérivation que la validation de configuration, appliquée au
+            # temps qui reste au lieu du plafond de délai.
+            budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
+                                           etape=step.name)
             timeout = budget.timeout_for_call(settings.llm_timeout_s)
             kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                       "messages": msgs, "output_config": output_config, "timeout": timeout}
@@ -658,6 +663,11 @@ class LlmClient:
                 f"+ {estimate:.4f} € estimés > {budget.max_cost_eur:.4f} €")
         self._refuser_hors_campagne(estimate)
 
+        # C2 : un appel dont la durée majorée dépasse le temps restant est refusé **avant**
+        # l'envoi. La même dérivation que la validation de configuration, appliquée au
+        # temps qui reste au lieu du plafond de délai.
+        budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
+                                       etape=step.name)
         timeout = budget.timeout_for_call(settings.llm_timeout_s)
         kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                   "messages": messages, "tools": tools, "timeout": timeout}

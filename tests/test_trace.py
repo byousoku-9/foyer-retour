@@ -33,7 +33,7 @@ def _settings(**kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.10)
 
 
 def _client(script: list, cache=None) -> tuple[LlmClient, FakeAnthropic]:

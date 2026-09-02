@@ -85,7 +85,7 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 30.0) -> RequestBudget:
+def _budget(deadline_s: float = 100.0) -> RequestBudget:
     return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
 
 
@@ -731,7 +731,7 @@ async def test_the_relevance_retry_can_be_switched_on_by_configuration(index: In
 async def test_an_unaffordable_retry_serves_the_verified_answer_instead_of_a_503(index: Index) -> None:
     """NFR4 : la relance est une tentative d'amélioration. Refusée faute de budget, elle ne doit pas
     emporter une réponse déjà vérifiée — et la trace le dit."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)  # 3 appels, pas 4
+    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)  # 3 appels, pas 4
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
@@ -748,7 +748,7 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     draft relancé mais non vérifié. Avec la place pour un seul, démarrer *rédiger* serait payer un
     appel `reason` dont rien ne pourrait sortir (NFR4). Mesuré en live (revue Codex 1.5, tour 3) :
     le plafond par défaut coupait pile entre les deux, et la question ressortait en 503."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.20)  # 3 + 1 : pas les deux
+    budget = RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.20)  # 3 + 1 : pas les deux
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
@@ -767,7 +767,7 @@ async def test_a_second_verification_that_never_starts_keeps_the_verified_answer
     plafond de coût atteint *après* une relance rédigée n'est pas un appel raté, c'est un appel qui
     n'a jamais démarré. Le compteur de référence est donc ré-armé après chaque appel réussi (revue
     Codex 1.5, tour 3) — sans quoi la réponse déjà vérifiée partait en 503."""
-    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=30.0, max_attempts=6, max_cost_eur=10.0), 4)
+    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=10.0), 4)
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True)), _rediger(BONNE, BONNE_2)],
                                      budget=budget)
@@ -797,7 +797,10 @@ def _ferme_le_budget_apres(budget: RequestBudget, appels: int) -> RequestBudget:
 
 async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: Index) -> None:
     """AD-1 : « aucun retry ne démarre sans marge » — le retry ne démarre pas, la requête garde sa réponse."""
-    budget = RequestBudget(deadline_s=3.0, max_attempts=6, max_cost_eur=0.20)  # < llm_retry_margin_s
+    # 50 s : de quoi écrire chacun des appels de la chaîne (le plus long en demande 41,1 au débit
+    # minoré) mais pas le **cycle** de relance, qui en demande 70,2 — depuis le correctif du tour 4,
+    # c'est ce que le cycle va écrire qui décide, pas une marge fixe.
+    budget = RequestBudget(deadline_s=50.0, max_attempts=6, max_cost_eur=0.20)
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
@@ -807,7 +810,7 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
 
 
 async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_error(index: Index) -> None:
-    budget = RequestBudget(deadline_s=30.0, max_attempts=2, max_cost_eur=0.20)  # comprendre + rediger
+    budget = RequestBudget(deadline_s=100.0, max_attempts=2, max_cost_eur=0.20)  # comprendre + rediger
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE)], budget=budget)
     assert fake.remaining_script == 0
     assert answer.found is False and answer.reason is not None
@@ -861,7 +864,7 @@ async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(
         index: Index, variant: str) -> None:
     """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
     (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3 + 2 * (variant == "outils"),
+    budget = RequestBudget(deadline_s=100.0, max_attempts=3 + 2 * (variant == "outils"),
                            max_cost_eur=0.20)
     script = _avec_navigation_outils(
         [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))], variant)
@@ -910,7 +913,7 @@ async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
 async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
     """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
     settings = _settings(retrieval_max_blocks=2)  # pas de troncature « naturelle » ici
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)
+    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]),
                                                _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
                                        settings=settings, budget=budget)
@@ -1015,7 +1018,7 @@ class _BudgetQuiExpire(RequestBudget):
     """
 
     def __init__(self, apres_appels: int) -> None:
-        super().__init__(deadline_s=30.0, max_attempts=6, max_cost_eur=0.10)
+        super().__init__(deadline_s=100.0, max_attempts=6, max_cost_eur=0.10)
         self._restants = apres_appels
 
     def note_call(self, usage) -> None:
@@ -1023,24 +1026,48 @@ class _BudgetQuiExpire(RequestBudget):
         self._restants -= 1
 
     def remaining(self) -> float:
-        return 30.0 if self._restants > 0 else -1.0
+        return 100.0 if self._restants > 0 else -1.0
 
 
-@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier"), (3, "restituer")])
-async def test_the_deadline_is_checked_before_every_step_including_restituer(index: Index, appels: int,
-                                                                             etape: str) -> None:
-    """Contrat du pipeline : « deadline vérifiée **avant chaque étape** ». *restituer* en est une —
-    elle ne l'était pas, et une requête dont le temps venait d'expirer rendait une réponse normale
-    (revue Codex 1.5, I3). AD-16 : « la deadline globale (AD-9) produit `timeout` »."""
+@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier")])
+async def test_the_deadline_is_checked_before_every_paying_step(index: Index, appels: int,
+                                                                 etape: str) -> None:
+    """Contrat du pipeline : « deadline vérifiée **avant chaque étape** » — celles qui dépensent.
+
+    AD-16 : « la deadline globale (AD-9) produit `timeout` ». Elle protège le budget d'appels du
+    fournisseur, et c'est devant un appel qu'elle ferme la porte.
+    """
     with pytest.raises(Timeout, match=etape):
         await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
                    budget=_BudgetQuiExpire(appels))
 
 
-async def test_the_deadline_is_checked_before_a_refusal_too(index: Index) -> None:
-    """Les chemins courts appellent *restituer* comme les autres : `refuser()` contrôle aussi."""
-    with pytest.raises(Timeout, match="restituer"):
-        await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
+async def test_une_deadline_expiree_devant_restituer_sert_la_reponse_et_le_dit(
+        index: Index) -> None:
+    """Correctif du tour 4 (C1) — *restituer* est une **remise**, pas une dépense.
+
+    Elle n'appelle aucun modèle (`STEP_TIERS["restituer"] is None`, 0 ms mesuré) et ne fait que
+    composer l'`Answer` d'un travail déjà payé. La refuser rendait un 503 sur une réponse vérifiée
+    et servable : mesuré sur A16, une réponse conforme jetée pour `remaining = -0,011 s` après
+    0,24 € dépensés. Le dépassement se dit désormais dans la trace.
+    """
+    answer, trace, _fake = await _run(
+        index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
+        budget=_BudgetQuiExpire(3))
+
+    assert answer.found is True
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    (depassement,) = [c for c in restituer.checks if c.name == "deadline_depassee"]
+    assert not depassement.ok and "n'appelle aucun modèle" in depassement.detail
+
+
+async def test_un_refus_dont_la_deadline_expire_est_servi_aussi(index: Index) -> None:
+    """Les chemins courts passent par *restituer* comme les autres : eux non plus ne dépensent rien."""
+    answer, trace, _fake = await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
+
+    assert answer.found is False and answer.reason is not None
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    assert [c.name for c in restituer.checks if c.name == "deadline_depassee"]
 
 
 async def test_a_provider_failure_during_the_second_verification_is_terminal_too(index: Index) -> None:
@@ -1439,7 +1466,7 @@ async def test_le_pre_controle_verifie_la_deadline_comme_les_etapes(index: Index
     """Le pipeline vérifie la deadline **avant chaque étape** ; le pré-contrôle balaye l'index et
     n'en était pas précédé (revue coordonnée 2.1). Deadline épuisée ⇒ `Timeout`, pas un refus."""
     dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
-    budget = _budget(deadline_s=30.0)
+    budget = _budget(deadline_s=100.0)
     fake = FakeAnthropic([_comprendre(terms=["hippopotame"])])
     client = LlmClient(_settings(), anthropic_client=fake)
 

@@ -173,7 +173,7 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
             text=json.dumps({"sufficient": False, "result_uid": None}))]
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
-    request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
+    request_budget = RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0)
     result, step = await retrouver_outils(
         parsed or _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=budget or _budget(max_blocks=30, max_tokens=6000), settings=settings,
@@ -4139,7 +4139,7 @@ async def test_reason_retrieval_callers_disable_provider_prompt_cache() -> None:
         _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000), settings=settings,
         client=LlmClient(settings, anthropic_client=full_fake),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p2:1"]
     assert "cache_control" not in full_fake.requests[0]["system"][0]
@@ -4162,7 +4162,7 @@ async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic
         corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000),
         settings=_s(max_cost_eur_per_request=1.0), client=client,
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p1:1"] and result.blocs[0] is corpus.documents["d"].block("d:p1:1")
     assert client.request is not None
@@ -4211,7 +4211,7 @@ async def test_les_trois_variantes_refusent_une_fondatrice_hors_question_rappele
     full, _ = await retrouver_full_context(
         parsed, corpus=corpus, index=Index(corpus), budget=bounded, settings=configured,
         client=FullClient(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d",
     )
 
@@ -4235,7 +4235,7 @@ async def test_full_context_resolves_model_ids_in_canonical_corpus_order() -> No
         _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000),
         settings=_s(max_cost_eur_per_request=1.0), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
     assert [block.block_id for block in result.blocs] == result.opened_block_ids
@@ -4251,14 +4251,14 @@ async def test_full_context_applies_common_atomic_closure_and_block_budget() -> 
     complete, _step = await retrouver_full_context(
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=2, max_tokens=6000), settings=_s(), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert complete.opened_block_ids == ["d:p1:2", "d:p1:5"]
 
     bounded, bounded_step = await retrouver_full_context(
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=1, max_tokens=6000), settings=_s(), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert bounded.opened_block_ids == [] and bounded.truncated is True
     assert bounded.discarded_block_ids == bounded_step.discarded_block_ids == ["d:p1:2"]
@@ -4277,7 +4277,7 @@ async def test_full_context_limits_primary_nodes_by_max_opens() -> None:
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_opens=1, max_blocks=30, max_tokens=6000), settings=_s(),
         client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d", candidats_out=candidates)
     assert candidates == ["d:p3:1", "d:p2:1", "d:p1:1"]
     assert result.opened_node_ids == ["n1"]
@@ -4304,7 +4304,7 @@ async def test_full_context_refuses_context_window_before_client(monkeypatch: py
         await retrouver_full_context(
             _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
             budget=_budget(max_blocks=30, max_tokens=6000), settings=_s(), client=client,
-            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
             doc_id="d")
     assert client.called is False
     assert capture.value.step is not None
@@ -4331,7 +4331,7 @@ async def test_full_context_preflight_counts_the_exact_structured_envelope(
         await retrouver_full_context(
             _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
             budget=_budget(max_blocks=30, max_tokens=6000), settings=settings, client=Client(),
-            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
             doc_id="d")
     assert capture.value.step is not None
 
@@ -4359,7 +4359,7 @@ async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> N
         _parsed(["déchets"]), corpus=corpus, index=index,
         budget=_budget(max_blocks=30, max_tokens=6000), settings=s,
         client=LlmClient(s, anthropic_client=fake),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="lux-guide")
 
     prefixe = "".join(bloc["text"] for bloc in fake.requests[0]["system"])
@@ -4829,3 +4829,61 @@ async def test_le_navigateur_apprend_combien_de_tours_il_lui_reste() -> None:
     # Le préfixe système ne bouge pas d'un octet entre les tours : il reste cacheable (AD-9).
     prefixes = {requete["system"][0]["text"] for requete in fake.requests}
     assert len(prefixes) == 1
+
+
+# --- Correctif du tour 4 (C5) : instrumenter la sélection avant d'y retoucher ------------------
+
+
+def test_la_trace_publie_ce_que_la_selection_par_facette_a_decide() -> None:
+    """C5 — trois audits ont dû redériver ces nombres hors ligne. Ils sont désormais lus.
+
+    La collision mesurée sur le contrat servi est exactement ce que ce triplet nomme : la forme
+    « vitres » gagne la sous-question du bris et rapporte deux clauses de dégâts des eaux, parce que
+    la normalisation efface les accents et confond le pluriel du nom avec le participe « vitrés ».
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    libelles = ["dommages liés au bris de la vitre de l'insert",
+                "dommages liés au noircissement par la fumée"]
+    mappings = _mappings_facettes(libelles, dictionnaire=None, dictionary_ready=False,
+                                  index=index, doc_id=doc_id,
+                                  variante_max_part=_s().facette_variante_max_part)
+    classement = retrouver._classement_par_facette(
+        index=index, doc_id=doc_id, question=" ".join(libelles),
+        kinds_confirmes=KINDS_FONDATEURS, limit=20)
+    document = index.corpus.documents[doc_id]
+
+    couverture = retrouver._couverture_facettes(
+        mappings, classement=classement, admis=set(),
+        tokens_du_bloc=lambda b: set(retrouver.words(retrouver.normalize(document.block(b).text))),
+        part_du_mot=lambda mot: max((index.part_des_blocs(m, doc_id=doc_id)
+                                     for m in mot.split()), default=0.0),
+        tokens_reserves={0: 81}, tokens_admis={0: 703})
+
+    bris, fumee = couverture
+    assert bris.tete == f"{doc_id}:p38:1" and bris.forme_gagnante == "vitres"
+    assert 0 < bris.part_des_blocs <= _s().facette_variante_max_part
+    # La mesure que le rapport a dû faire à la main : ce qui est gardé, et ce qui entre vraiment.
+    assert bris.tokens_reserves == 81 and bris.tokens_admis == 703
+    assert fumee.tete == f"{doc_id}:p34:11" and fumee.forme_gagnante == "fumees"
+
+
+async def test_une_forme_absente_du_document_ne_peut_jamais_etre_en_tete() -> None:
+    """L'inertie des formes mortes, documentée : une forme que le document ne porte pas ne gagne rien.
+
+    La règle des variantes en produit — « bri », « inserts », « salons » —, toutes à part nulle.
+    Elles ne coûtent rien et ne décident rien ; ce témoin fixe le fait plutôt que de le supposer.
+    """
+    corpus, parsed = _corpus_a_recouvrement_partiel()
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["dommages"]),
+                      _tool("ouvrir_noeud", "t2", node_id="pertinent", focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=3, node_window=2, search_limit=20),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    selection = next(c for c in step.checks if c.name == "selection_par_facette")
+    assert "rang 0" in selection.detail and "rang 1" in selection.detail
+    for facette in result.facettes:
+        if facette.forme_gagnante is not None:
+            assert facette.part_des_blocs > 0, facette

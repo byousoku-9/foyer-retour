@@ -246,9 +246,15 @@ def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: i
     composées par le code. La clause vaut alors `humain` et chaque qualité part en question au client,
     ce que « forcer `humain` et produire une question bornée » demande.
 
-    Ne s'applique qu'aux clauses dont le modèle dit le fait requis **présent** : c'est le seul chemin
-    vers `oui`, et une clause qui ne vise pas le cas n'exige rien de lui (le prompt le dit déjà : « si
-    le périmètre n'est pas bon, les deux listes sont vides »).
+    S'applique **tant que la clause vise le cas et reste ouverte** : chacune des qualités qu'elle
+    écrit est alors due au client, qu'un fait la contredise déjà ou qu'il manque encore. Le tour 3 ne
+    corroborait que la branche « fait requis présent », parce que c'était le mode d'échec mesuré (la
+    porte vers `oui`) ; la sous-énumération restait gratuite sur l'autre, et le cas bougie y tombe —
+    le modèle nomme un fait manquant, n'énumère qu'une des deux qualités du texte, et « subite » n'est
+    jamais demandée au client. La borne reste celle du prompt : une clause dont le périmètre est
+    contraire — fait requis absent **et** aucun fait manquant nommé, donc `applicable="non"` — n'exige
+    rien de ce cas, et le code n'invente aucune question à son sujet (« si le périmètre n'est pas bon,
+    les deux listes sont vides »).
     """
     attendus: dict[str, str] = {}
     for clause in clauses:
@@ -990,8 +996,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # elle. Aucune facette au barème (question sans découpage rendu) ⇒ aucune preuve ⇒
     # `complete=False` : l'absence de mesure ne vaut jamais complétude.
     affichees = {c.claim_id for c in claims}
+    # **Correctif du tour 4 (C4) : là où le code a mesuré l'absence, la déclaration du modèle ne
+    # peut pas couvrir.** *retrouver* publie, pour chaque sous-question, le classement qu'il a
+    # obtenu du corpus typé ; quand ce classement est **vide**, le contrat lu ne porte aucun
+    # candidat décisionnel confirmé pour cette sous-question. Le contrôle a pourtant déclaré la
+    # facette « fumée » couverte par une clause de chaleur, sur un run où `retrouver` avait publié
+    # `facettes_retrouvees ok=false` et `verdict_par_facette : verdict contredit par la mesure du
+    # code (qui fait foi)` : la réponse servie ne disait pas un mot de la fumée, sans lacune, sans
+    # reprise et sans relance — le code avait mesuré l'absence, la déclaration l'a effacée.
+    #
+    # L'asymétrie est **voulue et bornée** : le code ne peut jamais contredire une bonne
+    # attribution du modèle sur une sous-question où il a trouvé quelque chose. Un classement non
+    # vide ne dit rien de l'attribution ; seul le vide est une mesure, et il ne fait que refuser
+    # d'être effacé. C'est AD-1 appliqué au contrôleur comme il l'est déjà au navigateur.
+    sans_candidat = {facette.rang for facette in retrieval.facettes if not facette.candidats}
     facettes_couvertes = sorted(rang for rang, ids in couverture.items()
-                                if any(cid in affichees for cid in ids))
+                                if rang not in sans_candidat
+                                and any(cid in affichees for cid in ids))
+    if evaluees and sans_candidat & set(couverture):
+        rangs = sorted(sans_candidat & {rang for rang, ids in couverture.items()
+                                        if any(cid in affichees for cid in ids)})
+        if rangs:
+            step.checks.append(CheckResult(
+                name="couverture_declaree_sans_candidat", ok=False,
+                detail=f"le contrôle déclare couvert(s) le(s) rang(s) "
+                       f"{', '.join(str(rang) for rang in rangs)}, pour lesquels la lecture n'a "
+                       "retrouvé aucun candidat décisionnel confirmé : la mesure du code fait foi"))
     couvertes = bool(parsed.facettes) and len(facettes_couvertes) == len(parsed.facettes)
     if evaluees and not couvertes:
         step.checks.append(CheckResult(
@@ -1040,7 +1070,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     verification = Verification(
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
         complete=complete, unknown=unknown, lacunes=lacunes,
-        facettes_couvertes=facettes_couvertes, verdict=verdict,
+        facettes_couvertes=facettes_couvertes,
+        # C3 : la table que le code avait déjà, publiée au lieu d'être jetée.
+        facettes_claims={rang: [cid for cid in ids if cid in affichees]
+                         for rang, ids in couverture.items()},
+        verdict=verdict,
         # Story 4.2e : posée par le code, jamais recopiée du modèle, et seulement quand sa cible a
         # été retrouvée dans l'entrée réellement envoyée. C'est le pipeline — pas cette étape — qui
         # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).
@@ -1397,11 +1431,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             for q in exigees:
                 if normalize(q) not in etablies and q not in non_etablies:
                     non_etablies.append(q)
-            if a.fait_requis_present:
-                # B3, tour 3 : le modèle a coché « le fait exigé est présent » — c'est la seule porte
-                # vers `oui`. Le texte de la clause est relu ici, et ce qu'il exige sans que le modèle
-                # l'ait nommé est ajouté aux qualités **non établies** : deux listes vides ne peuvent
-                # plus valoir « cette clause n'exige rien ».
+            if a.fait_requis_present or (a.fait_manquant or "").strip():
+                # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
+                # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé
+                # est ajouté aux qualités **non établies** : deux listes vides ne peuvent plus valoir
+                # « cette clause n'exige rien ».
+                #
+                # Deux entrées, une seule borne. « Le fait exigé est présent » est la seule porte vers
+                # `oui` — c'est le mode d'échec du tour 3. Un `fait_manquant` renseigné dit l'inverse :
+                # la clause vise le cas et un fait y manque (⇒ `humain`) ; la sous-énumération y était
+                # tout aussi gratuite, et c'est là que le cas bougie tombe — « subite » n'était jamais
+                # demandée au client. Reste dehors le seul cas où compléter serait faux : fait requis
+                # absent **et** aucun fait manquant, c'est-à-dire un fait connu et contraire (⇒ `non`).
+                # Une clause qui ne vise pas ce sinistre n'exige rien de lui.
                 nommees = " ".join([*exigees, *(q.qualite for q in a.qualites_etablies),
                                     a.fait_manquant or ""])
                 for libelle in _qualites_de_la_clause(clauses.get(a.claim_id, []), nommees=nommees,
