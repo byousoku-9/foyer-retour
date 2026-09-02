@@ -73,29 +73,33 @@ def vocabulaire_francais(index: Index) -> frozenset[str]:
     )
 
 
-def _mots_non_traduits(termes: Sequence[str], question: str, vocabulaire: frozenset[str],
-                       mot_ancre_min: int) -> list[str]:
+def _mots_non_traduits(termes: Sequence[str], question: str,
+                       vocabulaire: frozenset[str]) -> list[str]:
     """Les mots cherchés que le corpus français n'atteste pas et que rien n'excuse.
 
     AD-5 exige `terms[]` **toujours en français**. L'autorité de français est le vocabulaire du
-    corpus servi (`vocabulaire_francais`) : c'est du français écrit, disponible hors ligne, et
-    aucune liste n'y est rédigée pour ce test. Un mot qu'il n'atteste pas est donc suspect — et le
-    contrôle mesure **chaque** mot de **chaque** terme, jamais un échantillon (revue Codex 2.4,
-    tour 2, I2).
+    corpus servi (`vocabulaire_francais`) : du français écrit, disponible hors ligne, et aucune
+    liste rédigée pour ce test. Un mot qu'il n'atteste pas est donc suspect — et le contrôle mesure
+    **chaque** mot de **chaque** terme, jamais un échantillon (revue Codex 2.4, tour 2, I2).
 
-    Deux excuses, et deux seulement, l'une et l'autre dérivées des entrées du cas :
+    Deux excuses, et deux seulement :
 
-    - **Le terme est ancré dans le corpus.** Un terme dont tous les mots sont attestés, ou qui
-      porte un mot attesté d'au moins `mot_ancre_min` caractères, est du français que le corpus
-      reconnaît ; le mot qu'il n'atteste pas y est une forme dérivée ou composée
-      (« scolarisation des enfants » est ancré par *enfants*), pas un reste de la langue de départ.
-      La borne n'est pas inventée ici : c'est `Settings.qualite_mot_min_chars`, le seuil que le
-      produit s'est déjà donné pour la même raison — « en dessous, *été*, *une*, *feu* recouperaient
-      n'importe quoi ». Elle est ce qui empêche une préposition partagée entre deux langues
-      d'adouber un syntagme entier : « registo **de** residência » n'est pas ancré par *de*.
+    - **Le terme est majoritairement français.** Un mot inconnu n'est excusé que si le corpus atteste
+      **strictement plus de la moitié** des mots de son terme : « scolarisation des enfants » est
+      excusé par *des* **et** *enfants*, pas par l'un des deux. C'est la correction du cognat : la
+      règle d'avant excusait tous les inconnus d'un terme dès qu'**un** mot attesté d'au moins cinq
+      caractères y figurait, si bien que « residence permit » et « school registration in the
+      commune » passaient entiers — *residence* et *commune* sont du français, et adoubaient le
+      reste. Une majorité ne se transporte pas d'un mot à l'autre : dans un terme de deux mots, un
+      seul mot attesté n'excuse rien, et il faut que le terme soit **français dans son ensemble**
+      pour qu'une forme dérivée y soit tolérée.
     - **Sauf report littéral.** Un mot repris tel quel de la question source n'est jamais excusé,
-      même dans un terme par ailleurs ancré : c'est le contre-exemple de la revue 2.4
-      (« inscription à l'escola »).
+      même dans un terme par ailleurs majoritairement français : c'est le contre-exemple de la
+      revue 2.4 (« inscription à l'escola »).
+
+    Aucun seuil numérique n'entre ici : « strictement plus de la moitié » est une propriété de
+    composition, pas une valeur à régler — la borne de longueur qu'employait la version d'avant
+    (`qualite_mot_min_chars`) était précisément ce qui rendait un cognat suffisant.
 
     **Le résidu, mesuré et assumé.** Un mot français que le corpus servi n'atteste pas et qui se
     tient **seul** dans son terme est signalé — le contrôle ne peut pas le distinguer d'un mot
@@ -110,10 +114,11 @@ def _mots_non_traduits(termes: Sequence[str], question: str, vocabulaire: frozen
         mots_du_terme = _mots(terme)
         if not mots_du_terme:
             continue
-        inconnus = [m for m in mots_du_terme if m not in vocabulaire]
-        ancre = not inconnus or any(
-            m in vocabulaire and len(m) >= mot_ancre_min for m in mots_du_terme)
-        fautifs += [m for m in inconnus if m in de_la_question or not ancre]
+        attestes = sum(1 for m in mots_du_terme if m in vocabulaire)
+        majoritairement_francais = attestes * 2 > len(mots_du_terme)
+        fautifs += [m for m in mots_du_terme
+                    if m not in vocabulaire
+                    and (m in de_la_question or not majoritairement_francais)]
     return fautifs
 
 
@@ -177,6 +182,18 @@ def _question(cas: str) -> str:
 
 
 @pytest.mark.parametrize(("termes", "question", "fautifs"), [
+    # --- ce qu'un cognat français adoubait (sondes de la revue, tour final) ---
+    # `residence` est du français attesté : il excusait `permit` à lui seul. Une majorité ne se
+    # laisse pas conférer par un voisin — un mot attesté sur deux n'est pas une majorité.
+    (["residence permit"], _question("en-arrivee"), ["permit"]),
+    # `commune` adoubait quatre mots anglais d'un coup
+    (["school registration in the commune"], _question("en-arrivee"),
+     ["school", "registration", "in", "the"]),
+    # même classe en allemand : `social` est du français attesté et adoubait `Wohnsitz`, que la
+    # question n'emploie pas — le report littéral ne pouvait donc pas l'attraper
+    (["Wohnsitz social"], _question("de-arrivee"), ["wohnsitz"]),
+    # et en portugais : `nacional` n'est pas attesté, `national` l'est, et il adoubait `registo`
+    (["registo national"], _question("pt-arrivee"), ["registo"]),
     # --- ce que la conjonction « repris de la question » laissait passer (sondes de la revue) ---
     # un simple pluriel du mot de la question : une lettre suffisait à désarmer le contrôle
     (["escolas"], _question("pt-ecole"), ["escolas"]),
@@ -214,9 +231,7 @@ def _question(cas: str) -> str:
 ])
 def test_le_controle_des_termes_juge_chaque_terme(termes: list[str], question: str,
                                                   fautifs: list[str], index: Index) -> None:
-    settings = _settings()
-    assert _mots_non_traduits(termes, question, vocabulaire_francais(index),
-                              settings.qualite_mot_min_chars) == fautifs
+    assert _mots_non_traduits(termes, question, vocabulaire_francais(index)) == fautifs
 
 
 def test_le_residu_du_controle_est_nomme_et_mesure(index: Index) -> None:
@@ -230,11 +245,11 @@ def test_le_residu_du_controle_est_nomme_et_mesure(index: Index) -> None:
     résultat sur le corpus servi (`Index.chercher` en donne zéro).
     """
     vocabulaire = vocabulaire_francais(index)
-    mini = _settings().qualite_mot_min_chars
-    assert _mots_non_traduits(["escolas"], _question("pt-ecole"), vocabulaire, mini) == ["escolas"]
-    assert _mots_non_traduits(["scolarité"], _question("pt-ecole"), vocabulaire, mini) == ["scolarite"]
-    # et la porte de sortie est la même pour les deux : dès que le terme est ancré, il passe
-    assert _mots_non_traduits(["scolarité des enfants"], _question("pt-ecole"), vocabulaire, mini) == []
+    assert _mots_non_traduits(["escolas"], _question("pt-ecole"), vocabulaire) == ["escolas"]
+    assert _mots_non_traduits(["scolarité"], _question("pt-ecole"), vocabulaire) == ["scolarite"]
+    # Et la porte de sortie est la même pour les deux : dès que le terme est **majoritairement**
+    # français, la forme dérivée y passe — jamais parce qu'un seul voisin l'adoube.
+    assert _mots_non_traduits(["scolarité des enfants"], _question("pt-ecole"), vocabulaire) == []
 
 
 @pytest.mark.parametrize(("cas", "langue", "question"), CAS, ids=[c[0] for c in CAS])
@@ -269,8 +284,7 @@ async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: st
     # que l'`AbsenceProof` publie (`terms_searched`), donc `terms[]` **et** `scope.themes[]` — le
     # prompt exige le français des deux, et un thème non traduit relèverait de la même régression.
     cherches = parsed.termes_de_recherche()
-    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index),
-                              settings.qualite_mot_min_chars) == [], (
+    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index)) == [], (
         f"termes restés dans la langue de la question : {cherches}")
 
     assert answer.lang == langue and answer.lang_fallback is False
