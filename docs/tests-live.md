@@ -3897,3 +3897,76 @@ La checklist complète du candidat ainsi qualifié, parent
 `9e8f73067e03aed4d61f2b281aadfcb145b8a8c7`, a rendu **3560 passed, 2 skipped, 1 deselected** en
 167,83 s. Ruff, les deux `git diff --check`, la propreté des arbres, la séparation mono-surface et
 l'absence d'artefact interdit étaient verts.
+
+## 02/09/2026 — remesure des budgets après la promotion sur Sonnet (hors réseau)
+
+Aucun appel fournisseur : tout ce qui suit est **rejoué** — usages réellement enregistrés dans
+`tests/llm_fixtures/`, retarifés au tier que la configuration sert, sur le corpus AXA réel avec les
+prompts, schémas et outils réels. L'écriture de cache est portée au TTL 1 h que `MODEL_CAPS` donne
+au tier `reason`, parce que c'est ce que la configuration servie facture.
+
+### Coût — chaîne sinistre par outils
+
+La séquence la plus longue fait huit appels : *comprendre*, les deux tours de navigation d'AD-1,
+*rédiger*, *vérifier*, la relance d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e
+(`APPELS_DE_LA_REPRISE` = 1). Ce que le garde-fou compare avant chaque appel est
+`engagé + majorant` :
+
+| appel | engagé | majorant | somme |
+|---|---|---|---|
+| comprendre | 0,0000 € | 0,0447 € | 0,0447 € |
+| retrouver t1 | 0,0126 € | 0,0430 € | 0,0556 € |
+| retrouver t2 | 0,0427 € | 0,0655 € | 0,1082 € |
+| rédiger | 0,0548 € | 0,0954 € | 0,1502 € |
+| **vérifier** | **0,1224 €** | **0,1474 €** | **0,2698 €** |
+| rédiger (relance) | 0,1897 € | 0,0475 € | 0,2372 € |
+| vérifier (relance) | 0,2125 € | 0,0489 € | 0,2614 € |
+| vérifier (reprise) | 0,2210 € | 0,0489 € | 0,2699 € |
+
+Total facturé **0,2295 €**. C'est la cinquième ligne qui cassait : `0,2698 € > 0,18 €`, donc un 503
+avant le premier appel de *vérifier* sur un sinistre nominal. Deux autres pires cas, même méthode :
+**0,4074 €** si chaque sortie saturait son `max_tokens`, **0,5059 €** pour le majorant froid
+rigoureux (aucun préfixe jamais relu). La chaîne guide sur le corpus réel donne **0,1952 €** au
+nominal, **0,2266 €** avec relance.
+
+**Part de l'écriture de cache 1 h : 0,1281 € sur 0,2295 €, soit 56 %** — trois préfixes distincts
+(navigation, rédaction, vérification) écrits au double tarif (6 USD/MTok) dans une requête qui vit
+moins d'une minute. Consigné, non traité : le TTL du tier est une décision de spine (AD-9).
+
+### Latence — chemin nominal
+
+Ancre unique : *rédiger* (tier `reason`, effort `medium`), mesuré **12,9 / 15,9 / 17,6 s** pour
+904 → 1 130 tokens de sortie enregistrés, soit **14,3 à 15,6 ms par token**. Charge de sortie du
+chemin nominal, relevée sur les 108 réponses Sonnet enregistrées (médiane / maximum par étape) :
+*comprendre* 146 / 220, les deux tours de *retrouver* 99 / 195 chacun, *rédiger* 838 / 1 509,
+*vérifier* 215 / 820.
+
+| charge | tokens | latence estimée | sous 55 s ? | sous 60 s ? |
+|---|---|---|---|---|
+| médiane | 1 397 | **20 à 22 s** | oui | oui |
+| pire observé | 2 939 | **42 à 46 s** | oui | oui |
+
+Le chemin nominal tient donc, et `deadline_s` reste à 55 s. La marge n'est que de 9 s — moins que la
+dispersion d'un seul appel, ce même *rédiger* ayant franchi 25 s deux fois sur six. Les chemins plus
+longs dépassent (relance ≈ 82 s, relance + reprise ≈ 95 s) et c'est le comportement voulu : leurs
+pré-contrôles les refusent **avant** tout appel et servent l'acquis en 200 (`relance_abandonnee`,
+`reprise_sans_place`), jamais un `Timeout` terminal.
+
+### Bornes retenues
+
+| borne | avant | après | ce qui la fixe |
+|---|---|---|---|
+| `max_cost_eur_per_request` | 0,18 € | **0,45 €** | +10 % sur le pire « sorties saturées » (0,4074 €), 11 % sous le majorant froid (0,5059 €) |
+| `max_llm_attempts` | 8 | **9** | la séquence la plus longue en consomme 8 ; le retry motivé d'AD-16 n'avait plus de place |
+| `cost_alert_eur` | 0,05 € | **0,25 €** | se levait au 3ᵉ appel de toutes les requêtes ; se place 9 % au-dessus de la chaîne la plus longue |
+| `evals_max_cost_eur` | 1,00 € | **7,00 €** | gate vertical `--repeat 3` = 15 exécutions, majorant 6,75 € |
+| `live_budget_eur` | 1,00 € | **7,00 €** | **borne trouvée en vérifiant** : le budget effectif est `min(--max-cost, LIVE_BUDGET_EUR)`, relever l'autre seul est inopérant |
+| `deadline_s` | 55 s | **55 s** | remesurée et **confirmée** ; la valeur qui couvrirait la queue serait 75 s |
+
+Bornes contrôlées et laissées intactes parce que la mesure ne les touche pas : `llm_timeout_s` (40 s,
+toujours < deadline), `llm_retry_margin_s` (5 s), `client_abort_margin_s` (10 s), `max_llm_turns`
+(2), `verifier_max_tokens` (3 072), `verifier_sinistre_max_tokens` (3 072, **délibérément non
+abaissé** — les 99 vérifications enregistrées sont Haiku sans bloc `thinking`, elles décrivent
+l'étage d'hier), `rediger_max_tokens` (2 048), `comprendre_max_tokens` et
+`retrouver_outils_max_tokens` (1 024), `retrieval_max_tokens` (3 500), `retrieval_max_blocks` (30),
+`max_opens` (6), `--timeout=60` de Cloud Run (toujours strictement au-dessus de `deadline_s`).
