@@ -214,7 +214,7 @@ donc pas une seconde fois, ne consomme aucun appel pour se satisfaire, et n'en c
 relecture. Le bloc du pipeline se pose **après** la relance, inchangée, et ne s'y mêle jamais.
 
 **Ce que la reprise coûte, et quand elle n'a pas lieu.** Le tour sinistre peut gagner une passe
-`retrouver` de code pur — aucun appel modèle — et au plus un appel `reason` de reprise. Cet appel
+`retrouver` de code pur — aucun appel modèle — et au plus un appel `micro` de reprise. Cet appel
 entre en concurrence avec le plafond d'appels par requête, que cette story ne relève pas : sur le
 pire chemin, une navigation par outils **et** une relance d'AD-3, la place manque et la reprise est
 refusée avant tout appel. La réponse acquise est alors servie sans être donnée pour complète, et la

@@ -40,7 +40,7 @@ Le cache local vaut par défaut `<parent de data>/.cache/evals`; `--cache-dir` l
 Le prochain appel est majoré avant envoi contre ce qui reste de `--max-cost`. Si le majorant dépasse le reste, le run s'arrête sans cet appel. Les cas terminés gardent leur unique label ; les cas non exécutés vivent dans `unexecuted_cases` et ne reçoivent aucun huitième label. Le JSON et le Markdown sont écrits atomiquement même sur cet arrêt, avec `complete=false` et `stop_reason`.
 
 Le défaut de configuration est 1 EUR, tandis qu'un `full` fournisseur porte 50 cas guide/sinistre.
-Au plafond métier de 0,12 EUR par requête, le majorant arithmétique à cache froid est donc 6 EUR :
+Au plafond métier de 0,18 EUR par requête, le majorant arithmétique à cache froid est donc 9 EUR :
 le défaut peut produire un rapport partiel, ce n'est pas une estimation de facture complète.
 Toujours faire le dry-run, inspecter ou réchauffer le cache, puis passer explicitement
 `--max-cost <euros>` selon le risque accepté. Le quick fournisseur porte trois cas documentaires,

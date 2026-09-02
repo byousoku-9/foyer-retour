@@ -125,10 +125,9 @@ contrôles statiques vont dans `report.json` et une incohérence bloquante garde
 corpus servi (AD-7, AD-8). Au démarrage, le serveur charge les JSON et leurs index en mémoire puis
 les consulte sans les modifier.
 
-Trois tiers configurés rendent le compromis explicite : `ingest` pour le travail hors ligne et
-`reason` pour les étapes servies qui prennent une décision sémantique. Sonnet au minimum pour tout choix sémantique :
-comprendre, navigation et suffisance retrieval, rédaction et vérification. `micro` reste un axe
-d'évaluation non promu. Leurs IDs de
+`ingest` sert le hors-ligne ; `reason`, toutes les décisions servies. Sonnet au minimum pour tout choix sémantique :
+compréhension, navigation/suffisance retrieval, rédaction et vérification.
+`micro` reste expérimental. Les IDs de
 modèles sont centralisés plutôt que promis par la documentation. Le préfixe stable du tier `reason`
 utilise le cache fournisseur d’une heure ; séparément, le harness d’évals possède un cache persistant
 indexé par le modèle, les paramètres, les schémas, le pipeline, le corpus, la variante et l’entrée
