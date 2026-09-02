@@ -134,33 +134,39 @@ class Settings(BaseSettings):
         return self.git_sha[:SHA_COURT] if _est_revision_complete(self.git_sha) else self.git_sha
 
     # Temps (AD-1, AD-9)
-    # **Remesuré le 02/09/2026 (tour « budgets Sonnet »), et laissé à 55 s.** 55 s a été calibré
-    # quand une seule étape sur cinq était servie par `reason` ; depuis la promotion de *comprendre*,
-    # *retrouver* et *vérifier*, les cinq appels du chemin nominal sont des appels Sonnet à effort
-    # `medium`, donc avec réflexion étendue. La mesure était donc à refaire.
+    # **75 s, et non 55 (02/09/2026 ; remesuré au tour « budgets Sonnet », appliqué au tour final).**
+    # 55 s a été calibré quand une seule étape sur cinq était servie par `reason` ; depuis la
+    # promotion de *comprendre*, *retrouver* et *vérifier*, les cinq appels du chemin nominal sont
+    # des appels Sonnet à effort `medium`, donc avec réflexion étendue.
     # **Ancre de latence** — la seule que le projet possède : *rédiger* (tier `reason`, effort
     # `medium`), mesuré 12,9 / 15,9 / 17,6 s pour 904 → 1 130 tokens de sortie enregistrés, soit
     # **14,3 à 15,6 ms par token de sortie**. **Charge de sortie** du chemin nominal, relevée sur les
     # 108 réponses Sonnet enregistrées (médiane / maximum par étape) : *comprendre* 146 / 220, les
     # deux tours de *retrouver* 99 / 195 chacun, *rédiger* 838 / 1 509, *vérifier* 215 / 820.
     #   — charge médiane, 1 397 tokens : **20 à 22 s** ;
-    #   — pire charge observée, 2 939 tokens : **42 à 46 s**.
-    # **Le chemin nominal tient donc sous 55 s, et sous 60 s** : c'est la réponse mesurée, et c'est
-    # pourquoi cette borne-ci n'est **pas** relevée avec les budgets de coût — elle ne casse rien
-    # aujourd'hui, contrairement à `max_cost_eur_per_request` qui refusait tout sinistre nominal.
-    # **Ce qui reste ouvert, chiffré ici pour qui reprendra** : la marge n'est plus que de 9 s, moins
-    # que la dispersion d'un seul appel — ce même *rédiger* a franchi 25 s **deux fois sur six**, soit
-    # 1,42 fois son maximum typique ; appliqué au chemin entier ce facteur porte le pire à ≈ 65 s,
-    # plus ≈ 2,5 s d'établissement des cinq connexions. La valeur qui couvrirait cette queue est
-    # **75 s** (10 % au-dessus des 68 s ainsi majorés), et elle entérinerait une attente utilisateur
-    # maximale de `deadline_s + client_abort_margin_s` = 85 s. L'appliquer demande d'écrire aussi les
-    # deux replis de `web/app/chat.js` (`DEADLINE_SERVEUR_REPLI`) et `--timeout` de `deploy.yml`, que
-    # deux tests tiennent en miroir : c'est une surface que le tour « budgets Sonnet » s'interdisait.
+    #   — pire charge observée, 2 939 tokens : **42 à 46 s** ;
+    #   — même pire, corrigé de la dispersion mesurée d'un seul appel (*rédiger* a franchi 25 s
+    #     **deux fois sur six**, soit 1,42 fois son maximum typique) : ≈ 65 s, plus ≈ 2,5 s
+    #     d'établissement des cinq connexions, soit **≈ 68 s**.
+    # 55 s couvrait le pire *observé* avec 9 s de marge — moins que la dispersion d'un seul appel —
+    # et laissait donc atteignable un `Timeout` **terminal** (503) sur une question nominale : deux
+    # mécanismes vivent hors de tout `except`, le contrôle `budget.remaining() <= 0` posé avant
+    # chacune des cinq étapes (`pipelines/`) et le `timeout_for_call() = min(llm_timeout_s,
+    # remaining())` que le SDK reçoit (`llm/budget.py`). 75 s couvre les 68 s majorés avec 10 %.
+    # **Ce que ce relèvement ne fait pas : rallonger une requête.** La deadline est un **budget**,
+    # jamais une attente — rien n'attend qu'elle s'écoule. Une requête normale finit en 20 à 22 s
+    # exactement comme avant ; ce qui change est qu'une requête lente **aboutit** au lieu de sortir
+    # en 503. **Latence utilisateur maximale entérinée** : `deadline_s + client_abort_margin_s`
+    # = **85 s** avant que le navigateur abandonne (`web/app/chat.js` lit les deux sur `/sante`).
     # **Ce que la deadline ne couvre pas, et c'est voulu** : la relance d'AD-3 (≈ 82 s au pire) et la
     # reprise de 4.2e (≈ 95 s) dépassent, et leurs pré-contrôles (`pipelines/sinistre.py`,
     # `budget.remaining() <= llm_retry_margin_s`) les refusent **avant** tout appel puis servent
-    # l'acquis en 200 avec `relance_abandonnee` ou `reprise_sans_place` — jamais un `Timeout` terminal.
-    deadline_s: float = Field(55.0, gt=0)
+    # l'acquis en 200 avec `relance_abandonnee` ou `reprise_sans_place` — jamais un `Timeout`.
+    #
+    # **La valeur couvrante mesurée**, celle sous laquelle la deadline ne doit pas redescendre sans
+    # une nouvelle mesure : 68 s. Elle est tenue par
+    # `tests/test_budget.py::test_la_deadline_couvre_la_queue_mesuree_du_chemin_nominal`.
+    deadline_s: float = Field(75.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier

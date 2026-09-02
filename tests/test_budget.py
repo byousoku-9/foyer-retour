@@ -117,3 +117,77 @@ def test_les_deux_plafonds_devals_laissent_partir_un_gate_vertical_repete() -> N
     # Et il reste un plafond, pas une autorisation : le profil `full` continue d'exiger `--max-cost`.
     CAS_FULL = 56
     assert budget_effectif < estimate_run_majorant(CAS_FULL, settings)
+
+
+def test_la_deadline_couvre_la_queue_mesuree_du_chemin_nominal() -> None:
+    """La deadline doit couvrir le pire nominal **corrigé de la dispersion**, pas le pire observé.
+
+    Deux mécanismes rendent un `Timeout` **terminal** (503, `HTTP_STATUS[ErrorCode.timeout]`) sur une
+    question nominale, et aucun n'est enveloppé d'un `except` : le contrôle `budget.remaining() <= 0`
+    posé avant chacune des cinq étapes (`pipelines/sinistre.py`, `pipelines/guide.py`) et le
+    `timeout_for_call() = min(llm_timeout_s, remaining())` que le SDK reçoit (`llm/budget.py`). La
+    deadline n'est donc pas un confort d'exploitation : c'est ce qui décide si une requête lente
+    aboutit ou tombe en 503.
+
+    Les termes ci-dessous sont **mesurés** (02/09/2026, `docs/tests-live.md`), pas choisis :
+    la charge de sortie du pire chemin nominal observé sur les 108 réponses Sonnet enregistrées, le
+    taux le plus lent relevé sur *rédiger* — la seule étape que le projet ait chronométrée —, et le
+    facteur de dispersion de ce même *rédiger*, qui a franchi 25 s deux fois sur six pour un maximum
+    typique de 17,6 s.
+
+    Ce témoin rougit si la deadline redescend sous cette queue, et il rougit aussi si l'un des
+    termes grandit : c'est ce qu'on veut, ils bougeront avec le modèle servi.
+    """
+    from server.app.config import Settings
+
+    TOKENS_PIRE_NOMINAL = 2_939  # comprendre 220 + retrouver 195×2 + rédiger 1 509 + vérifier 820
+    TAUX_LE_PLUS_LENT_S = 17.6 / 1_130  # *rédiger* : 17,6 s pour 1 130 tokens de sortie
+    DISPERSION = 25.0 / 17.6  # le même appel a franchi 25 s deux fois sur six
+    ETABLISSEMENT_S = 0.5 * 5  # cinq connexions
+
+    queue_mesuree = TOKENS_PIRE_NOMINAL * TAUX_LE_PLUS_LENT_S * DISPERSION + ETABLISSEMENT_S
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    assert settings.deadline_s >= queue_mesuree, (
+        f"deadline {settings.deadline_s} s sous la queue mesurée du chemin nominal "
+        f"({queue_mesuree:.1f} s) : un `Timeout` terminal reste atteignable sur une question nominale")
+    # Le budget d'un appel reste borné par le sien, et la marge de relance sous la deadline.
+    assert settings.llm_timeout_s < settings.deadline_s
+    assert settings.llm_retry_margin_s < settings.deadline_s
+
+
+def test_relever_la_deadline_ne_rallonge_aucune_requete() -> None:
+    """Une deadline est un **budget**, jamais une attente : rien ne patiente qu'elle s'écoule.
+
+    `RequestBudget.remaining()` décroît avec l'horloge et n'est lu que pour **refuser** — avant une
+    étape, avant une relance, et pour borner le timeout que le SDK reçoit. Un budget plus large ne
+    peut donc qu'autoriser ce qu'un budget étroit refusait ; il ne peut rien ralentir. On le montre
+    sur la seule surface qui traduit la deadline en comportement : le timeout d'appel.
+    """
+    from server.app.config import Settings
+
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    ANCIENNE = 55.0
+    # Au départ, les deux accordent exactement le même temps à un appel : le plafond par appel.
+    for deadline in (ANCIENNE, settings.deadline_s):
+        budget = RequestBudget(deadline_s=deadline, max_attempts=settings.max_llm_attempts,
+                               max_cost_eur=1.0)
+        assert budget.timeout_for_call(settings.llm_timeout_s) == settings.llm_timeout_s
+
+    # Et à temps écoulé égal, le budget large n'accorde jamais **moins** que l'étroit : le seul
+    # effet d'une deadline plus haute est de laisser aboutir ce que l'autre aurait coupé.
+    for consomme in (0.0, 20.0, 45.0, 54.0, 60.0):
+        etroit = RequestBudget(deadline_s=ANCIENNE, max_attempts=settings.max_llm_attempts,
+                               max_cost_eur=1.0)
+        large = RequestBudget(deadline_s=settings.deadline_s,
+                              max_attempts=settings.max_llm_attempts, max_cost_eur=1.0)
+        etroit._t0 -= consomme  # type: ignore[attr-defined]
+        large._t0 -= consomme   # type: ignore[attr-defined]
+        assert large.timeout_for_call(settings.llm_timeout_s) >= \
+            etroit.timeout_for_call(settings.llm_timeout_s)
+    # À 60 s consommées, l'ancienne deadline refusait déjà (restant négatif) là où la nouvelle
+    # accorde encore un appel entier : c'est exactement le 503 nominal que le relèvement supprime.
+    epuise = RequestBudget(deadline_s=ANCIENNE, max_attempts=1, max_cost_eur=1.0)
+    epuise._t0 -= 60.0  # type: ignore[attr-defined]
+    tenu = RequestBudget(deadline_s=settings.deadline_s, max_attempts=1, max_cost_eur=1.0)
+    tenu._t0 -= 60.0    # type: ignore[attr-defined]
+    assert epuise.remaining() < 0 <= tenu.remaining()

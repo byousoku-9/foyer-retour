@@ -21,9 +21,9 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
-    # 55 s : remesuré le 02/09/2026 sur les cinq appels Sonnet du chemin nominal et **confirmé**
-    # (tour « budgets Sonnet ») ; 40 s : AD-16 amendé en 1.9, sur mesure.
-    assert s.deadline_s == 55 and s.llm_timeout_s == 40
+    # 75 s : mesurée sur les cinq appels Sonnet du chemin nominal, queue dispersée comprise
+    # (02/09/2026) ; 40 s : AD-16 amendé en 1.9, sur mesure.
+    assert s.deadline_s == 75 and s.llm_timeout_s == 40
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
