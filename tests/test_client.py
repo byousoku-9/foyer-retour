@@ -54,6 +54,27 @@ async def test_nominal_call_traces_counts_and_costs() -> None:
     assert step.checks == []  # pas de cout_eleve : 1000×1 + 100×5 USD/MTok « 0,05 €
 
 
+async def test_un_script_trop_court_dit_quel_appel_il_ne_prevoyait_pas() -> None:
+    """Le fake accuse le script, pas le pipeline — et nomme l'appel qui manque.
+
+    Un tour de navigation d'AD-1 oublié dans un script produisait « appel API non prévu par le
+    test » et rien d'autre : impossible de savoir *lequel* sans instrumenter le test, et le pipeline
+    se retrouvait accusé à la place du script. Le message porte donc les trois faits qui tranchent —
+    combien d'appels ont déjà été servis, quel modèle est demandé, sous quel plafond de sortie.
+    """
+    client, fake = _client([fake_message(model=HAIKU)])
+    await _call(client, tier="micro")
+
+    with pytest.raises(AssertionError) as leve:
+        await _call(client, tier="reason", max_tokens=1234)
+
+    message = str(leve.value)
+    assert "1 appel(s) déjà servi(s)" in message, message
+    assert repr(TIERS["reason"]) in message, message  # le modèle demandé, jamais celui déjà servi
+    assert "1234" in message, message
+    assert fake.remaining_script == 0
+
+
 async def test_parse_applique_le_budget_cumule_de_campagne(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Le second appel est refusé par `parse()` avant d'atteindre le fournisseur."""
