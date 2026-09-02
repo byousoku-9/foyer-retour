@@ -13,6 +13,7 @@ from server.app.domain import (Block, BlockRef, ContextUnit, Document, Node, Nod
                                NodeWindow, QuestionClauseScore, ScoredHit, SummaryEntry,
                                SummaryPage, is_citable)
 from server.app.domain.retrieval import stable_uid
+from server.app.domain.verdict import KINDS_DECISIONNELS
 
 from .loader import Corpus
 from .text import normalize
@@ -496,9 +497,10 @@ class Index:
         if isinstance(groupes_prioritaires, str):
             raise TypeError("groupes_prioritaires : liste de libellés attendue, pas une chaîne")
 
-        # Chaque facette réserve d'abord le meilleur nœud lexical qui lui est propre quand il en
-        # existe un. Les thèmes et doublons complètent ensuite le classement global : ils ne peuvent
-        # plus consommer toutes les places avant une autre facette utile.
+        # Chaque facette réserve d'abord la meilleure **règle décisionnelle confirmée** de son
+        # propre classement quand il en existe une. Les thèmes et doublons complètent ensuite le
+        # classement global : ils ne peuvent plus consommer toutes les places avant une autre
+        # sous-question utile.
         reserves: list[tuple[str, str]] = []
         noeuds_reserves: set[str] = set()
         for libelle in groupes_prioritaires:
@@ -506,17 +508,39 @@ class Index:
             if not groupes_facette:
                 continue
             # Une facette diversifie les candidats de la recherche principale ; elle n'ajoute
-            # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe. Elle
-            # exige en outre une couverture pleine : un mot-outil partagé avec une facette ne rend
-            # pas, à lui seul, un passage « utile » à cette sous-question.
+            # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe — c'est
+            # la contrainte `classement_ids`, et elle ne bouge pas.
+            #
+            # **Correctif du tour 2 (cause R3) : la couverture pleine du libellé était le mauvais
+            # critère, et la réservation ne servait à rien.** Une facette rendue par *comprendre*
+            # est une phrase en langue naturelle ; exiger qu'un même bloc porte **tous** ses mots
+            # n'était satisfait par aucune, si bien qu'aucune facette ne réservait jamais rien. Et
+            # quand un libellé assez court y parvenait, il réservait le voisin lexical plutôt que
+            # la règle — le singulier d'un mot suffisait à déplacer le choix.
+            #
+            # Le critère est désormais celui du **corpus typé, quand il en est un** : parmi les
+            # candidats propres de la sous-question, la meilleure règle dont l'ingestion confirme un
+            # kind décisionnel. Elle n'a pas à porter tous les mots du libellé — c'est justement ce
+            # qui ne pouvait jamais arriver.
+            #
+            # L'ancien critère reste la **seconde branche**, et l'ajout est donc strictement
+            # additif : il ne retire aucune réservation qui existait, il en crée là où aucune
+            # n'était possible. Un corpus sans clauses typées — un guide — se comporte exactement
+            # comme avant. Rien n'est classé de neuf (l'ordre reste celui de `classer`), aucun
+            # document n'est ajouté, et pas un mot du texte des clauses n'entre dans la décision.
             facette_uid = stable_uid("question-v1", [[" ".join(sorted(form))
                                                       for form in groupes_facette[0]]])
             classement_ids = {hit.clause_uid for hit in classement}
+            propres = [item for item in classer(groupes_facette, question_uid_=facette_uid)
+                       if item.clause_uid in classement_ids]
             candidats = [
-                item for item in classer(groupes_facette, question_uid_=facette_uid)
-                if item.clause_uid in classement_ids
-                and any(form <= self._by_block[item.clause_uid].tokens
-                        for form in groupes_facette[0])
+                item for item in propres
+                if self._by_block[item.clause_uid].block.kind in KINDS_DECISIONNELS
+                and self._by_block[item.clause_uid].block.kind_confirmed
+            ] or [
+                item for item in propres
+                if any(form <= self._by_block[item.clause_uid].tokens
+                       for form in groupes_facette[0])
             ]
             if not candidats:
                 continue

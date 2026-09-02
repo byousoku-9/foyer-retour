@@ -4543,3 +4543,63 @@ async def test_une_sous_question_sans_clause_refuse_la_suffisance_entiere() -> N
     assert result.sufficiency.reason == "facettes_sans_clause_decisionnelle"
     verdict = next(c for c in step.checks if c.name == "verdict_par_facette")
     assert verdict.ok, verdict.detail
+
+
+# --- Correctif du tour 2 (R3) : la réservation par facette réserve enfin quelque chose ---------
+
+
+def _corpus_a_facette_phrase() -> tuple[Corpus, list[str]]:
+    """Une facette écrite comme *comprendre* les écrit : une phrase, pas un mot-clé.
+
+    C'est le cœur de R3 : l'ancien critère exigeait qu'un même bloc porte **tous** les mots du
+    libellé. Une sous-question en langue naturelle n'y parvient jamais — aucune facette ne réservait
+    donc quoi que ce soit. Et le corpus reproduit l'autre moitié du défaut : le voisin lexical porte
+    le mot au singulier, la règle décisionnelle au pluriel.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages brisés du bien désigné sont pris en charge.")
+    voisin = Block(block_id="d:p2:1", kind="para", loc="p2", seq=1,
+                   text="Le vitrage extérieur des serres relève d'une extension distincte.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]), ("voisin", [voisin]))
+    facettes = ["quels vitrages du bien désigné sont pris en charge"]
+    return corpus, facettes
+
+
+def test_une_facette_ecrite_en_phrase_reserve_sa_regle_decisionnelle() -> None:
+    """R3 — la couverture pleine du libellé était le mauvais critère, et elle ne réservait rien."""
+    corpus, facettes = _corpus_a_facette_phrase()
+    index = Index(corpus)
+    reservations: list[tuple[str, str]] = []
+
+    hits = index.chercher(["vitrage", "bien désigné"], limit=5, doc_id="d",
+                          question=" ".join(facettes), groupes_prioritaires=facettes,
+                          reservations_out=reservations)
+
+    assert [block_id for block_id, _node_id in reservations] == ["d:p1:1"], (
+        "la sous-question doit réserver la règle décisionnelle confirmée, pas son voisin lexical")
+    assert hits[0].clause_uid == "d:p1:1"
+
+
+def test_sans_clause_typee_la_reservation_garde_son_critere_historique() -> None:
+    """Un corpus sans clauses typées — un guide — se comporte **exactement** comme avant.
+
+    L'ajout est strictement additif : il crée une réservation là où aucune n'était possible, il n'en
+    retire aucune et n'en déplace aucune. Restreindre la réservation aux seuls kinds confirmés
+    l'aurait éteinte sur tout le guide ; changer son critère pour l'ordre du classement l'aurait au
+    contraire réveillée partout, en déplaçant une lecture que rien n'a mesurée.
+    """
+    premier = Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1)
+    second = Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1)
+    corpus = _corpus_neutre_par_noeuds(("n1", [premier]), ("n2", [second]))
+
+    def reserve(libelle: str) -> list[str]:
+        sortie: list[tuple[str, str]] = []
+        Index(corpus).chercher(["démarche"], limit=5, doc_id="d",
+                               question="quelles démarches sont utiles",
+                               groupes_prioritaires=[libelle], reservations_out=sortie)
+        return [block_id for block_id, _node_id in sortie]
+
+    # Couverture pleine : la réservation historique, inchangée.
+    assert reserve("seconde démarche") == ["d:p2:1"]
+    # Libellé en phrase : rien à réserver faute de clause typée — comme avant le correctif.
+    assert reserve("seconde démarche utile à connaître") == []
