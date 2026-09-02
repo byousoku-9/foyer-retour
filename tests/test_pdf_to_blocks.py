@@ -534,7 +534,11 @@ def test_textual_eurostile_font_and_multichar_span_are_never_decoded_as_currency
     "EuroMonoBold",              # style accolé
     "EuroMono,Bold",             # séparateur virgule
     "EuroMono-Bd",               # suffixe de style hors de toute liste close
-    "EuroMono-MT",               # suffixe de fonderie
+    "EuroMono-MT",               # suffixe de fonderie séparé
+    "EuroMonoPS-Regular",        # suffixe de fonderie **accolé**
+    "EuroMonoMT",                # même forme, autre fonderie
+    "ABCDEF+EuroMonoPS-Bold",    # sous-ensemble + fonderie accolée + style
+    "EuroMono-Regular-Identity-H",  # suffixe d'encodage
     "EUROMONO-REGULAR",          # casse indifférente
 ])
 def test_les_noms_postscript_reellement_emis_resolvent_la_meme_famille(font: str) -> None:
@@ -547,6 +551,7 @@ def test_les_noms_postscript_reellement_emis_resolvent_la_meme_famille(font: str
     "ABCDEF+Eurostile-Regular",
     "EuroMonospace-Regular",      # « space » n'est pas un jeton de style
     "EuroMonospaceBold",
+    "EuroMonospacePS",            # ni « space » ni le retrait de la fonderie n'y mènent
 ])
 def test_une_famille_voisine_nest_jamais_reduite_a_un_role_de_symbole(font: str) -> None:
     assert p._decode_symbol_span("r", font) == "r"
@@ -1070,16 +1075,20 @@ def test_toc_and_first_article_on_same_page_are_split_at_article() -> None:
 
 
 def test_une_tdm_dont_les_entrees_portent_un_numero_ne_devient_jamais_des_articles() -> None:
-    """Une entrée de sommaire numérotée reste une entrée : son renvoi de page le prouve.
+    """Une entrée numérotée reste une entrée : c'est son **renvoi**, pas son numéro, qui le prouve.
 
     Le correctif visuel propage volontairement `number` à travers l'assemblage des fragments, si
     bien que « la première ligne du groupe porte un numéro » ne distingue plus une entrée d'un
-    article : sans autre signal, toute la TdM sort du nœud `:tdm` et devient citable.
+    article. Les entrées sont posées au format fragmenté — intitulé et renvoi séparés, l'état réel
+    avant assemblage — puis assemblées comme `extract_pages` le fait, pour que la preuve soit
+    cherchée là où la géométrie survit : `page.toc_fragments`.
     """
     toc_page = p.PageText(page=1, width=595, height=842, lines=[
         p.PageLine("Table des matières", [56, 60, 250, 74], 14),
-        p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
-        p.PageLine("2 Exclusions 2", [56, 110, 300, 124], 12, number="2"),
+        p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2", [520, 90, 534, 104], 12),
+        p.PageLine("2 Exclusions", [56, 110, 300, 124], 12, number="2"),
+        p.PageLine("2", [520, 110, 534, 124], 12),
     ])
     body = p.PageText(page=2, width=595, height=842, lines=[
         p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
@@ -1088,6 +1097,7 @@ def test_une_tdm_dont_les_entrees_portent_un_numero_ne_devient_jamais_des_articl
 
     p._mark_toc_pages([toc_page, body])
     assert [page.is_toc for page in (toc_page, body)] == [True, False]
+    p._assemble_toc_lines(toc_page)
     document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
                                    doc_id=DOC, title="Contrat")
 
@@ -1098,6 +1108,51 @@ def test_une_tdm_dont_les_entrees_portent_un_numero_ne_devient_jamais_des_articl
     assert all(block.surface_class == "table_des_matieres" and not p.is_citable(block)
                for block in document.blocks if block.page == 1)
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_entree_fondue_sans_point_de_conduite_nest_pas_prouvable_et_sort_du_sommaire() -> None:
+    """Conséquence assumée et nommée de « la preuve est géométrique ».
+
+    Quand le renvoi est déjà fondu dans un unique fragment natif et qu'aucun point de conduite ne
+    le marque, il ne reste **aucune** preuve : l'entrée sort du sommaire comme un article. C'est
+    exactement ce que la base `e79cedc` faisait de cette forme — rien n'y est perdu — et c'est le
+    sens sûr, puisque l'erreur inverse rendrait une clause juridique non citable.
+    """
+    toc_page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
+    ])
+    body = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ])
+
+    p._mark_toc_pages([toc_page, body])
+    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert any(block.text == "1 Garanties 2" and p.is_citable(block) for block in document.blocks)
+
+
+def test_des_points_de_conduite_prouvent_une_entree_sans_aucune_geometrie() -> None:
+    """Seconde marque admissible : « ….... 12 » est typographique, pas une tournure de prose."""
+    toc_page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties ..... 2", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2 Exclusions ..... 4", [56, 110, 300, 124], 12, number="2"),
+    ])
+    body = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ])
+
+    p._mark_toc_pages([toc_page, body])
+    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    assert not any(p.is_citable(block) for block in document.blocks if block.page == 1)
 
 
 def _tdm_fragmentee(*, renvois: bool) -> list:
@@ -1178,14 +1233,15 @@ def test_sans_renvoi_apparie_la_tdm_se_ferme_et_la_page_suivante_est_du_corps() 
 def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_tdm() -> None:
     """Second côté de la frontière : la TdM cède au premier article et ne se referme plus.
 
-    « 2 La franchise reste de 250 » a exactement la forme imprimée d'une entrée de sommaire. Le
-    corps d'un article ne peut pas retourner sous `:tdm` parce qu'une de ses clauses ressemble à un
-    renvoi : la frontière est un préfixe contigu, jamais une lecture arrière.
+    « 2 La franchise reste de 250 » a exactement la forme imprimée d'une entrée de sommaire, sur la
+    page de sommaire elle-même. Elle n'en est pas une : aucun renvoi ne la prouve. Le corps d'un
+    article ne peut pas retourner sous `:tdm` parce qu'une de ses clauses ressemble à un renvoi.
     """
     pages = [
         p.PageText(page=1, width=595, height=842, lines=[
             p.PageLine("Table des matières", [56, 60, 250, 74], 14),
-            p.PageLine("1 Garanties 3", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("3", [520, 90, 534, 104], 12),
             p.PageLine("1 Garanties", [56, 150, 250, 166], 17, number="1"),
             p.PageLine("2 La franchise reste de 250", [56, 200, 400, 216], 17, number="2"),
         ]),
@@ -1198,6 +1254,7 @@ def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_td
     ]
 
     p._mark_toc_pages(pages)
+    p._assemble_toc_lines(pages[0])
     document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
                                    doc_id=DOC, title="Contrat")
 
@@ -1211,27 +1268,32 @@ def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_td
                if block.text != "Table des matières\n1 Garanties 3")
 
 
-def test_un_nombre_final_hors_pagination_nest_pas_un_renvoi_a_la_frontiere_in_page() -> None:
-    """La borne du renvoi est le nombre de pages du document, jamais un montant écrit en dur.
+@pytest.mark.parametrize("pages_du_document", [20, 41, 121])
+def test_le_verdict_de_citabilite_ne_depend_jamais_du_nombre_de_pages(
+    pages_du_document: int,
+) -> None:
+    """La taille du document n'est pas une règle de segmentation.
 
-    Sur la page de sommaire elle-même, « 2 La franchise reste de 250 » a exactement la forme
-    imprimée d'une entrée. Sans la borne, la frontière in-page ne s'ouvrirait jamais et la clause
-    resterait sous `:tdm`, non citable.
+    Une borne « le nombre final pourrait être un numéro de page » faisait dépendre la citabilité
+    d'un aléa : « 2 Le preneur dispose de 30 » sur une page de sommaire était avalé par `:tdm` dans
+    un document de 41 pages et restait citable dans un document de 20. Le même texte, la même page,
+    deux verdicts. Ce témoin exige le **même** verdict aux trois tailles.
     """
     pages = [
         p.PageText(page=1, width=595, height=842, lines=[
             p.PageLine("Table des matières", [56, 60, 250, 74], 14),
-            p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
-            p.PageLine("2 La franchise reste de 250", [56, 150, 400, 166], 17, number="2"),
-            p.PageLine("Elle s'applique à chaque sinistre.", [56, 190, 350, 204], 10),
-        ]),
-        p.PageText(page=2, width=595, height=842, lines=[
-            p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
+            p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2", [520, 90, 534, 104], 12),
+            p.PageLine("2 Le preneur dispose de 30", [56, 150, 400, 166], 17, number="2"),
+            p.PageLine("Le délai court dès la déclaration.", [56, 190, 350, 204], 10),
         ]),
     ]
+    pages += [p.PageText(page=numero, width=595, height=842, lines=[
+        p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
+    ]) for numero in range(2, pages_du_document + 1)]
 
     p._mark_toc_pages(pages)
-    assert pages[0].is_toc
+    p._assemble_toc_lines(pages[0])
     document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
                                    doc_id=DOC, title="Contrat")
 
@@ -1240,9 +1302,82 @@ def test_un_nombre_final_hors_pagination_nest_pas_un_renvoi_a_la_frontiere_in_pa
         "Table des matières\n1 Garanties 2",
     ]
     clause = next(node for node in document.nodes if node.node_id == f"{DOC}:a2")
-    assert document.block(clause.blocks[0]).text == "2 La franchise reste de 250"
+    assert [document.block(block_id).text for block_id in clause.blocks
+            if document.block(block_id).page == 1] == [
+        "2 Le preneur dispose de 30", "Le délai court dès la déclaration.",
+    ]
     assert all(p.is_citable(block) for block in document.blocks
                if block.text != "Table des matières\n1 Garanties 2")
+
+
+@pytest.mark.parametrize("renvoi_decale", [False, True])
+def test_la_frontiere_in_page_lit_la_geometrie_du_renvoi_assemble_ou_non(
+    renvoi_decale: bool,
+) -> None:
+    """La preuve géométrique doit vivre **aux deux états** que la frontière in-page rencontre.
+
+    `_assemble_toc_lines` fusionne un renvoi qui partage la ligne de base de son intitulé
+    (`baseline_tolerance_pt`) et laisse les autres séparés. Un renvoi décalé de 5 pt — ou séparé par
+    une gouttière, ce qui produit exactement le même état — reste donc une ligne distincte que la
+    frontière in-page doit lire dans `page.lines` ; un renvoi aligné disparaît dans la ligne
+    assemblée et doit être lu dans `page.toc_fragments`. Retirer `_renvoi_de_page_a_droite` rend ce
+    témoin rouge dans les deux paramétrages.
+    """
+    decalage = 5 if renvoi_decale else 0
+    toc_page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2", [520, 90 + decalage, 534, 104 + decalage], 12),
+    ])
+    body = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ])
+
+    p._mark_toc_pages([toc_page, body])
+    assert toc_page.is_toc and not body.is_toc
+    p._assemble_toc_lines(toc_page)
+    assert (len(toc_page.lines) == 2) is renvoi_decale  # décalé ⇒ non assemblé, aligné ⇒ assemblé
+    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    assert not any(p.is_citable(block) for block in document.blocks if block.page == 1)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_entree_sans_renvoi_ne_libere_pas_la_queue_du_sommaire() -> None:
+    """Un accident d'extraction au milieu d'un sommaire n'en libère pas toute la suite.
+
+    « 2 Exclusions » a perdu son renvoi : elle n'est pas prouvable. Mais une entrée prouvée la suit
+    sur la page, donc le sommaire n'était pas fini. La reprise est bornée par la **preuve** : ce qui
+    suit doit porter un renvoi géométrique ou des points de conduite, que la prose d'un contrat ne
+    fabrique pas — elle ne peut donc pas se retourner contre une clause.
+    """
+    toc_page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2", [520, 90, 534, 104], 12),
+        p.PageLine("2 Exclusions", [56, 110, 300, 124], 12, number="2"),
+        p.PageLine("3 Sinistres", [56, 130, 300, 144], 12, number="3"),
+        p.PageLine("3", [520, 130, 534, 144], 12),
+    ])
+    body = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ])
+
+    p._mark_toc_pages([toc_page, body])
+    p._assemble_toc_lines(toc_page)
+    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    portees = "\n".join(document.block(block_id).text for block_id in
+                        next(node for node in document.nodes
+                             if node.node_id == f"{DOC}:tdm").blocks)
+    assert "2 Exclusions" in portees and "3 Sinistres 3" in portees
+    assert not any(p.is_citable(block) for block in document.blocks if block.page == 1)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
 @pytest.mark.parametrize("tdm_fragmentee", [False, True])
