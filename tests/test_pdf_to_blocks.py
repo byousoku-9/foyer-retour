@@ -2480,7 +2480,9 @@ def test_ids_disparus_is_reported_when_text_moves(data: Path) -> None:
 def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) -> None:
     _run(data)
     raw = Document.model_validate_json((data / "document.json").read_bytes())
-    target = next(block for block in raw.blocks if block.kind != "autre")
+    # Jamais un `heading` : un titre n'a pas de typage juridique à transporter (AD-2), et la
+    # réutilisation lui rend sa nature structurelle — ce que prouve le témoin dédié ci-dessus.
+    target = next(block for block in raw.blocks if block.kind not in ("autre", "heading"))
     old_target = target.model_copy(update={
         "kind": "condition", "kind_source": "model_verified", "kind_confidence": 0.93,
         "structural_kind": target.kind,
@@ -2639,6 +2641,72 @@ def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_
     assert garantie.relation.specialise == f"{DOC}:p1:1"
     assert garantie.scope_node_id == f"{DOC}:a1"
     assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "special"
+
+
+def test_un_titre_reconnu_par_la_lecture_courante_ne_reprend_pas_le_typage_du_paragraphe() -> None:
+    """AD-2 : un titre structure l'arbre et n'est jamais citable seul — même à la republication.
+
+    `type_clauses` écarte déjà toute étiquette juridique posée sur un `structural_kind == "heading"`.
+    La réutilisation le doit aussi : quand la lecture courante reconnaît un titre là où la
+    précédente lisait un paragraphe, recopier `old.kind` rendait le titre citable dès la
+    republication et effaçait la lecture qui venait de le reconnaître. Aucun appel n'est nécessaire
+    pour savoir qu'un titre est un titre : le bloc reste donc **réutilisé**, sans rien à rejouer.
+    """
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    current = Document.model_validate(current.model_copy(update={
+        "blocks": [
+            block.model_copy(update={"kind": "heading", "structural_kind": "heading"}, deep=True)
+            if block.block_id == f"{DOC}:p1:2" else block
+            for block in current.blocks
+        ],
+    }, deep=True).model_dump())
+
+    typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    titre = typed.block(f"{DOC}:p1:2")
+    assert (titre.kind, titre.structural_kind) == ("heading", "heading")
+    assert (titre.kind_source, titre.kind_confidence, titre.scope_node_id) == (None, None, None)
+    assert titre.refs == [] and titre.relation.specialise is None
+    # Le bloc resté paragraphe, lui, reprend bien le typage prouvé de la génération précédente.
+    assert typed.block(f"{DOC}:p1:1").kind == "condition"
+
+
+def test_titre_lisible_retire_le_glyphe_de_tete_et_les_blancs_de_mise_en_page() -> None:
+    """Règle de forme, jamais de vocabulaire — et qui ne touche pas à la typographie du texte."""
+    assert p.titre_lisible("• Vos biens immobiliers") == "Vos biens immobiliers"
+    assert p.titre_lisible("\t• Les embellissements par\ndestination") == \
+        "Les embellissements par destination"
+    assert p.titre_lisible("a.\t \tDéfense recours") == "a. Défense recours"
+    # Un mot de tête qui porte une lettre ou un chiffre n'est pas une puce, même parenthésé.
+    assert p.titre_lisible("(Suite) du texte") == "(Suite) du texte"
+    assert p.titre_lisible("8. Les garanties du propriétaire") == "8. Les garanties du propriétaire"
+    # L'espace fine française d'un « les cours ; » est de la typographie : elle reste.
+    assert p.titre_lisible("1.5.1 les cours ;") == "1.5.1 les cours ;"
+    assert p.titre_lisible("• •") == ""
+
+
+def test_un_titre_relu_sans_sa_puce_garde_le_typage_prouve_de_ses_blocs() -> None:
+    """La forme du titre n'est pas l'identité du nœud (convention Texte du spine).
+
+    Sans cela, retirer la puce de tête de 33 intitulés du contrat Baloise faisait perdre leur typage
+    prouvé aux 290 blocs citables de leurs sous-arbres : une campagne entière de relecture facturée
+    pour une différence que `normalize()` — l'unique notion d'identité de texte du projet — tient
+    partout ailleurs pour nulle.
+    """
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    ancien = next(node for node in previous.nodes if node.node_id == f"{DOC}:a1")
+    previous = Document.model_validate(previous.model_copy(update={
+        "nodes": [node.model_copy(update={"title": f"\t• {node.title}"}, deep=True)
+                  if node.node_id == ancien.node_id else node for node in previous.nodes],
+    }, deep=True).model_dump())
+
+    typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    assert typed.block(f"{DOC}:p1:2").kind == "garantie"
 
 
 def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:
@@ -2841,6 +2909,76 @@ def test_page_split_links_uppercase_continuation(tmp_path: Path) -> None:
     by = {b.block_id: b for b in doc.blocks}
     assert by[f"{DOC}:p2:1"].continues == f"{DOC}:p1:2" and by[f"{DOC}:p2:1"].text.startswith("Assistance")
     assert by[f"{DOC}:p3:1"].continues is None and report.stats["continues"] == 1
+
+
+def test_un_item_coupe_par_la_page_se_poursuit_dans_le_paragraphe_sans_puce(tmp_path: Path) -> None:
+    """AD-2 : sept phrases du contrat Baloise s'arrêtaient là, et l'une inversait son sens.
+
+    Le bas d'une page laisse un item à puce ouvert ; le haut de la suivante le termine, sans puce —
+    donc en `para`. Exiger l'égalité des `kind` refusait le lien : les deux moitiés étaient servies
+    comme deux clauses, et `p15:19→p16:1` reléguait dans la seconde l'exigence « ce contrat doit
+    être en vigueur » que la première semblait alors ne pas poser.
+    """
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    p1: list = [(122, 80, "• Les dommages et les frais de remise en etat", 10.0, FONT_BODY)]
+    p2: list = []
+    _para(p2, 80, ["des installations qui sont a l'origine du sinistre."])
+    build_pdf(d / "source.pdf", pages=[p1, p2])
+    _run(d)
+    doc = Document.model_validate_json((d / "document.json").read_bytes())
+    item, suite = doc.blocks[0], doc.blocks[1]
+    assert (item.kind, suite.kind) == ("list", "para")
+    assert suite.continues == item.block_id
+
+
+def test_une_phrase_coupee_par_une_colonne_porte_continues(tmp_path: Path) -> None:
+    """La page, la colonne et la bande sont la **même** rupture de mise en page.
+
+    `_segment_page` refuse déjà de continuer un groupe à travers une colonne — c'est ce qui empêche
+    de recoller deux colonnes en un bloc. Mais la scission n'était nommée qu'au changement de page :
+    seize phrases du contrat Baloise passaient d'une colonne à l'autre sans que rien ne le dise.
+    """
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    items: list = []
+    for i in range(6):
+        items.append((56.0, 120.0 + i * 14.0, f"G{i} texte continu de la colonne de gauche, suite", 10.0, FONT_BODY))
+        items.append((310.0, 120.0 + i * 14.0, f"D{i} suite de la colonne de droite, encore", 10.0, FONT_BODY))
+    build_pdf(d / "source.pdf", pages=[items])
+    _run(d)
+    doc = Document.model_validate_json((d / "document.json").read_bytes())
+    gauche = next(b for b in doc.blocks if b.text.startswith("G0"))
+    droite = next(b for b in doc.blocks if b.text.startswith("D0"))
+    # Les deux colonnes restent deux blocs — jamais recollées — mais le lien est nommé.
+    assert gauche.block_id != droite.block_id and not gauche.text.rstrip().endswith(p._TERMINAL)
+    assert droite.continues == gauche.block_id
+
+
+def test_une_entree_de_sommaire_close_par_son_renvoi_ne_poursuit_rien() -> None:
+    """`continues` existe pour qu'une clause coupée par la mise en page reste une clause.
+
+    Hors du corps, il n'y a pas de phrase à poursuivre. Une entrée de sommaire est close par son
+    renvoi de page, jamais par une ponctuation : la lire comme ouverte accrochait la dernière entrée
+    d'une colonne à la première de la suivante.
+    """
+    def bloc(seq: int, texte: str, *, kind: str = "para",
+             surface: str = "substantiel") -> Block:
+        return Block(block_id=f"{DOC}:p1:{seq}", text=texte, loc="p1", seq=seq, page=1,
+                     kind=kind, structural_kind=kind, surface_class=surface,  # type: ignore[arg-type]
+                     bbox=[0.0, 0.0, 1.0, 1.0])
+
+    ouvert = bloc(1, "Les dommages et les frais de remise en etat")
+    assert p._poursuit_la_phrase(ouvert, "para")
+    # Un bloc `list` rouvre un item : il ne poursuit que la liste dont il vient.
+    assert not p._poursuit_la_phrase(ouvert, "list")
+    assert p._poursuit_la_phrase(bloc(2, "• premier item,", kind="list"), "para")
+    assert p._poursuit_la_phrase(bloc(3, "• premier item,", kind="list"), "list")
+    # Une phrase close ne se poursuit pas ; un sommaire non plus.
+    assert not p._poursuit_la_phrase(bloc(4, "Une phrase terminee."), "para")
+    assert not p._poursuit_la_phrase(
+        bloc(5, "c. Defense recours 24", surface="table_des_matieres"), "para")
+    assert not p._poursuit_la_phrase(None, "para")
 
 
 def test_page_split_requires_same_kind_and_no_article_number(tmp_path: Path) -> None:

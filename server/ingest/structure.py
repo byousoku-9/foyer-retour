@@ -656,6 +656,10 @@ class NoeudVerifie:
     parent_id: str | None
     article_uid: str | None = None
     surface_class: SurfaceClass = "substantiel"
+    # Les lignes qui **font** le titre, telles que la proposition les désigne. Le titre lui-même en
+    # est déjà la lecture ; l'ingestion, elle, a besoin des lignes pour reconnaître le bloc qui ne
+    # porte que le titre et lui rendre son `kind: heading` (AD-2, « un titre n'est pas citable seul »).
+    title_line_uids: tuple[str, ...] = ()
     continuation_line_uids: tuple[str, ...] = ()
     relations: tuple[NodeRelation, ...] = ()
 
@@ -1964,6 +1968,7 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
                 surface_class=(noeud.surface_class
                                or _semantique_locale(noeud, registre)[1]
                                or "inconnu"),
+                title_line_uids=tuple(title_uids),
                 continuation_line_uids=tuple(noeud.continuation_line_uids),
             )
             parcourir(uid, position)
@@ -1977,6 +1982,7 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
             node_id=spec.node_id, level=spec.level, title=spec.title,
             premiere=spec.premiere, derniere=spec.derniere, parent_id=spec.parent_id,
             article_uid=spec.article_uid, surface_class=spec.surface_class,
+            title_line_uids=spec.title_line_uids,
             continuation_line_uids=spec.continuation_line_uids,
             relations=tuple(NodeRelation(
                 kind=relation.kind,

@@ -42,7 +42,7 @@ from pydantic import ValidationError
 from server.app.config import Settings, get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
-from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, SurfaceClass
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation, SurfaceClass
 from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE,
                                      TYPING_REUSED_IDS_STAT, LectureDuLot, document_json,
                                      exiger_espace_installe, merge_manifest, read_manifest,
@@ -52,9 +52,9 @@ from server.ingest.line_identity import line_uid
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   canoniser_transition_apres_typage, enrich_typing_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
-from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
-                                     StructureRefusee, arbre, charger_octets, empreinte_proposition,
-                                     presente, registre_lignes, verifier)
+from server.ingest.structure import (STRUCTURE_RULES_VERSION, Entree, NoeudVerifie,
+                                     StructureProposee, StructureRefusee, arbre, charger_octets,
+                                     empreinte_proposition, presente, registre_lignes, verifier)
 
 DOC_ID = "axa-lu-optihome-2017"
 TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
@@ -68,7 +68,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "21-le-cartouche-qui-clot-le-document-nest-pas-du-corps"
+PARSER_VERSION = "22-le-titre-propose-est-un-heading-lisible-et-la-mise-en-page-porte-continues"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -110,7 +110,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "|sans_style_accole|premiere_section)&famille_EuroMono&span_un_glyphe=>euro;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
                       "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
-                      "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
+                      "continues:rupture_de_mise_en_page(page|colonne|bande)&bloc_precedent_immediat"
+                      "&substantiel&sans_numero&list_ne_poursuit_qu_une_list&prec!~[.;:]$;"
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart;"
                       "colonnes:gouttiere>=column_gutter_min_pt"
                       "&cotes>=column_min_lines(lignes+rangees_de_table)"
@@ -125,7 +126,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "traverse_toutes_les_gouttieres=>colonne0+bande,sinon=>colonne_de_depart;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
                       "structure:proposition_verifiee(line_uid)&couverture_totale"
-                      "=>noeuds positionnels+titres du registre;"
+                      "=>noeuds positionnels+titres du registre(sans_glyphe_de_tete,blancs_internes=un_espace)"
+                      "&bloc_dont_les_uids<=title_line_uids_de_son_noeud=>heading;"
                       "refus=>quarantaine")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
          "lstrip_lines_sans_puce": True, "merge_number_sep": " ", "merge_glyph_sep": " ",
@@ -139,6 +141,11 @@ _SUITE_DE_CHIFFRES_RE = re.compile(r"\d+")
 # Un « glyphe » est une ligne qui ne porte aucun caractère alphanumérique : une puce, un point-virgule,
 # un tiret détachés de la ligne qu'ils ponctuent. `\w` moins `_` couvre lettres accentuées et chiffres.
 _ALPHANUM_RE = re.compile(r"[^\W_]", re.UNICODE)
+# Blancs que la **mise en page** produit — tabulation, saut de ligne, saut de page —, par opposition
+# aux espaces typographiques du texte (l'espace fine avant un « ; » français). Seuls les premiers
+# sont rabattus sur une espace ordinaire dans un titre projeté (`titre_lisible`).
+_BLANCS = " \t\n\r\f\v"
+_BLANCS_DE_MISE_EN_PAGE = re.compile(r"[ \t\n\r\f\v]*[\t\n\r\f\v][ \t\n\r\f\v]*")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
@@ -267,7 +274,12 @@ def _signatures_noeuds(doc: Document) -> dict[str, tuple[str, int, str | None]]:
     """Identité structurelle minimale d'un nœud, hors blocs et portée sémantique."""
     parent = {child: node.node_id for node in doc.nodes for child in node.children}
     return {
-        node.node_id: (node.title, node.level, parent.get(node.node_id))
+        # Le titre entre par sa forme normalisée, l'unique notion d'identité de texte du projet
+        # (convention Texte du spine, celle de `text_norm` et de toute citation). Une relecture qui
+        # retire une puce de tête ou une tabulation d'un intitulé désigne le même nœud : lui faire
+        # perdre son typage prouvé aurait exigé une campagne entière pour une différence que le
+        # système tient partout ailleurs pour nulle. Un intitulé réellement autre diffère encore.
+        node.node_id: (normalize(node.title), node.level, parent.get(node.node_id))
         for node in doc.nodes
     }
 
@@ -422,6 +434,22 @@ def reutiliser_typage_identique(
         old = previous.block(old_id) if old_id is not None else None
         if old is None or old_id not in proven or not is_citable(block):
             blocks.append(block)
+            continue
+        # AD-2, le même énoncé que `type_clauses` applique à la sortie du modèle : un titre structure
+        # l'arbre mais n'est jamais citable seul, quelle que soit l'étiquette juridique qu'on lui a
+        # donnée. Quand la lecture courante reconnaît un titre là où la précédente lisait un
+        # paragraphe, c'est cette nature structurelle qui est réutilisée — aucun appel n'est
+        # nécessaire pour savoir qu'un titre est un titre. Recopier `old.kind` aurait au contraire
+        # rendu le titre citable dès la republication, en effaçant la lecture qui vient de le
+        # reconnaître.
+        if block.structural_kind == "heading":
+            blocks.append(block.model_copy(update={
+                "kind": "heading", "structural_kind": "heading",
+                "kind_source": None, "kind_confidence": None, "refs": [], "unresolved_refs": [],
+                "defines": None, "scope_node_id": None, "scope_node_ids": [], "overrides": None,
+                "relation": Relation(),
+            }, deep=True))
+            reused[block.block_id] = 1
             continue
         old_owner = previous.node_of(old.block_id)
         current_owner = doc.node_of(block.block_id)
@@ -1865,7 +1893,7 @@ class _Builder:
             return self.nodes[node_id]
         spec = self.plan[node_id]
         parent = self.root if spec.parent_id is None else self.node_propose(spec.parent_id)
-        node = Node(node_id=node_id, level=spec.level, title=spec.title,
+        node = Node(node_id=node_id, level=spec.level, title=titre_lisible(spec.title),
                     article_uid=getattr(spec, "article_uid", None),
                     surface_class=getattr(spec, "surface_class", "substantiel"),
                     relations=list(getattr(spec, "relations", ())))
@@ -2322,6 +2350,95 @@ def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
     return surfaces
 
 
+def titre_lisible(texte: str) -> str:
+    """Titre projeté au sommaire et dans `Node.title` : une règle de forme, jamais un vocabulaire.
+
+    Deux lectures, l'une et l'autre purement typographiques. (1) Un intitulé n'ouvre pas sur un
+    glyphe de liste : un mot de tête qui ne porte **aucun** caractère alphanumérique — la définition
+    même de « glyphe » dans ce module (`_est_un_glyphe`) — et qu'un blanc sépare de la suite est une
+    puce, pas le début du titre. Un « (Suite) » collé à son mot n'est pas touché : rien ne l'en
+    sépare. (2) Une tabulation ou un saut de ligne vaut un espace : ce sont les blancs de **mise en
+    page**, et « a.<TAB> Vol / Vandalisme » n'a pas à traverser jusqu'à l'écran avec sa tabulation.
+
+    L'espace fine d'un « les cours<U+2009>; » n'en est pas un : c'est la typographie du texte, pas sa
+    mise en page, et la rabattre sur une espace ordinaire appauvrirait 150 intitulés du contrat AXA
+    sans rien corriger. La règle ne connaît donc que les blancs que la mise en page produit.
+
+    Le texte des **blocs** reste, lui, fidèle à la source (AD-2 : `text` est immuable après
+    ingestion). C'est le titre projeté, et lui seul, que cette lecture rend lisible.
+    """
+    lisible = _BLANCS_DE_MISE_EN_PAGE.sub(" ", texte).strip(_BLANCS)
+    while lisible and not _ALPHANUM_RE.search(lisible.partition(" ")[0]):
+        lisible = lisible.partition(" ")[2].lstrip(_BLANCS)
+    return lisible
+
+
+def _position_de_lecture(page: int, lines: list[PageLine]) -> tuple[int, int, int]:
+    """Où la porte de lecture a posé un groupe : page, bande, colonne.
+
+    Les trois sont la **même** rupture. `_segment_page` refuse déjà de continuer un groupe à travers
+    une colonne ou une bande, et `build_document` repart à chaque page : trois formes d'un seul fait,
+    « la mise en page s'arrête ici ». Les réunir dans une position, c'est pouvoir dire d'un couple de
+    blocs si c'est la mise en page qui les sépare, ou le texte lui-même.
+    """
+    return (page, lines[0].bande, lines[0].colonne)
+
+
+def _poursuit_la_phrase(precedent: Block | None, kind: str) -> bool:
+    """Le groupe `kind` reprend-il la phrase que `precedent` laisse ouverte ?
+
+    Deux faits, et rien d'autre : la phrase précédente n'est pas close (`_TERMINAL`), et le nouveau
+    bloc ne **rouvre** rien. Un bloc `list` rouvre un item — sa puce le dit — et ne poursuit donc que
+    la liste dont il vient ; un `para` ne rouvre rien et reprend aussi bien un paragraphe qu'un item
+    dont la mise en page a rejeté la fin plus loin.
+
+    Exiger l'égalité des `kind` manquait ce dernier cas, et c'est celui du contrat Baloise : sept
+    phrases s'y arrêtent au bas d'une page sur un item à puce et reprennent en tête de la suivante
+    sans puce, donc en `para` — dont une (`p15:19→p16:1`) dont le sens s'inverse quand on lit les
+    deux blocs séparément, l'exigence « ce contrat doit être en vigueur » tombant dans le second.
+
+    Hors du corps, il n'y a pas de phrase à poursuivre : `continues` existe pour qu'une clause que la
+    mise en page coupe reste une clause. Une entrée de sommaire est une ligne complète, close par son
+    renvoi de page et non par une ponctuation — la lire comme ouverte accrochait la dernière entrée
+    d'une colonne à la première de la suivante.
+    """
+    if precedent is None or kind not in ("para", "list") or precedent.kind not in ("para", "list"):
+        return False
+    if precedent.surface_class != "substantiel":
+        return False
+    if kind == "list" and precedent.kind != "list":
+        return False
+    return not precedent.text.rstrip().endswith(_TERMINAL)
+
+
+def projeter_les_titres(spec: NoeudVerifie, direct_blocks: list[str], registre: dict[str, Entree],
+                        block_uids: dict[str, list[str]], blocks_by_id: dict[str, Block]) -> None:
+    """Rend `heading` aux blocs qui ne portent que les lignes de titre de leur nœud.
+
+    AD-2 : « `heading` n'est pas citable seul ». Sans proposition, la géométrie reconnaît le titre
+    (`_is_heading`) et le bloc naît `heading`. Avec une proposition vérifiée, c'est elle qui dit
+    quelles lignes font le titre (`title_line_uids`) — et rien ne le projetait sur les blocs : le
+    bloc qui ne porte que ces lignes restait `para`. Le refus du vérificateur (« un titre ne se cite
+    pas seul »), `Index.unite_de_renvoi` et `retrouver._unite_primaire` testent tous les trois
+    `kind == "heading"` : sur un corpus entièrement structuré par proposition, ils ne voyaient plus
+    un seul titre, et une question de définition se voyait servir le mot seul comme clause.
+
+    Le bloc n'**est** le titre que s'il n'en déborde pas : un bloc qui colle le titre à son premier
+    alinéa porte de l'information au-delà de l'intitulé, et reste donc citable. La comparaison porte
+    sur les lignes source, jamais sur le texte : deux nœuds peuvent s'intituler pareil.
+    """
+    lignes_de_titre = {source_uid for uid in spec.title_line_uids
+                       for source_uid in registre[uid].source_uids}
+    if not lignes_de_titre:
+        return
+    for block_id in direct_blocks:
+        uids = block_uids[block_id]
+        if uids and set(uids) <= lignes_de_titre:
+            block = blocks_by_id[block_id]
+            block.kind = "heading"
+            block.structural_kind = "heading"
+
+
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE, source_url: str | None = None,
                    structure: StructureProposee | None = None) -> tuple[Document, dict[str, Any]]:
@@ -2358,7 +2475,10 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         } if structure.schema_version == "2" else canonical_node_of_uid)
     b = _Builder(doc_id, title, plan=plan)
     toc_node: Node | None = None
-    last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
+    # Le bloc **immédiatement** précédent quand c'est du texte, et où la porte de lecture l'a posé.
+    # « Immédiatement » est la condition : une phrase ne reprend pas par-dessus un titre ou une table.
+    precedent_texte: Block | None = None
+    precedent_position: tuple[int, int, int] | None = None
     precedent_noeud: str | None = None  # nœud proposé qui le portait, pour ne pas continuer à travers
     future_numbers = [line.number for page in pages for line in page.lines
                       if line.number is not None]
@@ -2429,43 +2549,39 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 add_preliminary_groups(pt, groupes_techniques, table_source=table_source)
                 b.current = saved
             if rompre:
-                last_text_block = None
+                precedent_texte = None
         if structure is not None:
             # Une proposition vérifiée gouverne **tout** le rattachement. Les branches TdM et
             # « préliminaire » sont écrites pour l'heuristique numérique : elles rattachent à la
             # racine ou au nœud `:tdm` des lignes que la proposition place ailleurs, et faisaient
             # disparaître des nœuds pourtant acceptés — jusqu'à trouer le chemin positionnel servi.
-            page_last = None
-            for index, (kind, lines) in enumerate(groups):
+            for kind, lines in groups:
                 node_id = _noeud_de_groupe(lines, node_of_uid, page=pt.page)
                 b.current = b.node_propose(node_id)
+                position = _position_de_lecture(pt.page, lines)
                 continues = None
-                # Scission de page (AD-2), inchangée, mais jamais à travers un nœud : deux sections
-                # différentes ne se continuent pas l'une l'autre.
-                if index == 0 and kind in ("para", "list") and last_text_block is not None \
-                        and last_text_block.kind == kind and node_id == precedent_noeud \
-                        and not last_text_block.text.rstrip().endswith(_TERMINAL):
-                    continues = last_text_block.block_id
+                # Scission de mise en page (AD-2) : c'est la page, la colonne ou la bande qui a
+                # rompu ici, jamais le texte — et jamais à travers un nœud, deux sections ne se
+                # continuent pas l'une l'autre.
+                if position != precedent_position and node_id == precedent_noeud \
+                        and _poursuit_la_phrase(precedent_texte, kind):
+                    continues = precedent_texte.block_id
                 blk = b.add_block(pt.page, lines, kind, continues=continues,
                                   source_field="ocr" if pt.ocr_succeeded else None)
-                if kind in ("para", "list"):
-                    page_last = blk
-                    precedent_noeud = node_id
-            if page_last is not None:
-                last_text_block = page_last
-            elif groups:
-                last_text_block = None
+                texte = kind in ("para", "list")
+                precedent_texte = blk if texte else None
+                precedent_noeud = node_id if texte else None
+                precedent_position = position
             continue
-        first = True
-        page_last: Block | None = None
         for kind, lines in groups:
+            position = _position_de_lecture(pt.page, lines)
             continues = None
-            # Scission de page (AD-2) : le premier bloc de la page, de même kind que le dernier bloc texte de la page
-            # précédente, sans numéro d'article, alors que ce dernier ne finit pas une phrase (structure, pas casse).
-            if first and kind in ("para", "list") and lines[0].number is None and last_text_block is not None \
-                    and last_text_block.kind == kind and not last_text_block.text.rstrip().endswith(_TERMINAL):
-                continues = last_text_block.block_id
-            first = False
+            # Scission de mise en page (AD-2) : le bloc que la page, la colonne ou la bande sépare du
+            # précédent, sans numéro d'article, alors que celui-ci ne finit pas une phrase
+            # (structure, pas casse).
+            if position != precedent_position and lines[0].number is None \
+                    and _poursuit_la_phrase(precedent_texte, kind):
+                continues = precedent_texte.block_id
             if lines[0].number is not None:
                 if future_numbers and future_numbers[0] == lines[0].number:
                     future_numbers.pop(0)
@@ -2473,7 +2589,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                     future_numbers.remove(lines[0].number)
                 b.current = b.node_for(lines[0].number)
                 if kind == "heading":
-                    b.current.title = lines[0].text
+                    b.current.title = titre_lisible(lines[0].text)
             elif continues is None:
                 settings = get_settings()
                 b.dedent_closing_group(
@@ -2483,11 +2599,10 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 )
             blk = b.add_block(pt.page, lines, kind, continues=continues,
                               source_field="ocr" if pt.ocr_succeeded else None)
-            if kind in ("para", "list"):
-                page_last = blk
+            precedent_texte = blk if kind in ("para", "list") else None
+            precedent_position = position
             if lines[0].number is not None and kind == "para":
-                b.current.title = lines[0].text
-        last_text_block = page_last
+                b.current.title = titre_lisible(lines[0].text)
     anomalies = anomalies_registre(pages, b.block_uids)
     if anomalies:
         raise ValueError("registre de lignes source incohérent : " + " ; ".join(anomalies[:20]))
@@ -2521,6 +2636,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         blocks_by_id = {block.block_id: block for block in b.blocks}
         for node_id, spec in plan.items():
             direct_blocks = b.nodes[node_id].blocks
+            projeter_les_titres(spec, direct_blocks, registre, b.block_uids, blocks_by_id)
             positions = {block_id: position for position, block_id in enumerate(direct_blocks)}
             continuation_blocks = list(dict.fromkeys(
                 block_by_uid[uid] for uid in spec.continuation_line_uids
@@ -2664,7 +2780,7 @@ def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
         elif not node.title:
             # Un nœud d'une proposition vérifiée a toujours son titre — relu au registre. Le signet
             # ne complète donc que les nœuds numérotés que l'heuristique a laissés sans intitulé.
-            node.title = f"{m.group(1)} {m.group(2)}".strip()
+            node.title = titre_lisible(f"{m.group(1)} {m.group(2)}")
     return gaps
 
 
