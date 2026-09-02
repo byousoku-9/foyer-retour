@@ -618,7 +618,7 @@ def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
 
 def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_singleton() -> None:
     pages = [_page(1, [
-        "Article 0 Parent", "Article 1 Cible singleton", "Article 2 Clause liée",
+        "Chapitre Parent", "Article 1 Cible singleton", "Article 2 Clause liée",
         "Suite liée un.", "Suite liée deux.", "Définition dérogatoire.",
     ])]
     p.ordonner_pages(pages)
@@ -626,7 +626,7 @@ def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_s
     proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
         s.NoeudPropose(
             titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[5],
-            parent_line_uid=None, title_line_uids=[uids[0]], article_uid="article:0",
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid=None,
             surface_class="substantiel", continuation_line_uids=[], relations=[],
         ),
         s.NoeudPropose(
@@ -655,7 +655,7 @@ def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_s
     index = Index(Corpus(documents={DOC: document}))
     source_node = next(node for node in document.nodes if node.article_uid == "article:1")
     dependency_node = next(node for node in document.nodes if node.article_uid == "article:2")
-    parent_node = next(node for node in document.nodes if node.article_uid == "article:0")
+    parent_node = next(node for node in document.nodes if node.title == "Chapitre Parent")
     source_block = source_node.blocks[0]
 
     window = index.ouvrir_noeud(
@@ -743,6 +743,33 @@ def test_oracle_independant_refuse_un_parent_semantique_faux_mais_contenant() ->
         s.NoeudPropose(
             titre_line_uid=uids[1], premiere_line_uid=uids[1], derniere_line_uid=uids[2],
             parent_line_uid=uids[0], title_line_uids=[uids[1]], article_uid="article:2.1",
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
+    assert not verdict.accepte and verdict.motif == "parent_non_contenant"
+    assert "parenté sémantique" in verdict.detail
+
+
+def test_oracle_independant_refuse_un_article_simple_comme_enfant_dun_autre_article() -> None:
+    pages = [_page(1, [
+        "Article 1 Garanties", "Article 2 Exclusions", "Corps de la seconde section.",
+        "Suite du parent.",
+    ])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[3],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid="article:1",
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[1], premiere_line_uid=uids[1], derniere_line_uid=uids[2],
+            parent_line_uid=uids[0], title_line_uids=[uids[1]], article_uid="article:2",
             surface_class="substantiel", continuation_line_uids=[], relations=[],
         ),
     ])

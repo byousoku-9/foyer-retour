@@ -847,8 +847,7 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
         if child_article is not None and parent_article is not None:
             child_path = tuple(child_article.removeprefix("article:").replace("-", ".").split("."))
             parent_path = tuple(parent_article.removeprefix("article:").replace("-", ".").split("."))
-            if len(child_path) > 1 and not (
-                    len(child_path) > len(parent_path)
+            if not (len(child_path) > len(parent_path)
                     and child_path[:len(parent_path)] == parent_path):
                 return _refus(
                     "parent_non_contenant",

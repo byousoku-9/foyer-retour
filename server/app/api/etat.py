@@ -848,8 +848,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     _journaliser_dictionnaire(dictionnaire)
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus),
-        # AD-10/AD-15 : l'API ne persiste jamais question, historique ni blocs. Le client garde
-        # seulement l'événement exact en mémoire le temps de projeter hashes, tailles et IDs.
+        # AD-10/AD-15 : le sink par défaut de l'API ne conserve jamais question, historique ni
+        # blocs ; l'enveloppe exacte est détruite dès que hashes, tailles et IDs sont projetés.
         client=LlmClient(settings),
         limiter=RateLimiter(settings),
         followup_limiter=RateLimiter(

@@ -33,7 +33,7 @@ from server.app.domain.errors import BudgetExceeded, ErrorCode, LlmParse, LlmUna
 from server.app.domain.trace import CheckResult, LLMCall, StepTrace, Usage
 
 from .budget import RequestBudget
-from .audit import AuditSink, ExactLlmAuditEvent, MemoryAuditSink
+from .audit import AuditSink, ExactLlmAuditEvent, ProjectionAuditSink
 from .models import EFFORT, MODEL_CAPS, Tier, model_for
 from .pricing import cost_from_usage, estimate_cost
 from .prompting import untrusted
@@ -213,9 +213,9 @@ class LlmClient:
                  campaign_cost_recorder: Callable[[float], None] | None = None) -> None:
         self._settings = settings
         self._cache = cache
-        # Un assemblage qui n'injecte pas encore le sink fichier reste auditable en mémoire ; il
-        # n'existe jamais de chemin silencieux où l'événement n'est pas créé.
-        self.audit_sink: AuditSink = audit_sink or MemoryAuditSink()
+        # Le défaut sert l'API partagée : l'enveloppe exacte n'y survit jamais à sa projection.
+        # Les runners/ingestions injectent explicitement leur sink exact hors ligne borné.
+        self.audit_sink: AuditSink = audit_sink or ProjectionAuditSink()
         self.run_uid = run_uid or f"run:{uuid.uuid4()}"
         # Story 4.2b — budget de **campagne** (règle trusted `LIVE_BUDGET_EUR`) : cumul de tous les
         # appels facturés à travers ce client, quel que soit le nombre de requêtes. `None` (défaut,
@@ -243,8 +243,7 @@ class LlmClient:
             trusted_line_uids=trusted_line_uids, request=request, response=response,
             error_class=error_class,
         )
-        self.audit_sink.append(event)
-        return event.public_projection() | {
+        return self.audit_sink.append(event) | {
             "audit_persisted": bool(getattr(self.audit_sink, "persistent", False)),
         }
 
@@ -452,8 +451,8 @@ class LlmClient:
                     parsed = adapter.validate_json(text)
                 except pydantic.ValidationError as exc:
                     problem = f"réponse non conforme au schéma : {self._validation_motive(exc, champs)}"
-            # L'événement persistant n'est écrit qu'après validation locale : une réponse réellement
-            # reçue mais invalide conserve ainsi à la fois son enveloppe exacte et sa classe d'erreur.
+            # Après validation locale, le sink API ne garde que la projection sûre. Un sink exact
+            # hors ligne explicitement injecté conserve aussi une réponse invalide et sa classe.
             projection = self._audit_call(
                 step=step, tier=tier, model=message.model,
                 request={k: v for k, v in body.items() if v is not None},

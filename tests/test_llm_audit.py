@@ -147,6 +147,9 @@ async def test_client_en_ligne_ne_persiste_ni_question_historique_termes_ni_bloc
     public = result.call.model_dump_json()
     assert not path.exists()
     assert not result.call.audit_persisted
+    assert not hasattr(client.audit_sink, "events")
+    sink_state = json.dumps(vars(client.audit_sink), ensure_ascii=False, default=str)
+    assert all(value not in sink_state for value in secrets.values())
     assert all(value not in public for value in secrets.values())
 
 

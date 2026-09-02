@@ -80,7 +80,16 @@ class ExactLlmAuditEvent(BaseModel):
 
 
 class AuditSink(Protocol):
-    def append(self, event: ExactLlmAuditEvent) -> None: ...
+    def append(self, event: ExactLlmAuditEvent) -> dict[str, Any]: ...
+
+
+class ProjectionAuditSink:
+    """Sink en ligne sans état : calcule la projection sûre puis oublie l'enveloppe exacte."""
+
+    persistent = False
+
+    def append(self, event: ExactLlmAuditEvent) -> dict[str, Any]:
+        return event.public_projection()
 
 
 class MemoryAuditSink:
@@ -89,8 +98,9 @@ class MemoryAuditSink:
     def __init__(self) -> None:
         self.events: list[ExactLlmAuditEvent] = []
 
-    def append(self, event: ExactLlmAuditEvent) -> None:
+    def append(self, event: ExactLlmAuditEvent) -> dict[str, Any]:
         self.events.append(event)
+        return event.public_projection()
 
 
 class JsonlAuditSink:
@@ -118,7 +128,7 @@ class JsonlAuditSink:
         with self._locks_guard:
             self._lock = self._locks.setdefault(key, threading.Lock())
 
-    def append(self, event: ExactLlmAuditEvent) -> None:
+    def append(self, event: ExactLlmAuditEvent) -> dict[str, Any]:
         payload = _canonical(event.model_dump(mode="json")) + b"\n"
         if len(payload) > self.max_bytes:
             raise ValueError(
@@ -163,6 +173,7 @@ class JsonlAuditSink:
                 except OSError:
                     pass
                 os.close(lock_descriptor)
+        return event.public_projection()
 
 
 def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
@@ -182,7 +193,6 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
         model=model, request=request, response=serialized_response,
         trusted_line_uids=trusted_line_uids, error_class=error_class,
     )
-    JsonlAuditSink(
+    return JsonlAuditSink(
         path, max_bytes=max_bytes, retention_files=retention_files,
     ).append(event)
-    return event.public_projection()
