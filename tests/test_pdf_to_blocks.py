@@ -1100,36 +1100,79 @@ def test_une_tdm_dont_les_entrees_portent_un_numero_ne_devient_jamais_des_articl
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
-def test_une_tdm_numerotee_sur_deux_pages_ne_publie_ni_article_ni_bloc_citable() -> None:
-    """La fin de la TdM se décide aussi **à la frontière de page**, sur le même prédicat d'entrée."""
-    pages = [
-        p.PageText(page=1, width=595, height=842, lines=[
-            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
-            p.PageLine("1 Garanties 3", [56, 90, 300, 104], 12, number="1"),
-            p.PageLine("2 Exclusions 4", [56, 110, 300, 124], 12, number="2"),
-        ]),
-        p.PageText(page=2, width=595, height=842, lines=[
-            p.PageLine("3 Sinistres 4", [56, 60, 300, 74], 12, number="3"),
-        ]),
-        p.PageText(page=3, width=595, height=842, lines=[
-            p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
-            p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
-        ]),
-        p.PageText(page=4, width=595, height=842, lines=[
-            p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
-        ]),
+def _tdm_fragmentee(*, renvois: bool) -> list:
+    """TdM de deux pages au format **fragmenté** : l'état que `_mark_toc_pages` voit réellement.
+
+    L'intitulé et son renvoi de page sont deux lignes distinctes tant que `_assemble_toc_lines` n'a
+    pas tourné — c'est la forme que la TdM du contrat réel prend en marge. `renvois=False` retire les
+    lignes de renvoi : il ne reste alors aucune preuve forte de sommaire, et la TdM doit se fermer.
+    """
+    entrees = [
+        (1, p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+         p.PageLine("3", [520, 90, 534, 104], 12)),
+        (2, p.PageLine("3 Sinistres", [56, 60, 300, 74], 12, number="3"),
+         p.PageLine("4", [520, 60, 534, 74], 12)),
     ]
+    pages = [p.PageText(page=1, width=595, height=842,
+                        lines=[p.PageLine("Table des matières", [56, 60, 250, 74], 14)]),
+             p.PageText(page=2, width=595, height=842)]
+    for numero, intitule, renvoi in entrees:
+        pages[numero - 1].lines.append(intitule)
+        if renvois:
+            pages[numero - 1].lines.append(renvoi)
+    pages.append(p.PageText(page=3, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ]))
+    pages.append(p.PageText(page=4, width=595, height=842, lines=[
+        p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
+    ]))
+    return pages
+
+
+def test_une_tdm_numerotee_sur_deux_pages_ne_publie_ni_article_ni_bloc_citable() -> None:
+    """La fin de la TdM se décide aussi **à la frontière de page**, sur la forme géométrique.
+
+    C'est la seule forme admissible avant assemblage, et donc la seule qui peut porter une TdM
+    numérotée au-delà de sa première page.
+    """
+    pages = _tdm_fragmentee(renvois=True)
 
     p._mark_toc_pages(pages)
     assert [page.is_toc for page in pages] == [True, True, False, False]
+    for page in pages:
+        if page.is_toc:
+            p._assemble_toc_lines(page)
     document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
                                    doc_id=DOC, title="Contrat")
 
     assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    portees = "\n".join(document.block(block_id).text for block_id in
+                        next(node for node in document.nodes
+                             if node.node_id == f"{DOC}:tdm").blocks)
+    assert "1 Garanties 3" in portees and "3 Sinistres 4" in portees
     assert not any(p.is_citable(block) for block in document.blocks if block.page in {1, 2})
     assert all(block.surface_class == "table_des_matieres"
                for block in document.blocks if block.page in {1, 2})
     assert all(p.is_citable(block) for block in document.blocks if block.page in {3, 4})
+
+
+def test_sans_renvoi_apparie_la_tdm_se_ferme_et_la_page_suivante_est_du_corps() -> None:
+    """Contre-témoin de la forme géométrique : retirer le renvoi referme la TdM à sa page.
+
+    Une entrée de sommaire qui ne porte **aucun** renvoi est textuellement indiscernable d'un titre
+    d'article. La limite est assumée : c'est ce contre-témoin qui l'écrit, plutôt qu'une règle qui
+    prétendrait les séparer et coûterait des clauses.
+    """
+    pages = _tdm_fragmentee(renvois=False)
+
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [True, False, False, False]
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert f"{DOC}:a3" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page in {2, 3, 4})
 
 
 def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_tdm() -> None:
@@ -1168,34 +1211,83 @@ def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_td
                if block.text != "Table des matières\n1 Garanties 3")
 
 
-def test_une_ligne_de_corps_en_forme_de_renvoi_hors_pagination_ne_prolonge_pas_la_tdm() -> None:
+def test_un_nombre_final_hors_pagination_nest_pas_un_renvoi_a_la_frontiere_in_page() -> None:
     """La borne du renvoi est le nombre de pages du document, jamais un montant écrit en dur.
 
-    Sans elle, « 2 La franchise reste de 250 » serait pris pour une entrée de sommaire et la page
-    entière — clause juridique comprise — resterait sous `:tdm`, non citable.
+    Sur la page de sommaire elle-même, « 2 La franchise reste de 250 » a exactement la forme
+    imprimée d'une entrée. Sans la borne, la frontière in-page ne s'ouvrirait jamais et la clause
+    resterait sous `:tdm`, non citable.
     """
     pages = [
         p.PageText(page=1, width=595, height=842, lines=[
             p.PageLine("Table des matières", [56, 60, 250, 74], 14),
             p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2 La franchise reste de 250", [56, 150, 400, 166], 17, number="2"),
+            p.PageLine("Elle s'applique à chaque sinistre.", [56, 190, 350, 204], 10),
         ]),
         p.PageText(page=2, width=595, height=842, lines=[
-            p.PageLine("2 La franchise reste de 250", [56, 80, 400, 96], 17, number="2"),
-            p.PageLine("Elle s'applique à chaque sinistre.", [56, 120, 350, 134], 10),
+            p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
         ]),
     ]
 
     p._mark_toc_pages(pages)
-    # `_has_toc_entries` reste volontairement permissive au niveau **page** : elle y voit la forme
-    # imprimée et marque la page. Ce n'est pas elle qui décide la citabilité — la frontière in-page
-    # s'ouvre au premier groupe numéroté qui n'est pas une entrée, et ce groupe est la clause.
-    assert pages[1].is_toc
+    assert pages[0].is_toc
     document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
                                    doc_id=DOC, title="Contrat")
 
-    assert f"{DOC}:a2" in {node.node_id for node in document.nodes}
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    assert [document.block(block_id).text for block_id in toc_node.blocks] == [
+        "Table des matières\n1 Garanties 2",
+    ]
+    clause = next(node for node in document.nodes if node.node_id == f"{DOC}:a2")
+    assert document.block(clause.blocks[0]).text == "2 La franchise reste de 250"
+    assert all(p.is_citable(block) for block in document.blocks
+               if block.text != "Table des matières\n1 Garanties 2")
+
+
+@pytest.mark.parametrize("tdm_fragmentee", [False, True])
+def test_une_clause_en_forme_de_renvoi_dans_la_pagination_ne_rend_pas_sa_page_non_citable(
+    tdm_fragmentee: bool,
+) -> None:
+    """Le nombre final d'un **fragment brut** n'est jamais une preuve d'entrée de sommaire.
+
+    Sur un document long, « 1 La franchise par sinistre est de 100 » passe la borne : le nombre
+    final tombe dans la pagination. Si la forme imprimée était admissible avant assemblage, la page
+    de corps entière partirait sous `:tdm`, non citable — la propriété exactement inverse de celle
+    que le correctif cherche, et un rouge que la borne seule ne peut pas voir.
+
+    Les deux formes de page de sommaire sont posées, parce qu'elles ferment la TdM par des chemins
+    différents : la forme imprimée la ferme dès sa propre page (aucune preuve avant assemblage), la
+    forme fragmentée la maintient ouverte et c'est la page de corps qui doit s'en extraire.
+    """
+    tdm = [p.PageLine("Table des matières", [56, 60, 250, 74], 14)]
+    if tdm_fragmentee:
+        tdm.append(p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"))
+        tdm.append(p.PageLine("4", [520, 90, 534, 104], 12))
+    else:
+        tdm.append(p.PageLine("1 Garanties 4", [56, 90, 300, 104], 12, number="1"))
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=tdm),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("1 La franchise par sinistre est de 100", [56, 80, 420, 96], 17, number="1"),
+            p.PageLine("Elle s'applique à chaque sinistre.", [56, 120, 350, 134], 10),
+        ]),
+    ]
+    # Un document assez long pour que la borne `1..len(pages)` ne rejette rien : c'est bien la phase,
+    # et non la borne, qui doit trancher.
+    pages += [p.PageText(page=numero, width=595, height=842) for numero in range(3, 110)]
+
+    p._mark_toc_pages(pages)
+    for page in pages:
+        if page.is_toc:
+            p._assemble_toc_lines(page)
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert not pages[1].is_toc
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
     assert [block.text for block in document.blocks if block.page == 2] == [
-        "2 La franchise reste de 250", "Elle s'applique à chaque sinistre.",
+        "1 La franchise par sinistre est de 100", "Elle s'applique à chaque sinistre.",
     ]
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
@@ -2389,8 +2481,17 @@ def test_la_garde_rougit_sur_une_divergence_non_declaree(
 
 
 def _fixtures_dartefact_committe(module: ast.Module) -> set[str]:
-    """Fixtures du module qui relisent un artefact committé — découvertes par leur corps."""
-    return {noeud.name for noeud in module.body
+    """Fixtures qui relisent un artefact committé — découvertes par leur corps.
+
+    Le balayage inclut `tests/conftest.py` en plus du module examiné : une fixture partagée y est
+    tout aussi visible du test, et l'y oublier aurait exclu un futur certificat en silence, par le
+    `continue` de l'appelant, sans rien faire rougir.
+    """
+    conftest = ROOT / "tests" / "conftest.py"
+    corps = list(module.body)
+    if conftest.is_file():
+        corps += ast.parse(conftest.read_text("utf-8")).body
+    return {noeud.name for noeud in corps
             if isinstance(noeud, ast.FunctionDef)
             and any("fixture" in ast.unparse(decorateur) for decorateur in noeud.decorator_list)
             and "document.json" in ast.unparse(noeud)}
