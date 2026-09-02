@@ -448,6 +448,19 @@ class Settings(BaseSettings):
     # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink
     # mémoire et ne crée jamais ce fichier (AD-10/AD-15). Rotation et rétention bornent le disque.
     llm_audit_path: Path = REPO_ROOT / ".audit" / "llm-calls.jsonl"
+    # Correctif du tour 2 (défaut 9 des trois rapports). **Le témoin qui porte le plancher était le
+    # seul chemin sans audit exact.** Le sink `JsonlAuditSink` n'était câblé que dans le runner
+    # d'évals ; le service HTTP prenait le défaut `ProjectionAuditSink`, qui n'écrit rien. Les trois
+    # runs A16 portent donc `audit_persisted: false` sur chacun de leurs appels, et aucune des trois
+    # enquêtes n'a pu produire les termes réellement cherchés, les nœuds ouverts tour par tour ni le
+    # verdict du navigateur — tout a dû être déduit ou rejoué hors ligne.
+    #
+    # L'enveloppe exacte contient question, historique et blocs : elle ne doit jamais quitter la
+    # machine (AD-10/AD-15), et le fichier est écrit en 0600 avec taille et rétention bornées. Le
+    # défaut suit donc l'environnement — actif hors production, désarmé en production — et reste
+    # réglable explicitement dans les deux sens. Ce n'est pas de la donnée publiée : c'est de la
+    # donnée **conservée**, et la distinction est exactement celle qu'AD-15 fait déjà.
+    llm_audit_exact: bool | None = None
     llm_audit_max_bytes: int = Field(16 * 1024 * 1024, ge=1)
     llm_audit_retention_files: int = Field(4, ge=1)
     retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
@@ -1135,6 +1148,19 @@ class Settings(BaseSettings):
         """
         return bool(self.allow_ungated) or self.env == "dev"
 
+    @property
+    def audit_exact_actif(self) -> bool:
+        """L'audit exact est-il écrit sur disque pour cette configuration ?
+
+        `None` — le défaut — suit l'environnement : actif partout sauf en production, où l'enveloppe
+        exacte (question, historique, blocs) n'a rien à faire sur un disque partagé. Un booléen
+        explicite tranche dans les deux sens, y compris pour l'armer en production le temps d'un
+        diagnostic — c'est une décision d'exploitation, elle se prend, elle ne se devine pas.
+        """
+        if self.llm_audit_exact is not None:
+            return self.llm_audit_exact
+        return self.env != "prod"
+
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""
         return {
@@ -1178,6 +1204,7 @@ class Settings(BaseSettings):
             "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
             "retrieval_prompt_cache": int(self.retrieval_prompt_cache),
             "llm_audit_max_bytes": self.llm_audit_max_bytes,
+            "llm_audit_exact": int(self.audit_exact_actif),
             "llm_audit_retention_files": self.llm_audit_retention_files,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,

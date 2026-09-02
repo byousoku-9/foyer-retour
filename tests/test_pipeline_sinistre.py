@@ -2952,3 +2952,40 @@ async def test_un_acquis_vide_garde_la_regle_terminale_dad16(index: Index) -> No
         await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
                            settings=settings, request_id="req-sinistre", budget=_budget(),
                            variant="deterministe")
+
+
+async def test_la_trace_publie_ce_que_comprendre_a_decide(index: Index) -> None:
+    """Correctif du tour 2 (défaut 9) — sans les termes ni le découpage, un incident ne se rejoue pas.
+
+    Les deux listes sont produites librement par le modèle à chaque appel et déterminent le
+    classement, donc les blocs lus, donc la réponse. Trois réponses différentes à la même question,
+    et rien dans la trace ne disait ce qui avait été cherché — pas même avec l'audit exact.
+    """
+    _answer, trace, fake = await _run(index, [
+        _comprendre(terms=["mobilier", "chaleur"], facettes=["la première", "la seconde"]),
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None),
+                                 facettes=[["c1"], ["c1"]])])
+
+    assert fake.remaining_script == 0
+    assert trace.termes == ["mobilier", "chaleur"]
+    assert trace.facettes == ["la première", "la seconde"]
+
+
+def test_laudit_exact_suit_lenvironnement_et_reste_reglable() -> None:
+    """L'enveloppe exacte est **conservée** hors production, jamais publiée (AD-15).
+
+    Le sink exact n'était câblé que dans le runner d'évals : le témoin qui porte le plancher était
+    donc le seul chemin sans audit, et trois enquêtes ont dû déduire ce qu'un fichier aurait dit.
+    """
+    from server.app.api.etat import _audit_sink
+    from server.app.llm.audit import JsonlAuditSink, ProjectionAuditSink
+
+    dev = Settings(_env_file=None, anthropic_api_key="", env="dev")
+    prod = Settings(_env_file=None, anthropic_api_key="", env="prod", allow_ungated=False)
+    assert dev.audit_exact_actif and isinstance(_audit_sink(dev), JsonlAuditSink)
+    assert not prod.audit_exact_actif and isinstance(_audit_sink(prod), ProjectionAuditSink)
+    # Le réglage tranche dans les deux sens : armer un diagnostic en production est une décision.
+    arme = Settings(_env_file=None, anthropic_api_key="", env="prod", allow_ungated=False,
+                    llm_audit_exact=True)
+    desarme = Settings(_env_file=None, anthropic_api_key="", env="dev", llm_audit_exact=False)
+    assert arme.audit_exact_actif and not desarme.audit_exact_actif

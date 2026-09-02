@@ -37,6 +37,7 @@ from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
+from server.app.llm.audit import AuditSink, JsonlAuditSink, ProjectionAuditSink
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
@@ -820,6 +821,27 @@ def _lire_les_surfaces(data_dir: Path, settings: Settings, contexte: GateContext
         publication=_publication_evals(data_dir, settings.evals_publication_file, lecture))
 
 
+def _audit_sink(settings: Settings) -> AuditSink:
+    """L'audit exact hors production, la projection sinon (correctif du tour 2, défaut 9).
+
+    L'enveloppe exacte porte question, historique et blocs : elle est **conservée** sur la machine,
+    jamais publiée — la distinction est celle d'AD-15, et le fichier reste en 0600, borné en taille
+    et en rétention (`llm_audit_max_bytes`, `llm_audit_retention_files`). Un chemin d'audit qu'on ne
+    peut pas ouvrir n'est pas une raison d'arrêter de servir : le service repart sur la projection,
+    et le dit dans le journal.
+    """
+    if not settings.audit_exact_actif:
+        return ProjectionAuditSink()
+    try:
+        return JsonlAuditSink(settings.llm_audit_path,
+                              max_bytes=settings.llm_audit_max_bytes,
+                              retention_files=settings.llm_audit_retention_files)
+    except (OSError, ValueError):
+        logging.getLogger("foyer.audit").warning(
+            "audit exact indisponible : projection seule")
+        return ProjectionAuditSink()
+
+
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
@@ -883,9 +905,14 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         # Convention Seuils : les trois budgets de projection de l'index viennent de la
         # configuration publiée, jamais d'un nombre recopié dans la couche `corpus`.
         index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars),
-        # AD-10/AD-15 : le sink par défaut de l'API ne conserve jamais question, historique ni
-        # blocs ; l'enveloppe exacte est détruite dès que hashes, tailles et IDs sont projetés.
-        client=LlmClient(settings),
+        # AD-10/AD-15 : le sink projeté ne conserve jamais question, historique ni blocs —
+        # l'enveloppe exacte est détruite dès que hashes, tailles et IDs sont projetés. C'est le
+        # défaut en production, et c'était le seul comportement possible jusqu'au correctif du
+        # tour 2 : le témoin qui porte le plancher était alors le seul chemin **sans** audit exact,
+        # et trois enquêtes ont dû déduire ce qu'un fichier aurait dit. Hors production, l'audit
+        # exact est écrit sur disque, en 0600, taille et rétention bornées — conservé, jamais
+        # publié, la distinction même qu'AD-15 fait.
+        client=LlmClient(settings, audit_sink=_audit_sink(settings)),
         limiter=RateLimiter(settings),
         followup_limiter=RateLimiter(
             settings, per_minute="conversation_rate_limit_per_minute",

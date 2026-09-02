@@ -218,6 +218,16 @@ class Trace(DomainModel):
     blocs: list[BlocTrace] = Field(default_factory=list)
     gate: GateTrace | None = None
     dictionnaire: DictionnaireTrace | None = None
+    # Correctif du tour 2 : **ce que *comprendre* a décidé, et dont tout le reste dépend.** Les
+    # termes de recherche et le découpage en sous-questions sont produits librement par le modèle à
+    # chaque appel ; ils déterminent le classement, donc les blocs lus, donc la réponse. Rien ne les
+    # publiait — `faits_compris` ne porte ni l'un ni l'autre —, si bien que le rejeu d'un incident
+    # était impossible **même avec l'audit** : trois réponses différentes à la même question, sans
+    # aucun moyen de dire ce qui avait été cherché. Ce sont les mêmes libellés que ceux déjà servis
+    # dans `AbsenceProof.terms_searched` (AD-4) : rien de neuf n'est exposé, c'est la même donnée,
+    # publiée sur le chemin nominal et pas seulement sur un refus.
+    termes: list[str] = Field(default_factory=list)
+    facettes: list[str] = Field(default_factory=list)
 
     @field_validator("total_cost_eur", mode="before")
     @classmethod

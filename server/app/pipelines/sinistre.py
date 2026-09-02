@@ -503,6 +503,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     relances = 0
     truncated = False
     intent: str | None = None
+    # La question comprise, dès qu'elle existe : `tracer()` en publie les termes et le
+    # découpage, y compris sur les chemins d'erreur où seule la trace partielle sort.
+    question_comprise: ParsedQuestion | None = None
 
     def echeance(avant: str) -> None:
         """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
@@ -533,6 +536,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             dictionnaire=dictionnaire_de(
                 dictionnaire, doc_id,
                 court_circuit_autorise=False),
+            # Correctif du tour 2 : ce que *comprendre* a décidé, et dont tout le reste
+            # dépend. Sans ces deux listes, trois réponses différentes à la même question
+            # ne se rejouent pas — même avec l'audit.
+            termes=(question_comprise.termes_de_recherche()
+                    if question_comprise is not None else []),
+            facettes=(list(question_comprise.facettes)
+                      if question_comprise is not None else []),
         )
 
     def absence(kind: str, parsed: ParsedQuestion | None) -> AbsenceProof:
@@ -587,7 +597,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
 
     async def chaine() -> tuple[Answer, Trace]:
         """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
-        nonlocal relances, truncated, intent
+        nonlocal relances, truncated, intent, question_comprise
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
         # Ni historique ni profil : un dossier de sinistre n'est pas une conversation, et le profil du
@@ -598,6 +608,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                    prompt="comprendre_sinistre", faits=faits)
         steps.append(step_comprendre)
         intent = parsed.intent
+        if isinstance(parsed, ParsedQuestion):
+            question_comprise = parsed
 
         if isinstance(parsed, ClarificationRequise):
             # Seul refus qui ne publie **aucun** fait compris, et ce n'est pas un oubli (revue 1.9) :
