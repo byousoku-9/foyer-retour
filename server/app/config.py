@@ -376,16 +376,30 @@ class Settings(BaseSettings):
     # est servie sans être donnée pour complète. Le mécanisme reste fail-closed ; ce qu'il perd, ce
     # n'est jamais une garantie, c'est une chance de relire. Relever ce plafond est une décision de
     # coût, mesurable par l'orchestrateur, qui appartient au gate 4.5.
-    # **9, et non 8 (02/09/2026, tour « budgets Sonnet »).** La séquence la plus longue en consomme
-    # exactement huit — *comprendre*, les deux tours de navigation, *rédiger*, *vérifier*, la relance
-    # d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e (`APPELS_DE_LA_REPRISE` = 1) — si
-    # bien qu'à 8 le premier retry motivé d'un parse invalide (AD-16, « 1 retry ») n'avait plus de
-    # place : il ressortait en `BudgetExceeded` terminal sur un chemin conforme. 9 est le **minimum**
-    # qui rend ce retry survivable, et c'est délibérément le minimum : une unité de plus autoriserait
-    # un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste ailleurs et
-    # s'applique avant chaque envoi (`max_cost_eur_per_request`).
-    max_llm_attempts: int = Field(9, ge=1)
-    max_llm_turns: int = Field(2, ge=1, le=2)
+    # **10, et non 9 (02/09/2026, correctif du tour 2).** La séquence la plus longue en consomme
+    # exactement neuf — *comprendre*, les **trois** tours de navigation (`max_llm_turns`, dont le
+    # tour de conclusion sans lequel aucun verdict de suffisance n'est atteignable), *rédiger*,
+    # *vérifier*, la relance d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e
+    # (`APPELS_DE_LA_REPRISE` = 1). Le plafond est donc `9 + 1`, et ce `+1` est le premier retry
+    # motivé d'un parse invalide (AD-16, « 1 retry ») : sans lui, il ressortait en `BudgetExceeded`
+    # terminal sur un chemin conforme. C'est délibérément le **minimum** : une unité de plus
+    # autoriserait un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste
+    # ailleurs et s'applique avant chaque envoi (`max_cost_eur_per_request`).
+    max_llm_attempts: int = Field(10, ge=1)
+    # Correctif du tour 2 (cause R2/R5). **À deux tours, le verdict terminal de la navigation est
+    # inatteignable** : le tour 0 cherche, le tour 1 ouvre, et les résultats du tour 1 ne sont
+    # jamais réinjectés (le dialogue s'arrête). Le navigateur ne voit donc jamais ce qu'il a ouvert,
+    # ne peut constater aucun manque par sous-question, et ne rend aucun verdict — les trois runs
+    # A16 montrent deux appels et une suffisance toujours refusée, donc le bandeau « je n'ai pas pu
+    # lire tout ce qui pouvait concerner votre question » sur une réponse parfaitement sourcée.
+    #
+    # Coût du troisième tour : **un appel `reason` de plus, et seulement quand le navigateur a
+    # encore appelé un outil au deuxième**. Mesuré sur les traces A16, l'étape *retrouver* coûte
+    # 0,047 € et 8,5-9,9 s pour deux appels ; le tour de conclusion en ajoute donc ~0,015-0,024 € et
+    # ~2-5 s, sur une requête à 0,17-0,20 € et 60-74 s — soit ~+10 % de coût et ~+5 % de latence au
+    # pire, sur une deadline de 100 s dont 26 à 40 restaient libres. Ce tour n'ouvre pas plus : il
+    # reste borné par `max_opens`, `retrieval_max_blocks` et `retrieval_max_tokens`.
+    max_llm_turns: int = Field(3, ge=1, le=3)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
     # Le triplet servi vient d'un artefact versionné unique. Les champs restent surchargeables par

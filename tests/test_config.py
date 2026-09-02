@@ -26,8 +26,11 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.deadline_s == 100 and s.llm_timeout_s == 40
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
-    assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
-    assert s.max_llm_attempts == 9 and s.retrouver_outils_max_tokens == 1024
+    # `max_llm_turns` : trois depuis le correctif du tour 2 — à deux, le verdict terminal de la
+    # navigation est structurellement inatteignable (les résultats du dernier tour ne sont
+    # jamais réinjectés), et la suffisance sémantique reste toujours refusée.
+    assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 3
+    assert s.max_llm_attempts == 10 and s.retrouver_outils_max_tokens == 1024
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
         "reason", "reason", "reason")
@@ -159,7 +162,7 @@ def test_bounds_and_coherence() -> None:
     with pytest.raises(ValidationError, match="baseline_tiers"):
         Settings(_env_file=None, env="prod", baseline_tiers=True)
     with pytest.raises(ValidationError, match="max_llm_turns"):
-        Settings(_env_file=None, max_llm_turns=3)
+        Settings(_env_file=None, max_llm_turns=4)
     # story 1.5 : *vérifier* doit pouvoir juger tout ce que *rédiger* peut produire, sinon des claims
     # retrouvées seraient rejetées « non évaluées » par pure configuration (dégradé silencieux).
     with pytest.raises(ValidationError, match="verifier_max_claims"):

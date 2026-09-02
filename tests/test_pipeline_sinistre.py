@@ -1821,7 +1821,12 @@ async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
 
     answer, trace, fake = await _run_neutre(
         neutre,
+        # Trois tours de navigation depuis le correctif du tour 2 : les deux premiers appellent des
+        # outils, le troisième conclut. Sans ce tour de conclusion, aucun verdict de suffisance
+        # n'était atteignable — c'est tout l'objet du relèvement de `max_llm_turns`.
         [_comprendre_neutre(neutre), navigation_auxiliaire, tentative_bornee,
+         fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                      text=json.dumps({"sufficient": False, "result_uid": None})),
          _rediger(claim_auxiliaire),
          _verifier(("k-aux", True, True, False, False, None, [], []))],
         settings=reglages)

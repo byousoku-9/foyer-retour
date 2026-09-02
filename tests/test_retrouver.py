@@ -133,9 +133,15 @@ def _tool_message(*uses: dict[str, object], stop_reason: str = "tool_use") -> di
     return fake_message(model="claude-sonnet-5", stop_reason=stop_reason, content=list(uses))
 
 
-@pytest.mark.parametrize("max_llm_turns", [0, 3])
+@pytest.mark.parametrize("max_llm_turns", [0, 4])
 def test_retrieval_budget_enforces_the_tool_turn_invariant_for_direct_callers(
         max_llm_turns: int) -> None:
+    """Le plafond de sûreté du domaine est passé à trois tours (correctif du tour 2).
+
+    À deux, le verdict terminal était inatteignable : les résultats du dernier tour ne sont jamais
+    réinjectés, donc le navigateur ne voyait jamais ce qu'il avait ouvert. Le troisième tour est
+    celui de la conclusion ; le quatrième reste refusé, ici comme dans `Settings`.
+    """
     with pytest.raises(ValidationError, match="max_llm_turns"):
         _budget(max_llm_turns=max_llm_turns)
 
@@ -4454,3 +4460,86 @@ async def test_le_budget_refuse_est_distingue_dun_choix_de_navigation() -> None:
 
     candidats = [c for c in step.checks if c.name == "candidats_non_ouverts"]
     assert not candidats or "le budget de l'étape a refusé" in candidats[0].detail
+
+
+# --- Correctif du tour 2 (R2/R5) : le verdict par sous-question devient atteignable -----------
+
+
+def _corpus_a_deux_regles() -> Corpus:
+    """Deux règles décisionnelles confirmées, une par nœud : une par sous-question."""
+    premiere = Block(block_id="d:p1:1", text="Repère alpha règle initiale.", loc="p1", seq=1,
+                     kind="garantie", kind_source="manual")
+    seconde = Block(block_id="d:p2:1", text="Branche distincte règle utile.", loc="p2", seq=1,
+                    kind="exclusion", kind_source="manual")
+    return _corpus_neutre_par_noeuds(("initiale", [premiere]), ("distincte", [seconde]))
+
+
+def _verdict_facettes(corpus: Corpus, parsed: ParsedQuestion,
+                      couverture: list[tuple[int, str | None]]) -> dict[str, object]:
+    """Le verdict terminal, par sous-question, avec les `result_uid` réellement publiés par l'index.
+
+    Le navigateur ne peut désigner qu'une identité qu'il a vue : le témoin la relit donc du même
+    classement que `chercher`, jamais une chaîne inventée.
+    """
+    index = Index(corpus)
+    par_bloc = {hit.clause_uid: hit.result_uid for hit in index.chercher(
+        parsed.termes_de_recherche(), question=parsed.question_resolue, limit=20, doc_id="d")}
+    facettes = [{"facette": rang,
+                 "result_uid": par_bloc[block_id] if block_id is not None else None}
+                for rang, block_id in couverture]
+    premier = next((f["result_uid"] for f in facettes if f["result_uid"] is not None), None)
+    return fake_message(
+        model=TIERS["reason"], stop_reason="end_turn",
+        text=json.dumps({"sufficient": premier is not None, "result_uid": premier,
+                         "facettes": facettes}))
+
+
+async def test_le_navigateur_rend_un_verdict_par_sous_question_confronte_a_la_mesure() -> None:
+    """R2/R5 — la suffisance n'est plus mono-bloc, et le navigateur peut dire ce qu'il n'a pas trouvé.
+
+    Avant le correctif, le verdict terminal ne connaissait qu'un `result_uid` pour toute la
+    question : un navigateur ayant couvert la première sous-question n'avait aucun moyen de dire
+    qu'il n'avait rien trouvé pour la seconde — son verdict était vrai, et muet sur la moitié de la
+    demande. Le prompt ne mentionnait même pas les facettes, alors qu'elles lui étaient envoyées.
+    """
+    corpus = _corpus_a_deux_regles()
+    parsed = _parsed(["alpha", "branche distincte"],
+                     facettes=["repère alpha", "branche distincte"])
+
+    # Premier tour : recherche et ouvertures. Second : le verdict, par sous-question.
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha", "branche distincte"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1"),
+            _tool("ouvrir_noeud", "t3", node_id="distincte", focus_block_id="d:p2:1")),
+        _verdict_facettes(corpus, parsed, [(0, "d:p1:1"), (1, "d:p2:1")]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=3, node_window=2, search_limit=5),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    verdict = next(c for c in step.checks if c.name == "verdict_par_facette")
+    assert verdict.ok, verdict.detail
+    assert "2 sous-question(s) sur 2" in verdict.detail
+    assert result.sufficiency is not None and result.sufficiency.complete
+
+
+async def test_une_sous_question_sans_clause_refuse_la_suffisance_entiere() -> None:
+    """La lecture n'est suffisante que si **chaque** sous-question porte une règle décisionnelle."""
+    corpus = _corpus_a_deux_regles()
+    parsed = _parsed(["alpha"], facettes=["repère alpha", "sujet absent du texte"])
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1")),
+        _verdict_facettes(corpus, parsed, [(0, "d:p1:1"), (1, None)]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=1, node_window=2, search_limit=5),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.sufficiency is not None
+    # Un résultat admis suffisait autrefois à déclarer la lecture complète, quelle que soit la
+    # sous-question à laquelle il répondait : une lecture à moitié faite pouvait se dire suffisante.
+    assert result.sufficiency.complete is False
+    assert result.sufficiency.reason == "facettes_sans_clause_decisionnelle"
+    verdict = next(c for c in step.checks if c.name == "verdict_par_facette")
+    assert verdict.ok, verdict.detail

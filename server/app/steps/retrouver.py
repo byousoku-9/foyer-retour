@@ -1534,15 +1534,6 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         result_uid_non_admis = True
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in admitted_set)
-    sufficiency = SufficiencyDecision(
-        complete=sufficient_hit is not None,
-        reason=("semantic_result_uid_admitted" if sufficient_hit is not None
-                else "invalid_semantic_result_uid" if result_uid_non_admis
-                else "unreadable_semantic_verdict" if verdict_illisible
-                else "explicit_semantic_insufficiency"),
-        sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
-        considered_result_uids=considered,
-    )
     # Ce que la lecture rapporte **par facette**, mesuré une fois sur l'état final des blocs admis.
     # Vide sans besoin déclaré : la variante guide ne pose pas de facette au barème de *retrouver*,
     # et un résultat qui ne mesure rien vaut mieux qu'un résultat qui affirme une couverture.
@@ -1557,6 +1548,43 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # NFR2 : des candidats décisionnels d'une sous-question sont restés fermés. La lecture est
         # bornée, et c'est `truncated` — jamais une absence — qui le dit.
         truncated = True
+    # Correctif du tour 2 (cause R2) : **la suffisance n'est plus mono-bloc.** Un seul résultat admis
+    # la rendait vraie pour la question entière, quelle que soit la sous-question à laquelle il
+    # répondait — c'est-à-dire qu'une lecture à moitié faite pouvait se déclarer suffisante. Quand
+    # la couverture par facette a été mesurée, la lecture n'est suffisante que si **chaque**
+    # sous-question porte au moins un bloc décisionnel confirmé transmis. La mesure est celle du
+    # code ; la déclaration du navigateur ne la remplace jamais (AD-1).
+    facettes_manquantes = [facette.rang for facette in facettes_couverture if not facette.retrouvee]
+    complete = sufficient_hit is not None and not facettes_manquantes
+    sufficiency = SufficiencyDecision(
+        complete=complete,
+        reason=("semantic_result_uid_admitted" if complete
+                else "facettes_sans_clause_decisionnelle" if sufficient_hit is not None
+                else "invalid_semantic_result_uid" if result_uid_non_admis
+                else "unreadable_semantic_verdict" if verdict_illisible
+                else "explicit_semantic_insufficiency"),
+        sufficiency_result_uid=(sufficient_hit.result_uid if complete else None),
+        considered_result_uids=considered,
+    )
+    if facettes_couverture and semantic_selection is not None:
+        # Ce que le navigateur **déclare** par sous-question, confronté à ce que le code mesure.
+        # Aucun des deux ne corrige l'autre : le code décide, la déclaration est publiée, et l'écart
+        # est nommé — c'est lui qui dira, aux témoins, si le prompt porte réellement la consigne.
+        # AD-10 : des rangs et des comptes, jamais un libellé de facette.
+        declarees = {facette.facette: facette.result_uid for facette in semantic_selection.facettes}
+        mesurees = {facette.rang: facette.retrouvee for facette in facettes_couverture}
+        muettes = sorted(rang for rang in mesurees if rang not in declarees)
+        ecarts = sorted(rang for rang, retrouvee in mesurees.items()
+                        if rang in declarees and (declarees[rang] is not None) != retrouvee)
+        detail = (f"{len(declarees)} sous-question(s) sur {len(mesurees)} ont reçu un verdict du "
+                  "navigateur")
+        if muettes:
+            detail += f" ; sans verdict : rang(s) {', '.join(str(rang) for rang in muettes)}"
+        if ecarts:
+            detail += (" ; verdict contredit par la mesure du code (qui fait foi) : rang(s) "
+                       + ", ".join(str(rang) for rang in ecarts))
+        step.checks.append(CheckResult(
+            name="verdict_par_facette", ok=not muettes and not ecarts, detail=detail))
     result = RetrievalResult(
         blocs=[block(b).model_copy(
             update={"context_role": context_role_by_block.get(b)}, deep=True,

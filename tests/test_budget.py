@@ -82,9 +82,11 @@ def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_long
     d'AD-1 (`max_llm_turns`), *rédiger* et *vérifier* (2), la relance d'AD-3
     (`pipelines/commun.APPELS_DE_LA_RELANCE`), la reprise de 4.2e
     (`pipelines/sinistre.APPELS_DE_LA_REPRISE`), et le **seul** retry qu'AD-16 accorde à un parse
-    invalide. À 8, la somme valait exactement le plafond : le premier parse invalide de la chaîne
-    ressortait en `BudgetExceeded` terminal sur un chemin conforme — les deux pré-contrôles
-    (`budget.attempts + APPELS_DE_LA_… > budget.max_attempts`) n'avaient plus rien à arbitrer.
+    invalide. Quand la somme vaut exactement le plafond, le premier parse invalide de la chaîne
+    ressort en `BudgetExceeded` terminal sur un chemin conforme — les deux pré-contrôles
+    (`budget.attempts + APPELS_DE_LA_… > budget.max_attempts`) n'ont plus rien à arbitrer. La
+    séquence est passée de 8 à 9 au correctif du tour 2 : le troisième tour de navigation est celui
+    de la conclusion, sans lequel aucun verdict de suffisance n'est atteignable.
 
     Ce témoin rougit aussi si l'un des termes grandit : c'est ce qu'on veut, chacun vit dans un
     module différent et aucun ne sait ce que les autres consomment.
@@ -97,7 +99,7 @@ def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_long
     RETRY_DE_PARSE = 1  # AD-16 : « 1 retry », et un seul
     sequence_la_plus_longue = (1 + settings.max_llm_turns + 2
                                + APPELS_DE_LA_RELANCE + APPELS_DE_LA_REPRISE)
-    assert sequence_la_plus_longue == 8, sequence_la_plus_longue
+    assert sequence_la_plus_longue == 9, sequence_la_plus_longue
     assert settings.max_llm_attempts >= sequence_la_plus_longue + RETRY_DE_PARSE, (
         f"{settings.max_llm_attempts} appels pour une séquence de {sequence_la_plus_longue} : "
         "un parse invalide n'a plus de place et devient terminal")
