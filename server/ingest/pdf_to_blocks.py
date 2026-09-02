@@ -126,7 +126,7 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "traverse_toutes_les_gouttieres=>colonne0+bande,sinon=>colonne_de_depart;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
                       "structure:proposition_verifiee(line_uid)&couverture_totale"
-                      "=>noeuds positionnels+titres du registre"
+                      "=>noeuds positionnels+titres du registre(sans_glyphe_de_tete,blancs_internes=un_espace)"
                       "&bloc_dont_les_uids<=title_line_uids_de_son_noeud=>heading;"
                       "refus=>quarantaine")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
@@ -141,6 +141,11 @@ _SUITE_DE_CHIFFRES_RE = re.compile(r"\d+")
 # Un « glyphe » est une ligne qui ne porte aucun caractère alphanumérique : une puce, un point-virgule,
 # un tiret détachés de la ligne qu'ils ponctuent. `\w` moins `_` couvre lettres accentuées et chiffres.
 _ALPHANUM_RE = re.compile(r"[^\W_]", re.UNICODE)
+# Blancs que la **mise en page** produit — tabulation, saut de ligne, saut de page —, par opposition
+# aux espaces typographiques du texte (l'espace fine avant un « ; » français). Seuls les premiers
+# sont rabattus sur une espace ordinaire dans un titre projeté (`titre_lisible`).
+_BLANCS = " \t\n\r\f\v"
+_BLANCS_DE_MISE_EN_PAGE = re.compile(r"[ \t\n\r\f\v]*[\t\n\r\f\v][ \t\n\r\f\v]*")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
@@ -269,7 +274,12 @@ def _signatures_noeuds(doc: Document) -> dict[str, tuple[str, int, str | None]]:
     """Identité structurelle minimale d'un nœud, hors blocs et portée sémantique."""
     parent = {child: node.node_id for node in doc.nodes for child in node.children}
     return {
-        node.node_id: (node.title, node.level, parent.get(node.node_id))
+        # Le titre entre par sa forme normalisée, l'unique notion d'identité de texte du projet
+        # (convention Texte du spine, celle de `text_norm` et de toute citation). Une relecture qui
+        # retire une puce de tête ou une tabulation d'un intitulé désigne le même nœud : lui faire
+        # perdre son typage prouvé aurait exigé une campagne entière pour une différence que le
+        # système tient partout ailleurs pour nulle. Un intitulé réellement autre diffère encore.
+        node.node_id: (normalize(node.title), node.level, parent.get(node.node_id))
         for node in doc.nodes
     }
 
@@ -1883,7 +1893,7 @@ class _Builder:
             return self.nodes[node_id]
         spec = self.plan[node_id]
         parent = self.root if spec.parent_id is None else self.node_propose(spec.parent_id)
-        node = Node(node_id=node_id, level=spec.level, title=spec.title,
+        node = Node(node_id=node_id, level=spec.level, title=titre_lisible(spec.title),
                     article_uid=getattr(spec, "article_uid", None),
                     surface_class=getattr(spec, "surface_class", "substantiel"),
                     relations=list(getattr(spec, "relations", ())))
@@ -2340,6 +2350,29 @@ def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
     return surfaces
 
 
+def titre_lisible(texte: str) -> str:
+    """Titre projeté au sommaire et dans `Node.title` : une règle de forme, jamais un vocabulaire.
+
+    Deux lectures, l'une et l'autre purement typographiques. (1) Un intitulé n'ouvre pas sur un
+    glyphe de liste : un mot de tête qui ne porte **aucun** caractère alphanumérique — la définition
+    même de « glyphe » dans ce module (`_est_un_glyphe`) — et qu'un blanc sépare de la suite est une
+    puce, pas le début du titre. Un « (Suite) » collé à son mot n'est pas touché : rien ne l'en
+    sépare. (2) Une tabulation ou un saut de ligne vaut un espace : ce sont les blancs de **mise en
+    page**, et « a.<TAB> Vol / Vandalisme » n'a pas à traverser jusqu'à l'écran avec sa tabulation.
+
+    L'espace fine d'un « les cours<U+2009>; » n'en est pas un : c'est la typographie du texte, pas sa
+    mise en page, et la rabattre sur une espace ordinaire appauvrirait 150 intitulés du contrat AXA
+    sans rien corriger. La règle ne connaît donc que les blancs que la mise en page produit.
+
+    Le texte des **blocs** reste, lui, fidèle à la source (AD-2 : `text` est immuable après
+    ingestion). C'est le titre projeté, et lui seul, que cette lecture rend lisible.
+    """
+    lisible = _BLANCS_DE_MISE_EN_PAGE.sub(" ", texte).strip(_BLANCS)
+    while lisible and not _ALPHANUM_RE.search(lisible.partition(" ")[0]):
+        lisible = lisible.partition(" ")[2].lstrip(_BLANCS)
+    return lisible
+
+
 def _position_de_lecture(page: int, lines: list[PageLine]) -> tuple[int, int, int]:
     """Où la porte de lecture a posé un groupe : page, bande, colonne.
 
@@ -2556,7 +2589,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                     future_numbers.remove(lines[0].number)
                 b.current = b.node_for(lines[0].number)
                 if kind == "heading":
-                    b.current.title = lines[0].text
+                    b.current.title = titre_lisible(lines[0].text)
             elif continues is None:
                 settings = get_settings()
                 b.dedent_closing_group(
@@ -2569,7 +2602,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             precedent_texte = blk if kind in ("para", "list") else None
             precedent_position = position
             if lines[0].number is not None and kind == "para":
-                b.current.title = lines[0].text
+                b.current.title = titre_lisible(lines[0].text)
     anomalies = anomalies_registre(pages, b.block_uids)
     if anomalies:
         raise ValueError("registre de lignes source incohérent : " + " ; ".join(anomalies[:20]))
@@ -2747,7 +2780,7 @@ def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
         elif not node.title:
             # Un nœud d'une proposition vérifiée a toujours son titre — relu au registre. Le signet
             # ne complète donc que les nœuds numérotés que l'heuristique a laissés sans intitulé.
-            node.title = f"{m.group(1)} {m.group(2)}".strip()
+            node.title = titre_lisible(f"{m.group(1)} {m.group(2)}")
     return gaps
 
 

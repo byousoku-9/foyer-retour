@@ -2673,6 +2673,42 @@ def test_un_titre_reconnu_par_la_lecture_courante_ne_reprend_pas_le_typage_du_pa
     assert typed.block(f"{DOC}:p1:1").kind == "condition"
 
 
+def test_titre_lisible_retire_le_glyphe_de_tete_et_les_blancs_de_mise_en_page() -> None:
+    """Règle de forme, jamais de vocabulaire — et qui ne touche pas à la typographie du texte."""
+    assert p.titre_lisible("• Vos biens immobiliers") == "Vos biens immobiliers"
+    assert p.titre_lisible("\t• Les embellissements par\ndestination") == \
+        "Les embellissements par destination"
+    assert p.titre_lisible("a.\t \tDéfense recours") == "a. Défense recours"
+    # Un mot de tête qui porte une lettre ou un chiffre n'est pas une puce, même parenthésé.
+    assert p.titre_lisible("(Suite) du texte") == "(Suite) du texte"
+    assert p.titre_lisible("8. Les garanties du propriétaire") == "8. Les garanties du propriétaire"
+    # L'espace fine française d'un « les cours ; » est de la typographie : elle reste.
+    assert p.titre_lisible("1.5.1 les cours ;") == "1.5.1 les cours ;"
+    assert p.titre_lisible("• •") == ""
+
+
+def test_un_titre_relu_sans_sa_puce_garde_le_typage_prouve_de_ses_blocs() -> None:
+    """La forme du titre n'est pas l'identité du nœud (convention Texte du spine).
+
+    Sans cela, retirer la puce de tête de 33 intitulés du contrat Baloise faisait perdre leur typage
+    prouvé aux 290 blocs citables de leurs sous-arbres : une campagne entière de relecture facturée
+    pour une différence que `normalize()` — l'unique notion d'identité de texte du projet — tient
+    partout ailleurs pour nulle.
+    """
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    ancien = next(node for node in previous.nodes if node.node_id == f"{DOC}:a1")
+    previous = Document.model_validate(previous.model_copy(update={
+        "nodes": [node.model_copy(update={"title": f"\t• {node.title}"}, deep=True)
+                  if node.node_id == ancien.node_id else node for node in previous.nodes],
+    }, deep=True).model_dump())
+
+    typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    assert typed.block(f"{DOC}:p1:2").kind == "garantie"
+
+
 def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:
     previous = _document_metaphorique()
     previous.nodes[1].scope = Scope(kind="special")
