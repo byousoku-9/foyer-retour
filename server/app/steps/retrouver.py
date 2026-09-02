@@ -388,8 +388,25 @@ def _classement_par_facette(*, index: Index, doc_id: str, question: str,
     def classement(mapping: dict[str, list[str]] | list[str]) -> list[ScoredHit]:
         signature = _signature_mapping(mapping)
         if signature not in memo:
-            memo[signature] = index.chercher(mapping, limit=limit, doc_id=doc_id,
-                                             question=question, kinds_confirmes=kinds_confirmes)
+            memo[signature] = [
+                hit for hit in index.chercher(mapping, limit=limit, doc_id=doc_id,
+                                              question=question,
+                                              kinds_confirmes=kinds_confirmes)
+                # **Correctif du tour 3 (R1) : une correspondance partielle ne propose rien.**
+                # `full_matches > 0` est la sémantique d'AC 2.7 — au moins un canonique
+                # **entièrement** couvert. Sans cette garde, le rang 0 d'une facette est gagné par
+                # recouvrement de mots fréquents : sur les six classements des trois runs A16, il
+                # revenait à une exclusion de responsabilité civile immeuble, `full_matches = 0`,
+                # sans aucun rapport avec le sinistre. Elle était réservée avant la navigation, elle
+                # était admise, elle « couvrait » donc la facette **par construction**, et le motif
+                # de relance ordonnait ensuite d'écrire une claim dessus.
+                #
+                # Le filtre vit **ici**, à la source du classement mémoïsé, et non dans chacun des
+                # quatre appelants (réserve, passe de couverture, mesure, passe pure du pipeline) :
+                # une garde recopiée quatre fois aurait divergé au premier amendement, et c'est
+                # exactement le genre d'écart que ce défaut a produit.
+                if hit.score.full_matches > 0
+            ]
         return memo[signature]
 
     return classement

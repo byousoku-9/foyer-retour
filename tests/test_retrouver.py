@@ -4647,3 +4647,59 @@ async def test_une_clause_admise_lest_pour_toutes_ses_identites_de_resultat() ->
     assert etats[identite_mecanisme] == "admitted", (
         "la clause est entrée dans le contexte : c'est un fait de corpus, pas une propriété "
         "de l'empreinte de requête qui l'a désignée")
+
+
+# --- Correctif du tour 3 (R1) : une correspondance partielle ne couvre aucune sous-question ----
+
+
+def _corpus_a_recouvrement_partiel() -> tuple[Corpus, ParsedQuestion]:
+    """Le motif mesuré sur A16 : un bloc hors sujet gagne le classement par mots fréquents.
+
+    `pertinent` porte le mot rare de la sous-question, `bavard` n'en porte que les mots communs —
+    mais il les porte tous, et il est plus court, donc il gagne le rang 0 au score partiel. Sans la
+    garde, c'est **lui** que la réserve garde et que la couverture déclare comme réponse à la
+    sous-question ; sur le contrat servi, c'était une exclusion de responsabilité civile immeuble.
+    """
+    bavard = Block(block_id="d:p1:1", kind="exclusion", kind_source="manual", loc="p1", seq=1,
+                   text="Les dommages relatifs aux biens sont écartés.")
+    pertinent = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                      text="Les suies sont prises en charge.")
+    corpus = _corpus_neutre_par_noeuds(("bavard", [bavard]), ("pertinent", [pertinent]))
+    parsed = _parsed(["dommages"], facettes=["dommages relatifs aux suies", "seconde branche"])
+    return corpus, parsed
+
+
+def test_une_facette_nest_pas_couverte_par_une_correspondance_partielle() -> None:
+    """R1 — le classement d'une facette ne propose que ce qu'il couvre **entièrement**."""
+    corpus, parsed = _corpus_a_recouvrement_partiel()
+    index = Index(corpus)
+    brut = index.chercher(["dommages relatifs aux suies"], limit=20, doc_id="d",
+                          question=parsed.question_resolue,
+                          kinds_confirmes=KINDS_FONDATEURS)
+    # Rouge-avant, mesuré : sans la garde, le rang 0 est le bloc hors sujet, `full_matches = 0`.
+    assert brut and brut[0].clause_uid == "d:p1:1" and brut[0].score.full_matches == 0
+
+    classement = retrouver._classement_par_facette(index=index, doc_id="d",
+                                                   question=parsed.question_resolue,
+                                                   kinds_confirmes=KINDS_FONDATEURS,
+                                                   limit=20)
+    retenus = classement(["dommages relatifs aux suies"])
+    assert [hit.clause_uid for hit in retenus] == []
+    assert all(hit.score.full_matches > 0 for hit in retenus)
+
+
+async def test_un_bloc_a_recouvrement_partiel_ne_couvre_ni_ne_reserve() -> None:
+    """La conséquence de bout en bout : ni réserve gardée, ni facette déclarée couverte."""
+    corpus, parsed = _corpus_a_recouvrement_partiel()
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["dommages"]),
+                      _tool("ouvrir_noeud", "t2", node_id="bavard", focus_block_id="d:p1:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=3, node_window=2, search_limit=20),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    # Le bloc bavard a bien été lu — le navigateur l'a ouvert — mais il ne **couvre** rien.
+    assert "d:p1:1" in result.opened_block_ids
+    assert result.facette(0) is not None and not result.facette(0).retrouvee
+    couverture = next(c for c in step.checks if c.name == "facettes_retrouvees")
+    assert not couverture.ok, couverture.detail
