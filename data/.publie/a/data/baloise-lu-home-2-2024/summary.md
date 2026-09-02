@@ -1,4 +1,4 @@
-<!-- baloise-lu-home-2-2024 · edition CG-HOME(2)-LUFR-09-24 · source_hash 2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6 · ingest_fingerprint 30acbcd4386eb5fe90edfb595ea111ed76033d45487d66c441c003eec39189e7 -->
+<!-- baloise-lu-home-2-2024 · edition CG-HOME(2)-LUFR-09-24 · source_hash 2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6 · ingest_fingerprint 4226a32e7cd3126cb21a99dbcbef2640a18402bca07a1b0e0e98ad5dd4d2cc75 -->
 # Baloise Luxembourg HOME
 
 - `baloise-lu-home-2-2024:s3` · 1. Définitions · p. 3
@@ -81,173 +81,193 @@
   - `baloise-lu-home-2-2024:s3.77` · Vacance locative · p. 9
   - `baloise-lu-home-2-2024:s3.78` · Valeurs / espèces · p. 9
   - `baloise-lu-home-2-2024:s3.79` · Valeur à neuf · p. 9
-- `baloise-lu-home-2-2024:s4` · Valeur de reconstitution matérielle · p. 10
-- `baloise-lu-home-2-2024:s5` · Valeur réelle · p. 10
-- `baloise-lu-home-2-2024:s6` · Valeur vénale · p. 10
-- `baloise-lu-home-2-2024:s7` · Vandalisme · p. 10
-- `baloise-lu-home-2-2024:s8` · Vétusté · p. 10
-- `baloise-lu-home-2-2024:s9` · Virus informatique · p. 10
-- `baloise-lu-home-2-2024:s10` · 2. Quel est l’objet de votre contrat ? · p. 10
-- `baloise-lu-home-2-2024:s11` · 3. Où s’exercent vos garanties ? · p. 10
-- `baloise-lu-home-2-2024:s12` · 4. Quels sont les biens assurés ? · p. 11
-  - `baloise-lu-home-2-2024:s12.1` · • Vos biens immobiliers · p. 11
-  - `baloise-lu-home-2-2024:s12.2` · • Les embellissements et biens immeubles par destination · p. 11
-  - `baloise-lu-home-2-2024:s12.3` · • Les biens de production d’énergie renouvelable · p. 11
-  - `baloise-lu-home-2-2024:s12.4` · • Vos biens mobiliers · p. 11
-  - `baloise-lu-home-2-2024:s12.5` · Les biens que nous ne garantissons pas : · p. 11
-- `baloise-lu-home-2-2024:s13` · 5. Les garanties dommages de base · p. 12
-  - `baloise-lu-home-2-2024:s13.1` · • L’incendie et évènements assimilés · p. 12
-    - `baloise-lu-home-2-2024:s13.1.1` · Exclusions spécifiques à la garantie · p. 12
-  - `baloise-lu-home-2-2024:s13.2` · • Les dommages électriques · p. 12
-  - `baloise-lu-home-2-2024:s13.3` · • Tempête, grêle, neige · p. 12
-  - `baloise-lu-home-2-2024:s13.4` · • Inondation · p. 13
-  - `baloise-lu-home-2-2024:s13.5` · • Attentats, actes de terrorisme, conflits du travail · p. 13
-  - `baloise-lu-home-2-2024:s13.6` · • Dégâts des eaux · p. 13
-  - `baloise-lu-home-2-2024:s13.7` · • Gel · p. 14
-  - `baloise-lu-home-2-2024:s13.8` · • Bris des glaces · p. 14
-- `baloise-lu-home-2-2024:s14` · 6. Les garanties dommages optionnelles · p. 15
-  - `baloise-lu-home-2-2024:s14.1` · a.	 Vol / Vandalisme · p. 15
-    - `baloise-lu-home-2-2024:s14.1.1` · Vol · p. 15
-    - `baloise-lu-home-2-2024:s14.1.2` · Agression sur la personne · p. 15
-    - `baloise-lu-home-2-2024:s14.1.3` · Prévention / Protection · p. 15
-    - `baloise-lu-home-2-2024:s14.1.4` · Mesures de sécurité que vous devez respecter · p. 16
-    - `baloise-lu-home-2-2024:s14.1.5` · Déchéance de la garantie · p. 16
-    - `baloise-lu-home-2-2024:s14.1.6` · Sont exclus : · p. 16
-    - `baloise-lu-home-2-2024:s14.1.7` · Vandalisme · p. 16
-  - `baloise-lu-home-2-2024:s14.2` · b.	 Pack objets de valeur / art · p. 16
-    - `baloise-lu-home-2-2024:s14.2.1` · Sont assurés : · p. 16
-    - `baloise-lu-home-2-2024:s14.2.2` · Sont exclus : · p. 16
-- `baloise-lu-home-2-2024:s15` · c.	 Pack objets précieux / bijoux · p. 17
-- `baloise-lu-home-2-2024:s16` · d.	 Pack Multimédia · p. 18
-- `baloise-lu-home-2-2024:s17` · e.	 Pack objets de loisirs · p. 19
-- `baloise-lu-home-2-2024:s18` · f.	 Pack équipements de mobilité durable · p. 19
-- `baloise-lu-home-2-2024:s19` · g.	 Pack jardin / piscine · p. 20
-  - `baloise-lu-home-2-2024:s19.1` · Jardin · p. 20
-  - `baloise-lu-home-2-2024:s19.2` · Piscine · p. 20
-- `baloise-lu-home-2-2024:s20` · h.	 Pack cave à vin / denrées alimentaires · p. 20
-  - `baloise-lu-home-2-2024:s20.1` · Cave à vin · p. 20
-  - `baloise-lu-home-2-2024:s20.2` · Denrées alimentaires · p. 21
-- `baloise-lu-home-2-2024:s21` · i.	 Pack énergie renouvelable · p. 21
-- `baloise-lu-home-2-2024:s22` · j.	 Pack perte de liquide / dommages aux cuves · p. 21
-- `baloise-lu-home-2-2024:s23` · 7. Les garanties complémentaires · p. 22
-  - `baloise-lu-home-2-2024:s23.1` · Quelles sont vos garanties complémentaires ? · p. 22
-  - `baloise-lu-home-2-2024:s23.2` · a.	 	Défense recours · p. 22
-  - `baloise-lu-home-2-2024:s23.3` · b.	 Frais et pertes consécutives · p. 22
-    - `baloise-lu-home-2-2024:s23.3.1` · Garanties complémentaires · p. 23
-      - `baloise-lu-home-2-2024:s23.3.1.1` · Intervention des services de secours · p. 23
-      - `baloise-lu-home-2-2024:s23.3.1.2` · Perte de clés · p. 23
-  - `baloise-lu-home-2-2024:s23.4` · c.	 Garanties simultanées · p. 23
-    - `baloise-lu-home-2-2024:s23.4.1` · • En cas de déménagement. · p. 23
-      - `baloise-lu-home-2-2024:s23.4.1.1` · Mobilier transporté pendant le déménagement · p. 23
-    - `baloise-lu-home-2-2024:s23.4.2` · • En cas de relogement suite à sinistre garanti par Baloise · p. 23
-    - `baloise-lu-home-2-2024:s23.4.3` · Logement en cours de construction · p. 23
-- `baloise-lu-home-2-2024:s24` · 8. Les garanties optionnelles du propriétaire non occupant · p. 24
-  - `baloise-lu-home-2-2024:s24.1` · a.	 Loyers impayés · p. 24
-  - `baloise-lu-home-2-2024:s24.2` · b.	 Détériorations immobilières · p. 24
-  - `baloise-lu-home-2-2024:s24.3` · c.	 Défense recours du propriétaire non occupant · p. 24
-  - `baloise-lu-home-2-2024:s24.4` · Obligations à la souscription · p. 24
-    - `baloise-lu-home-2-2024:s24.4.1` · Formalités à accomplir pour l’agrément des locataires · p. 24
-      - `baloise-lu-home-2-2024:s24.4.1.1` · Agrément d’un nouveau locataire · p. 24
-        - `baloise-lu-home-2-2024:s24.4.1.1.1` · Contrainte de revenu minimum : · p. 24
-        - `baloise-lu-home-2-2024:s24.4.1.1.2` · Contrainte de solvabilité : · p. 24
-      - `baloise-lu-home-2-2024:s24.4.1.2` · Locataires déjà dans les lieux à la souscription de l’assurance · p. 25
-    - `baloise-lu-home-2-2024:s24.4.2` · Avertissement · p. 25
-    - `baloise-lu-home-2-2024:s24.4.3` · Etat des lieux · p. 25
-  - `baloise-lu-home-2-2024:s24.5` · Outre les exclusions prévues par ailleurs, ne sont pas garantis : · p. 25
-  - `baloise-lu-home-2-2024:s24.6` · Sont exclus des garanties loyers impayés, détériorations immobilières et défense recours du propriétaire non occupant : · p. 25
-- `baloise-lu-home-2-2024:s25` · 9. Les responsabilités civiles de base · p. 26
-  - `baloise-lu-home-2-2024:s25.1` · Quelles sont vos garanties responsabilité civile de base ? · p. 26
-  - `baloise-lu-home-2-2024:s25.2` · a.	 Responsabilités civiles du fait des biens assurés · p. 26
-    - `baloise-lu-home-2-2024:s25.2.1` · Risques locatifs · p. 26
-    - `baloise-lu-home-2-2024:s25.2.2` · Recours des voisins et des tiers · p. 26
-    - `baloise-lu-home-2-2024:s25.2.3` · Recours des locataires · p. 26
-    - `baloise-lu-home-2-2024:s25.2.4` · Responsabilité civile propriétaire d’immeuble · p. 26
-    - `baloise-lu-home-2-2024:s25.2.5` · Sont exclus de ces garanties : · p. 26
-  - `baloise-lu-home-2-2024:s25.3` · b.	 Responsabilité civile maître d’ouvrage · p. 27
-    - `baloise-lu-home-2-2024:s25.3.1` · Condition de garantie : · p. 27
-    - `baloise-lu-home-2-2024:s25.3.2` · Sont exclus : · p. 27
-  - `baloise-lu-home-2-2024:s25.4` · Responsabilité civile producteur d’énergie · p. 28
-- `baloise-lu-home-2-2024:s26` · 10. Les responsabilités civiles optionnelles · p. 28
-  - `baloise-lu-home-2-2024:s26.1` · a.	 	Responsabilité civile vie privée · p. 28
-  - `baloise-lu-home-2-2024:s26.2` · Garanties complémentaires à la responsabilité civile vie privée · p. 28
-    - `baloise-lu-home-2-2024:s26.2.1` · Responsabilité Séjour-Voyages · p. 28
-    - `baloise-lu-home-2-2024:s26.2.2` · Responsabilité stages d’études à l’étranger · p. 29
-    - `baloise-lu-home-2-2024:s26.2.3` · Responsabilité fête familiale · p. 29
-    - `baloise-lu-home-2-2024:s26.2.4` · Responsabilité garde d’enfants · p. 29
-  - `baloise-lu-home-2-2024:s26.3` · Défense recours responsabilité civile vie privée · p. 29
-  - `baloise-lu-home-2-2024:s26.4` · Responsabilité civile assistant parental · p. 29
-  - `baloise-lu-home-2-2024:s26.5` · Responsabilité civile chiens dangereux · p. 30
-  - `baloise-lu-home-2-2024:s26.6` · Responsabilité civile jouets à moteur · p. 30
-  - `baloise-lu-home-2-2024:s26.7` · Responsabilité civile des équidés · p. 30
-  - `baloise-lu-home-2-2024:s26.8` · Responsabilité civile gîte / chambres d’hôte · p. 30
-  - `baloise-lu-home-2-2024:s26.9` · Garantie complémentaire · p. 30
-    - `baloise-lu-home-2-2024:s26.9.1` · Responsabilité civile dépositaire de l’hôtelier · p. 30
-- `baloise-lu-home-2-2024:s27` · 11. Les exclusions générales · p. 31
-  - `baloise-lu-home-2-2024:s27.1` · Exclusions communes à l’ensemble des garanties responsabilité civile · p. 31
-  - `baloise-lu-home-2-2024:s27.2` · Exclusions communes à l’ensemble des garanties · p. 31
-  - `baloise-lu-home-2-2024:s27.3` · Limitation des sanctions et clause d’exclusion · p. 32
-  - `baloise-lu-home-2-2024:s27.4` · Perte d’exploitation causée par le retrait d’un dispositif de guerre · p. 32
-  - `baloise-lu-home-2-2024:s27.5` · Maladies contagieuses · p. 32
-  - `baloise-lu-home-2-2024:s27.6` · Clause d’exclusion des risques cybernétiques · p. 32
-- `baloise-lu-home-2-2024:s28` · 12. Le tableau des limites de garanties · p. 33
-- `baloise-lu-home-2-2024:s29` · 13. Votre indemnisation · p. 37
-  - `baloise-lu-home-2-2024:s29.1` · Calcul de l’indemnité · p. 37
-  - `baloise-lu-home-2-2024:s29.2` · Evaluation des dommages aux bâtiments · p. 37
-  - `baloise-lu-home-2-2024:s29.3` · Evaluation des dommages aux embellissements et aux biens immeubles par destination · p. 37
-  - `baloise-lu-home-2-2024:s29.4` · Evaluation des dommages aux mobiliers. · p. 37
-    - `baloise-lu-home-2-2024:s29.4.1` · Précisions / Cas particuliers : · p. 38
-      - `baloise-lu-home-2-2024:s29.4.1.1` · Grille de vétusté pour les appareils électroménager, TV, Hifi, Vidéo, informatique : · p. 38
-      - `baloise-lu-home-2-2024:s29.4.1.2` · Grille de vétusté pour les appareils nomades : · p. 38
-      - `baloise-lu-home-2-2024:s29.4.1.3` · Grille de vétusté pour les installations énergie renouvelable : solaire et photovoltaïques : · p. 39
-  - `baloise-lu-home-2-2024:s29.5` · Précisions pour la garantie Vol · p. 39
-  - `baloise-lu-home-2-2024:s29.6` · Les avantages Baloise · p. 39
-  - `baloise-lu-home-2-2024:s29.7` · Précisions pour les garanties Responsabilité Civile · p. 39
-  - `baloise-lu-home-2-2024:s29.8` · Vos obligations en cas de sinistre · p. 40
-  - `baloise-lu-home-2-2024:s29.9` · Concurrence entre garanties · p. 40
-  - `baloise-lu-home-2-2024:s29.10` · Subrogation · p. 40
-- `baloise-lu-home-2-2024:s30` · 14. L’assistance · p. 41
-  - `baloise-lu-home-2-2024:s30.1` · Assisteur · p. 41
-  - `baloise-lu-home-2-2024:s30.2` · Relogement · p. 41
-  - `baloise-lu-home-2-2024:s30.3` · Assistance aux personnes · p. 41
-  - `baloise-lu-home-2-2024:s30.4` · Sauvegarde du contenu de votre habitation · p. 42
-  - `baloise-lu-home-2-2024:s30.5` · Mise en relation avec nos prestataires · p. 42
-- `baloise-lu-home-2-2024:s31` · 15. La vie du contrat · p. 42
-  - `baloise-lu-home-2-2024:s31.1` · Déclarations à la souscription et en cours de contrat · p. 42
-  - `baloise-lu-home-2-2024:s31.2` · Obligation de déclaration lors de la conclusion du contrat · p. 42
-  - `baloise-lu-home-2-2024:s31.3` · Omission ou inexactitude intentionnelles · p. 42
-  - `baloise-lu-home-2-2024:s31.4` · Omission ou inexactitude non intentionnelles · p. 43
-  - `baloise-lu-home-2-2024:s31.5` · Obligation de déclaration en cours de contrat · p. 43
-  - `baloise-lu-home-2-2024:s31.6` · Diminution du risque · p. 43
-  - `baloise-lu-home-2-2024:s31.7` · Aggravation du risque · p. 43
-  - `baloise-lu-home-2-2024:s31.8` · Sanctions · p. 43
-  - `baloise-lu-home-2-2024:s31.9` · Formation et prise d’effet du contrat · p. 43
-  - `baloise-lu-home-2-2024:s31.10` · Durée du contrat · p. 43
-- `baloise-lu-home-2-2024:s32` · Paiement de la prime · p. 43
-- `baloise-lu-home-2-2024:s33` · Modification du tarif ou des conditions d’assurance · p. 44
-- `baloise-lu-home-2-2024:s34` · Résiliation · p. 44
-  - `baloise-lu-home-2-2024:s34.1` · Résiliation d’office · p. 44
-  - `baloise-lu-home-2-2024:s34.2` · Résiliation facultative · p. 44
-    - `baloise-lu-home-2-2024:s34.2.1` · Par vous ou par nous · p. 44
-    - `baloise-lu-home-2-2024:s34.2.2` · Par vous · p. 44
-    - `baloise-lu-home-2-2024:s34.2.3` · Par nous · p. 45
-    - `baloise-lu-home-2-2024:s34.2.4` · Par les ayants droit · p. 45
-    - `baloise-lu-home-2-2024:s34.2.5` · Par le curateur · p. 45
-    - `baloise-lu-home-2-2024:s34.2.6` · Par le commissaire à la gestion contrôlée · p. 45
-  - `baloise-lu-home-2-2024:s34.3` · Formes de la résiliation · p. 46
-  - `baloise-lu-home-2-2024:s34.4` · Remboursement de la prime · p. 46
-- `baloise-lu-home-2-2024:s35` · Cessation de plein droit · p. 46
-- `baloise-lu-home-2-2024:s36` · Notifications · p. 46
-- `baloise-lu-home-2-2024:s37` · Réclamation · p. 46
-- `baloise-lu-home-2-2024:s38` · Indexation · p. 46
-  - `baloise-lu-home-2-2024:s38.1` · Indice applicable : · p. 46
-- `baloise-lu-home-2-2024:s39` · Juridiction · p. 47
-- `baloise-lu-home-2-2024:s40` · Loi applicable · p. 47
-- `baloise-lu-home-2-2024:s41` · Prescription légale · p. 47
-- `baloise-lu-home-2-2024:s42` · Secret professionnel et traitement des données personnelles · p. 47
-  - `baloise-lu-home-2-2024:s42.1` · Pour quelles raisons utilisons-nous des données personnelles ? · p. 47
-  - `baloise-lu-home-2-2024:s42.2` · Vos droits · p. 47
-  - `baloise-lu-home-2-2024:s42.3` · Conditions de stockage · p. 48
-  - `baloise-lu-home-2-2024:s42.4` · Sous-traitance à des prestataires externes · p. 48
-  - `baloise-lu-home-2-2024:s42.5` · Plus d’informations · p. 48
-  - `baloise-lu-home-2-2024:s42.6` · Données de contact · p. 48
-- `baloise-lu-home-2-2024:s43` · Acceptation du contrat · p. 48
+  - `baloise-lu-home-2-2024:s3.80` · Valeur de reconstitution matérielle · p. 10
+  - `baloise-lu-home-2-2024:s3.81` · Valeur réelle · p. 10
+  - `baloise-lu-home-2-2024:s3.82` · Valeur vénale · p. 10
+  - `baloise-lu-home-2-2024:s3.83` · Vandalisme · p. 10
+  - `baloise-lu-home-2-2024:s3.84` · Vétusté · p. 10
+  - `baloise-lu-home-2-2024:s3.85` · Virus informatique · p. 10
+- `baloise-lu-home-2-2024:s4` · 2. Quel est l’objet de votre contrat ? · p. 10
+- `baloise-lu-home-2-2024:s5` · 3. Où s’exercent vos garanties ? · p. 10
+- `baloise-lu-home-2-2024:s6` · 4. Quels sont les biens assurés ? · p. 11
+  - `baloise-lu-home-2-2024:s6.1` · • Vos biens immobiliers · p. 11
+  - `baloise-lu-home-2-2024:s6.2` · • Les embellissements et biens immeubles par destination · p. 11
+  - `baloise-lu-home-2-2024:s6.3` · • Les biens de production d’énergie renouvelable · p. 11
+  - `baloise-lu-home-2-2024:s6.4` · • Vos biens mobiliers · p. 11
+  - `baloise-lu-home-2-2024:s6.5` · Les biens que nous ne garantissons pas : · p. 11
+- `baloise-lu-home-2-2024:s7` · 5. Les garanties dommages de base · p. 12
+  - `baloise-lu-home-2-2024:s7.1` · • L’incendie et évènements assimilés · p. 12
+    - `baloise-lu-home-2-2024:s7.1.1` · Exclusions spécifiques à la garantie · p. 12
+  - `baloise-lu-home-2-2024:s7.2` · • Les dommages électriques · p. 12
+    - `baloise-lu-home-2-2024:s7.2.1` · Sont exclus : · p. 12
+  - `baloise-lu-home-2-2024:s7.3` · • Tempête, grêle, neige · p. 12
+    - `baloise-lu-home-2-2024:s7.3.1` · Prévention · p. 12
+    - `baloise-lu-home-2-2024:s7.3.2` · Sont exclus, les dommages : · p. 12
+  - `baloise-lu-home-2-2024:s7.4` · • Inondation · p. 13
+    - `baloise-lu-home-2-2024:s7.4.1` · Prévention · p. 13
+    - `baloise-lu-home-2-2024:s7.4.2` · Sont exclus : · p. 13
+  - `baloise-lu-home-2-2024:s7.5` · • Attentats, actes de terrorisme, conflits du travail · p. 13
+    - `baloise-lu-home-2-2024:s7.5.1` · Sont exclus : · p. 13
+  - `baloise-lu-home-2-2024:s7.6` · • Dégâts des eaux · p. 13
+    - `baloise-lu-home-2-2024:s7.6.1` · Sont exclus : · p. 13
+  - `baloise-lu-home-2-2024:s7.7` · • Gel · p. 14
+    - `baloise-lu-home-2-2024:s7.7.1` · Prévention · p. 14
+    - `baloise-lu-home-2-2024:s7.7.2` · Sont exclus : · p. 14
+  - `baloise-lu-home-2-2024:s7.8` · • Bris des glaces · p. 14
+    - `baloise-lu-home-2-2024:s7.8.1` · Sont exclus : · p. 15
+- `baloise-lu-home-2-2024:s8` · 6. Les garanties dommages optionnelles · p. 15
+  - `baloise-lu-home-2-2024:s8.1` · a.	 Vol / Vandalisme · p. 15
+    - `baloise-lu-home-2-2024:s8.1.1` · Vol · p. 15
+      - `baloise-lu-home-2-2024:s8.1.1.1` · Sont assurés : · p. 15
+    - `baloise-lu-home-2-2024:s8.1.2` · Agression sur la personne · p. 15
+    - `baloise-lu-home-2-2024:s8.1.3` · Prévention / Protection · p. 15
+    - `baloise-lu-home-2-2024:s8.1.4` · Mesures de sécurité que vous devez respecter · p. 16
+    - `baloise-lu-home-2-2024:s8.1.5` · Déchéance de la garantie · p. 16
+    - `baloise-lu-home-2-2024:s8.1.6` · Sont exclus : · p. 16
+    - `baloise-lu-home-2-2024:s8.1.7` · Vandalisme · p. 16
+      - `baloise-lu-home-2-2024:s8.1.7.1` · Sont exclus : · p. 16
+  - `baloise-lu-home-2-2024:s8.2` · b.	 Pack objets de valeur / art · p. 16
+    - `baloise-lu-home-2-2024:s8.2.1` · Sont assurés : · p. 16
+    - `baloise-lu-home-2-2024:s8.2.2` · Sont exclus : · p. 16
+  - `baloise-lu-home-2-2024:s8.3` · c.	 Pack objets précieux / bijoux · p. 17
+    - `baloise-lu-home-2-2024:s8.3.1` · Sont assurés : · p. 17
+    - `baloise-lu-home-2-2024:s8.3.2` · Sont exclus : · p. 17
+  - `baloise-lu-home-2-2024:s8.4` · d.	 Pack Multimédia · p. 18
+    - `baloise-lu-home-2-2024:s8.4.1` · Sont assurés : · p. 18
+    - `baloise-lu-home-2-2024:s8.4.2` · Sont exclus : · p. 18
+  - `baloise-lu-home-2-2024:s8.5` · e.	 Pack objets de loisirs · p. 19
+    - `baloise-lu-home-2-2024:s8.5.1` · Sont assurés : · p. 19
+    - `baloise-lu-home-2-2024:s8.5.2` · Sont exclus : · p. 19
+  - `baloise-lu-home-2-2024:s8.6` · f.	 Pack équipements de mobilité durable · p. 19
+    - `baloise-lu-home-2-2024:s8.6.1` · Sont assurés : · p. 19
+    - `baloise-lu-home-2-2024:s8.6.2` · Condition pour la garantie vol : · p. 19
+    - `baloise-lu-home-2-2024:s8.6.3` · Sont exclus : · p. 19
+  - `baloise-lu-home-2-2024:s8.7` · g.	 Pack jardin / piscine · p. 20
+    - `baloise-lu-home-2-2024:s8.7.1` · Jardin · p. 20
+    - `baloise-lu-home-2-2024:s8.7.2` · Piscine · p. 20
+    - `baloise-lu-home-2-2024:s8.7.3` · Condition pour la garantie vol : · p. 20
+    - `baloise-lu-home-2-2024:s8.7.4` · Sont exclus : · p. 20
+  - `baloise-lu-home-2-2024:s8.8` · h.	 Pack cave à vin / denrées alimentaires · p. 20
+    - `baloise-lu-home-2-2024:s8.8.1` · Cave à vin · p. 20
+      - `baloise-lu-home-2-2024:s8.8.1.1` · Sont assurés : · p. 20
+      - `baloise-lu-home-2-2024:s8.8.1.2` · Sont exclus : · p. 21
+    - `baloise-lu-home-2-2024:s8.8.2` · Denrées alimentaires · p. 21
+      - `baloise-lu-home-2-2024:s8.8.2.1` · Sont assurés : · p. 21
+      - `baloise-lu-home-2-2024:s8.8.2.2` · Sont exclus : · p. 21
+  - `baloise-lu-home-2-2024:s8.9` · i.	 Pack énergie renouvelable · p. 21
+    - `baloise-lu-home-2-2024:s8.9.1` · Sont assurés : · p. 21
+    - `baloise-lu-home-2-2024:s8.9.2` · Sont exclus : · p. 21
+  - `baloise-lu-home-2-2024:s8.10` · j.	 Pack perte de liquide / dommages aux cuves · p. 21
+    - `baloise-lu-home-2-2024:s8.10.1` · Sont assurés : · p. 21
+    - `baloise-lu-home-2-2024:s8.10.2` · Sont exclus : · p. 21
+- `baloise-lu-home-2-2024:s9` · 7. Les garanties complémentaires · p. 22
+  - `baloise-lu-home-2-2024:s9.1` · a.	 	Défense recours · p. 22
+  - `baloise-lu-home-2-2024:s9.2` · b.	 Frais et pertes consécutives · p. 22
+    - `baloise-lu-home-2-2024:s9.2.1` · Garanties complémentaires · p. 23
+      - `baloise-lu-home-2-2024:s9.2.1.1` · Intervention des services de secours · p. 23
+      - `baloise-lu-home-2-2024:s9.2.1.2` · Perte de clés · p. 23
+  - `baloise-lu-home-2-2024:s9.3` · c.	 Garanties simultanées · p. 23
+    - `baloise-lu-home-2-2024:s9.3.1` · • En cas de déménagement. · p. 23
+      - `baloise-lu-home-2-2024:s9.3.1.1` · Mobilier transporté pendant le déménagement · p. 23
+    - `baloise-lu-home-2-2024:s9.3.2` · • En cas de relogement suite à sinistre garanti par Baloise · p. 23
+    - `baloise-lu-home-2-2024:s9.3.3` · Logement en cours de construction · p. 23
+- `baloise-lu-home-2-2024:s10` · 8. Les garanties optionnelles du propriétaire non occupant · p. 24
+  - `baloise-lu-home-2-2024:s10.1` · a.	 Loyers impayés · p. 24
+  - `baloise-lu-home-2-2024:s10.2` · b.	 Détériorations immobilières · p. 24
+  - `baloise-lu-home-2-2024:s10.3` · c.	 Défense recours du propriétaire non occupant · p. 24
+  - `baloise-lu-home-2-2024:s10.4` · Obligations à la souscription · p. 24
+  - `baloise-lu-home-2-2024:s10.5` · Formalités à accomplir pour l’agrément des locataires · p. 24
+    - `baloise-lu-home-2-2024:s10.5.1` · Agrément d’un nouveau locataire · p. 24
+      - `baloise-lu-home-2-2024:s10.5.1.1` · Contrainte de revenu minimum : · p. 24
+      - `baloise-lu-home-2-2024:s10.5.1.2` · Contrainte de solvabilité : · p. 24
+    - `baloise-lu-home-2-2024:s10.5.2` · Locataires déjà dans les lieux à la souscription de l’assurance · p. 25
+    - `baloise-lu-home-2-2024:s10.5.3` · Avertissement · p. 25
+    - `baloise-lu-home-2-2024:s10.5.4` · Etat des lieux · p. 25
+- `baloise-lu-home-2-2024:s11` · 9. Les responsabilités civiles de base · p. 26
+  - `baloise-lu-home-2-2024:s11.1` · a.	 Responsabilités civiles du fait des biens assurés · p. 26
+    - `baloise-lu-home-2-2024:s11.1.1` · Risques locatifs · p. 26
+    - `baloise-lu-home-2-2024:s11.1.2` · Recours des voisins et des tiers · p. 26
+    - `baloise-lu-home-2-2024:s11.1.3` · Recours des locataires · p. 26
+    - `baloise-lu-home-2-2024:s11.1.4` · Responsabilité civile propriétaire d’immeuble · p. 26
+  - `baloise-lu-home-2-2024:s11.2` · b.	 Responsabilité civile maître d’ouvrage · p. 27
+  - `baloise-lu-home-2-2024:s11.3` · Responsabilité civile producteur d’énergie · p. 28
+- `baloise-lu-home-2-2024:s12` · 10. Les responsabilités civiles optionnelles · p. 28
+  - `baloise-lu-home-2-2024:s12.1` · a.	 	Responsabilité civile vie privée · p. 28
+  - `baloise-lu-home-2-2024:s12.2` · Garanties complémentaires à la responsabilité civile vie privée · p. 28
+    - `baloise-lu-home-2-2024:s12.2.1` · Responsabilité Séjour-Voyages · p. 28
+    - `baloise-lu-home-2-2024:s12.2.2` · Responsabilité stages d’études à l’étranger · p. 29
+    - `baloise-lu-home-2-2024:s12.2.3` · Responsabilité fête familiale · p. 29
+    - `baloise-lu-home-2-2024:s12.2.4` · Responsabilité garde d’enfants · p. 29
+  - `baloise-lu-home-2-2024:s12.3` · Défense recours responsabilité civile vie privée · p. 29
+  - `baloise-lu-home-2-2024:s12.4` · Responsabilité civile assistant parental · p. 29
+  - `baloise-lu-home-2-2024:s12.5` · Responsabilité civile chiens dangereux · p. 30
+  - `baloise-lu-home-2-2024:s12.6` · Responsabilité civile jouets à moteur · p. 30
+  - `baloise-lu-home-2-2024:s12.7` · Responsabilité civile des équidés · p. 30
+  - `baloise-lu-home-2-2024:s12.8` · Responsabilité civile gîte / chambres d’hôte · p. 30
+    - `baloise-lu-home-2-2024:s12.8.1` · Garantie complémentaire · p. 30
+      - `baloise-lu-home-2-2024:s12.8.1.1` · Responsabilité civile dépositaire de l’hôtelier · p. 30
+- `baloise-lu-home-2-2024:s13` · 11. Les exclusions générales · p. 31
+  - `baloise-lu-home-2-2024:s13.1` · Exclusions communes à l’ensemble des garanties responsabilité civile · p. 31
+  - `baloise-lu-home-2-2024:s13.2` · Exclusions communes à l’ensemble des garanties · p. 31
+  - `baloise-lu-home-2-2024:s13.3` · Limitation des sanctions et clause d’exclusion · p. 32
+  - `baloise-lu-home-2-2024:s13.4` · Perte d’exploitation causée par le retrait d’un dispositif de guerre · p. 32
+  - `baloise-lu-home-2-2024:s13.5` · Maladies contagieuses · p. 32
+  - `baloise-lu-home-2-2024:s13.6` · Clause d’exclusion des risques cybernétiques · p. 32
+- `baloise-lu-home-2-2024:s14` · 12. Le tableau des limites de garanties · p. 33
+- `baloise-lu-home-2-2024:s15` · 13. Votre indemnisation · p. 37
+  - `baloise-lu-home-2-2024:s15.1` · Calcul de l’indemnité · p. 37
+  - `baloise-lu-home-2-2024:s15.2` · Evaluation des dommages aux bâtiments · p. 37
+  - `baloise-lu-home-2-2024:s15.3` · Evaluation des dommages aux embellissements et aux biens immeubles par destination · p. 37
+  - `baloise-lu-home-2-2024:s15.4` · Evaluation des dommages aux mobiliers. · p. 37
+  - `baloise-lu-home-2-2024:s15.5` · Précisions pour la garantie Vol · p. 39
+  - `baloise-lu-home-2-2024:s15.6` · Les avantages Baloise · p. 39
+  - `baloise-lu-home-2-2024:s15.7` · Précisions pour les garanties Responsabilité Civile · p. 39
+  - `baloise-lu-home-2-2024:s15.8` · Vos obligations en cas de sinistre · p. 40
+  - `baloise-lu-home-2-2024:s15.9` · Concurrence entre garanties · p. 40
+  - `baloise-lu-home-2-2024:s15.10` · Subrogation · p. 40
+- `baloise-lu-home-2-2024:s16` · 14. L’assistance · p. 41
+  - `baloise-lu-home-2-2024:s16.1` · Assisteur · p. 41
+  - `baloise-lu-home-2-2024:s16.2` · Relogement · p. 41
+  - `baloise-lu-home-2-2024:s16.3` · Assistance aux personnes · p. 41
+  - `baloise-lu-home-2-2024:s16.4` · Sauvegarde du contenu de votre habitation · p. 42
+  - `baloise-lu-home-2-2024:s16.5` · Mise en relation avec nos prestataires · p. 42
+- `baloise-lu-home-2-2024:s17` · 15. La vie du contrat · p. 42
+  - `baloise-lu-home-2-2024:s17.1` · Déclarations à la souscription et en cours de contrat · p. 42
+  - `baloise-lu-home-2-2024:s17.2` · Obligation de déclaration lors de la conclusion du contrat · p. 42
+  - `baloise-lu-home-2-2024:s17.3` · Omission ou inexactitude intentionnelles · p. 42
+  - `baloise-lu-home-2-2024:s17.4` · Omission ou inexactitude non intentionnelles · p. 43
+  - `baloise-lu-home-2-2024:s17.5` · Obligation de déclaration en cours de contrat · p. 43
+  - `baloise-lu-home-2-2024:s17.6` · Diminution du risque · p. 43
+  - `baloise-lu-home-2-2024:s17.7` · Aggravation du risque · p. 43
+  - `baloise-lu-home-2-2024:s17.8` · Sanctions · p. 43
+  - `baloise-lu-home-2-2024:s17.9` · Formation et prise d’effet du contrat · p. 43
+  - `baloise-lu-home-2-2024:s17.10` · Durée du contrat · p. 43
+  - `baloise-lu-home-2-2024:s17.11` · Paiement de la prime · p. 43
+  - `baloise-lu-home-2-2024:s17.12` · Modification du tarif ou des conditions d’assurance · p. 44
+  - `baloise-lu-home-2-2024:s17.13` · Résiliation · p. 44
+    - `baloise-lu-home-2-2024:s17.13.1` · Résiliation d’office · p. 44
+    - `baloise-lu-home-2-2024:s17.13.2` · Résiliation facultative · p. 44
+      - `baloise-lu-home-2-2024:s17.13.2.1` · Par vous ou par nous · p. 44
+      - `baloise-lu-home-2-2024:s17.13.2.2` · Par vous · p. 44
+      - `baloise-lu-home-2-2024:s17.13.2.3` · Par nous · p. 45
+      - `baloise-lu-home-2-2024:s17.13.2.4` · Par les ayants droit · p. 45
+      - `baloise-lu-home-2-2024:s17.13.2.5` · Par le curateur · p. 45
+      - `baloise-lu-home-2-2024:s17.13.2.6` · Par le commissaire à la gestion contrôlée · p. 45
+    - `baloise-lu-home-2-2024:s17.13.3` · Formes de la résiliation · p. 46
+    - `baloise-lu-home-2-2024:s17.13.4` · Remboursement de la prime · p. 46
+  - `baloise-lu-home-2-2024:s17.14` · Cessation de plein droit · p. 46
+  - `baloise-lu-home-2-2024:s17.15` · Notifications · p. 46
+  - `baloise-lu-home-2-2024:s17.16` · Réclamation · p. 46
+  - `baloise-lu-home-2-2024:s17.17` · Indexation · p. 46
+    - `baloise-lu-home-2-2024:s17.17.1` · Indice applicable : · p. 46
+  - `baloise-lu-home-2-2024:s17.18` · Juridiction · p. 47
+  - `baloise-lu-home-2-2024:s17.19` · Loi applicable · p. 47
+  - `baloise-lu-home-2-2024:s17.20` · Prescription légale · p. 47
+  - `baloise-lu-home-2-2024:s17.21` · Secret professionnel et traitement des données personnelles · p. 47
+    - `baloise-lu-home-2-2024:s17.21.1` · Pour quelles raisons utilisons-nous des données personnelles ? · p. 47
+    - `baloise-lu-home-2-2024:s17.21.2` · Vos droits · p. 47
+    - `baloise-lu-home-2-2024:s17.21.3` · Conditions de stockage · p. 48
+    - `baloise-lu-home-2-2024:s17.21.4` · Sous-traitance à des prestataires externes · p. 48
+    - `baloise-lu-home-2-2024:s17.21.5` · Plus d’informations · p. 48
+    - `baloise-lu-home-2-2024:s17.21.6` · Données de contact · p. 48
+  - `baloise-lu-home-2-2024:s17.22` · Acceptation du contrat · p. 48

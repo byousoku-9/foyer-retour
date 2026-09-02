@@ -61,81 +61,6 @@
         },
         {
           "node_id": "baloise-lu-home-2-2024:s18"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s19"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s20"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s21"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s22"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s23"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s24"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s26"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s27"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s28"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s29"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s30"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s31"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s32"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s33"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s34"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s35"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s36"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s37"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s38"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s39"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s40"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s41"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s42"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s43"
         }
       ]
     },
@@ -526,6 +451,24 @@
         },
         {
           "node_id": "baloise-lu-home-2-2024:s3.79"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.80"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.81"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.82"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.83"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.84"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s3.85"
         }
       ]
     },
@@ -1737,8 +1680,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s4",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.80",
+      "level": 2,
       "title": "Valeur de reconstitution matérielle",
       "items": [
         {
@@ -1750,8 +1693,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s5",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.81",
+      "level": 2,
       "title": "Valeur réelle",
       "items": [
         {
@@ -1763,8 +1706,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s6",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.82",
+      "level": 2,
       "title": "Valeur vénale",
       "items": [
         {
@@ -1776,8 +1719,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s7",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.83",
+      "level": 2,
       "title": "Vandalisme",
       "items": [
         {
@@ -1789,8 +1732,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s8",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.84",
+      "level": 2,
       "title": "Vétusté",
       "items": [
         {
@@ -1802,8 +1745,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s9",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s3.85",
+      "level": 2,
       "title": "Virus informatique",
       "items": [
         {
@@ -1818,7 +1761,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s10",
+      "node_id": "baloise-lu-home-2-2024:s4",
       "level": 1,
       "title": "2. Quel est l’objet de votre contrat ?",
       "article_uid": "article:2",
@@ -1853,7 +1796,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s11",
+      "node_id": "baloise-lu-home-2-2024:s5",
       "level": 1,
       "title": "3. Où s’exercent vos garanties ?",
       "article_uid": "article:3",
@@ -1885,7 +1828,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12",
+      "node_id": "baloise-lu-home-2-2024:s6",
       "level": 1,
       "title": "4. Quels sont les biens assurés ?",
       "article_uid": "article:4",
@@ -1894,24 +1837,24 @@
           "block_id": "baloise-lu-home-2-2024:p11:5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s12.1"
+          "node_id": "baloise-lu-home-2-2024:s6.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s12.2"
+          "node_id": "baloise-lu-home-2-2024:s6.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s12.3"
+          "node_id": "baloise-lu-home-2-2024:s6.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s12.4"
+          "node_id": "baloise-lu-home-2-2024:s6.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s12.5"
+          "node_id": "baloise-lu-home-2-2024:s6.5"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12.1",
+      "node_id": "baloise-lu-home-2-2024:s6.1",
       "level": 2,
       "title": "• Vos biens immobiliers",
       "items": [
@@ -1930,7 +1873,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12.2",
+      "node_id": "baloise-lu-home-2-2024:s6.2",
       "level": 2,
       "title": "• Les embellissements et biens immeubles par destination",
       "items": [
@@ -1946,7 +1889,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12.3",
+      "node_id": "baloise-lu-home-2-2024:s6.3",
       "level": 2,
       "title": "• Les biens de production d’énergie renouvelable",
       "items": [
@@ -1962,7 +1905,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12.4",
+      "node_id": "baloise-lu-home-2-2024:s6.4",
       "level": 2,
       "title": "• Vos biens mobiliers",
       "items": [
@@ -1981,7 +1924,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s12.5",
+      "node_id": "baloise-lu-home-2-2024:s6.5",
       "level": 2,
       "title": "Les biens que nous ne garantissons pas :",
       "items": [
@@ -1997,7 +1940,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13",
+      "node_id": "baloise-lu-home-2-2024:s7",
       "level": 1,
       "title": "5. Les garanties dommages de base",
       "article_uid": "article:5",
@@ -2009,33 +1952,33 @@
           "block_id": "baloise-lu-home-2-2024:p12:3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.1"
+          "node_id": "baloise-lu-home-2-2024:s7.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.2"
+          "node_id": "baloise-lu-home-2-2024:s7.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.3"
+          "node_id": "baloise-lu-home-2-2024:s7.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.4"
+          "node_id": "baloise-lu-home-2-2024:s7.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.5"
+          "node_id": "baloise-lu-home-2-2024:s7.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.6"
+          "node_id": "baloise-lu-home-2-2024:s7.6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.7"
+          "node_id": "baloise-lu-home-2-2024:s7.7"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.8"
+          "node_id": "baloise-lu-home-2-2024:s7.8"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.1",
+      "node_id": "baloise-lu-home-2-2024:s7.1",
       "level": 2,
       "title": "• L’incendie et évènements assimilés",
       "items": [
@@ -2049,12 +1992,12 @@
           "block_id": "baloise-lu-home-2-2024:p12:6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s13.1.1"
+          "node_id": "baloise-lu-home-2-2024:s7.1.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.1.1",
+      "node_id": "baloise-lu-home-2-2024:s7.1.1",
       "level": 3,
       "title": "Exclusions spécifiques à la garantie",
       "items": [
@@ -2070,7 +2013,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.2",
+      "node_id": "baloise-lu-home-2-2024:s7.2",
       "level": 2,
       "title": "• Les dommages électriques",
       "items": [
@@ -2084,6 +2027,16 @@
           "block_id": "baloise-lu-home-2-2024:p12:12"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s7.2.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.2.1",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p12:13"
         },
         {
@@ -2092,13 +2045,26 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.3",
+      "node_id": "baloise-lu-home-2-2024:s7.3",
       "level": 2,
       "title": "• Tempête, grêle, neige",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p12:15"
         },
+        {
+          "node_id": "baloise-lu-home-2-2024:s7.3.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s7.3.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.3.1",
+      "level": 3,
+      "title": "Prévention",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p12:16"
         },
@@ -2107,7 +2073,14 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p12:18"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.3.2",
+      "level": 3,
+      "title": "Sont exclus, les dommages :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p12:19"
         },
@@ -2117,7 +2090,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.4",
+      "node_id": "baloise-lu-home-2-2024:s7.4",
       "level": 2,
       "title": "• Inondation",
       "items": [
@@ -2134,6 +2107,19 @@
           "block_id": "baloise-lu-home-2-2024:p13:4"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s7.4.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s7.4.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.4.1",
+      "level": 3,
+      "title": "Prévention",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p13:5"
         },
         {
@@ -2141,7 +2127,14 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p13:7"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.4.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p13:8"
         },
@@ -2151,7 +2144,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.5",
+      "node_id": "baloise-lu-home-2-2024:s7.5",
       "level": 2,
       "title": "• Attentats, actes de terrorisme, conflits du travail",
       "items": [
@@ -2177,6 +2170,16 @@
           "block_id": "baloise-lu-home-2-2024:p13:16"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s7.5.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.5.1",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p13:17"
         },
         {
@@ -2185,7 +2188,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.6",
+      "node_id": "baloise-lu-home-2-2024:s7.6",
       "level": 2,
       "title": "• Dégâts des eaux",
       "items": [
@@ -2198,6 +2201,16 @@
         {
           "block_id": "baloise-lu-home-2-2024:p13:21"
         },
+        {
+          "node_id": "baloise-lu-home-2-2024:s7.6.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.6.1",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p13:22"
         },
@@ -2213,7 +2226,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.7",
+      "node_id": "baloise-lu-home-2-2024:s7.7",
       "level": 2,
       "title": "• Gel",
       "items": [
@@ -2227,11 +2240,31 @@
           "block_id": "baloise-lu-home-2-2024:p14:5"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s7.7.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s7.7.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.7.1",
+      "level": 3,
+      "title": "Prévention",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p14:6"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p14:7"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.7.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p14:8"
         },
@@ -2244,7 +2277,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s13.8",
+      "node_id": "baloise-lu-home-2-2024:s7.8",
       "level": 2,
       "title": "• Bris des glaces",
       "items": [
@@ -2258,6 +2291,16 @@
           "block_id": "baloise-lu-home-2-2024:p14:13"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s7.8.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s7.8.1",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p15:1"
         },
         {
@@ -2266,7 +2309,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14",
+      "node_id": "baloise-lu-home-2-2024:s8",
       "level": 1,
       "title": "6. Les garanties dommages optionnelles",
       "article_uid": "article:6",
@@ -2278,15 +2321,39 @@
           "block_id": "baloise-lu-home-2-2024:p15:4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1"
+          "node_id": "baloise-lu-home-2-2024:s8.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.2"
+          "node_id": "baloise-lu-home-2-2024:s8.2"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.3"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.4"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.5"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.6"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.7"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.8"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.9"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.10"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1",
+      "node_id": "baloise-lu-home-2-2024:s8.1",
       "level": 2,
       "title": "a.\t Vol / Vandalisme",
       "items": [
@@ -2294,30 +2361,30 @@
           "block_id": "baloise-lu-home-2-2024:p15:5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.1"
+          "node_id": "baloise-lu-home-2-2024:s8.1.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.2"
+          "node_id": "baloise-lu-home-2-2024:s8.1.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.3"
+          "node_id": "baloise-lu-home-2-2024:s8.1.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.4"
+          "node_id": "baloise-lu-home-2-2024:s8.1.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.5"
+          "node_id": "baloise-lu-home-2-2024:s8.1.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.6"
+          "node_id": "baloise-lu-home-2-2024:s8.1.6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.1.7"
+          "node_id": "baloise-lu-home-2-2024:s8.1.7"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.1",
+      "node_id": "baloise-lu-home-2-2024:s8.1.1",
       "level": 3,
       "title": "Vol",
       "items": [
@@ -2331,6 +2398,16 @@
           "block_id": "baloise-lu-home-2-2024:p15:8"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.1.1.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.1.1.1",
+      "level": 4,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p15:9"
         },
         {
@@ -2339,7 +2416,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.2",
+      "node_id": "baloise-lu-home-2-2024:s8.1.2",
       "level": 3,
       "title": "Agression sur la personne",
       "items": [
@@ -2364,7 +2441,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.3",
+      "node_id": "baloise-lu-home-2-2024:s8.1.3",
       "level": 3,
       "title": "Prévention / Protection",
       "items": [
@@ -2383,7 +2460,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.4",
+      "node_id": "baloise-lu-home-2-2024:s8.1.4",
       "level": 3,
       "title": "Mesures de sécurité que vous devez respecter",
       "items": [
@@ -2402,7 +2479,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.5",
+      "node_id": "baloise-lu-home-2-2024:s8.1.5",
       "level": 3,
       "title": "Déchéance de la garantie",
       "items": [
@@ -2418,7 +2495,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.6",
+      "node_id": "baloise-lu-home-2-2024:s8.1.6",
       "level": 3,
       "title": "Sont exclus :",
       "items": [
@@ -2431,7 +2508,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.1.7",
+      "node_id": "baloise-lu-home-2-2024:s8.1.7",
       "level": 3,
       "title": "Vandalisme",
       "items": [
@@ -2451,6 +2528,16 @@
           "block_id": "baloise-lu-home-2-2024:p16:15"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.1.7.1"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.1.7.1",
+      "level": 4,
+      "title": "Sont exclus :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p16:16"
         },
         {
@@ -2459,7 +2546,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.2",
+      "node_id": "baloise-lu-home-2-2024:s8.2",
       "level": 2,
       "title": "b.\t Pack objets de valeur / art",
       "items": [
@@ -2470,15 +2557,15 @@
           "block_id": "baloise-lu-home-2-2024:p16:19"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.2.1"
+          "node_id": "baloise-lu-home-2-2024:s8.2.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s14.2.2"
+          "node_id": "baloise-lu-home-2-2024:s8.2.2"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.2.1",
+      "node_id": "baloise-lu-home-2-2024:s8.2.1",
       "level": 3,
       "title": "Sont assurés :",
       "items": [
@@ -2491,7 +2578,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s14.2.2",
+      "node_id": "baloise-lu-home-2-2024:s8.2.2",
       "level": 3,
       "title": "Sont exclus :",
       "items": [
@@ -2516,8 +2603,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s15",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.3",
+      "level": 2,
       "title": "c.\t Pack objets précieux / bijoux",
       "items": [
         {
@@ -2530,11 +2617,31 @@
           "block_id": "baloise-lu-home-2-2024:p17:7"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.3.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.3.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.3.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p17:8"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p17:9"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.3.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p17:10"
         },
@@ -2556,8 +2663,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s16",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.4",
+      "level": 2,
       "title": "d.\t Pack Multimédia",
       "items": [
         {
@@ -2567,14 +2674,34 @@
           "block_id": "baloise-lu-home-2-2024:p18:6"
         },
         {
-          "block_id": "baloise-lu-home-2-2024:p18:7"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p18:8"
+          "node_id": "baloise-lu-home-2-2024:s8.4.1"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p18:9"
         },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.4.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.4.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
+          "block_id": "baloise-lu-home-2-2024:p18:7"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p18:8"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.4.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p18:10"
         },
@@ -2584,15 +2711,9 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s17",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.5",
+      "level": 2,
       "title": "e.\t Pack objets de loisirs",
-      "relations": [
-        {
-          "kind": "explicit_dependency",
-          "target_node_id": "baloise-lu-home-2-2024:s16"
-        }
-      ],
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p19:1"
@@ -2601,14 +2722,34 @@
           "block_id": "baloise-lu-home-2-2024:p19:2"
         },
         {
-          "block_id": "baloise-lu-home-2-2024:p19:3"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p19:4"
+          "node_id": "baloise-lu-home-2-2024:s8.5.1"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p19:5"
         },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.5.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.5.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
+          "block_id": "baloise-lu-home-2-2024:p19:3"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p19:4"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.5.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p19:6"
         },
@@ -2624,15 +2765,9 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s18",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.6",
+      "level": 2,
       "title": "f.\t Pack équipements de mobilité durable",
-      "relations": [
-        {
-          "kind": "explicit_dependency",
-          "target_node_id": "baloise-lu-home-2-2024:s16"
-        }
-      ],
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p19:10"
@@ -2641,20 +2776,50 @@
           "block_id": "baloise-lu-home-2-2024:p19:11"
         },
         {
-          "block_id": "baloise-lu-home-2-2024:p19:12"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p19:13"
+          "node_id": "baloise-lu-home-2-2024:s8.6.1"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p19:14"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.6.2"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.6.3"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.6.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
+          "block_id": "baloise-lu-home-2-2024:p19:12"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p19:13"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.6.2",
+      "level": 3,
+      "title": "Condition pour la garantie vol :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p19:15"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p19:16"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.6.3",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p19:17"
         },
@@ -2670,8 +2835,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s19",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.7",
+      "level": 2,
       "title": "g.\t Pack jardin / piscine",
       "items": [
         {
@@ -2681,31 +2846,22 @@
           "block_id": "baloise-lu-home-2-2024:p20:4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s19.1"
+          "node_id": "baloise-lu-home-2-2024:s8.7.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s19.2"
+          "node_id": "baloise-lu-home-2-2024:s8.7.2"
         },
         {
-          "block_id": "baloise-lu-home-2-2024:p20:10"
+          "node_id": "baloise-lu-home-2-2024:s8.7.3"
         },
         {
-          "block_id": "baloise-lu-home-2-2024:p20:11"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p20:12"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p20:13"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p20:14"
+          "node_id": "baloise-lu-home-2-2024:s8.7.4"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s19.1",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s8.7.1",
+      "level": 3,
       "title": "Jardin",
       "items": [
         {
@@ -2717,8 +2873,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s19.2",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s8.7.2",
+      "level": 3,
       "title": "Piscine",
       "items": [
         {
@@ -2733,24 +2889,53 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s20",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.7.3",
+      "level": 3,
+      "title": "Condition pour la garantie vol :",
+      "items": [
+        {
+          "block_id": "baloise-lu-home-2-2024:p20:10"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p20:11"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p20:12"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.7.4",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
+        {
+          "block_id": "baloise-lu-home-2-2024:p20:13"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p20:14"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.8",
+      "level": 2,
       "title": "h.\t Pack cave à vin / denrées alimentaires",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p20:15"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s20.1"
+          "node_id": "baloise-lu-home-2-2024:s8.8.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s20.2"
+          "node_id": "baloise-lu-home-2-2024:s8.8.2"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s20.1",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s8.8.1",
+      "level": 3,
       "title": "Cave à vin",
       "items": [
         {
@@ -2763,11 +2948,31 @@
           "block_id": "baloise-lu-home-2-2024:p20:18"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.8.1.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.8.1.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.8.1.1",
+      "level": 4,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p20:19"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p20:20"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.8.1.2",
+      "level": 4,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p21:1"
         },
@@ -2777,8 +2982,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s20.2",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s8.8.2",
+      "level": 3,
       "title": "Denrées alimentaires",
       "items": [
         {
@@ -2791,11 +2996,31 @@
           "block_id": "baloise-lu-home-2-2024:p21:5"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.8.2.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.8.2.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.8.2.1",
+      "level": 4,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p21:6"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p21:7"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.8.2.2",
+      "level": 4,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p21:8"
         },
@@ -2805,8 +3030,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s21",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.9",
+      "level": 2,
       "title": "i.\t Pack énergie renouvelable",
       "items": [
         {
@@ -2816,6 +3041,19 @@
           "block_id": "baloise-lu-home-2-2024:p21:11"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.9.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.9.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.9.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p21:12"
         },
         {
@@ -2823,7 +3061,14 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p21:14"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.9.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p21:15"
         },
@@ -2833,8 +3078,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s22",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s8.10",
+      "level": 2,
       "title": "j.\t Pack perte de liquide / dommages aux cuves",
       "items": [
         {
@@ -2847,11 +3092,31 @@
           "block_id": "baloise-lu-home-2-2024:p21:19"
         },
         {
+          "node_id": "baloise-lu-home-2-2024:s8.10.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s8.10.2"
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.10.1",
+      "level": 3,
+      "title": "Sont assurés :",
+      "items": [
+        {
           "block_id": "baloise-lu-home-2-2024:p21:20"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p21:21"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s8.10.2",
+      "level": 3,
+      "title": "Sont exclus :",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p21:22"
         },
@@ -2864,43 +3129,32 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23",
+      "node_id": "baloise-lu-home-2-2024:s9",
       "level": 1,
       "title": "7. Les garanties complémentaires",
-      "article_uid": "article:7",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p22:2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.1"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s23.2"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s23.3"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s23.4"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s23.1",
-      "level": 2,
-      "title": "Quelles sont vos garanties complémentaires ?",
-      "items": [
-        {
           "block_id": "baloise-lu-home-2-2024:p22:3"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p22:4"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s9.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s9.2"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s9.3"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.2",
+      "node_id": "baloise-lu-home-2-2024:s9.1",
       "level": 2,
       "title": "a.\t \tDéfense recours",
       "items": [
@@ -2931,7 +3185,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.3",
+      "node_id": "baloise-lu-home-2-2024:s9.2",
       "level": 2,
       "title": "b.\t Frais et pertes consécutives",
       "items": [
@@ -2954,12 +3208,12 @@
           "block_id": "baloise-lu-home-2-2024:p23:3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.3.1"
+          "node_id": "baloise-lu-home-2-2024:s9.2.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.3.1",
+      "node_id": "baloise-lu-home-2-2024:s9.2.1",
       "level": 3,
       "title": "Garanties complémentaires",
       "items": [
@@ -2970,15 +3224,15 @@
           "block_id": "baloise-lu-home-2-2024:p23:5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.3.1.1"
+          "node_id": "baloise-lu-home-2-2024:s9.2.1.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.3.1.2"
+          "node_id": "baloise-lu-home-2-2024:s9.2.1.2"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.3.1.1",
+      "node_id": "baloise-lu-home-2-2024:s9.2.1.1",
       "level": 4,
       "title": "Intervention des services de secours",
       "items": [
@@ -2994,7 +3248,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.3.1.2",
+      "node_id": "baloise-lu-home-2-2024:s9.2.1.2",
       "level": 4,
       "title": "Perte de clés",
       "items": [
@@ -3007,7 +3261,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.4",
+      "node_id": "baloise-lu-home-2-2024:s9.3",
       "level": 2,
       "title": "c.\t Garanties simultanées",
       "items": [
@@ -3015,18 +3269,18 @@
           "block_id": "baloise-lu-home-2-2024:p23:11"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.4.1"
+          "node_id": "baloise-lu-home-2-2024:s9.3.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.4.2"
+          "node_id": "baloise-lu-home-2-2024:s9.3.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.4.3"
+          "node_id": "baloise-lu-home-2-2024:s9.3.3"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.4.1",
+      "node_id": "baloise-lu-home-2-2024:s9.3.1",
       "level": 3,
       "title": "• En cas de déménagement.",
       "items": [
@@ -3037,12 +3291,12 @@
           "block_id": "baloise-lu-home-2-2024:p23:13"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s23.4.1.1"
+          "node_id": "baloise-lu-home-2-2024:s9.3.1.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.4.1.1",
+      "node_id": "baloise-lu-home-2-2024:s9.3.1.1",
       "level": 4,
       "title": "Mobilier transporté pendant le déménagement",
       "items": [
@@ -3064,7 +3318,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.4.2",
+      "node_id": "baloise-lu-home-2-2024:s9.3.2",
       "level": 3,
       "title": "• En cas de relogement suite à sinistre garanti par Baloise",
       "items": [
@@ -3077,7 +3331,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s23.4.3",
+      "node_id": "baloise-lu-home-2-2024:s9.3.3",
       "level": 3,
       "title": "Logement en cours de construction",
       "items": [
@@ -3117,7 +3371,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24",
+      "node_id": "baloise-lu-home-2-2024:s10",
       "level": 1,
       "title": "8. Les garanties optionnelles du propriétaire non occupant",
       "article_uid": "article:8",
@@ -3135,27 +3389,39 @@
           "block_id": "baloise-lu-home-2-2024:p24:5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.1"
+          "node_id": "baloise-lu-home-2-2024:s10.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.2"
+          "node_id": "baloise-lu-home-2-2024:s10.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.3"
+          "node_id": "baloise-lu-home-2-2024:s10.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.4"
+          "node_id": "baloise-lu-home-2-2024:s10.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.5"
+          "node_id": "baloise-lu-home-2-2024:s10.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.6"
+          "block_id": "baloise-lu-home-2-2024:p25:17"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p25:18"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p25:19"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p25:20"
+        },
+        {
+          "block_id": "baloise-lu-home-2-2024:p26:1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.1",
+      "node_id": "baloise-lu-home-2-2024:s10.1",
       "level": 2,
       "title": "a.\t Loyers impayés",
       "items": [
@@ -3168,7 +3434,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.2",
+      "node_id": "baloise-lu-home-2-2024:s10.2",
       "level": 2,
       "title": "b.\t Détériorations immobilières",
       "items": [
@@ -3190,7 +3456,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.3",
+      "node_id": "baloise-lu-home-2-2024:s10.3",
       "level": 2,
       "title": "c.\t Défense recours du propriétaire non occupant",
       "items": [
@@ -3218,7 +3484,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4",
+      "node_id": "baloise-lu-home-2-2024:s10.4",
       "level": 2,
       "title": "Obligations à la souscription",
       "items": [
@@ -3227,37 +3493,34 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p24:21"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s24.4.1"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s24.4.2"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s24.4.3"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.1",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s10.5",
+      "level": 2,
       "title": "Formalités à accomplir pour l’agrément des locataires",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p24:22"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.4.1.1"
+          "node_id": "baloise-lu-home-2-2024:s10.5.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.4.1.2"
+          "node_id": "baloise-lu-home-2-2024:s10.5.2"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s10.5.3"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s10.5.4"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.1.1",
-      "level": 4,
+      "node_id": "baloise-lu-home-2-2024:s10.5.1",
+      "level": 3,
       "title": "Agrément d’un nouveau locataire",
       "items": [
         {
@@ -3276,16 +3539,16 @@
           "block_id": "baloise-lu-home-2-2024:p24:27"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.4.1.1.1"
+          "node_id": "baloise-lu-home-2-2024:s10.5.1.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s24.4.1.1.2"
+          "node_id": "baloise-lu-home-2-2024:s10.5.1.2"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.1.1.1",
-      "level": 5,
+      "node_id": "baloise-lu-home-2-2024:s10.5.1.1",
+      "level": 4,
       "title": "Contrainte de revenu minimum :",
       "items": [
         {
@@ -3303,8 +3566,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.1.1.2",
-      "level": 5,
+      "node_id": "baloise-lu-home-2-2024:s10.5.1.2",
+      "level": 4,
       "title": "Contrainte de solvabilité :",
       "items": [
         {
@@ -3331,8 +3594,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.1.2",
-      "level": 4,
+      "node_id": "baloise-lu-home-2-2024:s10.5.2",
+      "level": 3,
       "title": "Locataires déjà dans les lieux à la souscription de l’assurance",
       "items": [
         {
@@ -3350,7 +3613,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.2",
+      "node_id": "baloise-lu-home-2-2024:s10.5.3",
       "level": 3,
       "title": "Avertissement",
       "items": [
@@ -3366,7 +3629,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.4.3",
+      "node_id": "baloise-lu-home-2-2024:s10.5.4",
       "level": 3,
       "title": "Etat des lieux",
       "items": [
@@ -3385,36 +3648,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s24.5",
-      "level": 2,
-      "title": "Outre les exclusions prévues par ailleurs, ne sont pas garantis :",
-      "items": [
-        {
-          "block_id": "baloise-lu-home-2-2024:p25:17"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p25:18"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s24.6",
-      "level": 2,
-      "title": "Sont exclus des garanties loyers impayés, détériorations immobilières et défense recours du propriétaire non occupant :",
-      "items": [
-        {
-          "block_id": "baloise-lu-home-2-2024:p25:19"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p25:20"
-        },
-        {
-          "block_id": "baloise-lu-home-2-2024:p26:1"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s25",
+      "node_id": "baloise-lu-home-2-2024:s11",
       "level": 1,
       "title": "9. Les responsabilités civiles de base",
       "article_uid": "article:9",
@@ -3423,34 +3657,24 @@
           "block_id": "baloise-lu-home-2-2024:p26:2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.1"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25.2"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25.3"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25.4"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s25.1",
-      "level": 2,
-      "title": "Quelles sont vos garanties responsabilité civile de base ?",
-      "items": [
-        {
           "block_id": "baloise-lu-home-2-2024:p26:3"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p26:4"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s11.1"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s11.2"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s11.3"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.2",
+      "node_id": "baloise-lu-home-2-2024:s11.1",
       "level": 2,
       "title": "a.\t Responsabilités civiles du fait des biens assurés",
       "items": [
@@ -3461,24 +3685,21 @@
           "block_id": "baloise-lu-home-2-2024:p26:6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.2.1"
+          "node_id": "baloise-lu-home-2-2024:s11.1.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.2.2"
+          "node_id": "baloise-lu-home-2-2024:s11.1.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.2.3"
+          "node_id": "baloise-lu-home-2-2024:s11.1.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.2.4"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25.2.5"
+          "node_id": "baloise-lu-home-2-2024:s11.1.4"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.2.1",
+      "node_id": "baloise-lu-home-2-2024:s11.1.1",
       "level": 3,
       "title": "Risques locatifs",
       "items": [
@@ -3491,7 +3712,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.2.2",
+      "node_id": "baloise-lu-home-2-2024:s11.1.2",
       "level": 3,
       "title": "Recours des voisins et des tiers",
       "items": [
@@ -3504,7 +3725,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.2.3",
+      "node_id": "baloise-lu-home-2-2024:s11.1.3",
       "level": 3,
       "title": "Recours des locataires",
       "items": [
@@ -3529,7 +3750,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.2.4",
+      "node_id": "baloise-lu-home-2-2024:s11.1.4",
       "level": 3,
       "title": "Responsabilité civile propriétaire d’immeuble",
       "items": [
@@ -3544,14 +3765,7 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p26:20"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s25.2.5",
-      "level": 3,
-      "title": "Sont exclus de ces garanties :",
-      "items": [
+        },
         {
           "block_id": "baloise-lu-home-2-2024:p26:21"
         },
@@ -3567,7 +3781,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.3",
+      "node_id": "baloise-lu-home-2-2024:s11.2",
       "level": 2,
       "title": "b.\t Responsabilité civile maître d’ouvrage",
       "items": [
@@ -3590,19 +3804,6 @@
           "block_id": "baloise-lu-home-2-2024:p27:8"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s25.3.1"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s25.3.2"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s25.3.1",
-      "level": 3,
-      "title": "Condition de garantie :",
-      "items": [
-        {
           "block_id": "baloise-lu-home-2-2024:p27:9"
         },
         {
@@ -3619,14 +3820,7 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p27:14"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s25.3.2",
-      "level": 3,
-      "title": "Sont exclus :",
-      "items": [
+        },
         {
           "block_id": "baloise-lu-home-2-2024:p27:15"
         },
@@ -3639,7 +3833,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s25.4",
+      "node_id": "baloise-lu-home-2-2024:s11.3",
       "level": 2,
       "title": "Responsabilité civile producteur d’énergie",
       "items": [
@@ -3655,7 +3849,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26",
+      "node_id": "baloise-lu-home-2-2024:s12",
       "level": 1,
       "title": "10. Les responsabilités civiles optionnelles",
       "article_uid": "article:10",
@@ -3667,36 +3861,33 @@
           "block_id": "baloise-lu-home-2-2024:p28:6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.1"
+          "node_id": "baloise-lu-home-2-2024:s12.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.2"
+          "node_id": "baloise-lu-home-2-2024:s12.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.3"
+          "node_id": "baloise-lu-home-2-2024:s12.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.4"
+          "node_id": "baloise-lu-home-2-2024:s12.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.5"
+          "node_id": "baloise-lu-home-2-2024:s12.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.6"
+          "node_id": "baloise-lu-home-2-2024:s12.6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.7"
+          "node_id": "baloise-lu-home-2-2024:s12.7"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.8"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s26.9"
+          "node_id": "baloise-lu-home-2-2024:s12.8"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.1",
+      "node_id": "baloise-lu-home-2-2024:s12.1",
       "level": 2,
       "title": "a.\t \tResponsabilité civile vie privée",
       "items": [
@@ -3727,7 +3918,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.2",
+      "node_id": "baloise-lu-home-2-2024:s12.2",
       "level": 2,
       "title": "Garanties complémentaires à la responsabilité civile vie privée",
       "items": [
@@ -3735,21 +3926,21 @@
           "block_id": "baloise-lu-home-2-2024:p28:15"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.2.1"
+          "node_id": "baloise-lu-home-2-2024:s12.2.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.2.2"
+          "node_id": "baloise-lu-home-2-2024:s12.2.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.2.3"
+          "node_id": "baloise-lu-home-2-2024:s12.2.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.2.4"
+          "node_id": "baloise-lu-home-2-2024:s12.2.4"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.2.1",
+      "node_id": "baloise-lu-home-2-2024:s12.2.1",
       "level": 3,
       "title": "Responsabilité Séjour-Voyages",
       "items": [
@@ -3771,7 +3962,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.2.2",
+      "node_id": "baloise-lu-home-2-2024:s12.2.2",
       "level": 3,
       "title": "Responsabilité stages d’études à l’étranger",
       "items": [
@@ -3790,7 +3981,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.2.3",
+      "node_id": "baloise-lu-home-2-2024:s12.2.3",
       "level": 3,
       "title": "Responsabilité fête familiale",
       "items": [
@@ -3812,7 +4003,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.2.4",
+      "node_id": "baloise-lu-home-2-2024:s12.2.4",
       "level": 3,
       "title": "Responsabilité garde d’enfants",
       "items": [
@@ -3831,7 +4022,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.3",
+      "node_id": "baloise-lu-home-2-2024:s12.3",
       "level": 2,
       "title": "Défense recours responsabilité civile vie privée",
       "items": [
@@ -3874,7 +4065,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.4",
+      "node_id": "baloise-lu-home-2-2024:s12.4",
       "level": 2,
       "title": "Responsabilité civile assistant parental",
       "items": [
@@ -3902,7 +4093,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.5",
+      "node_id": "baloise-lu-home-2-2024:s12.5",
       "level": 2,
       "title": "Responsabilité civile chiens dangereux",
       "items": [
@@ -3924,7 +4115,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.6",
+      "node_id": "baloise-lu-home-2-2024:s12.6",
       "level": 2,
       "title": "Responsabilité civile jouets à moteur",
       "items": [
@@ -3946,7 +4137,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.7",
+      "node_id": "baloise-lu-home-2-2024:s12.7",
       "level": 2,
       "title": "Responsabilité civile des équidés",
       "items": [
@@ -3971,7 +4162,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.8",
+      "node_id": "baloise-lu-home-2-2024:s12.8",
       "level": 2,
       "title": "Responsabilité civile gîte / chambres d’hôte",
       "items": [
@@ -3986,25 +4177,28 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p30:21"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s12.8.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.9",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s12.8.1",
+      "level": 3,
       "title": "Garantie complémentaire",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p30:22"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s26.9.1"
+          "node_id": "baloise-lu-home-2-2024:s12.8.1.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s26.9.1",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s12.8.1.1",
+      "level": 4,
       "title": "Responsabilité civile dépositaire de l’hôtelier",
       "items": [
         {
@@ -4022,7 +4216,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27",
+      "node_id": "baloise-lu-home-2-2024:s13",
       "level": 1,
       "title": "11. Les exclusions générales",
       "article_uid": "article:11",
@@ -4034,27 +4228,27 @@
           "block_id": "baloise-lu-home-2-2024:p31:2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.1"
+          "node_id": "baloise-lu-home-2-2024:s13.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.2"
+          "node_id": "baloise-lu-home-2-2024:s13.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.3"
+          "node_id": "baloise-lu-home-2-2024:s13.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.4"
+          "node_id": "baloise-lu-home-2-2024:s13.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.5"
+          "node_id": "baloise-lu-home-2-2024:s13.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s27.6"
+          "node_id": "baloise-lu-home-2-2024:s13.6"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.1",
+      "node_id": "baloise-lu-home-2-2024:s13.1",
       "level": 2,
       "title": "Exclusions communes à l’ensemble des garanties responsabilité civile",
       "items": [
@@ -4073,7 +4267,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.2",
+      "node_id": "baloise-lu-home-2-2024:s13.2",
       "level": 2,
       "title": "Exclusions communes à l’ensemble des garanties",
       "items": [
@@ -4101,7 +4295,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.3",
+      "node_id": "baloise-lu-home-2-2024:s13.3",
       "level": 2,
       "title": "Limitation des sanctions et clause d’exclusion",
       "items": [
@@ -4114,7 +4308,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.4",
+      "node_id": "baloise-lu-home-2-2024:s13.4",
       "level": 2,
       "title": "Perte d’exploitation causée par le retrait d’un dispositif de guerre",
       "items": [
@@ -4130,7 +4324,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.5",
+      "node_id": "baloise-lu-home-2-2024:s13.5",
       "level": 2,
       "title": "Maladies contagieuses",
       "items": [
@@ -4146,7 +4340,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s27.6",
+      "node_id": "baloise-lu-home-2-2024:s13.6",
       "level": 2,
       "title": "Clause d’exclusion des risques cybernétiques",
       "items": [
@@ -4159,7 +4353,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s28",
+      "node_id": "baloise-lu-home-2-2024:s14",
       "level": 1,
       "title": "12. Le tableau des limites de garanties",
       "article_uid": "article:12",
@@ -4182,7 +4376,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29",
+      "node_id": "baloise-lu-home-2-2024:s15",
       "level": 1,
       "title": "13. Votre indemnisation",
       "article_uid": "article:13",
@@ -4191,39 +4385,39 @@
           "block_id": "baloise-lu-home-2-2024:p37:1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.1"
+          "node_id": "baloise-lu-home-2-2024:s15.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.2"
+          "node_id": "baloise-lu-home-2-2024:s15.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.3"
+          "node_id": "baloise-lu-home-2-2024:s15.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.4"
+          "node_id": "baloise-lu-home-2-2024:s15.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.5"
+          "node_id": "baloise-lu-home-2-2024:s15.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.6"
+          "node_id": "baloise-lu-home-2-2024:s15.6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.7"
+          "node_id": "baloise-lu-home-2-2024:s15.7"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.8"
+          "node_id": "baloise-lu-home-2-2024:s15.8"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.9"
+          "node_id": "baloise-lu-home-2-2024:s15.9"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.10"
+          "node_id": "baloise-lu-home-2-2024:s15.10"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.1",
+      "node_id": "baloise-lu-home-2-2024:s15.1",
       "level": 2,
       "title": "Calcul de l’indemnité",
       "items": [
@@ -4245,7 +4439,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.2",
+      "node_id": "baloise-lu-home-2-2024:s15.2",
       "level": 2,
       "title": "Evaluation des dommages aux bâtiments",
       "items": [
@@ -4273,7 +4467,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.3",
+      "node_id": "baloise-lu-home-2-2024:s15.3",
       "level": 2,
       "title": "Evaluation des dommages aux embellissements et aux biens immeubles par destination",
       "items": [
@@ -4304,7 +4498,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.4",
+      "node_id": "baloise-lu-home-2-2024:s15.4",
       "level": 2,
       "title": "Evaluation des dommages aux mobiliers.",
       "items": [
@@ -4333,47 +4527,14 @@
           "block_id": "baloise-lu-home-2-2024:p38:1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s29.4.1"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s29.4.1",
-      "level": 3,
-      "title": "Précisions / Cas particuliers :",
-      "items": [
-        {
           "block_id": "baloise-lu-home-2-2024:p38:2"
         },
-        {
-          "node_id": "baloise-lu-home-2-2024:s29.4.1.1"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s29.4.1.2"
-        },
-        {
-          "node_id": "baloise-lu-home-2-2024:s29.4.1.3"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s29.4.1.1",
-      "level": 4,
-      "title": "Grille de vétusté pour les appareils électroménager, TV, Hifi, Vidéo, informatique :",
-      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p38:3"
         },
         {
           "block_id": "baloise-lu-home-2-2024:p38:4"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s29.4.1.2",
-      "level": 4,
-      "title": "Grille de vétusté pour les appareils nomades :",
-      "items": [
+        },
         {
           "block_id": "baloise-lu-home-2-2024:p38:5"
         },
@@ -4385,14 +4546,7 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p39:1"
-        }
-      ]
-    },
-    {
-      "node_id": "baloise-lu-home-2-2024:s29.4.1.3",
-      "level": 4,
-      "title": "Grille de vétusté pour les installations énergie renouvelable : solaire et photovoltaïques :",
-      "items": [
+        },
         {
           "block_id": "baloise-lu-home-2-2024:p39:2"
         },
@@ -4405,7 +4559,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.5",
+      "node_id": "baloise-lu-home-2-2024:s15.5",
       "level": 2,
       "title": "Précisions pour la garantie Vol",
       "items": [
@@ -4424,7 +4578,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.6",
+      "node_id": "baloise-lu-home-2-2024:s15.6",
       "level": 2,
       "title": "Les avantages Baloise",
       "items": [
@@ -4440,7 +4594,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.7",
+      "node_id": "baloise-lu-home-2-2024:s15.7",
       "level": 2,
       "title": "Précisions pour les garanties Responsabilité Civile",
       "items": [
@@ -4465,7 +4619,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.8",
+      "node_id": "baloise-lu-home-2-2024:s15.8",
       "level": 2,
       "title": "Vos obligations en cas de sinistre",
       "items": [
@@ -4493,7 +4647,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.9",
+      "node_id": "baloise-lu-home-2-2024:s15.9",
       "level": 2,
       "title": "Concurrence entre garanties",
       "items": [
@@ -4509,7 +4663,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s29.10",
+      "node_id": "baloise-lu-home-2-2024:s15.10",
       "level": 2,
       "title": "Subrogation",
       "items": [
@@ -4528,7 +4682,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30",
+      "node_id": "baloise-lu-home-2-2024:s16",
       "level": 1,
       "title": "14. L’assistance",
       "article_uid": "article:14",
@@ -4543,24 +4697,24 @@
           "block_id": "baloise-lu-home-2-2024:p41:4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s30.1"
+          "node_id": "baloise-lu-home-2-2024:s16.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s30.2"
+          "node_id": "baloise-lu-home-2-2024:s16.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s30.3"
+          "node_id": "baloise-lu-home-2-2024:s16.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s30.4"
+          "node_id": "baloise-lu-home-2-2024:s16.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s30.5"
+          "node_id": "baloise-lu-home-2-2024:s16.5"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30.1",
+      "node_id": "baloise-lu-home-2-2024:s16.1",
       "level": 2,
       "title": "Assisteur",
       "items": [
@@ -4573,7 +4727,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30.2",
+      "node_id": "baloise-lu-home-2-2024:s16.2",
       "level": 2,
       "title": "Relogement",
       "items": [
@@ -4613,7 +4767,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30.3",
+      "node_id": "baloise-lu-home-2-2024:s16.3",
       "level": 2,
       "title": "Assistance aux personnes",
       "items": [
@@ -4662,7 +4816,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30.4",
+      "node_id": "baloise-lu-home-2-2024:s16.4",
       "level": 2,
       "title": "Sauvegarde du contenu de votre habitation",
       "items": [
@@ -4708,7 +4862,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s30.5",
+      "node_id": "baloise-lu-home-2-2024:s16.5",
       "level": 2,
       "title": "Mise en relation avec nos prestataires",
       "items": [
@@ -4730,7 +4884,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31",
+      "node_id": "baloise-lu-home-2-2024:s17",
       "level": 1,
       "title": "15. La vie du contrat",
       "article_uid": "article:15",
@@ -4739,39 +4893,75 @@
           "block_id": "baloise-lu-home-2-2024:p42:20"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.1"
+          "node_id": "baloise-lu-home-2-2024:s17.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.2"
+          "node_id": "baloise-lu-home-2-2024:s17.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.3"
+          "node_id": "baloise-lu-home-2-2024:s17.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.4"
+          "node_id": "baloise-lu-home-2-2024:s17.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.5"
+          "node_id": "baloise-lu-home-2-2024:s17.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.6"
+          "node_id": "baloise-lu-home-2-2024:s17.6"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.7"
+          "node_id": "baloise-lu-home-2-2024:s17.7"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.8"
+          "node_id": "baloise-lu-home-2-2024:s17.8"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.9"
+          "node_id": "baloise-lu-home-2-2024:s17.9"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s31.10"
+          "node_id": "baloise-lu-home-2-2024:s17.10"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.11"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.12"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.13"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.14"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.15"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.16"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.17"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.18"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.19"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.20"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.21"
+        },
+        {
+          "node_id": "baloise-lu-home-2-2024:s17.22"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.1",
+      "node_id": "baloise-lu-home-2-2024:s17.1",
       "level": 2,
       "title": "Déclarations à la souscription et en cours de contrat",
       "items": [
@@ -4793,7 +4983,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.2",
+      "node_id": "baloise-lu-home-2-2024:s17.2",
       "level": 2,
       "title": "Obligation de déclaration lors de la conclusion du contrat",
       "items": [
@@ -4809,7 +4999,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.3",
+      "node_id": "baloise-lu-home-2-2024:s17.3",
       "level": 2,
       "title": "Omission ou inexactitude intentionnelles",
       "items": [
@@ -4825,7 +5015,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.4",
+      "node_id": "baloise-lu-home-2-2024:s17.4",
       "level": 2,
       "title": "Omission ou inexactitude non intentionnelles",
       "items": [
@@ -4841,7 +5031,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.5",
+      "node_id": "baloise-lu-home-2-2024:s17.5",
       "level": 2,
       "title": "Obligation de déclaration en cours de contrat",
       "items": [
@@ -4857,7 +5047,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.6",
+      "node_id": "baloise-lu-home-2-2024:s17.6",
       "level": 2,
       "title": "Diminution du risque",
       "items": [
@@ -4873,7 +5063,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.7",
+      "node_id": "baloise-lu-home-2-2024:s17.7",
       "level": 2,
       "title": "Aggravation du risque",
       "items": [
@@ -4892,7 +5082,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.8",
+      "node_id": "baloise-lu-home-2-2024:s17.8",
       "level": 2,
       "title": "Sanctions",
       "items": [
@@ -4908,7 +5098,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.9",
+      "node_id": "baloise-lu-home-2-2024:s17.9",
       "level": 2,
       "title": "Formation et prise d’effet du contrat",
       "items": [
@@ -4924,7 +5114,7 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s31.10",
+      "node_id": "baloise-lu-home-2-2024:s17.10",
       "level": 2,
       "title": "Durée du contrat",
       "items": [
@@ -4943,8 +5133,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s32",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.11",
+      "level": 2,
       "title": "Paiement de la prime",
       "items": [
         {
@@ -4983,8 +5173,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s33",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.12",
+      "level": 2,
       "title": "Modification du tarif ou des conditions d’assurance",
       "items": [
         {
@@ -4996,30 +5186,30 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.13",
+      "level": 2,
       "title": "Résiliation",
       "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p44:8"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.1"
+          "node_id": "baloise-lu-home-2-2024:s17.13.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.3"
+          "node_id": "baloise-lu-home-2-2024:s17.13.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.4"
+          "node_id": "baloise-lu-home-2-2024:s17.13.4"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.1",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.13.1",
+      "level": 3,
       "title": "Résiliation d’office",
       "items": [
         {
@@ -5031,8 +5221,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2",
+      "level": 3,
       "title": "Résiliation facultative",
       "items": [
         {
@@ -5042,28 +5232,28 @@
           "block_id": "baloise-lu-home-2-2024:p44:12"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.1"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.2"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.3"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.4"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.5"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s34.2.6"
+          "node_id": "baloise-lu-home-2-2024:s17.13.2.6"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.1",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.1",
+      "level": 4,
       "title": "Par vous ou par nous",
       "items": [
         {
@@ -5102,8 +5292,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.2",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.2",
+      "level": 4,
       "title": "Par vous",
       "items": [
         {
@@ -5148,8 +5338,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.3",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.3",
+      "level": 4,
       "title": "Par nous",
       "items": [
         {
@@ -5200,8 +5390,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.4",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.4",
+      "level": 4,
       "title": "Par les ayants droit",
       "items": [
         {
@@ -5216,8 +5406,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.5",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.5",
+      "level": 4,
       "title": "Par le curateur",
       "items": [
         {
@@ -5229,8 +5419,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.2.6",
-      "level": 3,
+      "node_id": "baloise-lu-home-2-2024:s17.13.2.6",
+      "level": 4,
       "title": "Par le commissaire à la gestion contrôlée",
       "items": [
         {
@@ -5245,8 +5435,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.3",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.13.3",
+      "level": 3,
       "title": "Formes de la résiliation",
       "items": [
         {
@@ -5258,8 +5448,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s34.4",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.13.4",
+      "level": 3,
       "title": "Remboursement de la prime",
       "items": [
         {
@@ -5271,8 +5461,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s35",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.14",
+      "level": 2,
       "title": "Cessation de plein droit",
       "items": [
         {
@@ -5287,8 +5477,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s36",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.15",
+      "level": 2,
       "title": "Notifications",
       "items": [
         {
@@ -5303,8 +5493,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s37",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.16",
+      "level": 2,
       "title": "Réclamation",
       "items": [
         {
@@ -5328,8 +5518,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s38",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.17",
+      "level": 2,
       "title": "Indexation",
       "items": [
         {
@@ -5342,13 +5532,13 @@
           "block_id": "baloise-lu-home-2-2024:p46:20"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s38.1"
+          "node_id": "baloise-lu-home-2-2024:s17.17.1"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s38.1",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.17.1",
+      "level": 3,
       "title": "Indice applicable :",
       "items": [
         {
@@ -5363,8 +5553,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s39",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.18",
+      "level": 2,
       "title": "Juridiction",
       "items": [
         {
@@ -5376,8 +5566,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s40",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.19",
+      "level": 2,
       "title": "Loi applicable",
       "items": [
         {
@@ -5389,8 +5579,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s41",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.20",
+      "level": 2,
       "title": "Prescription légale",
       "items": [
         {
@@ -5408,8 +5598,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.21",
+      "level": 2,
       "title": "Secret professionnel et traitement des données personnelles",
       "items": [
         {
@@ -5422,28 +5612,28 @@
           "block_id": "baloise-lu-home-2-2024:p47:13"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.1"
+          "node_id": "baloise-lu-home-2-2024:s17.21.1"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.2"
+          "node_id": "baloise-lu-home-2-2024:s17.21.2"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.3"
+          "node_id": "baloise-lu-home-2-2024:s17.21.3"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.4"
+          "node_id": "baloise-lu-home-2-2024:s17.21.4"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.5"
+          "node_id": "baloise-lu-home-2-2024:s17.21.5"
         },
         {
-          "node_id": "baloise-lu-home-2-2024:s42.6"
+          "node_id": "baloise-lu-home-2-2024:s17.21.6"
         }
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.1",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.1",
+      "level": 3,
       "title": "Pour quelles raisons utilisons-nous des données personnelles ?",
       "items": [
         {
@@ -5470,8 +5660,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.2",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.2",
+      "level": 3,
       "title": "Vos droits",
       "items": [
         {
@@ -5486,8 +5676,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.3",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.3",
+      "level": 3,
       "title": "Conditions de stockage",
       "items": [
         {
@@ -5502,8 +5692,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.4",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.4",
+      "level": 3,
       "title": "Sous-traitance à des prestataires externes",
       "items": [
         {
@@ -5524,8 +5714,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.5",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.5",
+      "level": 3,
       "title": "Plus d’informations",
       "items": [
         {
@@ -5537,8 +5727,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s42.6",
-      "level": 2,
+      "node_id": "baloise-lu-home-2-2024:s17.21.6",
+      "level": 3,
       "title": "Données de contact",
       "items": [
         {
@@ -5562,8 +5752,8 @@
       ]
     },
     {
-      "node_id": "baloise-lu-home-2-2024:s43",
-      "level": 1,
+      "node_id": "baloise-lu-home-2-2024:s17.22",
+      "level": 2,
       "title": "Acceptation du contrat",
       "items": [
         {
@@ -5571,7 +5761,15 @@
         },
         {
           "block_id": "baloise-lu-home-2-2024:p48:19"
-        },
+        }
+      ]
+    },
+    {
+      "node_id": "baloise-lu-home-2-2024:s18",
+      "level": 1,
+      "title": "Baloise Assurances Luxembourg S.A. | Siège social : 8, rue du Château d’Eau | L-3364 Leudelange | B.P. 28, L-2010 Luxembourg",
+      "surface_class": "preliminaire",
+      "items": [
         {
           "block_id": "baloise-lu-home-2-2024:p48:20"
         }
@@ -6936,7 +7134,11 @@
         263.12,
         224.77
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Accessible",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:3:l1",
@@ -6978,7 +7180,11 @@
         293.44,
         281.37
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Accessible",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:4:l1",
@@ -7046,7 +7252,11 @@
         88.81,
         300.54
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Accident",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:5:l1",
@@ -7075,7 +7285,11 @@
         291.94,
         344.47
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Accident",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:6:l1",
@@ -7130,7 +7344,11 @@
         133.9,
         363.64
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Animal domestique",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:7:l1",
@@ -7159,7 +7377,11 @@
         250.13,
         394.93
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "defines": "Animal domestique",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:8:l1",
@@ -7201,8 +7423,11 @@
         249.79,
         432.89
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Animal domestique",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:9:l1",
@@ -7257,7 +7482,11 @@
         131.37,
         452.06
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Année d'assurance",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:10:l1",
@@ -7286,7 +7515,11 @@
         285.53,
         521.31
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Année d'assurance",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:11:l1",
@@ -7396,7 +7629,11 @@
         276.41,
         559.11
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Antivol approuvé",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:13:l1",
@@ -7454,7 +7691,11 @@
         292.22,
         609.56
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Appareils ménagers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:15:l1",
@@ -7525,7 +7766,11 @@
         289.25,
         672.67
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Appartement",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:17:l1",
@@ -7609,7 +7854,10 @@
         279.0,
         735.78
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:19:l1",
@@ -7664,7 +7912,11 @@
         293.2,
         779.99
       ],
+      "kind": "condition",
       "structural_kind": "para",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:20:l1",
@@ -7720,6 +7972,8 @@
         155.26
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p3:20",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:21:l1",
@@ -7790,7 +8044,11 @@
         534.52,
         206.09
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.86,
+      "kind_source": "model_verified",
+      "defines": "Attentat",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:23:l1",
@@ -7832,8 +8090,10 @@
         541.8,
         346.31
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:24:l1",
@@ -8008,7 +8268,11 @@
         541.23,
         397.13
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:26:l1",
@@ -8050,7 +8314,11 @@
         414.39,
         428.93
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:27:l1",
@@ -8092,8 +8360,11 @@
         537.46,
         646.03
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
+      "defines": "Assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:28:l1",
@@ -8330,7 +8601,11 @@
         508.09,
         677.83
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.66,
+      "kind_source": "model_verified",
+      "defines": "Assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:29:l1",
@@ -8372,8 +8647,11 @@
         545.75,
         767.23
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.75,
+      "kind_source": "model_verified",
+      "defines": "Assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p3:30:l1",
@@ -8509,7 +8787,11 @@
         274.12,
         161.24
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:2:l1",
@@ -8538,7 +8820,11 @@
         233.79,
         179.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:3:l1",
@@ -8567,8 +8853,11 @@
         291.39,
         430.0
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:4:l1",
@@ -8873,7 +9162,11 @@
         275.53,
         505.0
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:6:l1",
@@ -8970,7 +9263,11 @@
         283.07,
         554.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:8:l1",
@@ -9012,8 +9309,11 @@
         238.69,
         605.0
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Bâtiment",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:9:l1",
@@ -9110,7 +9410,11 @@
         271.26,
         642.49
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Biens confiés à l'assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:11:l1",
@@ -9139,8 +9443,11 @@
         290.12,
         742.5
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.83,
+      "kind_source": "model_verified",
+      "defines": "Biens confiés à l'assuré",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:12:l1",
@@ -9289,7 +9596,11 @@
         520.12,
         186.25
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Biens immeubles par destination",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:14:l1",
@@ -9344,7 +9655,11 @@
         544.1,
         217.49
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model_verified",
+      "defines": "Biens immeubles par destination",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:15:l1",
@@ -9386,8 +9701,11 @@
         531.69,
         286.24
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.82,
+      "kind_source": "model_verified",
+      "defines": "Biens immeubles par destination",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:16:l1",
@@ -9455,7 +9773,10 @@
         534.76,
         317.48
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:17:l1",
@@ -9526,7 +9847,11 @@
         539.43,
         404.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Dépôt",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:19:l1",
@@ -9636,7 +9961,11 @@
         545.18,
         467.48
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Chiens « dangereux »",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:21:l1",
@@ -9691,8 +10020,11 @@
         520.51,
         517.48
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
+      "defines": "Chiens « dangereux »",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:22:l1",
@@ -9760,7 +10092,11 @@
         536.27,
         548.73
       ],
+      "kind": "condition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.15",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:23:l1",
@@ -9802,7 +10138,11 @@
         529.94,
         592.48
       ],
+      "kind": "exclusion",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.15",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:24:l1",
@@ -9857,8 +10197,11 @@
         543.15,
         742.49
       ],
-      "kind": "list",
+      "kind": "exclusion",
       "structural_kind": "list",
+      "kind_confidence": 0.78,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.15",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p4:25:l1",
@@ -10032,6 +10375,8 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p4:25",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:1:l1",
@@ -10206,7 +10551,11 @@
         288.13,
         292.49
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Compagnie / « Nous »",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:3:l1",
@@ -10277,7 +10626,11 @@
         283.78,
         354.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Conflit de travail",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:5:l1",
@@ -10361,7 +10714,11 @@
         293.3,
         404.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.86,
+      "kind_source": "model_verified",
+      "defines": "Contenu",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:7:l1",
@@ -10403,8 +10760,11 @@
         279.98,
         479.99
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
+      "defines": "Contenu",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:8:l1",
@@ -10498,7 +10858,10 @@
         142.18,
         498.74
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:9:l1",
@@ -10527,8 +10890,10 @@
         288.15,
         573.74
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.62,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:10:l1",
@@ -10651,7 +11016,11 @@
         265.0,
         636.24
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Contenu situé dans les parties communes",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:12:l1",
@@ -10735,7 +11104,11 @@
         293.49,
         723.74
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Cyber attaque",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:14:l1",
@@ -10845,7 +11218,11 @@
         524.32,
         173.74
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Déchéance",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:16:l1",
@@ -10929,7 +11306,11 @@
         527.21,
         248.73
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Déménagement",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:18:l1",
@@ -11026,7 +11407,11 @@
         544.12,
         311.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Dépendances",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:20:l1",
@@ -11081,8 +11466,11 @@
         543.63,
         386.24
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Dépendances",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:21:l1",
@@ -11176,7 +11564,11 @@
         542.1,
         417.48
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
+      "defines": "Dépendances",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:22:l1",
@@ -11247,7 +11639,11 @@
         523.53,
         479.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.62,
+      "kind_source": "model_verified",
+      "defines": "Détériorations immobilières",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:24:l1",
@@ -11302,7 +11698,11 @@
         543.63,
         536.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Détériorations immobilières",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:25:l1",
@@ -11399,7 +11799,11 @@
         498.79,
         573.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Dommages corporels",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:27:l1",
@@ -11457,7 +11861,11 @@
         529.06,
         711.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Dommage immatériel consécutif",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:29:l1",
@@ -11619,7 +12027,11 @@
         533.34,
         773.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Dommage immatériel non consécutif",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p5:31:l1",
@@ -11703,7 +12115,11 @@
         290.91,
         173.74
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Dommages matériels",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:2:l1",
@@ -11774,7 +12190,11 @@
         283.75,
         261.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Dommages ménagers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:4:l1",
@@ -11884,7 +12304,11 @@
         246.57,
         298.73
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Dysfonctionnement",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:6:l1",
@@ -11942,7 +12366,11 @@
         263.86,
         348.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Echéance principale",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:8:l1",
@@ -12013,7 +12441,11 @@
         270.75,
         411.22
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Embellissements",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:10:l1",
@@ -12097,7 +12529,11 @@
         292.46,
         473.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Fait dommageable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:12:l1",
@@ -12181,7 +12617,11 @@
         290.38,
         511.21
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Franchise",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:14:l1",
@@ -12210,7 +12650,10 @@
         75.58,
         530.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:15:l1",
@@ -12239,7 +12682,11 @@
         290.86,
         548.7
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Grève",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:16:l1",
@@ -12268,7 +12715,10 @@
         110.11,
         567.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:17:l1",
@@ -12297,7 +12747,11 @@
         247.23,
         586.2
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "defines": "Indice Baloise",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:18:l1",
@@ -12326,8 +12780,11 @@
         288.4,
         661.2
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Indice Baloise",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:19:l1",
@@ -12421,7 +12878,10 @@
         87.55,
         680.22
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:20:l1",
@@ -12450,7 +12910,11 @@
         283.34,
         698.7
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Incendie",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:21:l1",
@@ -12479,7 +12943,10 @@
         100.08,
         717.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:22:l1",
@@ -12508,7 +12975,11 @@
         284.37,
         761.19
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Inondation",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:23:l1",
@@ -12563,8 +13034,11 @@
         246.35,
         786.2
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Inondation",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:24:l1",
@@ -12608,6 +13082,8 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p6:24",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:25:l1",
@@ -12691,7 +13167,11 @@
         545.43,
         229.94
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Installations extérieures",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:27:l1",
@@ -12775,7 +13255,11 @@
         523.91,
         329.94
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Locataire",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:29:l1",
@@ -12898,7 +13382,11 @@
         538.79,
         392.44
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Location saisonnière",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:31:l1",
@@ -12982,7 +13470,11 @@
         524.49,
         454.93
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Lock-out",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:33:l1",
@@ -13066,7 +13558,11 @@
         533.03,
         529.93
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Loyer garanti",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:35:l1",
@@ -13163,7 +13659,11 @@
         545.3,
         617.43
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Loyers impayés",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:37:l1",
@@ -13273,7 +13773,11 @@
         545.09,
         667.42
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Lieu d’assurance",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:39:l1",
@@ -13344,7 +13848,11 @@
         528.1,
         742.42
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Maison individuelle",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p6:41:l1",
@@ -13441,7 +13949,11 @@
         288.94,
         186.24
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Matériel professionnel",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:2:l1",
@@ -13525,7 +14037,11 @@
         184.61,
         236.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.82,
+      "kind_source": "model_verified",
+      "defines": "Matériels nomades",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:4:l1",
@@ -13567,8 +14083,11 @@
         279.1,
         311.24
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.78,
+      "kind_source": "model_verified",
+      "defines": "Matériels nomades",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:5:l1",
@@ -13662,7 +14181,11 @@
         269.76,
         342.49
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.75,
+      "kind_source": "model_verified",
+      "defines": "Matériels nomades",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:6:l1",
@@ -13733,7 +14256,11 @@
         292.28,
         429.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Matériels techniques",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:8:l1",
@@ -13843,7 +14370,11 @@
         281.17,
         479.98
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "defines": "Marchandises destinées à la vente",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:10:l1",
@@ -13885,8 +14416,11 @@
         266.06,
         529.98
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Marchandises destinées à la vente",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:11:l1",
@@ -13983,7 +14517,11 @@
         271.01,
         592.48
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Matériaux durs",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:13:l1",
@@ -14038,8 +14576,11 @@
         292.9,
         729.99
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Matériaux durs",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:14:l1",
@@ -14227,7 +14768,11 @@
         255.79,
         779.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Mise en conformité",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:16:l1",
@@ -14298,7 +14843,11 @@
         399.34,
         161.24
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Mobilier",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:18:l1",
@@ -14327,8 +14876,11 @@
         543.98,
         423.76
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "defines": "Mobilier",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:19:l1",
@@ -14646,7 +15198,11 @@
         531.22,
         473.75
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Murs de clôture",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:21:l1",
@@ -14717,7 +15273,11 @@
         355.62,
         511.25
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.65,
+      "kind_source": "model_verified",
+      "defines": "Objets de mobilité durable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:23:l1",
@@ -14746,8 +15306,11 @@
         545.16,
         636.26
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.86,
+      "kind_source": "model_verified",
+      "defines": "Objets de mobilité durable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:24:l1",
@@ -14893,7 +15456,11 @@
         525.53,
         680.0
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
+      "defines": "Objets de mobilité durable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:25:l1",
@@ -15006,8 +15573,11 @@
         543.13,
         780.0
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.87,
+      "kind_source": "model_verified",
+      "defines": "Objets de valeur / art",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p7:28:l1",
@@ -15090,6 +15660,8 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p7:28",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:1:l1",
@@ -15186,7 +15758,11 @@
         282.52,
         229.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Objets précieux / bijoux",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:3:l1",
@@ -15228,7 +15804,11 @@
         284.13,
         273.74
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Objets précieux / bijoux",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:4:l1",
@@ -15312,7 +15892,11 @@
         291.29,
         336.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Période d'inhabitation",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:6:l1",
@@ -15396,7 +15980,11 @@
         291.18,
         486.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Plafond de garantie",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:8:l1",
@@ -15571,7 +16159,11 @@
         280.21,
         536.23
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Pollution accidentelle",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:10:l1",
@@ -15642,7 +16234,11 @@
         283.4,
         573.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.94,
+      "kind_source": "model_verified",
+      "defines": "Pollution graduelle",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:12:l1",
@@ -15700,7 +16296,11 @@
         293.1,
         661.22
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.95,
+      "kind_source": "model_verified",
+      "defines": "Preneur d'assurance",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:14:l1",
@@ -15810,7 +16410,11 @@
         290.56,
         711.22
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Règle proportionnelle",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:16:l1",
@@ -15852,7 +16456,10 @@
         272.3,
         779.97
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:17:l1",
@@ -15962,7 +16569,11 @@
         543.76,
         273.73
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Revenu net",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:19:l1",
@@ -16137,7 +16748,11 @@
         514.6,
         323.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Risque accessoire",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:21:l1",
@@ -16208,7 +16823,11 @@
         516.52,
         373.72
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Risque principal",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:23:l1",
@@ -16279,7 +16898,11 @@
         526.44,
         448.71
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Serre",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:25:l1",
@@ -16347,7 +16970,11 @@
         540.44,
         492.46
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.72,
+      "kind_source": "model_verified",
+      "defines": "Serre",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:26:l1",
@@ -16402,7 +17029,11 @@
         525.25,
         511.21
       ],
+      "kind": "exclusion",
       "structural_kind": "para",
+      "kind_confidence": 0.82,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.67",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:27:l1",
@@ -16431,7 +17062,11 @@
         531.26,
         542.46
       ],
+      "kind": "garantie",
       "structural_kind": "para",
+      "kind_confidence": 0.66,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.67",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:28:l1",
@@ -16502,7 +17137,11 @@
         544.56,
         654.96
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Smart Home",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:30:l1",
@@ -16638,7 +17277,11 @@
         465.95,
         692.45
       ],
+      "kind": "renvoi",
       "structural_kind": "para",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "scope_node_id": "baloise-lu-home-2-2024:s3.69",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:32:l1",
@@ -16696,7 +17339,11 @@
         508.36,
         729.95
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Surface habitable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:34:l1",
@@ -16725,8 +17372,11 @@
         536.4,
         779.95
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.78,
+      "kind_source": "model_verified",
+      "defines": "Surface habitable",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p8:35:l1",
@@ -16795,6 +17445,8 @@
         142.49
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p8:35",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:1:l1",
@@ -16825,6 +17477,8 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p9:1",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:2:l1",
@@ -17064,7 +17718,11 @@
         277.59,
         380.0
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Surface des dépendances",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:4:l1",
@@ -17135,7 +17793,11 @@
         291.59,
         429.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.86,
+      "kind_source": "model_verified",
+      "defines": "Tempête",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:6:l1",
@@ -17177,8 +17839,11 @@
         289.24,
         517.5
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.82,
+      "kind_source": "model_verified",
+      "defines": "Tempête",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:7:l1",
@@ -17314,7 +17979,11 @@
         293.42,
         617.5
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.88,
+      "kind_source": "model_verified",
+      "defines": "Terrains non bâtis",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:9:l1",
@@ -17437,7 +18106,11 @@
         219.6,
         654.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
+      "defines": "Tiers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:11:l1",
@@ -17466,8 +18139,11 @@
         283.33,
         680.0
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.82,
+      "kind_source": "model_verified",
+      "defines": "Tiers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:12:l1",
@@ -17509,7 +18185,11 @@
         284.54,
         736.25
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.65,
+      "kind_source": "model_verified",
+      "defines": "Tiers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:13:l1",
@@ -17577,7 +18257,11 @@
         164.05,
         754.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.7,
+      "kind_source": "model_verified",
+      "defines": "Tiers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:14:l1",
@@ -17606,8 +18290,11 @@
         284.44,
         779.99
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.75,
+      "kind_source": "model_verified",
+      "defines": "Tiers",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:15:l1",
@@ -17650,6 +18337,8 @@
         142.5
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p9:15",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:16:l1",
@@ -17680,6 +18369,8 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p9:16",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:17:l1",
@@ -17893,7 +18584,11 @@
         540.95,
         392.51
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Tremblement de terre",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:19:l1",
@@ -18003,7 +18698,11 @@
         541.07,
         480.01
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.9,
+      "kind_source": "model_verified",
+      "defines": "Usage de bureau",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:21:l1",
@@ -18084,8 +18783,11 @@
         539.48,
         542.5
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.6,
+      "kind_source": "model_verified",
+      "defines": "Usage de bureau",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:22:l1",
@@ -18182,7 +18884,11 @@
         529.27,
         617.5
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.92,
+      "kind_source": "model_verified",
+      "defines": "Vacance locative",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:24:l1",
@@ -18279,7 +18985,11 @@
         543.05,
         680.0
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.93,
+      "kind_source": "model_verified",
+      "defines": "Valeurs / espèces",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:26:l1",
@@ -18363,7 +19073,11 @@
         537.33,
         729.99
       ],
+      "kind": "definition",
       "structural_kind": "para",
+      "kind_confidence": 0.85,
+      "kind_source": "model_verified",
+      "defines": "Valeur à neuf",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:28:l1",
@@ -18405,8 +19119,11 @@
         537.71,
         761.24
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
+      "defines": "Valeur à neuf",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p9:29:l1",
@@ -18448,10 +19165,13 @@
         291.14,
         167.49
       ],
-      "kind": "list",
+      "kind": "definition",
       "structural_kind": "list",
+      "kind_confidence": 0.8,
+      "kind_source": "model_verified",
       "context_role": "same_clause_continuation",
       "continues": "baloise-lu-home-2-2024:p9:29",
+      "defines": "Valeur à neuf",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p10:1:l1",
@@ -37374,7 +38094,6 @@
         193.57
       ],
       "structural_kind": "para",
-      "article_uid": "article:7",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p22:2:l1",
@@ -41329,8 +42048,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p24:15",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p24:16:l1",
@@ -42205,8 +42922,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p24:33",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:1:l1",
@@ -42957,8 +43672,6 @@
         179.97
       ],
       "structural_kind": "para",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p25:11",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:12:l1",
@@ -43221,6 +43934,7 @@
         361.49
       ],
       "structural_kind": "para",
+      "article_uid": "article:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:17:l1",
@@ -43264,6 +43978,7 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "article_uid": "article:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:18:l1",
@@ -43319,6 +44034,7 @@
         455.23
       ],
       "structural_kind": "para",
+      "article_uid": "article:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:19:l1",
@@ -43375,6 +44091,7 @@
       ],
       "kind": "list",
       "structural_kind": "list",
+      "article_uid": "article:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p25:20:l1",
@@ -43704,8 +44421,7 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p25:20",
+      "article_uid": "article:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p26:1:l1",
@@ -43921,6 +44637,7 @@
         355.26
       ],
       "structural_kind": "para",
+      "article_uid": "article:9",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p26:3:l1",
@@ -43963,6 +44680,7 @@
         411.24
       ],
       "structural_kind": "para",
+      "article_uid": "article:9",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p26:4:l1",
@@ -44487,8 +45205,6 @@
         179.99
       ],
       "structural_kind": "para",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p26:13",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p26:14:l1",
@@ -45259,8 +45975,6 @@
         155.26
       ],
       "structural_kind": "para",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p26:22",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p27:1:l1",
@@ -46065,8 +46779,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p27:11",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p27:12:l1",
@@ -46799,8 +47511,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p27:16",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p28:1:l1",
@@ -47575,8 +48285,6 @@
         180.0
       ],
       "structural_kind": "para",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p28:10",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p28:11:l1",
@@ -49208,8 +49916,6 @@
         167.49
       ],
       "structural_kind": "para",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p29:16",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p29:17:l1",
@@ -50067,8 +50773,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p29:31",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p30:1:l1",
@@ -50910,8 +51614,6 @@
       ],
       "kind": "list",
       "structural_kind": "list",
-      "context_role": "same_clause_continuation",
-      "continues": "baloise-lu-home-2-2024:p30:14",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p30:15:l1",
@@ -52435,6 +53137,8 @@
         142.8
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p31:4",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p31:5:l1",
@@ -53180,6 +53884,8 @@
         136.51
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p31:9",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p32:1:l1",
@@ -53889,6 +54595,8 @@
         136.56
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p32:2",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p32:3:l1",
@@ -56939,6 +57647,8 @@
         179.97
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p37:16",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p37:17:l1",
@@ -59532,6 +60242,7 @@
         204.99
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
       "continues": "baloise-lu-home-2-2024:p39:14",
       "lines": [
         {
@@ -60248,6 +60959,8 @@
         154.98
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p40:8",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p40:9:l1",
@@ -60949,6 +61662,8 @@
         204.99
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p40:16",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p41:1:l1",
@@ -62559,6 +63274,7 @@
         154.99
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
       "continues": "baloise-lu-home-2-2024:p41:30",
       "lines": [
         {
@@ -63410,6 +64126,8 @@
         167.47
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p42:17",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p42:18:l1",
@@ -64998,6 +65716,8 @@
         154.99
       ],
       "structural_kind": "para",
+      "context_role": "same_clause_continuation",
+      "continues": "baloise-lu-home-2-2024:p43:12",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p43:13:l1",
@@ -73493,6 +74213,7 @@
         785.89
       ],
       "structural_kind": "para",
+      "surface_class": "preliminaire",
       "lines": [
         {
           "line_id": "baloise-lu-home-2-2024:p48:20:l1",
@@ -73525,5 +74246,5 @@
   ],
   "source_url": "https://www.baloise.lu/dam/baloise-lu/1890/particulier/documents/CG-CS/CG-HOME-2--LUFR-09-24.pdf",
   "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
-  "ingest_fingerprint": "30acbcd4386eb5fe90edfb595ea111ed76033d45487d66c441c003eec39189e7"
+  "ingest_fingerprint": "4226a32e7cd3126cb21a99dbcbef2640a18402bca07a1b0e0e98ad5dd4d2cc75"
 }

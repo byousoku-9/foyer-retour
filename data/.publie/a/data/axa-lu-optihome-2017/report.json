@@ -4,7 +4,7 @@
     {
       "name": "invariants_arbre",
       "level": "info",
-      "detail": "arbre atteste document_hash=f1306f8a000ab0a7107d0eb66b225a449c61437b7b677990b5300ca23eb4747c ingest_fingerprint=a6f0e57bc52af4455e3b5f263ea252ad258e9156b5af2cb47229af15c1ff5129 ; ok"
+      "detail": "arbre atteste document_hash=66f23437e27bd920d433099ca40ebbf041db9cfb8e696ca06bbed892ce177368 ingest_fingerprint=917c8d63b5abd968fb95a1cd54cedba5573897e2192e2ac3ce59d75160375f2e ; ok"
     },
     {
       "name": "blocs_non_citables",
@@ -65,11 +65,6 @@
       "name": "typage_clauses",
       "level": "info",
       "detail": "966 bloc(s) étiqueté(s), 903/957 kind(s) juridique(s) confirmé(s) par deux lectures"
-    },
-    {
-      "name": "typage_transport",
-      "level": "info",
-      "detail": "standard initial; aucune API Batch; appels_standard=2; coût_standard=0.0381 EUR; coût_antérieur=0.0000 EUR; coût_cumulé=0.0381 EUR; plafond=2.0000 EUR"
     }
   ],
   "stats": {
@@ -105,6 +100,11 @@
     "ids_disparus": 0,
     "ids_nouveaux": 0,
     "ids_typage_reutilises": {
+      "axa-lu-optihome-2017:p5:1": 1,
+      "axa-lu-optihome-2017:p5:2": 1,
+      "axa-lu-optihome-2017:p5:3": 1,
+      "axa-lu-optihome-2017:p5:4": 1,
+      "axa-lu-optihome-2017:p5:5": 1,
       "axa-lu-optihome-2017:p6:1": 1,
       "axa-lu-optihome-2017:p6:2": 1,
       "axa-lu-optihome-2017:p6:3": 1,
@@ -1493,154 +1493,11 @@
       "axa-lu-optihome-2017:p107:7": 1,
       "axa-lu-optihome-2017:p107:8": 1
     },
-    "blocs_typage_reutilises": 1387,
-    "blocs_typage_a_rejouer": 5,
+    "blocs_typage_reutilises": 1392,
+    "blocs_typage_a_rejouer": 0,
     "blocs_types_modele": 966,
     "blocs_juridiques": 957,
     "blocs_juridiques_confirmes": 903,
-    "references_non_resolues": 19,
-    "t2_eligibility_mode": "ISOLATED",
-    "t1_registry": [],
-    "t1_registry_hash": "t1-registry:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "t2_terminal_decisions": [
-      {
-        "t1_uid": "t1:f70796a8275f6d09e5044a7c3adb232b5a7c76e011bba0b41185faff5a1cfaef",
-        "plan_id": null,
-        "block_id": "axa-lu-optihome-2017:p5:1",
-        "state": "NON_CONFIRMED",
-        "reason": "NOT_PLANNED",
-        "kind_t2": null,
-        "retrieval_effect": 0,
-        "citation_effect": 0,
-        "applicability_effect": 0,
-        "decision_effect": 0,
-        "verdict_effect": 0
-      },
-      {
-        "t1_uid": "t1:5434369ac061066235d842bd5fa9d64bfb22368599ee72122680da85376f87e9",
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "block_id": "axa-lu-optihome-2017:p5:2",
-        "state": "CONFIRMED",
-        "reason": "KIND_MATCH",
-        "kind_t2": "condition",
-        "retrieval_effect": 0,
-        "citation_effect": 0,
-        "applicability_effect": 0,
-        "decision_effect": 0,
-        "verdict_effect": 0
-      },
-      {
-        "t1_uid": "t1:57e2c8a7d36cc49b2f36a40ef79c73f6865cb54287526de91f0802f042669ae9",
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "block_id": "axa-lu-optihome-2017:p5:3",
-        "state": "CONFIRMED",
-        "reason": "KIND_MATCH",
-        "kind_t2": "garantie",
-        "retrieval_effect": 1,
-        "citation_effect": 1,
-        "applicability_effect": 1,
-        "decision_effect": 1,
-        "verdict_effect": 1
-      },
-      {
-        "t1_uid": "t1:9e477164be125ed4b14d0f1968aa3577a30b092e8b52939b4f31700381fdaa63",
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "block_id": "axa-lu-optihome-2017:p5:4",
-        "state": "CONFIRMED",
-        "reason": "KIND_MATCH",
-        "kind_t2": "condition",
-        "retrieval_effect": 0,
-        "citation_effect": 0,
-        "applicability_effect": 0,
-        "decision_effect": 0,
-        "verdict_effect": 0
-      },
-      {
-        "t1_uid": "t1:291a1ee30a40cd200e226e6ae3ef199d16c08e0c540682ead84a718db12571a9",
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "block_id": "axa-lu-optihome-2017:p5:5",
-        "state": "CONFIRMED",
-        "reason": "KIND_MATCH",
-        "kind_t2": "garantie",
-        "retrieval_effect": 1,
-        "citation_effect": 1,
-        "applicability_effect": 1,
-        "decision_effect": 1,
-        "verdict_effect": 1
-      }
-    ],
-    "t2_renvoi_terminal_decisions": [],
-    "t2_renvoi_terminal_ids_equal_registry": true,
-    "t2_planned_surface": [
-      {
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "order": 0,
-        "block_ids": [
-          "axa-lu-optihome-2017:p5:2",
-          "axa-lu-optihome-2017:p5:3",
-          "axa-lu-optihome-2017:p5:4",
-          "axa-lu-optihome-2017:p5:5"
-        ],
-        "t1_uids": [
-          "t1:5434369ac061066235d842bd5fa9d64bfb22368599ee72122680da85376f87e9",
-          "t1:57e2c8a7d36cc49b2f36a40ef79c73f6865cb54287526de91f0802f042669ae9",
-          "t1:9e477164be125ed4b14d0f1968aa3577a30b092e8b52939b4f31700381fdaa63",
-          "t1:291a1ee30a40cd200e226e6ae3ef199d16c08e0c540682ead84a718db12571a9"
-        ],
-        "plan_hash": "t2-plan:de85077fe70ebfec409d1a5cbb833b28986ce897c403176545ff09a264fa1824"
-      }
-    ],
-    "t2_consumed_surface": [
-      {
-        "plan_id": "clauses-r2-0001-c7ec221224f5-5f93b70c",
-        "order": 0,
-        "block_ids": [
-          "axa-lu-optihome-2017:p5:2",
-          "axa-lu-optihome-2017:p5:3",
-          "axa-lu-optihome-2017:p5:4",
-          "axa-lu-optihome-2017:p5:5"
-        ],
-        "t1_uids": [
-          "t1:5434369ac061066235d842bd5fa9d64bfb22368599ee72122680da85376f87e9",
-          "t1:57e2c8a7d36cc49b2f36a40ef79c73f6865cb54287526de91f0802f042669ae9",
-          "t1:9e477164be125ed4b14d0f1968aa3577a30b092e8b52939b4f31700381fdaa63",
-          "t1:291a1ee30a40cd200e226e6ae3ef199d16c08e0c540682ead84a718db12571a9"
-        ],
-        "plan_hash": "t2-plan:de85077fe70ebfec409d1a5cbb833b28986ce897c403176545ff09a264fa1824"
-      }
-    ],
-    "t2_planned_plan_hash": "t2-plan-surface:7491ec3eecd15b18af2308ffdf8d42405e4fe64382e1c0fe3b528bc6820a34f4",
-    "t2_consumed_plan_hash": "t2-plan-surface:7491ec3eecd15b18af2308ffdf8d42405e4fe64382e1c0fe3b528bc6820a34f4",
-    "t2_planned_order": [
-      "clauses-r2-0001-c7ec221224f5-5f93b70c"
-    ],
-    "t2_consumed_order": [
-      "clauses-r2-0001-c7ec221224f5-5f93b70c"
-    ],
-    "t2_plan_ids": [
-      "clauses-r2-0001-c7ec221224f5-5f93b70c"
-    ],
-    "t2_plan_count": 1,
-    "t2_terminal_count": 5,
-    "t2_failed_plan_ids": [],
-    "t2_timeout_plan_ids": [],
-    "arbitration_request_count": 0,
-    "arbitration_failed_plan_ids": [],
-    "arbitration_timeout_plan_ids": [],
-    "typage_transport": "standard",
-    "typage_current_campaign": "c7ec221224f54ad36d8726bd226e541988fbfb104ca0bc134dd4fa8280c8d177",
-    "typage_current_payload_sha256": "80b03601e2b9e07bdcb018cb1eff0f5498238d4de4462e659cdd338ed50f658c",
-    "typage_replayed_payload_requests": 0,
-    "typage_changed_payload_requests": 0,
-    "typage_changed_payload_custom_ids": "",
-    "typage_reused_requests": 0,
-    "typage_standard_requests": 2,
-    "typage_batch_cost_eur": 0.0,
-    "typage_standard_cost_eur": 0.0381,
-    "typage_total_cost_eur": 0.0381,
-    "typage_prior_cost_eur": 0.0,
-    "typage_cumulative_cost_eur": 0.0381,
-    "typage_cost_ceiling_eur": 2.0,
-    "blocs_typage_rejoues": 5
+    "references_non_resolues": 19
   }
 }
