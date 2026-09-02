@@ -127,15 +127,28 @@ class Claim(DomainModel):
 
     @field_validator("quotes")
     @classmethod
-    def _one_quote_per_block(cls, quotes: list[Quote]) -> list[Quote]:
-        # AD-10/AD-15 (revue Codex 1.4, B7) : le message d'un validateur du domaine est recopié tel
-        # quel dans `StepTrace.checks` et dans la relance ; il ne cite donc **jamais** une valeur reçue
-        # (`block_id`, `claim_id`) — elles viennent du modèle et sont du contenu non fiable. Le chemin
-        # pydantic (`claims.2.quotes`) suffit à situer la faute, et il est produit par le code.
-        ids = [q.block_id for q in quotes]
-        if len(set(ids)) != len(ids):
-            raise ValueError("deux quotes portent le même block_id (une seule quote par bloc dans une claim) : "
-                             "regrouper le passage, ou faire deux claims distinctes")
+    def _pas_deux_fois_la_meme_citation(cls, quotes: list[Quote]) -> list[Quote]:
+        """Deux citations **identiques** dans une claim n'ajoutent rien ; deux extraits d'un même
+        bloc, si — et ce n'est plus un échec de schéma (correctif du tour 2, rapport rédiger §1).
+
+        La règle « au plus une quote par bloc » était portée **ici**, donc terminale : le parse
+        échouait, le retry unique d'AD-16 était consommé, le modèle rejouait la même faute, et
+        l'utilisateur recevait un 503 sur une question nominale. Les deux issues que le prompt lui
+        proposait étaient d'ailleurs fermées toutes les deux : le passage englobant dépassait la
+        borne annoncée, et la place de claims était déjà prise.
+
+        Ce que la règle protégeait — deux extraits disjoints d'un même bloc se faisant passer pour
+        deux preuves — est désormais obtenu **par le code**, en fusionnant les deux extraits en un
+        seul passage contigu qui les couvre (`steps.rediger`). La preuve reste une, le contenu n'est
+        pas perdu, et rien n'est refusé au modèle qu'il puisse corriger.
+
+        AD-10/AD-15 (revue Codex 1.4, B7) : le message d'un validateur du domaine est recopié tel
+        quel dans `StepTrace.checks` et dans la relance ; il ne cite donc **jamais** une valeur reçue.
+        """
+        vues = {(q.block_id, q.quote) for q in quotes}
+        if len(vues) != len(quotes):
+            raise ValueError("deux citations identiques dans une même affirmation : cite un passage "
+                             "une seule fois")
         return quotes
 
 

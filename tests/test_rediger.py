@@ -622,16 +622,22 @@ async def test_persistently_incoherent_draft_raises_llm_parse(mini_index: Index,
 async def test_the_prompt_announces_the_configured_quote_bounds(mini_index: Index) -> None:
     """Convention Seuils (revue Codex 1.4, I1) : `quote_min_chars` est le seuil que *vérifier*
     appliquera (AD-3) — le prompt le rend, il ne le duplique pas. Le régler ne doit pas désynchroniser
-    ce que le modèle est autorisé à produire et ce que le code acceptera."""
+    ce que le modèle est autorisé à produire et ce que le code acceptera.
+
+    `quote_max_chars` a **quitté** le prompt au correctif du tour 2 : rien ne l'appliquait. Une
+    citation exacte qui le dépasse est servie telle quelle — borner, jamais tronquer — et annoncer
+    une borne que rien n'applique est exactement le dégradé silencieux qu'AD-16 refuse ailleurs.
+    """
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
     reglee = _settings(quote_min_chars=40, quote_max_chars=300, draft_max_segments=3, draft_max_claims=2)
     retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
     await rediger(_parsed(), retrieval, [], client=client, budget=_budget(), index=mini_index,
                   doc_id="lux-guide", settings=reglee)
     prefixe = fake.requests[0]["system"][0]["text"]
-    assert "Vise au\n  moins 40 caractères." in prefixe
-    assert "au plus 3 segments et 2 claims, des\n  quotes de 40 à 300 caractères" in prefixe
+    assert "moins 40 caractères." in prefixe
+    assert "au plus 3 segments et 2 claims, des\n  quotes d'au moins 40 caractères" in prefixe
     assert "25 caractères" not in prefixe
+    assert "300" not in prefixe
 
 
 async def test_blocks_from_another_document_than_the_summary_are_refused(mini_index: Index) -> None:
@@ -677,3 +683,57 @@ async def test_rediger_sinistre_sous_tier_micro_ne_porte_aucun_effort_et_aboutit
     assert req["model"] == TIERS["micro"]
     assert "effort" not in req["output_config"]
     assert isinstance(draft, AnswerDraft) and step.tier == "micro"
+
+
+async def test_deux_extraits_dun_meme_bloc_sont_fusionnes_au_lieu_detre_terminaux(
+        mini_index: Index) -> None:
+    """Correctif du tour 2 — la règle « une quote par bloc » vivait dans le schéma, donc terminale.
+
+    Le parse échouait, le retry unique d'AD-16 était consommé, le modèle rejouait la même faute, et
+    l'utilisateur recevait un 503 sur une question nominale. Les deux issues que le prompt lui
+    proposait étaient fermées : le passage englobant dépassait la borne annoncée, et la place de
+    claims était déjà prise. Le passage retenu couvre les deux extraits, du début du premier à la
+    fin du dernier — exactement ce que fait déjà `_controler_quote` pour retraduire une occurrence.
+    """
+    bloc = mini_index.corpus.documents["lux-guide"].block("lux-guide:farrivee:3")
+    debut, fin = bloc.text_norm[:40], bloc.text_norm[60:100]
+    brouillon = json.dumps({
+        "segments": [{"text": "Une phrase.", "kind": "factuel", "claim_ids": ["c1"]}],
+        "claims": [{"claim_id": "c1", "text": "Une phrase.",
+                    "quotes": [{"block_id": "lux-guide:farrivee:3", "quote": debut},
+                               {"block_id": "lux-guide:farrivee:3", "quote": fin}]}]})
+    client, _fake = _client([fake_message(text=brouillon, model=SONNET)])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+
+    draft, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                index=mini_index, doc_id="lux-guide", settings=_settings())
+
+    (quote,) = draft.claims[0].quotes
+    assert quote.block_id == "lux-guide:farrivee:3"
+    assert quote.quote == bloc.text_norm[:100]
+    fusion = next(c for c in step.checks if c.name == "quotes_fusionnees")
+    assert fusion.ok and "un passage contigu" in fusion.detail
+
+
+async def test_un_extrait_introuvable_nest_pas_fusionne_mais_laisse_a_verifier(
+        mini_index: Index) -> None:
+    """Mutation du témoin ci-dessus : *rédiger* ne juge pas une citation, il ne fait que fusionner.
+
+    Un extrait que le bloc ne porte pas doit atteindre *vérifier* tel quel, pour être rejeté avec
+    son motif actionnable — le fusionner en silence fabriquerait un passage que personne n'a écrit.
+    """
+    bloc = mini_index.corpus.documents["lux-guide"].block("lux-guide:farrivee:3")
+    brouillon = json.dumps({
+        "segments": [{"text": "Une phrase.", "kind": "factuel", "claim_ids": ["c1"]}],
+        "claims": [{"claim_id": "c1", "text": "Une phrase.",
+                    "quotes": [{"block_id": "lux-guide:farrivee:3", "quote": bloc.text_norm[:40]},
+                               {"block_id": "lux-guide:farrivee:3",
+                                "quote": "un passage que ce bloc ne porte pas du tout"}]}]})
+    client, _fake = _client([fake_message(text=brouillon, model=SONNET)])
+    retrieval = _retrieval(mini_index, ["lux-guide:farrivee:3"])
+
+    draft, step = await rediger(_parsed(), retrieval, [], client=client, budget=_budget(),
+                                index=mini_index, doc_id="lux-guide", settings=_settings())
+
+    assert len(draft.claims[0].quotes) == 2
+    assert not [c for c in step.checks if c.name == "quotes_fusionnees"]

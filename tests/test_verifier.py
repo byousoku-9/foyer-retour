@@ -1821,11 +1821,16 @@ async def test_le_seuil_applique_est_bien_celui_de_config(mini: Index) -> None:
     et ce que le code accepte » — ne valait jusqu'ici que pour le **minimum**."""
     quote = "huit jours pour déclarer votre arrivée"
     draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", quote)]))
-    prompt = load_prompt("rediger")
-    assert "$quote_max_chars" in prompt  # annoncé au modèle depuis `config.py` (revue 1.4, I1)
+    # `quote_max_chars` n'est plus **annoncé** au modèle (correctif du tour 2) : rien ne
+    # l'appliquait, et la fusion des extraits d'un même bloc rend les citations plus longues, pas
+    # plus courtes. Il reste un seuil d'observation, publié et lu par le seul check qui le nomme.
+    assert "$quote_max_chars" not in load_prompt("rediger")
     _v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))],
                                       settings=_settings(quote_max_chars=len(quote)))
     assert [c for c in step.checks if c.name == "quote_trop_longue"] == []
+    _v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))],
+                                      settings=_settings(quote_max_chars=len(quote) - 1))
+    assert [c for c in step.checks if c.name == "quote_trop_longue"]
 
 
 # --- « partiel » dit toujours ce qui manque (story 2.3) ---------------------

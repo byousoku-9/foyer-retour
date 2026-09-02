@@ -828,6 +828,7 @@ window.CHAT = (function () {
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
     raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
     refus: "refus composé, avec sa preuve d'absence",

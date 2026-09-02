@@ -17,7 +17,8 @@ from collections.abc import Iterable
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
-from server.app.domain.answer import AnswerDraft, AnswerSegment
+from server.app.corpus.text import normalize
+from server.app.domain.answer import AnswerDraft, AnswerSegment, Claim, Quote
 from server.app.domain.document import Block
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.errors import PipelineError
@@ -62,6 +63,62 @@ def _rubrique_parente(index: Index, block_id: str) -> str | None:
         return None
     titre = noeuds[parent_id].title.strip()
     return titre or None
+
+
+def _fusionner_quotes_du_meme_bloc(draft: AnswerDraft, *, index: Index,
+                                    doc_id: str) -> tuple[AnswerDraft, int]:
+    """Deux extraits d'un même bloc dans une même claim deviennent **un** passage qui les couvre.
+
+    Correctif du tour 2 (rapport rédiger §1, rapport citations A3). La règle « au plus une quote par
+    bloc » vivait dans le schéma du domaine : sa violation était donc **terminale**. Le retry unique
+    d'AD-16 était consommé, le modèle rejouait la même faute — c'est documenté comme observé en
+    live —, et l'utilisateur recevait un 503 sur une question nominale. Les deux issues que le
+    prompt proposait étaient fermées toutes les deux : le passage englobant dépassait la borne
+    annoncée, et la place de claims était déjà prise.
+
+    La fusion est exactement ce que fait déjà `verifier._controler_quote` pour retraduire une
+    occurrence : les extraits sont localisés dans le texte **normalisé** du bloc — la seule forme sur
+    laquelle une inclusion se prouve —, et le passage retenu va de `min(start)` à `max(end)`. Il est
+    rendu depuis ce même texte normalisé : *vérifier* le renormalisera pour le retrouver, puis
+    republiera le texte brut du corpus, comme pour toute autre citation (AD-3 — le texte affiché
+    est toujours relu depuis le corpus).
+
+    Un extrait qu'on ne retrouve pas dans le bloc n'est **pas** fusionné : ce n'est pas ici qu'on
+    juge une citation, et *vérifier* doit pouvoir la rejeter avec son motif actionnable.
+    """
+    fusions = 0
+    claims: list[Claim] = []
+    for claim in draft.claims:
+        par_bloc: dict[str, list[Quote]] = {}
+        for quote in claim.quotes:
+            par_bloc.setdefault(quote.block_id, []).append(quote)
+        if all(len(groupe) == 1 for groupe in par_bloc.values()):
+            claims.append(claim)
+            continue
+        quotes: list[Quote] = []
+        for block_id, groupe in par_bloc.items():
+            if len(groupe) == 1:
+                quotes.append(groupe[0])
+                continue
+            try:
+                if index.doc_of(block_id) != doc_id:
+                    raise KeyError(block_id)
+                texte = index.corpus.documents[doc_id].block(block_id).text_norm
+            except KeyError:
+                quotes.extend(groupe)
+                continue
+            bornes = [(texte.find(normalize(q.quote)), len(normalize(q.quote))) for q in groupe]
+            if any(debut < 0 for debut, _ in bornes):
+                quotes.extend(groupe)  # au moins un extrait est introuvable : *vérifier* tranchera
+                continue
+            debut = min(debut for debut, _ in bornes)
+            fin = max(debut + longueur for debut, longueur in bornes)
+            quotes.append(Quote(block_id=block_id, quote=texte[debut:fin]))
+            fusions += 1
+        claims.append(claim.model_copy(update={"quotes": quotes}))
+    if not fusions:
+        return draft, 0
+    return draft.model_copy(update={"claims": claims}), fusions
 
 
 def _rattacher_claims_sinistre(draft: AnswerDraft, settings: Settings) -> tuple[AnswerDraft, int]:
@@ -161,8 +218,15 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # Un `doc_id` qui ne recouvre pas les blocs reçus enverrait au modèle le mauvais plan de lecture
         # sans aucune erreur — AD-16 : jamais de dégradé silencieux.
         raise ValueError(f"blocs hors du document {doc_id!r} : {etrangers}")
+    # `quote_max_chars` **n'est plus annoncé au modèle** (correctif du tour 2, rapport rédiger §4) :
+    # rien ne l'appliquait. Les citations qui le dépassent sont exactes, seulement bavardes, et sont
+    # servies telles quelles — la règle du dépôt est de borner, jamais de tronquer, et rejeter une
+    # citation exacte perdrait une preuve valide. Annoncer une borne que rien n'applique est ce
+    # qu'AD-16 refuse ailleurs sous le nom de dégradé silencieux ; et la fusion des extraits d'un
+    # même bloc rend les citations plus longues, pas plus courtes. Le seuil reste publié par
+    # `thresholds()` et observé par le check `quote_trop_longue` de *vérifier*.
     prefix = load_prompt("commun") + "\n\n" + render_prompt(
-        prompt, quote_min_chars=settings.quote_min_chars, quote_max_chars=settings.quote_max_chars,
+        prompt, quote_min_chars=settings.quote_min_chars,
         draft_max_segments=settings.draft_max_segments, draft_max_claims=settings.draft_max_claims,
     ) + "\n\n" + index.sommaire(doc_id)
     parts = [untrusted("historique", json.dumps([{"role": t.role, "texte": t.texte} for t in historique],
@@ -313,6 +377,12 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         exc.step = step
         raise
     draft = result.parsed
+    draft, fusions = _fusionner_quotes_du_meme_bloc(draft, index=index, doc_id=doc_id)
+    if fusions:
+        step.checks.append(CheckResult(
+            name="quotes_fusionnees", ok=True,
+            detail=f"{fusions} affirmation(s) citaient deux extraits d'un même bloc : fusionnés en "
+                   "un passage contigu qui les couvre, au lieu d'un échec de schéma terminal"))
     if prompt == "rediger_sinistre":
         # Revue 4.2a (I1) : aucune réécriture de claim en code. L'ancienne « ancre » remplaçait
         # claim et quote par le texte intégral du bloc fondateur : le contrôle de soutien devenait
