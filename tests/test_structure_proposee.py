@@ -2583,6 +2583,64 @@ def test_le_diagnostic_juge_tous_les_segments_ne_publie_rien_et_sarrete_sur_le_f
     assert [item["motif"] for item in charge["segments"]] == ["affectation_non_prouvee", None]
 
 
+def test_le_diagnostic_joue_la_couture_et_rapporte_un_lot_dont_chaque_segment_passe(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le trou de couverture du diagnostic : tous les segments verts, la publication rouge.
+
+    Les arêtes transfrontières ne sont vérifiables qu'à la couture — le vérificateur de segment les
+    retire pour juger le segment en isolation. Un diagnostic qui s'arrêtait aux verdicts par segment
+    annonçait donc bon un lot que la publication refusait : c'est ce qui est arrivé sur un contrat
+    réel, après six segments payés et acceptés.
+
+    Le lot ci-dessous rattache le second segment à une **ligne de corps** du premier. Un parent
+    n'est pas résolu par contenance — désigner du corps comme parent est une faute de catégorie,
+    pas une désignation approximative — et la couture le refuse, seule.
+    """
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+
+    class FauxParentVersLeCorps(FauxMessagesContinuationVersLeCorps):
+        """Le second segment se dit enfant de la dernière ligne du premier, qui n'intitule rien."""
+
+        def parse(self, **params: Any) -> Any:
+            message = super().parse(**params)
+            if len(self.calls) == 1:
+                return message
+            charge = json.loads(params["messages"][0]["content"])
+            corps = max(charge["ancres_frontiere"], key=lambda ancre: ancre["ordre"])["index"]
+            noeud = _noeud_index(
+                1, 1, len(charge["lignes"]) - 1,
+                article=s.oracle_article_uid(charge["lignes"][1]["texte"]))
+            noeud["parent_line_uid"] = corps
+            valeur = {"noeuds": [noeud], "continuations_frontiere": [{
+                "premiere_line_uid": 0, "derniere_line_uid": 0, "target_line_uid": corps}]}
+            return SimpleNamespace(
+                usage=self.usage, stop_reason="end_turn",
+                content=[SimpleNamespace(type="text", text=json.dumps(valeur))])
+
+    client = SimpleNamespace(messages=FauxParentVersLeCorps())
+
+    diagnostic = s.diagnostiquer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert [verdict.accepte for verdict in diagnostic.verdicts] == [True, True]
+    assert diagnostic.arret is None
+    assert diagnostic.couture_acceptee is False
+    assert "ancre non proposée" in diagnostic.couture_detail
+    assert diagnostic.charge()["couture_acceptee"] is False
+
+
+def test_le_diagnostic_rapporte_une_couture_acceptee_sans_rien_publier(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Et quand elle passe, elle est dite — sans qu'aucun artefact ne soit écrit."""
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+    client = SimpleNamespace(messages=FauxMessagesContinuationVersLeCorps())
+
+    diagnostic = s.diagnostiquer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert all(verdict.accepte for verdict in diagnostic.verdicts)
+    assert diagnostic.couture_acceptee is True and "nœud(s) cousus" in diagnostic.couture_detail
+    assert not hasattr(diagnostic, "proposition")
+
+
 def test_la_cli_diagnostic_ecrit_ses_verdicts_et_nemet_aucune_proposition(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Le fichier de diagnostic est déposé, `structure.json` ne l'est pas."""
@@ -2603,6 +2661,221 @@ def test_la_cli_diagnostic_ecrit_ses_verdicts_et_nemet_aucune_proposition(
     charge = json.loads(chemin.read_text("utf-8"))
     assert charge["doc_id"] == DOC and charge["arret"] is None
     assert charge["segments"] and all(item["accepte"] for item in charge["segments"])
+    assert charge["couture_acceptee"] is True
+
+
+def test_la_cli_diagnostic_est_rouge_quand_seule_la_couture_refuse(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un lot n'est vert que si la couture l'est : la publication ne demande rien de moins.
+
+    Le diagnostic est remplacé par son résultat, parce que c'est **la décision de la CLI** qui est
+    en cause ici — verdicts tous acceptés, couture refusée — et non la façon de l'obtenir.
+    """
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+
+    def diagnostic_cousu_refuse(_client: Any, plan: Any, *_args: Any, **_kwargs: Any) -> Any:
+        return s.DiagnosticStructure(
+            doc_id=DOC, plan_uid=plan.plan_uid, usage=s.Usage(),
+            verdicts=tuple(
+                s.VerdictSegment(index=segment.index, segment_uid=segment.segment_uid,
+                                 lignes=len(segment.line_uids), accepte=True, motif=None,
+                                 detail="", servi_du_cache=False, cout_eur=0.0, noeuds=1)
+                for segment in plan.segments),
+            couture_acceptee=False, couture_detail="couture refusée : cible irrésoluble")
+
+    monkeypatch.setattr(s, "diagnostiquer_plan", diagnostic_cousu_refuse)
+    sortie = io.StringIO()
+
+    code = s.main([DOC, "--data", str(dossier.parent), "--diagnostic",
+                   str(tmp_path / "diagnostic.json"), "--max-cost=5"],
+                  client=FauxClient(), settings=get_settings(), output=sortie)
+
+    assert code == 4
+    assert "couture globale : refusée" in sortie.getvalue()
+    assert not (dossier / "structure.json").exists()
+
+
+# --- 2 quater. La couture résout une cible par contenance ---------------------------------------
+
+class FauxMessagesContinuationVersLeCorps(FauxMessages):
+    """Le second segment continue la clause coupée, et vise **la ligne qu'il continue**.
+
+    C'est ce que le modèle fait naturellement : le catalogue d'ancres lui offre toute ligne brève
+    sans ponctuation finale, et une ligne de corps y entre. Il désigne donc le texte qu'il prolonge,
+    pas le titre de la section qui le contient.
+    """
+
+    def __init__(self, *, viser: str = "corps") -> None:
+        super().__init__()
+        self.viser = viser
+        self.premier = True
+
+    def parse(self, **params: Any) -> Any:
+        self.calls.append(params)
+        charge = json.loads(params["messages"][0]["content"])
+        lignes = charge["lignes"]
+        if self.premier:
+            self.premier = False
+            # Deux nœuds emboîtés : le titre de section, puis la sous-section la plus profonde qui
+            # se termine sur la dernière ligne du segment — celle que le segment suivant continue.
+            noeuds = [
+                # L'identité d'article est relue par l'oracle lui-même : le double ne prétend pas
+                # savoir ce que le code accepte, il lit la même ligne que lui.
+                _noeud_index(0, 0, len(lignes) - 1,
+                             article=s.oracle_article_uid(lignes[0]["texte"])),
+                _noeud_index(1, 1, len(lignes) - 1,
+                             article=s.oracle_article_uid(lignes[1]["texte"]), parent=0),
+            ]
+            valeur = {"noeuds": noeuds, "continuations_frontiere": []}
+        else:
+            ancres = charge["ancres_frontiere"]
+            cible = {
+                # La dernière ligne du segment précédent : du corps, contenue par deux nœuds.
+                "corps": max(ancres, key=lambda ancre: ancre["ordre"])["index"],
+                # Une ligne d'ancre qu'aucun nœud ne contient : le fail-closed doit tenir.
+                "orpheline": min(ancres, key=lambda ancre: ancre["ordre"])["index"],
+            }[self.viser]
+            valeur = {
+                "noeuds": [_noeud_index(
+                    1, 1, len(lignes) - 1,
+                    article=s.oracle_article_uid(lignes[1]["texte"]))],
+                "continuations_frontiere": [{
+                    "premiere_line_uid": 0, "derniere_line_uid": 0, "target_line_uid": cible,
+                }],
+            }
+        return SimpleNamespace(
+            usage=self.usage, stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text=json.dumps(valeur))])
+
+
+def _noeud_index(titre: int, premiere: int, derniere: int, *, article: str | None,
+                 parent: int | None = None) -> dict[str, Any]:
+    return {"titre_line_uid": titre, "premiere_line_uid": premiere,
+            "derniere_line_uid": derniere, "parent_line_uid": parent,
+            "title_line_uids": [titre], "article_uid": article,
+            "surface_class": "substantiel", "continuation_line_uids": [], "relations": []}
+
+
+def _plan_en_deux_segments(monkeypatch: pytest.MonkeyPatch, textes: list[list[str]],
+                           ) -> tuple[dict[str, s.Entree], Any, Settings]:
+    """Deux segments, un par page, **posés explicitement** plutôt que provoqués par la fenêtre.
+
+    La dichotomie choisit le plus long préfixe admissible ; la contraindre à couper à un endroit
+    précis demanderait de calibrer la fenêtre au token près, ce qui ne prouverait rien de plus. La
+    partition est donc donnée à `_construire_plan`, qui la fige et la chiffre comme les autres.
+    """
+    settings = get_settings()
+    pages = [_page(numero, lignes) for numero, lignes in enumerate(textes, 1)]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    ordonnes = tuple(registre)
+    coupe = len(textes[0])
+    plan = s._construire_plan([ordonnes[:coupe], ordonnes[coupe:]], registre,
+                              doc_id=DOC, settings=settings)
+    assert [len(segment.line_uids) for segment in plan.segments] == [coupe, len(textes[1])]
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    return registre, plan, settings
+
+
+_SECTION_COUPEE = [
+    ["Article 1 Les garanties dommages", "Sont exclus", "les eclats d'email ou de laque, les"],
+    ["degradations d'ordre esthetique.", "Article 2 Les exclusions generales",
+     "Les dommages volontaires sont exclus."],
+]
+
+
+def test_une_continuation_qui_vise_le_corps_est_resolue_vers_le_noeud_le_plus_profond(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le modèle désigne le texte qu'il prolonge ; la couture retrouve le nœud qui le porte.
+
+    Sans cette résolution, un lot dont tous les segments sont acceptés était refusé en entier à la
+    publication — mesuré sur un contrat réel — parce que la ligne visée n'intitulait aucun nœud. La
+    borne du nœud le plus profond **et celle de ses ancêtres** doivent alors s'étendre jusqu'à la
+    fin de la continuation.
+    """
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+    ordonnes = tuple(registre)
+    client = SimpleNamespace(messages=FauxMessagesContinuationVersLeCorps())
+
+    execution = s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    noeuds = {noeud.titre_line_uid: noeud for noeud in execution.proposition.noeuds}
+    profond, ancetre = ordonnes[1], ordonnes[0]
+    assert profond in noeuds and ancetre in noeuds
+    # La continuation couvre la première ligne du second segment : les deux bornes la rejoignent.
+    assert noeuds[profond].derniere_line_uid == ordonnes[3]
+    assert noeuds[ancetre].derniere_line_uid == ordonnes[3]
+    assert s.verifier(execution.proposition, registre, doc_id=DOC, settings=settings).accepte
+
+
+def test_la_resolution_prend_le_plus_profond_et_se_tait_quand_rien_ne_contient() -> None:
+    """La règle elle-même, éprouvée sur la fonction qui la porte.
+
+    Les nœuds qui contiennent une même ligne forment une chaîne d'emboîtements — le vérificateur de
+    segment a déjà refusé tout croisement —, donc le plus étroit **est** le plus profond.
+    """
+    pages = [_page(1, ["Article 1 Les garanties", "Sont exclus", "les eclats d'email,",
+                       "les egratignures.", "Article 2 Autre chose"])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    ordonnes = tuple(registre)
+    order_of = {uid: entree.ordre for uid, entree in registre.items()}
+    large = _noeud(_ordonnees(registre), 0, 0, 3, surface="substantiel", article="article:1")
+    etroit = _noeud(_ordonnees(registre), 1, 1, 3, surface="substantiel")
+
+    contenants = s.noeuds_contenant(ordonnes[2], [large, etroit], order_of)
+
+    assert [noeud.titre_line_uid for noeud in contenants] == [etroit.titre_line_uid,
+                                                              large.titre_line_uid]
+    # Une ligne hors de tout intervalle n'est contenue par personne : la couture refusera.
+    assert s.noeuds_contenant(ordonnes[4], [large, etroit], order_of) == []
+
+
+def test_une_continuation_dont_la_cible_nest_dans_aucun_noeud_reste_un_refus_nomme(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail-closed inchangé, et le refus dit **ce qu'il a lu** : ordre, page, texte tronqué.
+
+    Le premier segment ne couvre pas toutes ses lignes — c'est le cas qu'un segment fait de corps
+    continué produit réellement —, et le second vise l'une des lignes laissées hors de tout nœud.
+    """
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+    ordonnes = _ordonnees(registre)
+    premier = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(ordonnes, 0, 0, 1, surface="substantiel", article="article:1")])
+    second = s.StructureProposee(
+        schema_version="2", doc_id=DOC,
+        noeuds=[_noeud(ordonnes, 4, 4, 5, surface="substantiel", article="article:2")],
+        continuations_frontiere=[s.ContinuationFrontiereProposee(
+            premiere_line_uid=ordonnes[3].uid, derniere_line_uid=ordonnes[3].uid,
+            target_line_uid=ordonnes[2].uid)])
+
+    with pytest.raises(ValueError, match="couture refusée") as leve:
+        s._recoller(plan, [premier, second], registre, doc_id=DOC, settings=settings)
+
+    detail = str(leve.value)
+    assert "ordre 3, p.1" in detail and "les eclats d'email ou de laque" in detail
+    assert "qu'aucun nœud du segment 1 ne contient" in detail
+
+
+def test_aucune_cible_ne_peut_sortir_des_segments_et_la_couture_le_garde_quand_meme(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """« Hors segment » est **inatteignable par construction**, et la garde reste écrite.
+
+    Une cible de continuation est déjà contrainte à être une ancre de son segment ; les ancres sont
+    des lignes du registre ; les segments partitionnent le registre — la couture le revérifie
+    elle-même. Le témoin fixe cette chaîne plutôt que de mettre en scène une impossibilité : si
+    l'un de ses maillons cédait, la couture refuserait toujours au lieu de lever une erreur de clé.
+    """
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+    couverts = {uid for segment in plan.segments for uid in segment.line_uids}
+    assert couverts == set(registre), "les segments partitionnent le registre"
+    for segment in plan.segments:
+        assert {ancre.line_uid for ancre in segment.anchors} <= couverts
+
+    # La ligne visée est donc toujours lisible, et le refus peut la citer.
+    assert "ordre 1, p.1" in s._ligne_designee(tuple(registre)[0], registre)
 
 
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
