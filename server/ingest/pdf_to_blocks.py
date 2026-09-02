@@ -63,7 +63,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # vérifiée. La génération reste `10` : elle nomme la story, dont les artefacts committés sont déjà
 # déclarés périmés dans `docs/choix-et-limites.md`, et c'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact de la règle et change dès qu'elle change.
-PARSER_VERSION = "14-visual-baseline-review"
+PARSER_VERSION = "15-entree-de-sommaire-et-provenance"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -77,11 +77,17 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
                       "=>continuation_si_entrees_structurees;fragments_meme_bas_geometrique_et_colonne"
                       "=>gauche_droite;"
+                      "entree:numero+renvoi_a_droite_meme_ligne_de_base"
+                      "|forme_imprimee&nombre_final<=pages_du_document;"
+                      "fin_tdm:premier_groupe_numerote_non_entree(prefixe_contigu,sans_lecture_arriere)"
+                      "&meme_predicat_a_la_frontiere_de_page;"
                       "sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
+                      "surface_du_groupe=provenance(tdm|preliminaire),jamais_classe_de_page;"
                       "terminal:page_physiquement_blanche&queue_sans_article=>preliminaire_racine;"
-                      "symbole:famille_EuroMono&span_un_glyphe=>euro;"
+                      "symbole:nom_postscript(sans_prefixe_sous_ensemble;entier|sans_style_separe"
+                      "|sans_style_accole|premiere_section)&famille_EuroMono&span_un_glyphe=>euro;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
                       "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
                       "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
@@ -111,6 +117,9 @@ _PRINTED_TOC_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\.?\s+(.+?)(?:\s+\.{2,}\s*|\s+
 _TOC_LEADER_RE = re.compile(r"^\s*(\S.*?)\s*\.{2,}\s*\d{1,3}\s*$")
 _BULLET_FONTS = ("Wingdings",)
 _TERMINAL = (".", ";", ":")
+# Provenance d'un groupe → classe de surface. La provenance est la seule source : la classe de page
+# est fausse dès qu'une page porte à la fois des groupes préliminaires et son premier article.
+_SURFACE_DE_PROVENANCE = {"preliminaire": "preliminaire", "tdm": "table_des_matieres"}
 logger = logging.getLogger(__name__)
 
 
@@ -579,6 +588,50 @@ def _center_inside(bbox: list[float], container: list[float]) -> bool:
 
 
 _UNICODE_FONT_ROLES = {"euromono": "€"}
+# Préfixe de sous-ensemble PDF : exactement six lettres et `+` (« ABCDEF+Famille »). C'est la forme
+# que PyMuPDF rend le plus souvent, et elle n'appartient pas au nom de la famille.
+_FONT_SUBSET_PREFIX_RE = re.compile(r"^[a-z]{6}\+")
+# Séparateurs de sections d'un nom PostScript. L'espace en fait partie : « EuroMono Regular » est la
+# même police que « EuroMono-Regular ».
+_FONT_SECTION_RE = re.compile(r"[-_,+\s]+")
+_FONT_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+# Jetons de style connus, volontairement longs et sans abréviation ambiguë : ils ne servent qu'à
+# produire des lectures **supplémentaires** du nom. Un style hors de cette liste (`-Bd`, `-Cn`,
+# `-MT`) reste couvert par la dernière lecture, la première section séparée.
+_FONT_STYLE_TOKENS = frozenset({
+    "regular", "normal", "plain", "book", "roman", "italic", "oblique", "bold", "semibold",
+    "demibold", "extrabold", "ultrabold", "black", "heavy", "light", "extralight", "ultralight",
+    "thin", "medium", "bolditalic", "boldoblique", "italicbold",
+})
+
+
+def _font_family_candidates(font: str) -> list[str]:
+    """Lectures du nom PostScript, de la plus littérale à la plus réduite.
+
+    Un même dessin de police est annoncé sous des noms très différents selon le producteur du PDF :
+    ``EuroMono-Regular``, ``ABCDEF+EuroMono-Regular``, ``EuroMono Regular``, ``EuroMonoBold``,
+    ``EuroMono,Bold``, ``EuroMono-Bd``. Plutôt qu'une forme unique — qui rate toutes les autres —
+    le nom est lu en plusieurs candidats ordonnés, et c'est l'appelant qui retient le premier
+    reconnu : le nom entier, le nom privé de ses jetons de style séparés, le même privé d'un jeton
+    de style accolé, enfin la **première section séparée**, qui est la famille par convention
+    PostScript. L'ordre importe : une famille dont le nom finirait par un jeton de style resterait
+    atteignable par sa lecture littérale, qu'une réduction gloutonne lui aurait retirée.
+    """
+    name = _FONT_SUBSET_PREFIX_RE.sub("", font.casefold(), count=1)
+    sections = [section for section in _FONT_SECTION_RE.split(name) if section]
+    if not sections:
+        return []
+    entier = _FONT_ALNUM_RE.sub("", "".join(sections))
+    sans_style_separe = _FONT_ALNUM_RE.sub(
+        "", "".join(section for section in sections if section not in _FONT_STYLE_TOKENS)) or entier
+    sans_style_accole = next(
+        (sans_style_separe[: -len(token)]
+         for token in sorted(_FONT_STYLE_TOKENS, key=len, reverse=True)
+         if len(sans_style_separe) > len(token) and sans_style_separe.endswith(token)),
+        sans_style_separe)
+    premiere_section = _FONT_ALNUM_RE.sub("", sections[0])
+    return [candidate for candidate in dict.fromkeys(
+        (entier, sans_style_separe, sans_style_accole, premiere_section)) if candidate]
 
 
 def _decode_symbol_span(text: str, font: str) -> str:
@@ -586,11 +639,11 @@ def _decode_symbol_span(text: str, font: str) -> str:
 
     Une famille monofonction explicite comme ``EuroMono`` et un span d'un seul glyphe fournissent
     ensemble la preuve. Une famille textuelle comme ``Eurostile`` ou un span de plusieurs caractères
-    restent inchangés : leur seule apparence ne permet pas d'inventer un symbole.
+    restent inchangés : leur seule apparence ne permet pas d'inventer un symbole. ``EuroMonospace``
+    non plus : « space » n'est pas un jeton de style, aucune lecture du nom ne le réduit.
     """
-    family = re.split(r"[-_,+]", font.casefold(), maxsplit=1)[0]
-    font_role = re.sub(r"[^a-z0-9]+", "", family)
-    symbol = _UNICODE_FONT_ROLES.get(font_role)
+    symbol = next((_UNICODE_FONT_ROLES[candidate] for candidate in _font_family_candidates(font)
+                   if candidate in _UNICODE_FONT_ROLES), None)
     visible = [character for character in text if not character.isspace()]
     if symbol is None or len(visible) != 1:
         return text
@@ -791,23 +844,69 @@ def _has_toc_title(page: PageText) -> bool:
     )
 
 
+def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], tolerance: float) -> bool:
+    """Une ligne réduite à un numéro de page, à droite de celle-ci et sur la même ligne de base."""
+    return any(_PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
+               and candidate.bbox[0] > line.bbox[0]
+               and abs(candidate.bbox[1] - line.bbox[1]) <= tolerance
+               for candidate in lines)
+
+
+def _indice_de_page_annonce(text: str) -> int | None:
+    """Nombre final d'une entrée imprimée (points de conduite, ou « numérotation … nombre »)."""
+    value = text.strip()
+    if not (_TOC_LEADER_RE.match(value) or _PRINTED_TOC_RE.match(value)):
+        return None
+    final = re.search(r"(\d{1,3})\s*$", value)
+    return int(final.group(1)) if final else None
+
+
+def _est_entree_de_sommaire(line: PageLine, lines: Sequence[PageLine], page_count: int) -> bool:
+    """Prédicat de ligne unique : « ceci est une entrée de sommaire », à deux formes.
+
+    Ni le numéro ni la seule forme textuelle ne suffisent. Le correctif visuel propage volontairement
+    `number` à travers l'assemblage des fragments, donc une entrée numérotée est indiscernable d'un
+    titre d'article par son numéro. Et la forme imprimée seule, mesurée, accepte de la prose
+    contractuelle ordinaire : « 2 La franchise reste de 250 » commence par une numérotation et finit
+    par un entier. Deux propriétés tiennent, et le prédicat en est la disjonction :
+
+    1. **géométrique**, disponible avant assemblage — une ligne numérotée accompagnée, à sa droite
+       et sur la même ligne de base, d'une ligne réduite à un numéro de page. C'est déjà le signal
+       qui fait classer une page en TdM ;
+    2. **textuelle bornée**, disponible après assemblage — points de conduite, ou forme imprimée
+       dont le nombre final est un indice de page **possible de ce document** (``1..page_count``).
+       La borne est une condition nécessaire, pas suffisante : un renvoi imprimé peut différer de
+       l'indice physique. Elle suffit à rejeter l'impossible, et ne nomme ni montant, ni document,
+       ni page — c'est le nombre de pages du document courant.
+
+    Une entrée de sommaire qui ne porte **aucun** renvoi reste indiscernable d'un titre d'article :
+    la limite est assumée, et c'est la contiguïté du préfixe d'entrées qui en fait le tour, jamais
+    une lecture arrière sur la page — celle-ci coûtait des clauses juridiques entières.
+    """
+    text = line.text.strip()
+    if (_TOC_NUMBER_RE.match(text)
+            and _renvoi_de_page_a_droite(line, lines, get_settings().toc_page_number_baseline_pt)):
+        return True
+    renvoi = _indice_de_page_annonce(text)
+    return renvoi is not None and 1 <= renvoi <= page_count
+
+
 def _has_toc_entries(page: PageText) -> bool:
-    """Vrai si la page porte une entrée avec numéro en colonne ou points de conduite vers une page."""
+    """Vrai si la page porte une entrée avec numéro en colonne ou points de conduite vers une page.
+
+    Décision de **page**, volontairement plus permissive que `_est_entree_de_sommaire` : elle ouvre
+    la TdM et ne peut pas se borner au nombre de pages du document, que ce niveau ne connaît pas.
+    C'est le prédicat de ligne, lui, qui décide où la TdM *finit* — les deux ne se confondent pas.
+    """
     settings = get_settings()
     texts = [line.text for line in page.lines]
     texts.extend(" ".join(cell.strip() for cell in row if cell.strip())
                  for table in page.tables for row in table.rows)
     if any(_PRINTED_TOC_RE.match(text.strip()) or _TOC_LEADER_RE.match(text.strip()) for text in texts):
         return True
-    for line in page.lines:
-        if _TOC_NUMBER_RE.match(line.text.strip()) and any(
-            _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
-            and candidate.bbox[0] > line.bbox[0]
-            and abs(candidate.bbox[1] - line.bbox[1]) <= settings.toc_page_number_baseline_pt
-            for candidate in page.lines
-        ):
-            return True
-    return False
+    return any(_TOC_NUMBER_RE.match(line.text.strip())
+               and _renvoi_de_page_a_droite(line, page.lines, settings.toc_page_number_baseline_pt)
+               for line in page.lines)
 
 
 def _mark_toc_pages(pages: list[PageText]) -> None:
@@ -817,7 +916,12 @@ def _mark_toc_pages(pages: list[PageText]) -> None:
     for page in pages:
         structural = _has_toc_entries(page)
         visible_title = _has_toc_title(page)
-        has_article = any(line.number is not None for line in page.lines)
+        # La fin de la TdM se décide aussi **à la frontière de page**. Une ligne numérotée appariée à
+        # un renvoi n'est pas un article : sans ce prédicat, une TdM numérotée sur plusieurs pages
+        # publiait ses pages 2 et suivantes en articles citables.
+        has_article = any(line.number is not None
+                          and not _est_entree_de_sommaire(line, page.lines, len(pages))
+                          for line in page.lines)
         if toc_finished:
             page.is_toc = False
             page.after_toc = True
@@ -1719,7 +1823,16 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
 
     def add_preliminary_groups(page: PageText, groups: list[tuple[str, list[PageLine]]], *,
                                table_source: str) -> None:
-        """Fusionne le texte préliminaire contigu, mais jamais à travers une table atomique."""
+        """Fusionne le texte préliminaire contigu, mais jamais à travers une table atomique.
+
+        La classe de surface de ces groupes vient de **leur provenance**, jamais de la classe de leur
+        page. Sur une page mixte la page est légitimement `substantiel` — elle porte le premier
+        article — et seuls les groupes situés avant lui sont préliminaires. La projeter depuis la
+        page rendait ces groupes citables dès que l'OCR occupait `source_field` et privait donc le
+        validateur de `Block` de son unique repli. Les cas purs, eux, sont inchangés : la classe de
+        page y vaut déjà celle de la provenance.
+        """
+        surface = _SURFACE_DE_PROVENANCE[table_source]
         pending: list[PageLine] = []
         pending_position: tuple[int, int] | None = None
 
@@ -1728,7 +1841,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             if pending:
                 provenance = "ocr" if page.ocr_succeeded else table_source
                 b.add_block(page.page, list(pending), "autre",
-                            source_field=provenance, surface_class=page.surface_class)
+                            source_field=provenance, surface_class=surface)
                 pending.clear()
                 pending_position = None
 
@@ -1739,7 +1852,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 # que l'index peut appliquer aux recherches, fréquences et fenêtres.
                 provenance = "ocr" if page.ocr_succeeded else table_source
                 b.add_block(page.page, lines, "table", source_field=provenance,
-                            surface_class=page.surface_class)
+                            surface_class=surface)
             else:
                 # Une page préliminaire ou une TdM peut être multicolonne elle aussi. La fusion
                 # historique de tous ses groupes en un seul bloc recollait les deux côtés après
@@ -1789,8 +1902,13 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 b.order.append(toc_node.node_id)
                 b.root.items.append(NodeRef(node_id=toc_node.node_id))
             saved, b.current = b.current, toc_node
-            first_article_group = next((i for i, (_, lines) in enumerate(groups)
-                                        if lines[0].number is not None), None)
+            # Contiguïté : sur une page de sommaire les entrées forment un préfixe contigu, et le
+            # corps commence au premier groupe numéroté qui n'est **pas** une entrée. Il ne se
+            # referme plus : une clause dont le texte a la forme d'un renvoi reste citable.
+            first_article_group = next(
+                (i for i, (_, lines) in enumerate(groups)
+                 if lines[0].number is not None
+                 and not _est_entree_de_sommaire(lines[0], pt.lines, len(pages))), None)
             toc_groups = groups if first_article_group is None else groups[:first_article_group]
             add_preliminary_groups(pt, toc_groups, table_source="tdm")
             b.current = saved
