@@ -979,8 +979,13 @@ def test_lecture_2_batch_echec_ou_timeout_termine_et_audite_chaque_identite(
     assert all("trusted_line_uids" in event for event in errors)
 
 
-def test_run_execute_la_troisieme_lecture_pour_les_quatre_desaccords_et_projette_les_effets(
+def test_seul_un_desaccord_de_la_surface_contractuelle_arbitre_et_les_effets_sont_projetes(
         tmp_path: Path) -> None:
+    """Deux blocs arbitrés sur quatre : le `kind` et le seuil de confiance, jamais les métadonnées.
+
+    Les deux autres blocs ne divergent que sur `scope_articles` et `article_refs` — que les prompts
+    des lectures 2 et 3 ne demandent pas. Ils se confirment sans arbitre, donc sans dépense.
+    """
     doc_dir, doc = write_data(tmp_path)
     audit_path = tmp_path / "audit" / "typing.jsonl"
 
@@ -1021,21 +1026,25 @@ def test_run_execute_la_troisieme_lecture_pour_les_quatre_desaccords_et_projette
 
     messages = ArbitrationMessages()
     client = SimpleNamespace(messages=messages)
+    journal = io.StringIO()
     tc.run(
         doc_dir,
         settings=settings(
             llm_audit_path=audit_path, type_clauses_max_blocks_per_request=1,
             type_clauses_standard_concurrency=1,
         ),
-        client=client, transport="standard", max_cost=12, output=io.StringIO(),
+        client=client, transport="standard", max_cost=12, output=journal,
     )
 
     third_calls = [call for call in messages.calls if call["system"][0]["text"] == tc._prompt(3)]
-    assert len(third_calls) == 4
+    arbitres = {block.block_id for position, block in enumerate(doc.blocks) if position in (0, 3)}
+    assert len(third_calls) == 2
     assert {json.loads(call["messages"][0]["content"])["blocks"][0]["block_id"]
-            for call in third_calls} == {block.block_id for block in doc.blocks}
+            for call in third_calls} == arbitres
+    # La troisième lecture se nomme dans le journal comme les deux premières.
+    assert "arbitrage : 2 appel(s), coût cumulé acquis " in journal.getvalue()
     report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
-    assert report.stats["arbitration_request_count"] == 4
+    assert report.stats["arbitration_request_count"] == 2
     decisions = report.stats["t2_terminal_decisions"]
     assert all(decision["state"] == "CONFIRMED" for decision in decisions)
     assert all((decision["retrieval_effect"], decision["citation_effect"],
@@ -1046,6 +1055,75 @@ def test_run_execute_la_troisieme_lecture_pour_les_quatre_desaccords_et_projette
         typed.block(decision["block_id"]).scope_node_id
         or typed.block(decision["block_id"]).scope_node_ids
     )) for decision in decisions)
+
+
+def test_une_confirmation_limitee_aux_champs_de_son_prompt_confirme_le_kind() -> None:
+    """Le témoin `p34:12` : trois lectures unanimes sur le `kind`, à des confiances différentes.
+
+    Les lectures 2 et 3 ne rendent que ce que leur prompt demande — c'est désormais tout ce que leur
+    schéma leur permet de rendre. Un `confidence` différent de celui de T1 n'est pas un désaccord.
+    """
+    doc = miniature()
+    blocks = doc.blocks[:2]
+    configured = settings(type_clauses_max_blocks_per_request=1)
+    first = {
+        blocks[0].block_id: label(blocks[0].block_id, "garantie", confidence=0.88,
+                                  article_refs=["2"], scope_articles=["3.1"]),
+        blocks[1].block_id: label(blocks[1].block_id, "definition", confidence=0.88,
+                                  defines="contenu", overrides_article="1"),
+    }
+    plans = tc.requests_for(doc, blocks, 2, configured)
+    texts = {
+        plans[0].custom_id: json.dumps({"labels": [
+            {"block_id": blocks[0].block_id, "kind": "garantie", "confidence": 0.85}]}),
+        plans[1].custom_id: json.dumps({"labels": [
+            {"block_id": blocks[1].block_id, "kind": "definition", "confidence": 0.9,
+             "defines": "contenu"}]}),
+    }
+    second, failed = tc.parse_reading_tolerant(texts, plans, doc, configured)
+    assert not failed and set(second) == {block.block_id for block in blocks}
+
+    decisions = tc.terminal_t2_decisions(
+        first, second, plans,
+        confidence_min=configured.type_clauses_arbitration_confidence_min,
+        confidence_tolerance=configured.type_clauses_confidence_tolerance)
+    assert [(decision.state, decision.reason, decision.kind_t2) for decision in decisions] == [
+        ("CONFIRMED", "KIND_MATCH", "garantie"), ("CONFIRMED", "KIND_MATCH", "definition")]
+    # Aucun arbitrage n'est même planifié : il n'y a pas de désaccord à trancher.
+    assert not [block for block in blocks if tc._critical_disagreement(
+        first[block.block_id], second[block.block_id],
+        confidence_min=configured.type_clauses_arbitration_confidence_min,
+        confidence_tolerance=configured.type_clauses_confidence_tolerance)]
+
+
+def test_aucun_champ_absent_des_prompts_2_et_3_n_entre_dans_la_surface_comparee() -> None:
+    """Rouge dès qu'un champ que les lectures 2 et 3 ne doivent pas rendre entre dans la comparaison.
+
+    Les quatre champs hors contrat sont ceux que `_same_critical_payload` exigeait de T2/T3 alors
+    qu'aucun prompt ne les demandait, et que le schéma complet les invitait à remplir.
+    """
+    hors_contrat = set(tc.ClauseLabel.model_fields) - set(tc.ConfirmationLabel.model_fields)
+    assert hors_contrat == {"article_refs", "scope_articles", "overrides_article", "relations"}
+    assert set(tc.CONFIRMATION_COMPARED_FIELDS) == (
+        set(tc.ConfirmationLabel.model_fields) - {"confidence"})
+    assert set(tc.CONFIRMATION_COMPARED_FIELDS).isdisjoint(hors_contrat)
+    # Chaque champ comparé est nommé par les deux prompts qui doivent le rendre.
+    for reading in (2, 3):
+        prompt = tc._prompt(reading)
+        assert all(name in prompt for name in tc.CONFIRMATION_COMPARED_FIELDS
+                   if name != "block_id")
+    # Le schéma des lectures 2 et 3 ne fait plus exister les champs hors contrat dans leur sortie.
+    confirmation_schema = json.dumps(tc._schema())
+    assert all(name not in confirmation_schema for name in hors_contrat)
+    assert all(name in json.dumps(tc._schema(("contrat:p1:1",))) for name in hors_contrat)
+
+    # Et la comparaison elle-même : deux lectures qui ne divergent que hors contrat sont d'accord.
+    divergent = tc.ClauseLabel(
+        block_id="contrat:p1:1", kind="garantie", confidence=0.9, article_refs=["9"],
+        scope_articles=["3.1.1.1"], overrides_article="4",
+        relations=[{"kind": "specialise", "article": "1"}])
+    assert tc._same_critical_payload(label("contrat:p1:1", "garantie"), divergent)
+    assert not tc._critical_disagreement(label("contrat:p1:1", "garantie"), divergent)
 
 
 def test_causes_echec_et_timeout_t3_restent_terminales_et_sans_effet() -> None:

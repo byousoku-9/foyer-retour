@@ -56,7 +56,7 @@ ARTICLE_RE = re.compile(r"^\d+(?:\.\d+)*$")
 ARTICLE_RANGE_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*(?:-|à)\s*(\d+(?:\.\d+)*)$")
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 STRUCTURAL_KINDS = frozenset({"para", "heading", "table", "list", "autre"})
-TYPING_RULES_VERSION = "5.0-t2-terminal"
+TYPING_RULES_VERSION = "5.1-t2-confirmation-surface"
 T2_ELIGIBILITY_MODE = "ISOLATED"
 
 
@@ -69,19 +69,50 @@ class RelationLabel(StrictModel):
     article: str
 
 
-class ClauseLabel(StrictModel):
+class ConfirmationLabel(StrictModel):
+    """La surface **contractuelle** des lectures 2 et 3 : exactement ce que leurs prompts demandent.
+
+    `prompts/type_clauses_2.md` et `_3.md` ne demandent que `kind`, `confidence` et `defines` — et
+    le `block_id` qui les rattache à leur bloc. Ce modèle est la seule expression de cette surface,
+    et il sert aux **deux** bouts de la confirmation : `_schema()` en dérive le schéma envoyé aux
+    lectures 2 et 3, de sorte que les champs non demandés cessent d'exister dans leur sortie, et
+    `_same_critical_payload` en énumère les champs comparés, plutôt que de les lister à la main.
+
+    C'est cette double dérivation qui ferme le défaut : tant que la comparaison recopiait une liste
+    de champs de `ClauseLabel`, elle exigeait des lectures 2 et 3 la reproduction à l'identique de
+    métadonnées que leur prompt ne leur demandait pas — et que le schéma complet les invitait
+    pourtant à remplir. Ajouter un champ à `ClauseLabel` ne peut plus élargir la surface comparée ;
+    seul un champ ajouté **ici**, donc demandé aux deux prompts, l'élargit — exprès.
+    """
+
     block_id: str
     kind: MODEL_KINDS
     confidence: float = Field(ge=0, le=1)
+    defines: str | None = None
+
+
+class ClauseLabel(ConfirmationLabel):
+    """La lecture 1 : la surface de confirmation, plus les métadonnées qu'elle seule produit."""
+
     article_refs: list[str] = Field(default_factory=list)
     scope_articles: list[str] = Field(default_factory=list)
-    defines: str | None = None
     overrides_article: str | None = None
     relations: list[RelationLabel] = Field(default_factory=list)
 
 
+# `confidence` n'entre pas dans la comparaison de payload : elle a ses propres gardes nommées
+# (`confidence_min`, `type_clauses_confidence_tolerance`). Tout le reste de la surface
+# contractuelle y entre, énuméré depuis le modèle et jamais recopié.
+CONFIRMATION_COMPARED_FIELDS = tuple(
+    name for name in ConfirmationLabel.model_fields if name != "confidence")
+
+
 class ReadingOutput(StrictModel):
     labels: list[ClauseLabel]
+
+
+class ConfirmationOutput(StrictModel):
+    labels: list[ConfirmationLabel]
 
 
 class T1RegistryEntry(StrictModel):
@@ -150,6 +181,7 @@ def terminal_t2_decisions(
     first: dict[str, ClauseLabel], second: dict[str, ClauseLabel], plans: list[RequestPlan],
     *, failed_plan_ids: set[str] | None = None, timeout_plan_ids: set[str] | None = None,
     arbitration: dict[str, ClauseLabel] | None = None, confidence_min: float = 0.0,
+    confidence_tolerance: float = 1.0,
     arbitration_plans: list[RequestPlan] | None = None,
     failed_arbitration_plan_ids: set[str] | None = None,
     timeout_arbitration_plan_ids: set[str] | None = None,
@@ -178,7 +210,8 @@ def terminal_t2_decisions(
             reason, kind_t2 = "FAILED", None
         elif confirmation is None:
             reason, kind_t2 = "FAILED", None
-        elif _critical_disagreement(label, confirmation, confidence_min=confidence_min):
+        elif _critical_disagreement(label, confirmation, confidence_min=confidence_min,
+                                    confidence_tolerance=confidence_tolerance):
             arbiter = arbitration.get(entry.block_id)
             kind_t2 = confirmation.kind
             arbitration_plan_id = arbitration_plan_by_block.get(entry.block_id)
@@ -227,22 +260,87 @@ def terminal_effects(decisions: tuple[T2TerminalDecision, ...], typed: Document
     return tuple(projected)
 
 
+def decision_stats(
+    first: dict[str, ClauseLabel], decisions: tuple[T2TerminalDecision, ...],
+    second_plans: list[RequestPlan], third_plans: list[RequestPlan], *, model_run_uid: str,
+    consumed_plan_ids: set[str], failed_t2: set[str], timeout_t2: set[str],
+    failed_t3: set[str], timeout_t3: set[str],
+) -> dict[str, Any]:
+    """Le registre publié des décisions terminales — une seule fois, pour tous ceux qui le publient.
+
+    Le typage payant et le rejeu hors réseau d'un audit décrivent la **même** campagne : ils doivent
+    en publier le registre sous la même forme, sans qu'une des deux voies dérive de l'autre.
+    """
+    registry_t1 = t1_registry(first, model_run_uid=model_run_uid)
+    t1_uid_by_block = {entry.block_id: entry.t1_uid
+                       for entry in _t1_entries(first, model_run_uid=model_run_uid)}
+    renvoi_decisions = [
+        decision for decision in decisions
+        if decision.t1_uid in {entry.t1_uid for entry in registry_t1}
+    ]
+    plan_surface = [
+        {"plan_id": plan.custom_id, "order": order, "block_ids": list(plan.block_ids),
+         "t1_uids": [t1_uid_by_block[block_id] for block_id in plan.block_ids],
+         "plan_hash": _uid("t2-plan", plan.request)}
+        for order, plan in enumerate(second_plans)
+    ]
+    consumed_surface = [entry for entry in plan_surface if entry["plan_id"] in consumed_plan_ids]
+    # Même fonction d'identité des deux côtés : l'égalité porte sur la surface, pas sur le nom du
+    # moment où elle est observée. Deux préfixes différents rendaient l'égalité impossible même
+    # lorsque ordre, cardinalité et contenu étaient strictement identiques.
+    return {
+        "t2_eligibility_mode": T2_ELIGIBILITY_MODE,
+        "t1_registry": [entry.model_dump(mode="json") for entry in registry_t1],
+        "t1_registry_hash": t1_registry_hash(registry_t1),
+        "t2_terminal_decisions": [decision.model_dump(mode="json") for decision in decisions],
+        "t2_renvoi_terminal_decisions": [
+            decision.model_dump(mode="json") for decision in renvoi_decisions],
+        "t2_renvoi_terminal_ids_equal_registry": (
+            {decision.t1_uid for decision in renvoi_decisions}
+            == {entry.t1_uid for entry in registry_t1}),
+        "t2_planned_surface": plan_surface,
+        "t2_consumed_surface": consumed_surface,
+        "t2_planned_plan_hash": _uid("t2-plan-surface", plan_surface),
+        "t2_consumed_plan_hash": _uid("t2-plan-surface", consumed_surface),
+        "t2_planned_order": [entry["plan_id"] for entry in plan_surface],
+        "t2_consumed_order": [entry["plan_id"] for entry in consumed_surface],
+        "t2_plan_ids": [plan.custom_id for plan in second_plans],
+        "t2_plan_count": len(second_plans),
+        "t2_terminal_count": len(decisions),
+        "t2_failed_plan_ids": sorted(failed_t2),
+        "t2_timeout_plan_ids": sorted(timeout_t2),
+        "arbitration_request_count": len(third_plans),
+        "arbitration_failed_plan_ids": sorted(failed_t3),
+        "arbitration_timeout_plan_ids": sorted(timeout_t3),
+    }
+
+
 def _same_critical_payload(first: ClauseLabel, second: ClauseLabel) -> bool:
-    return (
-        first.kind == second.kind
-        and first.scope_articles == second.scope_articles
-        and (first.article_refs, first.defines, first.overrides_article, first.relations)
-        == (second.article_refs, second.defines, second.overrides_article, second.relations)
-    )
+    """Compare les deux lectures **sur la seule surface que leurs prompts contractent**.
+
+    Les champs sont énumérés depuis `ConfirmationLabel` : une réponse produite sous un schéma plus
+    large — un audit archivé, une reprise — peut porter des métadonnées supplémentaires sans que la
+    confirmation les exige, puisqu'elles n'ont jamais été demandées à la lecture qui les a rendues.
+    """
+    return all(getattr(first, name) == getattr(second, name)
+               for name in CONFIRMATION_COMPARED_FIELDS)
 
 
 def _critical_disagreement(
-        first: ClauseLabel, second: ClauseLabel | None, *, confidence_min: float = 0.0) -> bool:
+        first: ClauseLabel, second: ClauseLabel | None, *, confidence_min: float = 0.0,
+        confidence_tolerance: float = 1.0) -> bool:
+    """Le désaccord est **sémantique**, jamais l'inégalité de deux flottants de confiance.
+
+    Exiger le même `confidence` de deux lectures indépendantes n'était pas un test de désaccord :
+    0,88 contre 0,85 arbitrait des blocs sur lesquels les deux lectures disaient la même chose. Le
+    « pas assez sûr » est déjà dit par `confidence_min` ; un écart qui doit compter s'exprime par la
+    tolérance nommée `type_clauses_confidence_tolerance`, jamais par une égalité stricte.
+    """
     if second is None:
         return True
     return any((
         not _same_critical_payload(first, second),
-        first.confidence != second.confidence,
+        abs(first.confidence - second.confidence) > confidence_tolerance,
         first.confidence < confidence_min,
         second.confidence < confidence_min,
     ))
@@ -310,8 +408,17 @@ def _attr(obj: Any, name: str, default: Any = None) -> Any:
 
 
 def _schema(exact_block_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+    """Deux surfaces, une par rôle de lecture — et la sortie du modèle ne peut plus les confondre.
+
+    Lecture 1 (`exact_block_ids` fournis) : `ClauseLabel` complet, couverture exacte imposée par le
+    schéma. Lectures 2 et 3 : `ConfirmationLabel`, c'est-à-dire exactement ce que leurs prompts
+    demandent. Le schéma complet leur était envoyé jusqu'ici : `scope_articles`, `relations`,
+    `article_refs` et `overrides_article` existaient dans leur sortie, le modèle les remplissait
+    spontanément, et la confirmation s'en servait pour refuser des accords réels.
+    """
     if exact_block_ids is None:
-        return {"type": "json_schema", "schema": anthropic.transform_schema(ReadingOutput.model_json_schema())}
+        return {"type": "json_schema",
+                "schema": anthropic.transform_schema(ConfirmationOutput.model_json_schema())}
     # L'API ne supporte `minItems` que pour 0 ou 1. Un objet fermé dont chaque `block_id` est une
     # propriété obligatoire exprime en revanche exactement la couverture attendue, sans texte ni
     # index positionnel. L'étiquette répète son `block_id`; le code vérifie l'égalité avec sa clé.
@@ -1799,7 +1906,8 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             if t2_confirmable(label) and second.get(block_id) is not None
             and _critical_disagreement(
                 label, second.get(block_id),
-                confidence_min=settings.type_clauses_arbitration_confidence_min)
+                confidence_min=settings.type_clauses_arbitration_confidence_min,
+                confidence_tolerance=settings.type_clauses_confidence_tolerance)
         ]
         third_plans = requests_for(
             doc, disputed_blocks, 3, settings,
@@ -1823,6 +1931,10 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             standard_requests += len(third_plans)
             standard_cost += third_cost
             total_cost = round(total_cost + third_cost, 4)
+            # La troisième lecture se nomme dans le journal comme les deux autres : un run a pu
+            # dépenser 2,30 € d'arbitrage sans qu'aucune ligne ne le dise.
+            print(f"arbitrage : {len(third_plans)} appel(s), coût cumulé acquis "
+                  f"{arbitration_guard.spent:.4f} €", file=output)
         decisions = terminal_t2_decisions(
             first, second, second_plans, failed_plan_ids=failed_t2,
             timeout_plan_ids=timeout_t2,
@@ -1831,6 +1943,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             failed_arbitration_plan_ids=failed_t3,
             timeout_arbitration_plan_ids=timeout_t3,
             confidence_min=settings.type_clauses_arbitration_confidence_min,
+            confidence_tolerance=settings.type_clauses_confidence_tolerance,
             model_run_uid=f"typing:{first_batch_id or plan_campaign}")
         cumulative_cost = round((prior_cost_eur or batch_cost) + standard_cost, 4)
         rejected_definitions = definition_rejections(doc, first)
@@ -1848,51 +1961,12 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         rejected_definitions=rejected_definitions,
     )
     model_run_uid = f"typing:{first_batch_id or plan_campaign}"
-    registry_t1 = t1_registry(first, model_run_uid=model_run_uid)
-    all_t1 = _t1_entries(first, model_run_uid=model_run_uid)
-    t1_uid_by_block = {entry.block_id: entry.t1_uid for entry in all_t1}
-    renvoi_decisions = [
-        decision for decision in decisions
-        if decision.t1_uid in {entry.t1_uid for entry in registry_t1}
-    ]
-    plan_surface = [
-        {"plan_id": plan.custom_id, "order": order, "block_ids": list(plan.block_ids),
-         "t1_uids": [t1_uid_by_block[block_id] for block_id in plan.block_ids],
-         "plan_hash": _uid("t2-plan", plan.request)}
-        for order, plan in enumerate(second_plans)
-    ]
-    consumed_ids = set(second_texts) | failed_t2 | timeout_t2
-    consumed_surface = [entry for entry in plan_surface if entry["plan_id"] in consumed_ids]
-    # Même fonction d'identité des deux côtés : l'égalité porte sur la surface, pas sur le nom du
-    # moment où elle est observée. Deux préfixes différents rendaient l'égalité impossible même
-    # lorsque ordre, cardinalité et contenu étaient strictement identiques.
-    planned_plan_hash = _uid("t2-plan-surface", plan_surface)
-    consumed_plan_hash = _uid("t2-plan-surface", consumed_surface)
-    typed_report.stats.update({
-        "t2_eligibility_mode": T2_ELIGIBILITY_MODE,
-        "t1_registry": [entry.model_dump(mode="json") for entry in registry_t1],
-        "t1_registry_hash": t1_registry_hash(registry_t1),
-        "t2_terminal_decisions": [decision.model_dump(mode="json") for decision in decisions],
-        "t2_renvoi_terminal_decisions": [
-            decision.model_dump(mode="json") for decision in renvoi_decisions],
-        "t2_renvoi_terminal_ids_equal_registry": (
-            {decision.t1_uid for decision in renvoi_decisions}
-            == {entry.t1_uid for entry in registry_t1}),
-        "t2_planned_surface": plan_surface,
-        "t2_consumed_surface": consumed_surface,
-        "t2_planned_plan_hash": planned_plan_hash,
-        "t2_consumed_plan_hash": consumed_plan_hash,
-        "t2_planned_order": [entry["plan_id"] for entry in plan_surface],
-        "t2_consumed_order": [entry["plan_id"] for entry in consumed_surface],
-        "t2_plan_ids": [plan.custom_id for plan in second_plans],
-        "t2_plan_count": len(second_plans),
-        "t2_terminal_count": len(decisions),
-        "t2_failed_plan_ids": sorted(failed_t2),
-        "t2_timeout_plan_ids": sorted(timeout_t2),
-        "arbitration_request_count": len(third_plans),
-        "arbitration_failed_plan_ids": sorted(failed_t3),
-        "arbitration_timeout_plan_ids": sorted(timeout_t3),
-    })
+    typed_report.stats.update(decision_stats(
+        first, decisions, second_plans, third_plans, model_run_uid=model_run_uid,
+        consumed_plan_ids=set(second_texts) | failed_t2 | timeout_t2,
+        failed_t2=failed_t2, timeout_t2=timeout_t2,
+        failed_t3=failed_t3, timeout_t3=timeout_t3,
+    ))
     if transport in {"standard", "standard-resume"}:
         if transport == "standard":
             transport_detail = (

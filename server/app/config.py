@@ -775,6 +775,12 @@ class Settings(BaseSettings):
     # les blocs seraient juridiques. Le coût publié après exécution vient toujours de l'usage API.
     type_clauses_max_cost_eur: float = Field(12.0, gt=0)
     type_clauses_arbitration_confidence_min: float = Field(0.8, ge=0, le=1)
+    # Écart de confiance toléré entre deux lectures indépendantes avant de parler de désaccord. Le
+    # défaut `1.0` — l'écart maximal possible — dit qu'aucun écart de confiance ne fait à lui seul
+    # un désaccord : deux lectures qui donnent le même `kind` à 0,88 et 0,85 sont d'accord, et le
+    # « pas assez sûr » est déjà porté par `type_clauses_arbitration_confidence_min`. Abaisser ce
+    # seuil est la seule façon de faire compter un écart ; l'égalité stricte n'en est pas une.
+    type_clauses_confidence_tolerance: float = Field(1.0, ge=0, le=1)
     type_clauses_batch_poll_s: float = Field(20.0, gt=0)
     type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
     # Transport CLI de reprise (jamais utilisé par le runtime HTTP) : Messages standard, sans
@@ -1084,6 +1090,7 @@ class Settings(BaseSettings):
             "type_clauses_max_output_tokens": self.type_clauses_max_output_tokens,
             "type_clauses_max_cost_eur": self.type_clauses_max_cost_eur,
             "type_clauses_arbitration_confidence_min": self.type_clauses_arbitration_confidence_min,
+            "type_clauses_confidence_tolerance": self.type_clauses_confidence_tolerance,
             "type_clauses_batch_poll_s": self.type_clauses_batch_poll_s,
             "type_clauses_batch_timeout_s": self.type_clauses_batch_timeout_s,
             "type_clauses_standard_concurrency": self.type_clauses_standard_concurrency,
