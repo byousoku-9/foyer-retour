@@ -77,6 +77,21 @@ def _registre(pages: list[p.PageText]) -> dict[str, s.Entree]:
     return s.registre_lignes(pages)
 
 
+def _settings_segmentees(**extra: Any) -> Settings:
+    """Configuration synthétique des témoins qui segmentent par la **fenêtre d'entrée**.
+
+    La capacité de sortie d'un segment est dérivée de sa taille (réserve de réflexion + tokens par
+    ligne) et borne le découpage à son tour. Les témoins ci-dessous ne portent pas sur cette
+    règle-là : ils la rendent donc triviale et lisible — un token de sortie par ligne, aucune
+    réflexion — au lieu d'hériter des coefficients calibrés sur un contrat réel, qui feraient
+    refuser un corpus de sept lignes pour cause de plafond à 64. La règle de sortie a ses propres
+    témoins, avec des coefficients réalistes.
+    """
+    return Settings(_env_file=None, structure_max_output_tokens=64,
+                    structure_thinking_reserve_tokens=0,
+                    structure_output_tokens_per_line=1.0, **extra)
+
+
 def _proposition(**remplacements: Any) -> s.StructureProposee:
     """Proposition valide sur le corpus ; les tests n'en changent qu'un trait à la fois."""
     noeuds = [
@@ -939,7 +954,11 @@ def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acce
     proposition, cout = s.proposer(client, registre, doc_id=DOC, settings=get_settings())
     params = client.messages.calls[0]
     assert params["model"] == s.MODEL and params["output_config"]["effort"] == "high"
-    assert params["max_tokens"] == get_settings().structure_max_output_tokens
+    # `max_tokens` est **dérivé** de la taille du segment, pas copié du plafond : réserve de
+    # réflexion + tokens de sortie par ligne, sous `STRUCTURE_MAX_OUTPUT_TOKENS`.
+    reglages = get_settings()
+    assert params["max_tokens"] == s.max_tokens_segment(len(registre), reglages)
+    assert params["max_tokens"] < reglages.structure_max_output_tokens
     assert cout > 0 and proposition.doc_id == DOC
     assert proposition.noeuds[0].titre_line_uid == "p1:l1"
     assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
@@ -948,11 +967,13 @@ def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acce
 def test_plan_segmentaire_est_deterministe_bijectif_et_admissible_dans_la_fenetre(
         monkeypatch: pytest.MonkeyPatch) -> None:
     registre = _registre(_corpus())
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     anchors = s._ancres_frontiere(registre, tuple(registre))
-    full_tokens = s._taille_entree_majorante(
-        s.requete(registre, DOC, settings, anchors=anchors), settings)[1]
-    context_window = full_tokens + settings.structure_max_output_tokens - 1
+    full_params = s.requete(registre, DOC, settings, anchors=anchors)
+    full_tokens = s._taille_entree_majorante(full_params, settings)[1]
+    # La fenêtre se cale sur le `max_tokens` **dérivé** du segment, celui qui part réellement — le
+    # plafond `STRUCTURE_MAX_OUTPUT_TOKENS` n'est plus ce que la requête demande.
+    context_window = full_tokens + full_params["max_tokens"] - 1
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL, {**caps, "context_window": context_window})
@@ -966,8 +987,7 @@ def test_plan_segmentaire_est_deterministe_bijectif_et_admissible_dans_la_fenetr
     assert first.majorant_eur == s._arrondir_eur_superieur(
         sum(segment.majorant_eur_brut for segment in first.segments))
     assert first.majorant_eur <= sum(segment.majorant_eur for segment in first.segments)
-    assert all(segment.input_tokens_majorant + settings.structure_max_output_tokens
-               <= context_window
+    assert all(segment.input_tokens_majorant + segment.request["max_tokens"] <= context_window
                for segment in first.segments)
     assert all(segment.request_chars == len(s._json_canonique({
         "model": segment.request["model"],
@@ -1034,7 +1054,7 @@ def test_portage_indivisible_et_section_longue_utilisent_des_continuations_borne
     uids = tuple(registre)
     registre[uids[2]] = replace(registre[uids[2]], unite="portage-double")
     registre[uids[3]] = replace(registre[uids[3]], unite="portage-double")
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     candidates = s._candidates_ancres(registre)
     desired = (uids[:2], uids[2:4], uids[4:6], uids[6:])
     pair_bounds = [
@@ -1053,7 +1073,8 @@ def test_portage_indivisible_et_section_longue_utilisent_des_continuations_borne
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(s.MODEL_CAPS, s.MODEL, {
         **caps,
-        "context_window": max(pair_bounds) + settings.structure_max_output_tokens,
+        "context_window": max(pair_bounds) + max(
+            s.max_tokens_segment(len(part), settings) for part in desired),
     })
 
     plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
@@ -1089,11 +1110,11 @@ def test_portage_indivisible_et_section_longue_utilisent_des_continuations_borne
 def test_execution_du_plan_segmentaire_cumule_exactement_usage_et_audit(
         monkeypatch: pytest.MonkeyPatch) -> None:
     registre = _registre(_corpus())
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     anchors = s._ancres_frontiere(registre, tuple(registre))
     full_params = s.requete(registre, DOC, settings, anchors=anchors)
     full_tokens = s._taille_entree_majorante(full_params, settings)[1]
-    context_window = full_tokens + settings.structure_max_output_tokens - 1
+    context_window = full_tokens + full_params["max_tokens"] - 1
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL, {**caps, "context_window": context_window})
@@ -1158,7 +1179,7 @@ def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontie
         "Article 1.1 Details",
         "Corps de l'enfant.",
     ])])
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     ordered = list(registre.items())
     first_pair = dict(ordered[:2])
     second_pair = dict(ordered[2:])
@@ -1178,7 +1199,9 @@ def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontie
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL,
-        {**caps, "context_window": pair_tokens + settings.structure_max_output_tokens},
+        {**caps, "context_window": pair_tokens + max(
+            s.max_tokens_segment(len(subset), settings)
+            for subset in (first_pair, second_pair))},
     )
     plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
     assert [segment.line_uids for segment in plan.segments] == [
@@ -1248,7 +1271,7 @@ def test_ancre_candidate_jamais_proposee_comme_titre_reste_fail_closed(
         "Titre candidat mais non propose",
         "Article 1.1 Details",
     ])])
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     ordered = list(registre.items())
     pairs = (dict(ordered[:2]), dict(ordered[2:]))
     pair_tokens = max(
@@ -1261,7 +1284,8 @@ def test_ancre_candidate_jamais_proposee_comme_titre_reste_fail_closed(
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL,
-        {**caps, "context_window": pair_tokens + settings.structure_max_output_tokens},
+        {**caps, "context_window": pair_tokens + max(
+            s.max_tokens_segment(len(subset), settings) for subset in pairs)},
     )
     plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
     assert [segment.line_uids for segment in plan.segments] == [
@@ -1656,9 +1680,21 @@ def test_un_uid_etranger_est_refuse_avant_tout_usage_meme_si_le_schema_limpose()
 
 
 def test_une_reponse_tronquee_ou_sans_usage_ne_produit_aucune_proposition() -> None:
+    """Une interruption est d'abord **rejouée plus petit** ; ce n'est qu'à bout qu'elle refuse.
+
+    Le double répond `max_tokens` à chaque appel : le run scinde, resoumet, et ne refuse que
+    lorsque le segment est réduit à une unité de portage indivisible. Le refus nomme alors le
+    `max_tokens` dérivé et sa dérivation, et n'écrit rien.
+    """
     registre = _registre(_corpus())
-    with pytest.raises(ValueError, match="interrompue"):
-        s.proposer(FauxClient(stop_reason="max_tokens"), registre, doc_id=DOC, settings=get_settings())
+    client = FauxClient(stop_reason="max_tokens")
+    with pytest.raises(ValueError, match="interrompu") as tronquee:
+        s.proposer(client, registre, doc_id=DOC, settings=get_settings())
+    assert len(client.messages.calls) > 1, "la scission adaptative doit avoir resoumis"
+    detail = str(tronquee.value)
+    assert "indivisible" in detail and "rien n'a été écrit" in detail
+    assert f"max_tokens dérivé de {s.max_tokens_segment(1, get_settings())}" in detail
+    assert "STRUCTURE_OUTPUT_TOKENS_PER_LINE" in detail
     with pytest.raises(ValueError, match="usage facturable") as leve:
         s.proposer(FauxClient(usage={}), registre, doc_id=DOC, settings=get_settings())
     assert "coût réel du segment inconnu (usage absent)" in str(leve.value)
@@ -1800,7 +1836,7 @@ def test_preflight_cumule_tous_les_segments_avant_le_premier_appel(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     dossier = _dossier(tmp_path)
     _poser_la_disposition(tmp_path, dossier)
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     pages, _ = p.extract_pages(dossier / "source.pdf")
     p.ordonner_pages(pages)
     registre = s.registre_lignes(pages, document_uid=DOC)
@@ -1810,7 +1846,7 @@ def test_preflight_cumule_tous_les_segments_avant_le_premier_appel(
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL,
-        {**caps, "context_window": full_tokens + settings.structure_max_output_tokens - 1},
+        {**caps, "context_window": full_tokens + full_params["max_tokens"] - 1},
     )
     plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
     assert len(plan.segments) > 1
@@ -1835,13 +1871,14 @@ def test_bad_request_contexte_passe_par_main_puis_raffine_et_repreflight_le_budg
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dossier = _dossier(tmp_path)
     _poser_la_disposition(tmp_path, dossier)
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     pages, _ = p.extract_pages(dossier / "source.pdf")
     p.ordonner_pages(pages)
     registre = s.registre_lignes(pages, document_uid=DOC)
     initial = s.planifier_segments(registre, doc_id=DOC, settings=settings)
     assert len(initial.segments) == 1
-    assert (initial.segments[0].input_tokens_majorant + settings.structure_max_output_tokens
+    assert (initial.segments[0].input_tokens_majorant
+            + initial.segments[0].request["max_tokens"]
             <= s.MODEL_CAPS[s.MODEL]["context_window"])
     refined = s._raffiner_plan(initial, 0, registre, doc_id=DOC, settings=settings)
     assert refined is not None and len(refined.segments) == 2
@@ -1891,7 +1928,7 @@ def test_reponse_de_segment_hors_frontiere_refuse_atomiquement_la_publication(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dossier = _dossier(tmp_path)
     _poser_la_disposition(tmp_path, dossier)
-    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    settings = _settings_segmentees()
     pages, _ = p.extract_pages(dossier / "source.pdf")
     p.ordonner_pages(pages)
     registre = s.registre_lignes(pages, document_uid=DOC)
@@ -1905,7 +1942,7 @@ def test_reponse_de_segment_hors_frontiere_refuse_atomiquement_la_publication(
     caps = dict(s.MODEL_CAPS[s.MODEL])
     monkeypatch.setitem(
         s.MODEL_CAPS, s.MODEL,
-        {**caps, "context_window": one_tokens + settings.structure_max_output_tokens},
+        {**caps, "context_window": one_tokens + s.max_tokens_segment(1, settings)},
     )
     audits: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -1922,6 +1959,196 @@ def test_reponse_de_segment_hors_frontiere_refuse_atomiquement_la_publication(
     assert code == 3 and len(client.messages.calls) == 2 and len(audits) == 2
     assert not (dossier / "structure.json").exists()
     assert list(dossier.glob("*.tmp")) == []
+
+
+class FauxMessagesUnNoeudParLigne(FauxMessages):
+    """Rend un nœud par ligne reçue : la proposition finale ne dépend pas du découpage.
+
+    C'est ce qui rend comparables un run en un seul segment et le même run scindé en deux : la
+    couture doit rendre exactement le même artefact, sans quoi la scission adaptative changerait
+    silencieusement ce qui est publié.
+    """
+
+    def parse(self, **params: Any) -> Any:
+        self.calls.append(params)
+        lignes = json.loads(params["messages"][0]["content"])["lignes"]
+        noeuds = [{"titre_line_uid": ligne["index"], "premiere_line_uid": ligne["index"],
+                   "derniere_line_uid": ligne["index"], "parent_line_uid": None}
+                  for ligne in lignes]
+        return SimpleNamespace(
+            usage=self.usage, stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text=json.dumps({"noeuds": noeuds}))])
+
+
+class FauxMessagesInterrompuPuisScinde(FauxMessagesUnNoeudParLigne):
+    """Interrompt les `interruptions` premiers appels, puis répond normalement.
+
+    Une réponse interrompue est **facturée** : le double rend donc un `usage` et un JSON tronqué,
+    exactement ce que le fournisseur a rendu sur le premier appel réel du chemin.
+    """
+
+    def __init__(self, interruptions: int = 1) -> None:
+        super().__init__()
+        self.interruptions = interruptions
+
+    def parse(self, **params: Any) -> Any:
+        if self.interruptions > 0:
+            self.interruptions -= 1
+            self.calls.append(params)
+            return SimpleNamespace(
+                usage=self.usage, stop_reason="max_tokens",
+                content=[SimpleNamespace(type="text", text='{"noeuds": [{"titre_line_uid": 0,')])
+        return super().parse(**params)
+
+
+def test_la_capacite_de_sortie_reserve_la_reflexion_et_suit_la_taille_du_segment() -> None:
+    """Les deux coefficients sont **dans la configuration**, et tous deux entrent dans le calcul.
+
+    La réflexion est comptée par le fournisseur dans `max_tokens` : ne pas la réserver rend chaque
+    segment court de sa propre taille de réflexion, ce que le premier appel réel a payé.
+    """
+    settings = Settings(_env_file=None, structure_thinking_reserve_tokens=500,
+                        structure_output_tokens_per_line=3.0,
+                        structure_max_output_tokens=16000)
+    assert s.sortie_attendue(0, settings) == 500, "la réserve de réflexion est due sans aucune ligne"
+    assert s.sortie_attendue(100, settings) == 500 + 300
+    assert s.sortie_attendue(101, settings) == 500 + 303  # arrondi au token supérieur
+    assert s.max_tokens_segment(100, settings) == 800
+    assert s.max_tokens_segment(1_000_000, settings) == settings.structure_max_output_tokens
+    # Ce que la requête envoie, et donc ce que la fenêtre et le majorant de coût voient.
+    registre = _registre(_corpus())
+    petit = {uid: registre[uid] for uid in tuple(registre)[:2]}
+    assert s.requete(petit, DOC, settings)["max_tokens"] == s.sortie_attendue(2, settings)
+    assert (s.requete(registre, DOC, settings)["max_tokens"]
+            > s.requete(petit, DOC, settings)["max_tokens"])
+    assert (s.majorant_eur(s.requete(registre, DOC, settings), settings)
+            > s.majorant_eur(s.requete(petit, DOC, settings), settings))
+
+
+def test_un_segment_dont_la_sortie_deborde_est_scinde_meme_si_son_entree_tient(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """La cause du premier appel réel perdu : la sortie n'entrait pas dans le choix des segments.
+
+    La fenêtre d'entrée reste **intacte et très large** ici : rien ne force la segmentation de ce
+    côté. Seul le plafond de sortie mord, et c'est lui qui doit découper.
+    """
+    registre = _registre(_corpus())
+    large = Settings(_env_file=None, structure_thinking_reserve_tokens=0,
+                     structure_output_tokens_per_line=1.0, structure_max_output_tokens=64)
+    etroit = Settings(_env_file=None, structure_thinking_reserve_tokens=0,
+                      structure_output_tokens_per_line=1.0, structure_max_output_tokens=3)
+    plein = s.requete(registre, DOC, large)
+    _chars, entree = s._taille_entree_majorante(plein, large)
+    fenetre = int(s.MODEL_CAPS[s.MODEL]["context_window"])
+    assert entree + s.max_tokens_segment(len(registre), etroit) < fenetre, (
+        "l'entrée du registre entier tient très largement : seule la sortie peut mordre")
+
+    assert len(s.planifier_segments(registre, doc_id=DOC, settings=large).segments) == 1
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=etroit)
+
+    assert len(plan.segments) >= 3
+    for segment in plan.segments:
+        assert s.sortie_attendue(len(segment.line_uids), etroit) <= 3
+        assert segment.request["max_tokens"] == s.max_tokens_segment(len(segment.line_uids), etroit)
+    assert tuple(uid for segment in plan.segments for uid in segment.line_uids) == tuple(registre)
+    admissible, _c, _t = s._segment_admissible(plein, etroit, lignes=len(registre))
+    assert not admissible
+    with pytest.raises(ValueError, match="token\\(s\\) de sortie") as leve:
+        s._construire_plan([tuple(registre)], registre, doc_id=DOC, settings=etroit)
+    assert "STRUCTURE_OUTPUT_TOKENS_PER_LINE" in str(leve.value)
+    assert "aucun appel soumis" in str(leve.value)
+
+
+def test_une_reponse_interrompue_est_rejouee_scindee_et_rend_le_meme_artefact(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Une interruption n'est plus un refus terminal : le run scinde, resoumet, et publie.
+
+    Trois propriétés en une : le découpage change, l'artefact non ; le coût de l'appel perdu est
+    **compté** ; l'appel perdu reste dans l'audit.
+    """
+    registre = _registre(_corpus())
+    settings = _settings_segmentees()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) == 1
+
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+
+    droit = SimpleNamespace(messages=FauxMessagesUnNoeudParLigne())
+    reference = s.executer_plan(droit, plan, registre, doc_id=DOC, settings=settings)
+    assert len(droit.messages.calls) == 1
+
+    audits.clear()
+    interrompu = SimpleNamespace(messages=FauxMessagesInterrompuPuisScinde())
+    adaptatif = s.executer_plan(interrompu, plan, registre, doc_id=DOC, settings=settings)
+
+    assert len(interrompu.messages.calls) == 3, "l'appel perdu, puis les deux moitiés"
+    assert len(adaptatif.plan.segments) == 2
+    assert [len(segment.line_uids) for segment in adaptatif.plan.segments] == [3, 4]
+    assert (tuple(uid for segment in adaptatif.plan.segments for uid in segment.line_uids)
+            == tuple(registre))
+    # L'artefact ne dépend pas du découpage.
+    assert adaptatif.proposition == reference.proposition
+    assert s.verifier(adaptatif.proposition, registre, doc_id=DOC, settings=settings).accepte
+    # Le coût de l'appel perdu est compté : trois appels facturés contre un.
+    assert adaptatif.usage.cost_eur == pytest.approx(3 * reference.usage.cost_eur)
+    assert adaptatif.usage.input == 3 * reference.usage.input
+    # L'audit garde l'appel interrompu.
+    assert len(audits) == 3
+    assert audits[0]["request"] == plan.segments[0].request
+    assert getattr(audits[0]["response"], "stop_reason", None) == "max_tokens"
+
+
+def test_la_scission_qui_ne_tient_plus_dans_le_plafond_refuse_et_nappelle_plus(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--max-cost` est jugé **avant** de resoumettre, sur le coût déjà acquis inclus."""
+    registre = _registre(_corpus())
+    settings = _settings_segmentees()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    raffine = s._raffiner_plan(plan, 0, registre, doc_id=DOC, settings=settings)
+    assert raffine is not None
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    client = SimpleNamespace(messages=FauxMessagesInterrompuPuisScinde())
+    acquis = s.cost_from_usage(
+        s.MODEL, client.messages.usage, settings.usd_eur, batch=False).cost_eur
+    borne = s._arrondir_eur_superieur(
+        acquis + sum(segment.majorant_eur_brut for segment in raffine.segments))
+    plafond = (plan.majorant_eur + borne) / 2
+    assert plan.majorant_eur <= plafond < borne
+
+    with pytest.raises(ValueError, match="scission refusée avant retry") as leve:
+        s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings,
+                        max_cost_eur=plafond)
+
+    assert len(client.messages.calls) == 1, "aucune moitié n'est soumise"
+    detail = str(leve.value)
+    assert f"coût réel cumulé acquis {acquis:.4f} €" in detail
+    assert "rien n'a été écrit" in detail and acquis > 0
+
+
+@pytest.mark.parametrize("borne,appels", [(0, 1), (1, 2)])
+def test_la_borne_de_scission_est_configuree_et_arrete_le_run(
+        borne: int, appels: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans borne, un fournisseur qui coupe toujours ferait resoumettre sans fin, en payant.
+
+    À `0`, la première interruption refuse sans rien resoumettre. À `1`, une seule scission est
+    consentie : la première moitié repart, se fait couper à son tour, et le run s'arrête en nommant
+    la borne — le nombre d'appels facturés suit exactement la borne, ce qui est tout son objet.
+    """
+    registre = _registre(_corpus())
+    settings = _settings_segmentees(structure_max_refinements=borne)
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    client = SimpleNamespace(messages=FauxMessagesInterrompuPuisScinde(interruptions=99))
+
+    with pytest.raises(ValueError, match="STRUCTURE_MAX_REFINEMENTS") as leve:
+        s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert len(client.messages.calls) == appels
+    detail = str(leve.value)
+    assert f"STRUCTURE_MAX_REFINEMENTS={borne} atteinte" in detail
+    assert "coût réel cumulé acquis" in detail and "rien n'a été écrit" in detail
 
 
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------

@@ -683,12 +683,34 @@ def _schema() -> dict[str, Any]:
     return {"type": "json_schema", "schema": schema}
 
 
+def sortie_attendue(lignes: int, settings: Settings) -> int:
+    """Tokens de sortie qu'un segment de `lignes` lignes demande : réflexion **plus** JSON.
+
+    Le fournisseur compte la réflexion dans `max_tokens` : elle n'est jamais disponible pour le
+    JSON, et une capacité qui ne la réserve pas est courte de sa taille. Les deux coefficients sont
+    mesurés et vivent dans `Settings` (`structure_thinking_reserve_tokens`,
+    `structure_output_tokens_per_line`), avec leur dérivation ; rien n'est en dur ici.
+    """
+    return (settings.structure_thinking_reserve_tokens
+            + math.ceil(lignes * settings.structure_output_tokens_per_line))
+
+
+def max_tokens_segment(lignes: int, settings: Settings) -> int:
+    """`max_tokens` réellement envoyé pour ce segment : sa sortie attendue, sous son plafond.
+
+    C'est cette valeur — et non le plafond — que la fenêtre, le majorant de coût, le dry-run et
+    l'audit voient : demander 16 000 tokens pour un segment qui en rend 300 majorait le coût d'un
+    facteur cinquante et rétrécissait la fenêtre d'autant.
+    """
+    return min(settings.structure_max_output_tokens, sortie_attendue(lignes, settings))
+
+
 def requete(registre: dict[str, Entree], doc_id: str, settings: Settings, *,
             anchors: Sequence[AncreStructure] = ()) -> dict[str, Any]:
     """Paramètres d'un appel segmentaire du tier `ingest`. Aucun client n'est construit ici."""
     return {
         "model": MODEL,
-        "max_tokens": settings.structure_max_output_tokens,
+        "max_tokens": max_tokens_segment(len(registre), settings),
         "system": [{"type": "text", "text": _prompt()}],
         "messages": [{"role": "user", "content": _encoder_demande(
             registre, settings, anchors=anchors)}],
@@ -768,11 +790,46 @@ def _taille_entree_majorante(params: dict[str, Any], settings: Settings) -> tupl
     return len(envelope), len(envelope.encode("utf-8"))
 
 
-def _segment_admissible(params: dict[str, Any], settings: Settings) -> tuple[bool, int, int]:
+def _segment_admissible(params: dict[str, Any], settings: Settings, *,
+                        lignes: int) -> tuple[bool, int, int]:
+    """Un segment tient s'il tient **des deux côtés** : son entrée, et la sortie qu'il demande.
+
+    Ne le borner que par l'entrée revenait à choisir « le plus long préfixe qui tient en entrée »,
+    c'est-à-dire exactement le segment qui maximise le risque de dépasser la sortie. Le premier
+    appel réel du chemin a été perdu ainsi (`stop_reason='max_tokens'`, réponse coupée au milieu
+    d'un objet, 0,7654 € facturés pour rien).
+    """
     request_chars, input_tokens = _taille_entree_majorante(params, settings)
     context_window = int(MODEL_CAPS[params["model"]]["context_window"])
-    admissible = input_tokens + int(params["max_tokens"]) <= context_window
+    admissible = (sortie_attendue(lignes, settings) <= settings.structure_max_output_tokens
+                  and input_tokens + int(params["max_tokens"]) <= context_window)
     return admissible, request_chars, input_tokens
+
+
+def _segment_impossible(lignes: int, params: dict[str, Any] | None, settings: Settings) -> str:
+    """Dit **lequel des deux côtés** déborde, avec le `max_tokens` dérivé et sa dérivation.
+
+    Nommer `STRUCTURE_MAX_OUTPUT_TOKENS` seul ne disait pas ce qui avait été demandé au segment ni
+    d'où venait le chiffre : un opérateur ne pouvait pas savoir s'il fallait resegmenter, recalibrer
+    le ratio, ou relever la fenêtre.
+    """
+    attendue = sortie_attendue(lignes, settings)
+    envoye = max_tokens_segment(lignes, settings)
+    # `params` est absent quand la charge utile elle-même dépasse `STRUCTURE_MAX_INPUT_CHARS` : la
+    # requête n'existe alors pas, et le côté entrée se dit par cette borne-là, pas par la fenêtre.
+    entree = (f"{_taille_entree_majorante(params, settings)[1]} token(s) d'entrée majorés dans une "
+              f"fenêtre effective de {MODEL_CAPS[MODEL]['context_window']}"
+              if params is not None else
+              f"une charge utile au-delà de "
+              f"STRUCTURE_MAX_INPUT_CHARS={settings.structure_max_input_chars}")
+    return (
+        f"{lignes} ligne(s) demandent {attendue} token(s) de sortie "
+        f"(réserve de réflexion STRUCTURE_THINKING_RESERVE_TOKENS="
+        f"{settings.structure_thinking_reserve_tokens} + "
+        f"STRUCTURE_OUTPUT_TOKENS_PER_LINE={settings.structure_output_tokens_per_line} par ligne) "
+        f"pour un max_tokens dérivé de {envoye} sous "
+        f"STRUCTURE_MAX_OUTPUT_TOKENS={settings.structure_max_output_tokens}, et {entree}"
+    )
 
 
 def _groupes_portage(registre: dict[str, Entree]) -> list[tuple[str, ...]]:
@@ -816,12 +873,11 @@ def _construire_plan(partitions: Sequence[tuple[str, ...]], registre: dict[str, 
         subset = {uid: registre[uid] for uid in line_uids}
         anchors = _ancres_frontiere(registre, line_uids, candidates=candidates)
         params = requete(subset, doc_id, settings, anchors=anchors)
-        admissible, request_chars, input_tokens = _segment_admissible(params, settings)
+        admissible, request_chars, input_tokens = _segment_admissible(
+            params, settings, lignes=len(line_uids))
         if not admissible:
             raise ValueError(
-                f"segment impossible : {len(line_uids)} ligne(s) ne tiennent pas dans la fenêtre "
-                f"effective de {MODEL_CAPS[MODEL]['context_window']} tokens avec "
-                f"STRUCTURE_MAX_OUTPUT_TOKENS={settings.structure_max_output_tokens}; "
+                f"segment impossible : {_segment_impossible(len(line_uids), params, settings)}; "
                 "aucun appel soumis")
         provisional.append((line_uids, anchors, params, request_chars, input_tokens,
                             _majorant_eur_brut(params, settings)))
@@ -891,7 +947,8 @@ def planifier_segments(registre: dict[str, Entree], *, doc_id: str,
             except ValueError:
                 admissible, request_chars, input_tokens = False, 0, 0
             else:
-                admissible, request_chars, input_tokens = _segment_admissible(params, settings)
+                admissible, request_chars, input_tokens = _segment_admissible(
+                    params, settings, lignes=len(line_uids))
             if admissible:
                 best = end
                 low = end + 1
@@ -899,12 +956,16 @@ def planifier_segments(registre: dict[str, Entree], *, doc_id: str,
                 high = end - 1
         if best is None:
             group = groups[start]
+            subset = {uid: registre[uid] for uid in group}
+            try:
+                params = requete(
+                    subset, doc_id, settings,
+                    anchors=_ancres_frontiere(registre, group, candidates=candidates))
+            except ValueError:
+                params = None
             raise ValueError(
-                f"segment impossible : l'unité de portage {registre[group[0]].portage!r} "
-                f"({len(group)} ligne(s)) ne tient pas dans la fenêtre "
-                f"effective de {MODEL_CAPS[MODEL]['context_window']} tokens avec "
-                f"STRUCTURE_MAX_OUTPUT_TOKENS={settings.structure_max_output_tokens}; "
-                "aucun appel soumis"
+                f"segment impossible : l'unité de portage {registre[group[0]].portage!r} ne tient "
+                f"pas — {_segment_impossible(len(group), params, settings)}; aucun appel soumis"
             )
         partitions.append(tuple(uid for group in groups[start:best] for uid in group))
         start = best
@@ -932,7 +993,8 @@ def _valider_plan(plan: PlanStructure, registre: dict[str, Entree], *, doc_id: s
         expected_anchors = _ancres_frontiere(
             registre, segment.line_uids, candidates=candidates)
         expected_request = requete(subset, doc_id, settings, anchors=expected_anchors)
-        admissible, request_chars, input_tokens = _segment_admissible(expected_request, settings)
+        admissible, request_chars, input_tokens = _segment_admissible(
+            expected_request, settings, lignes=len(segment.line_uids))
         expected_raw = _majorant_eur_brut(expected_request, settings)
         expected_majorant = majorant_eur(expected_request, settings)
         digest = hashlib.sha256(_json_canonique({
@@ -1973,7 +2035,18 @@ def _raffiner_plan(plan: PlanStructure, position: int, registre: dict[str, Entre
 def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree], *,
                   doc_id: str, settings: Settings, source_hash: str | None = None,
                   max_cost_eur: float | None = None) -> ExecutionStructure:
-    """Soumet, raffine les seuls refus de contexte typés, puis recoud atomiquement."""
+    """Soumet, scinde et resoumet ce que le fournisseur n'a pas pu rendre, puis recoud.
+
+    Deux causes de scission, une seule mécanique — `_raffiner_plan`, aux frontières de portage
+    existantes, mêmes invariants de contiguïté et de bijection : un refus de contexte typé, et une
+    réponse **interrompue** (`stop_reason='max_tokens'`). La seconde était un refus terminal : le
+    run jetait le coût déjà acquis alors que la réponse suivante, sur un segment deux fois plus
+    court, tenait. Un contrat inconnu portera des zones plus denses que celles mesurées ; l'ingestion
+    doit y résister par construction, pas par calibrage.
+
+    Le nombre de scissions d'un run est borné par `STRUCTURE_MAX_REFINEMENTS`, et chaque appel perdu
+    est compté au cumul avant toute décision — c'est lui qui fait respecter `--max-cost`.
+    """
     _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
     ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
     if plan.majorant_eur > ceiling:
@@ -1986,6 +2059,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     usages: list[Usage] = []
     working_plan = plan
     position = 0
+    raffinements = 0
     while position < len(working_plan.segments):
         segment = working_plan.segments[position]
         anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
@@ -2003,7 +2077,8 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
                 usage_cumule=_usage_audit(usages, current_known=False))
             refined = (_raffiner_plan(
                 working_plan, position, registre, doc_id=doc_id, settings=settings)
-                if _erreur_contexte_fournisseur(exc) else None)
+                if _erreur_contexte_fournisseur(exc)
+                and raffinements < settings.structure_max_refinements else None)
             if refined is not None:
                 remaining_raw = sum(
                     item.majorant_eur_brut for item in refined.segments[position:])
@@ -2021,6 +2096,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
                         f"cumulé {retry_bound:.4f} € > plafond {ceiling:.4f} €; "
                         "rien n'a été écrit") from exc
                 working_plan = refined
+                raffinements += 1
                 continue
             accumulated_cost = _usage_cumule(usages).cost_eur
             raise ValueError(
@@ -2046,6 +2122,38 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             usage_cumule=_usage_audit(
                 audited_usages, current_known=measured_before_validation is not None),
         )
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            # La réponse est perdue mais **facturée** : son coût entre au cumul avant toute
+            # décision, sans quoi le plafond serait jugé sur une dépense sous-déclarée.
+            if measured_before_validation is not None:
+                usages.append(measured_before_validation)
+            acquis = _usage_cumule(usages).cost_eur
+            derive = (
+                f"segment {segment.index}/{len(working_plan.segments)} interrompu "
+                f"(stop_reason='max_tokens') : "
+                f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+            if raffinements >= settings.structure_max_refinements:
+                raise ValueError(
+                    f"{derive}; borne de scission "
+                    f"STRUCTURE_MAX_REFINEMENTS={settings.structure_max_refinements} atteinte; "
+                    f"coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            refined = _raffiner_plan(
+                working_plan, position, registre, doc_id=doc_id, settings=settings)
+            if refined is None:
+                raise ValueError(
+                    f"{derive}; l'unité de portage "
+                    f"{registre[segment.line_uids[0]].portage!r} est indivisible et ne peut pas "
+                    f"être scindée; coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            retry_bound = _arrondir_eur_superieur(
+                acquis + sum(item.majorant_eur_brut for item in refined.segments[position:]))
+            if retry_bound > ceiling:
+                raise ValueError(
+                    f"{derive}; scission refusée avant retry : majorant cumulé "
+                    f"{retry_bound:.4f} € > plafond {ceiling:.4f} €; "
+                    f"coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            working_plan = refined
+            raffinements += 1
+            continue
         try:
             raw, usage = _texte(message, settings)
             proposition = parse_proposition(
@@ -2190,6 +2298,8 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                 f"segment {segment.index}/{len(plan.segments)} {segment.segment_uid} : "
                 f"{len(segment.line_uids)} ligne(s), {segment.request_chars} caractère(s) "
                 f"d'enveloppe, {segment.input_tokens_majorant} tokens d'entrée majorés, "
+                f"max_tokens dérivé {segment.request['max_tokens']} "
+                f"(sortie attendue {sortie_attendue(len(segment.line_uids), settings)}), "
                 f"{segment.majorant_eur:.4f} €",
                 file=output,
             )
