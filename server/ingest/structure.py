@@ -246,6 +246,25 @@ def noeuds_contenant(uid: str, noeuds: Sequence[NoeudPropose],
         -order_of[noeud.premiere_line_uid], noeud.titre_line_uid))
 
 
+def chaine_ouverte(proposition: StructureProposee, registre: dict[str, Entree],
+                   line_uids: Sequence[str]) -> tuple[NoeudOuvert, ...]:
+    """Sections que ce segment laisse ouvertes à sa frontière, de la plus englobante à la plus profonde.
+
+    Ce sont exactement les nœuds qui contiennent la **dernière ligne** du segment : le vérificateur
+    a déjà prouvé qu'ils s'emboîtent, donc ils forment une chaîne, et leur ordre d'emboîtement est
+    leur profondeur. Aucune forme de titre, aucune numérotation n'entre ici.
+    """
+    if not line_uids:
+        return ()
+    order_of = {uid: entree.ordre for uid, entree in registre.items()}
+    derniere = max(line_uids, key=lambda uid: order_of[uid])
+    chaine = list(reversed(noeuds_contenant(derniere, proposition.noeuds, order_of)))
+    return tuple(
+        NoeudOuvert(line_uid=noeud.titre_line_uid, profondeur=profondeur,
+                    titre=registre[noeud.titre_line_uid].titre)
+        for profondeur, noeud in enumerate(chaine))
+
+
 def _ligne_designee(uid: str, registre: dict[str, Entree]) -> str:
     """Une ligne rendue au lecteur : son rang de lecture, sa page, son texte tronqué.
 
@@ -329,12 +348,20 @@ def _candidates_ancres(registre: dict[str, Entree]) -> tuple[AncreStructure, ...
 
 def _ancres_frontiere(registre: dict[str, Entree], line_uids: Sequence[str], *,
                       candidates: Sequence[AncreStructure] | None = None,
+                      ouverts: Sequence[NoeudOuvert] = (),
                       ) -> tuple[AncreStructure, ...]:
     """Voisinage externe borné d'un segment, sans dupliquer ses lignes locales.
 
     Les candidates sont dérivées du registre entier mais seules les plus proches de chaque côté de
     la frontière sont sérialisées. La taille reste donc O(1) par segment, même si chaque ligne d'un
     document dense ressemble à un titre.
+
+    **La proximité seule ne suffit pas pour nommer un parent.** Le titre d'une section qui enjambe
+    la frontière est, par nature, d'autant plus loin que la structure est profonde : mesuré sur un
+    contrat réel, les seize ancres arrière couvraient une vingtaine de lignes, et le titre à
+    rattacher était à 622, 182 et 104 lignes de la frontière — donc absent, donc innommable. Les
+    sections laissées ouvertes par le segment précédent sont donc ajoutées, quelle que soit leur
+    distance, **en plus** de la fenêtre de proximité. Elles sont au plus `STRUCTURE_MAX_DEPTH`.
     """
     owned = set(line_uids)
     orders = [registre[uid].ordre for uid in line_uids]
@@ -343,7 +370,15 @@ def _ancres_frontiere(registre: dict[str, Entree], line_uids: Sequence[str], *,
     half = MAX_BOUNDARY_ANCHORS // 2
     before = [anchor for anchor in candidates if anchor.ordre < first and anchor.line_uid not in owned]
     after = [anchor for anchor in candidates if anchor.ordre > last and anchor.line_uid not in owned]
-    return tuple((*before[-half:], *after[:MAX_BOUNDARY_ANCHORS - half]))
+    proches = [*before[-half:], *after[:MAX_BOUNDARY_ANCHORS - half]]
+    connus = {anchor.line_uid for anchor in proches}
+    manquants = [AncreStructure(line_uid=ouvert.line_uid, ordre=registre[ouvert.line_uid].ordre,
+                                titre=registre[ouvert.line_uid].titre)
+                 for ouvert in ouverts
+                 if ouvert.line_uid not in connus and ouvert.line_uid not in owned]
+    # Les ancêtres ouverts sont ajoutés **à la fin** : les index des ancres de proximité ne bougent
+    # pas, et un segment sans chaîne ouverte garde exactement la charge utile d'avant.
+    return tuple((*proches, *manquants))
 
 
 class StrictModel(BaseModel):
@@ -549,6 +584,21 @@ class Verdict:
     accepte: bool
     motif: str | None = None
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class NoeudOuvert:
+    """Section que la réponse du segment précédent laisse **ouverte** à la frontière.
+
+    Ouverte veut dire : son intervalle atteint la dernière ligne du segment précédent, donc elle
+    peut se prolonger dans celui-ci. La chaîne va de la plus englobante (`profondeur` 0) à la plus
+    profonde ; elle est exactement la suite des nœuds qui contiennent cette dernière ligne, et le
+    vérificateur a déjà prouvé qu'ils s'emboîtent.
+    """
+
+    line_uid: str
+    profondeur: int
+    titre: str
 
 
 @dataclass(frozen=True)
@@ -766,16 +816,29 @@ def table_indices(registre: dict[str, Entree],
 
 
 def _encoder_demande(registre: dict[str, Entree], settings: Settings, *,
-                     anchors: Sequence[AncreStructure] = ()) -> str:
+                     anchors: Sequence[AncreStructure] = (),
+                     ouverts: Sequence[NoeudOuvert] = ()) -> str:
     duplicated = sorted(set(registre) & {anchor.line_uid for anchor in anchors})
     if duplicated:
         raise ValueError(
             f"ancres_frontiere duplique des lignes locales {duplicated[:5]}; aucun appel soumis")
     payload_value: dict[str, Any] = {"lignes": _lignes_payload(registre)}
+    index_de = {anchor.line_uid: len(registre) + position
+                for position, anchor in enumerate(anchors)}
     if anchors:
         payload_value["ancres_frontiere"] = [
-            {"index": len(registre) + position, "ordre": anchor.ordre, "titre": anchor.titre}
-            for position, anchor in enumerate(anchors)
+            {"index": index_de[anchor.line_uid], "ordre": anchor.ordre, "titre": anchor.titre}
+            for anchor in anchors
+        ]
+    inconnus = [ouvert.line_uid for ouvert in ouverts if ouvert.line_uid not in index_de]
+    if inconnus:
+        raise ValueError(
+            f"noeuds_ouverts hors des ancres de frontière {inconnus[:5]}; aucun appel soumis")
+    if ouverts:
+        payload_value["noeuds_ouverts"] = [
+            {"index": index_de[ouvert.line_uid], "profondeur": ouvert.profondeur,
+             "titre": ouvert.titre}
+            for ouvert in ouverts
         ]
     payload = json.dumps(payload_value, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > settings.structure_max_input_chars:
@@ -895,14 +958,21 @@ def max_tokens_segment(lignes: int, settings: Settings) -> int:
 
 
 def requete(registre: dict[str, Entree], doc_id: str, settings: Settings, *,
-            anchors: Sequence[AncreStructure] = ()) -> dict[str, Any]:
-    """Paramètres d'un appel segmentaire du tier `ingest`. Aucun client n'est construit ici."""
+            anchors: Sequence[AncreStructure] = (),
+            ouverts: Sequence[NoeudOuvert] = ()) -> dict[str, Any]:
+    """Paramètres d'un appel segmentaire du tier `ingest`. Aucun client n'est construit ici.
+
+    `ouverts` n'est connu qu'à l'exécution — c'est la chaîne des sections que la réponse du segment
+    précédent laisse ouvertes à la frontière. Le plan est donc chiffré sans elle et la requête est
+    complétée juste avant la soumission ; la borne de coût du plan reste un majorant, la chaîne
+    ajoutant au plus `STRUCTURE_MAX_DEPTH` entrées brèves.
+    """
     return {
         "model": MODEL,
         "max_tokens": max_tokens_segment(len(registre), settings),
         "system": [{"type": "text", "text": _prompt()}],
         "messages": [{"role": "user", "content": _encoder_demande(
-            registre, settings, anchors=anchors)}],
+            registre, settings, anchors=anchors, ouverts=ouverts)}],
         "output_config": {"format": _schema(), "effort": EFFORT[TIER]},
     }
 
@@ -2178,8 +2248,9 @@ def _verifier_segment(proposition: StructureProposee, registre: dict[str, Entree
 
 
 def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
-               registre: dict[str, Entree], *, doc_id: str,
-               settings: Settings) -> StructureProposee:
+               registre: dict[str, Entree], *, doc_id: str, settings: Settings,
+               ancres_envoyees: Sequence[Sequence[AncreStructure]] | None = None,
+               ) -> StructureProposee:
     """Recoud les sorties sans créer de ligne et revalide la hiérarchie globale.
 
     Chaque sortie a déjà été validée contre son sous-registre exact. La couture conserve chaque
@@ -2210,7 +2281,11 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
             raise ValueError(
                 f"couture refusée : segment {segment.index} pour {proposition.doc_id!r}")
         allowed = set(segment.line_uids)
-        anchor_uids = {anchor.line_uid for anchor in segment.anchors}
+        # Les ancres **réellement envoyées** : la chaîne ouverte en ajoute au-delà de la fenêtre de
+        # proximité du plan, et une réponse peut légitimement les désigner.
+        ancres = (segment.anchors if ancres_envoyees is None
+                  else ancres_envoyees[segment.index - 1])
+        anchor_uids = {anchor.line_uid for anchor in ancres}
         for continuation in proposition.continuations_frontiere:
             bounds = {continuation.premiere_line_uid, continuation.derniere_line_uid}
             if not bounds <= allowed:
@@ -2415,21 +2490,26 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     run_uid = f"structure:{doc_id}:{plan.plan_uid}"
     propositions: list[StructureProposee] = []
+    ancres_envoyees: list[tuple[AncreStructure, ...]] = []
     usages: list[Usage] = []
     working_plan = plan
     position = 0
     raffinements = 0
     while position < len(working_plan.segments):
         segment = working_plan.segments[position]
-        anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
         subset = {uid: registre[uid] for uid in segment.line_uids}
+        envoyee, envoyees = completer_requete(
+            segment, registre, doc_id=doc_id, settings=settings,
+            precedent=working_plan.segments[position - 1] if position else None,
+            proposition_precedente=propositions[position - 1] if position else None)
+        anchor_uids = tuple(anchor.line_uid for anchor in envoyees)
         trusted_uids = tuple(sorted({*segment.line_uids, *anchor_uids}))
         try:
-            message = client.messages.parse(**segment.request)
+            message = client.messages.parse(**envoyee)
         except Exception as exc:  # noqa: BLE001 - panne fournisseur = refus contrôlé
             append_ingest_audit(
                 settings.llm_audit_path, run_uid=run_uid, step="structure",
-                model=MODEL, request=segment.request, response=None,
+                model=MODEL, request=envoyee, response=None,
                 trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
                 error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
                 retention_files=settings.llm_audit_retention_files,
@@ -2470,7 +2550,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             audited_usages.append(measured_before_validation)
         append_ingest_audit(
             settings.llm_audit_path, run_uid=run_uid, step="structure",
-            model=MODEL, request=segment.request, response=message,
+            model=MODEL, request=envoyee, response=message,
             trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
             cache_hit=isinstance(message, ReponseRejouee),
             max_bytes=settings.llm_audit_max_bytes,
@@ -2487,7 +2567,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             derive = (
                 f"segment {segment.index}/{len(working_plan.segments)} interrompu "
                 f"(stop_reason='max_tokens') : "
-                f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+                f"{_segment_impossible(len(segment.line_uids), envoyee, settings)}")
             if raffinements >= settings.structure_max_refinements:
                 raise ValueError(
                     f"{derive}; borne de scission "
@@ -2512,8 +2592,10 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             continue
         try:
             raw, usage = _texte(message, settings)
+            # Le rapprochement lit les ancres **réellement envoyées** : la chaîne ouverte en
+            # ajoute, et les index de la réponse les désignent.
             proposition = parse_proposition(
-                rapprocher_indices(raw, subset, anchors=segment.anchors),
+                rapprocher_indices(raw, subset, anchors=envoyees),
                 subset, doc_id, settings=settings, reference_uids=anchor_uids)
             verdict = _verifier_segment(
                 proposition, subset, doc_id=doc_id, settings=settings)
@@ -2535,12 +2617,14 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
         assert usage is not None  # `_texte` ne rend jamais sans usage facturable.
         usages.append(usage)
         propositions.append(proposition)
+        ancres_envoyees.append(envoyees)
         position += 1
 
     cumulative = _usage_cumule(usages)
     try:
         stitched = _recoller(
-            working_plan, propositions, registre, doc_id=doc_id, settings=settings)
+            working_plan, propositions, registre, doc_id=doc_id, settings=settings,
+            ancres_envoyees=ancres_envoyees)
     except ValueError as exc:
         raise ValueError(
             f"{exc} (usage cumulé acquis input={cumulative.input}, cache={cumulative.cached}, "
@@ -2633,23 +2717,29 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     run_uid = f"structure-diagnostic:{doc_id}:{plan.plan_uid}"
     verdicts: list[VerdictSegment] = []
     propositions: list[StructureProposee] = []
+    ancres_du_diagnostic: list[tuple[AncreStructure, ...]] = []
     usages: list[Usage] = []
     arret: str | None = None
     for segment in plan.segments:
-        anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
         subset = {uid: registre[uid] for uid in segment.line_uids}
+        envoyee, envoyees = completer_requete(
+            segment, registre, doc_id=doc_id, settings=settings,
+            precedent=plan.segments[segment.index - 2] if segment.index > 1 else None,
+            proposition_precedente=(propositions[segment.index - 2]
+                                    if len(propositions) >= segment.index - 1 > 0 else None))
+        anchor_uids = tuple(anchor.line_uid for anchor in envoyees)
         trusted_uids = tuple(sorted({*segment.line_uids, *anchor_uids}))
         engage = _usage_cumule(usages).cost_eur
-        if engage + segment.majorant_eur_brut > ceiling and not _servi(client, segment.request):
+        if engage + segment.majorant_eur_brut > ceiling and not _servi(client, envoyee):
             arret = (f"plafond atteint avant le segment {segment.index} : {engage:.4f} € engagés "
                      f"+ {segment.majorant_eur:.4f} € majorés > {ceiling:.4f} €")
             break
         try:
-            message = client.messages.parse(**segment.request)
+            message = client.messages.parse(**envoyee)
         except Exception as exc:  # noqa: BLE001 - une panne fournisseur arrête le diagnostic
             append_ingest_audit(
                 settings.llm_audit_path, run_uid=run_uid, step="structure",
-                model=MODEL, request=segment.request, response=None,
+                model=MODEL, request=envoyee, response=None,
                 trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
                 error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
                 retention_files=settings.llm_audit_retention_files,
@@ -2660,7 +2750,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
         du_cache = isinstance(message, ReponseRejouee)
         append_ingest_audit(
             settings.llm_audit_path, run_uid=run_uid, step="structure",
-            model=MODEL, request=segment.request, response=message,
+            model=MODEL, request=envoyee, response=message,
             trusted_line_uids=trusted_uids, artifact_uid=artifact_uid, cache_hit=du_cache,
             max_bytes=settings.llm_audit_max_bytes,
             retention_files=settings.llm_audit_retention_files,
@@ -2670,7 +2760,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
             usages.append(mesure)
         if getattr(message, "stop_reason", None) == "max_tokens":
             arret = (f"réponse interrompue au segment {segment.index} : "
-                     f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+                     f"{_segment_impossible(len(segment.line_uids), envoyee, settings)}")
             break
         motif: str | None = None
         detail = ""
@@ -2678,7 +2768,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
         try:
             raw, _usage = _texte(message, settings)
             proposition = parse_proposition(
-                rapprocher_indices(raw, subset, anchors=segment.anchors),
+                rapprocher_indices(raw, subset, anchors=envoyees),
                 subset, doc_id, settings=settings, reference_uids=anchor_uids)
             noeuds = len(proposition.noeuds)
             verdict = _verifier_segment(proposition, subset, doc_id=doc_id, settings=settings)
@@ -2686,6 +2776,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
                 verdict.motif, verdict.detail)
             if motif is None:
                 propositions.append(proposition)
+                ancres_du_diagnostic.append(envoyees)
         except StructureRefusee as exc:
             motif, detail = exc.motif, exc.detail
         except ValueError as exc:
@@ -2698,7 +2789,8 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     couture_detail = ""
     if arret is None and len(propositions) == len(plan.segments):
         try:
-            cousue = _recoller(plan, propositions, registre, doc_id=doc_id, settings=settings)
+            cousue = _recoller(plan, propositions, registre, doc_id=doc_id, settings=settings,
+                               ancres_envoyees=ancres_du_diagnostic)
         except ValueError as exc:
             couture_acceptee, couture_detail = False, str(exc)
         else:
@@ -2707,6 +2799,28 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     return DiagnosticStructure(doc_id=doc_id, plan_uid=plan.plan_uid,
                                verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret,
                                couture_acceptee=couture_acceptee, couture_detail=couture_detail)
+
+
+def completer_requete(segment: SegmentStructure, registre: dict[str, Entree], *, doc_id: str,
+                      settings: Settings, precedent: SegmentStructure | None,
+                      proposition_precedente: StructureProposee | None,
+                      ) -> tuple[dict[str, Any], tuple[AncreStructure, ...]]:
+    """Requête réellement soumise : celle du plan, complétée par la chaîne ouverte à sa frontière.
+
+    Le plan est figé et chiffré **avant** toute soumission — c'est ce qui borne la dépense — mais
+    les sections que le segment précédent laisse ouvertes ne sont connues qu'une fois sa réponse
+    reçue. La requête est donc complétée juste avant l'appel, et c'est celle-là qui part et qui est
+    auditée. Sans chaîne ouverte (premier segment, ou segment précédent refusé), elle est
+    identique à celle du plan, octet pour octet.
+    """
+    if precedent is None or proposition_precedente is None:
+        return segment.request, segment.anchors
+    ouverts = chaine_ouverte(proposition_precedente, registre, precedent.line_uids)
+    if not ouverts:
+        return segment.request, segment.anchors
+    subset = {uid: registre[uid] for uid in segment.line_uids}
+    anchors = _ancres_frontiere(registre, segment.line_uids, ouverts=ouverts)
+    return requete(subset, doc_id, settings, anchors=anchors, ouverts=ouverts), anchors
 
 
 def _servi(client: Any, requete_: dict[str, Any]) -> bool:

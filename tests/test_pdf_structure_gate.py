@@ -9,7 +9,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from server.app.domain import Check, Document, Node, Report, is_citable
+from server.app.domain import BlockRef, Check, Document, Node, NodeRef, Report, is_citable
 from server.ingest import pdf_structure_gate as gate
 from server.ingest.artifacts import document_json
 from server.ingest.pdf_to_blocks import PageLine, PageText, SourceRegistry, build_document, extract_pages
@@ -232,6 +232,34 @@ def test_gate_lit_le_vocabulaire_technique_dans_la_langue_du_document(
     issues = gate._semantic_issues(document)
 
     assert any("table_des_matieres" in issue for issue in issues) is signale
+
+
+def test_gate_lit_lintervalle_dun_conteneur_et_non_ses_seuls_blocs_directs(
+        tmp_path: Path) -> None:
+    """Une section qui délègue tout son texte à ses sous-sections a bien du corps observable.
+
+    Le vérificateur prouve la surface d'un nœud sur **les lignes de son intervalle**, descendants
+    compris ; la porte ne lisait que les blocs attachés au nœud lui-même. Un conteneur dont le seul
+    corps est celui de ses enfants — « Résiliation » : quatre sous-sections et rien en propre —
+    était donc « sans preuve locale » ici et prouvé là. Sept nœuds de l'arbre réel tombaient dessus.
+    """
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    corps = document.blocks[0]
+    conteneur, enfant = f"{document.doc_id}:c1", f"{document.doc_id}:c1.1"
+    # Un intitulé nu : ni identité d'article, ni ponctuation finale. Sans texte observable, l'oracle
+    # ferme le gate — c'est voulu, et c'est ce que le conteneur déclenchait à tort.
+    document.nodes.append(Node(node_id=conteneur, level=1, title="Résiliation",
+                               surface_class="substantiel", items=[NodeRef(node_id=enfant)]))
+    document.nodes.append(Node(node_id=enfant, level=2, title="Résiliation par l'assureur",
+                               surface_class="substantiel",
+                               items=[BlockRef(block_id=corps.block_id)]))
+
+    issues = gate._semantic_issues(document)
+
+    assert not any(issue.startswith(f"{conteneur}:") for issue in issues), issues
+    # L'étendue lue est celle de l'intervalle : le bloc du descendant en fait partie.
+    assert gate._blocs_de_lintervalle(document, document.nodes[-2]) == [corps.block_id]
 
 
 def test_gate_observe_la_classe_et_la_fidelite_dune_surface_preliminaire() -> None:

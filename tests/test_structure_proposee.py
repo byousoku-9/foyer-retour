@@ -1172,7 +1172,11 @@ def test_execution_du_plan_segmentaire_cumule_exactement_usage_et_audit(
     assert len(audits) == len(plan.segments)
     assert len({event["run_uid"] for event in audits}) == 1
     assert plan.plan_uid in audits[0]["run_uid"]
-    assert [event["request"] for event in audits] == [segment.request for segment in plan.segments]
+    # **Ce qui est audité est ce qui est parti.** La requête d'un segment est complétée juste
+    # avant l'appel par la chaîne ouverte à sa frontière : la comparer au plan reviendrait à
+    # certifier autre chose que ce que le fournisseur a reçu.
+    assert [event["request"] for event in audits] == client.messages.calls
+    assert client.messages.calls[0] == plan.segments[0].request  # sans chaîne : identique au plan
     assert {uid for event in audits for uid in event["trusted_line_uids"]} == set(registre)
     assert audits[-1]["usage_cumule"] == {**expected.model_dump(), "current_known": True}
 
@@ -1900,10 +1904,8 @@ def test_bad_request_contexte_passe_par_main_puis_raffine_et_repreflight_le_budg
     )
 
     assert code == 0
-    assert [event["request"] for event in audits] == [
-        initial.segments[0].request,
-        *(segment.request for segment in refined.segments),
-    ]
+    assert [event["request"] for event in audits] == client.messages.calls
+    assert client.messages.calls[0] == initial.segments[0].request
     assert audits[0]["error_class"] == "RefusContexteType"
     assert len({event["run_uid"] for event in audits}) == 1
     assert (dossier / "structure.json").is_file()
@@ -2182,10 +2184,11 @@ _CORPS = [("1 Objet du contrat", "1"), "Le present contrat couvre le logement.",
 
 
 def _noeud(ordonnees: list[s.Entree], titre: int, premiere: int, derniere: int, *,
-           surface: str, article: str | None = None) -> s.NoeudPropose:
+           surface: str, article: str | None = None,
+           parent: str | None = None) -> s.NoeudPropose:
     return s.NoeudPropose(
         titre_line_uid=ordonnees[titre].uid, premiere_line_uid=ordonnees[premiere].uid,
-        derniere_line_uid=ordonnees[derniere].uid, parent_line_uid=None,
+        derniere_line_uid=ordonnees[derniere].uid, parent_line_uid=parent,
         title_line_uids=[ordonnees[titre].uid], article_uid=article, surface_class=surface,
         continuation_line_uids=[], relations=[])
 
@@ -2876,6 +2879,116 @@ def test_aucune_cible_ne_peut_sortir_des_segments_et_la_couture_le_garde_quand_m
 
     # La ligne visée est donc toujours lisible, et le refus peut la citer.
     assert "ordre 1, p.1" in s._ligne_designee(tuple(registre)[0], registre)
+
+
+# --- 2 quinquies. La chaîne ouverte à la frontière ----------------------------------------------
+
+def test_un_ancetre_ouvert_loin_de_la_frontiere_devient_nommable(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """La cause mesurée : le parent à rattacher n'était pas dans la liste des ancres.
+
+    Les ancres arrière sont les plus **proches** de la frontière. Or le titre d'une section qui
+    l'enjambe est d'autant plus loin que la structure est profonde. Sur un contrat réel, la fenêtre
+    couvrait une vingtaine de lignes et le titre à rattacher était à 622, 182 et 104 lignes : le
+    modèle ne pouvait pas le nommer, et le seul cas où il a réussi est le seul où le titre tombait
+    dans la fenêtre. Ici, le titre englobant est repoussé au-delà de la fenêtre par du remplissage.
+    """
+    # Des lignes de remplissage qui sont **elles aussi** des candidates : c'est ce qui remplit la
+    # fenêtre de proximité et en chasse le titre englobant, exactement comme sur un contrat dense.
+    lignes_1 = ["1. Definitions", *[f"Terme {index}" for index in range(40)]]
+    lignes_2 = ["Terme suivant", "Sa definition continue la meme section."]
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, [lignes_1, lignes_2])
+    ordonnes = _ordonnees(registre)
+    englobant, derniere = ordonnes[0], ordonnes[len(lignes_1) - 1]
+
+    # Sans chaîne ouverte : le titre englobant est hors de la fenêtre de proximité.
+    proches = s._ancres_frontiere(registre, plan.segments[1].line_uids)
+    assert englobant.uid not in {ancre.line_uid for ancre in proches}
+
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(ordonnes, 0, 0, len(lignes_1) - 1, surface="substantiel", article="article:1")])
+    ouverts = s.chaine_ouverte(proposition, registre, plan.segments[0].line_uids)
+
+    assert [(ouvert.line_uid, ouvert.profondeur) for ouvert in ouverts] == [(englobant.uid, 0)]
+    avec = s._ancres_frontiere(registre, plan.segments[1].line_uids, ouverts=ouverts)
+    assert englobant.uid in {ancre.line_uid for ancre in avec}
+    # Les index des ancres de proximité ne bougent pas : l'ancêtre est ajouté à la fin.
+    assert avec[:len(proches)] == proches
+    assert derniere.uid  # la frontière est bien celle du premier segment
+
+
+def test_la_chaine_ouverte_est_publiee_dans_la_charge_utile_avec_sa_profondeur(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le modèle reçoit l'index et la profondeur ; sans chaîne, la charge est celle d'avant."""
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, _SECTION_COUPEE)
+    ordonnes = _ordonnees(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(ordonnes, 0, 0, 2, surface="substantiel", article="article:1"),
+        _noeud(ordonnes, 1, 1, 2, surface="substantiel", parent=ordonnes[0].uid)])
+    ouverts = s.chaine_ouverte(proposition, registre, plan.segments[0].line_uids)
+    assert [ouvert.profondeur for ouvert in ouverts] == [0, 1]
+    assert ouverts[0].titre.startswith("Article 1") and ouverts[1].titre == "Sont exclus"
+
+    envoyee, envoyees = s.completer_requete(
+        plan.segments[1], registre, doc_id=DOC, settings=settings,
+        precedent=plan.segments[0], proposition_precedente=proposition)
+    charge = json.loads(envoyee["messages"][0]["content"])
+    index_de = {ancre["index"]: ancre["titre"] for ancre in charge["ancres_frontiere"]}
+    assert [item["profondeur"] for item in charge["noeuds_ouverts"]] == [0, 1]
+    for item in charge["noeuds_ouverts"]:
+        assert index_de[item["index"]] == item["titre"], "l'index désigne bien ce titre"
+
+    # Aucun segment précédent : la requête est celle du plan, octet pour octet.
+    inchangee, ancres = s.completer_requete(
+        plan.segments[0], registre, doc_id=DOC, settings=settings,
+        precedent=None, proposition_precedente=None)
+    assert inchangee == plan.segments[0].request and ancres == plan.segments[0].anchors
+
+
+def test_un_parent_vers_un_ancetre_ouvert_traverse_la_couture(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bout en bout : le modèle nomme l'ancêtre ajouté, et la couture l'accepte.
+
+    L'ancêtre n'est pas dans les ancres du **plan** ; il n'est que dans celles réellement envoyées.
+    La couture doit donc juger sur ce qui est parti, sans quoi elle refuserait la bonne réponse.
+    """
+    lignes_1 = ["1. Definitions", *[f"Terme {index}" for index in range(40)]]
+    lignes_2 = ["Terme suivant", "Sa definition continue la meme section."]
+    registre, plan, settings = _plan_en_deux_segments(monkeypatch, [lignes_1, lignes_2])
+    ordonnes = _ordonnees(registre)
+    englobant = ordonnes[0]
+    assert englobant.uid not in {ancre.line_uid for ancre in plan.segments[1].anchors}
+
+    class FauxRattachement(FauxMessages):
+        """Segment 1 : une section ouverte. Segment 2 : un enfant rattaché à l'ancêtre ouvert."""
+
+        def parse(self, **params: Any) -> Any:
+            self.calls.append(params)
+            charge = json.loads(params["messages"][0]["content"])
+            lignes = charge["lignes"]
+            if "noeuds_ouverts" not in charge:
+                noeuds = [_noeud_index(0, 0, len(lignes) - 1, article="article:1")]
+            else:
+                ouvert = charge["noeuds_ouverts"][0]
+                noeuds = [_noeud_index(0, 0, len(lignes) - 1, article=None)]
+                noeuds[0]["parent_line_uid"] = ouvert["index"]
+            return SimpleNamespace(
+                usage=self.usage, stop_reason="end_turn",
+                content=[SimpleNamespace(type="text",
+                                         text=json.dumps({"noeuds": noeuds}))])
+
+    client = SimpleNamespace(messages=FauxRattachement())
+
+    execution = s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    enfant = next(noeud for noeud in execution.proposition.noeuds
+                  if noeud.titre_line_uid == ordonnes[len(lignes_1)].uid)
+    assert enfant.parent_line_uid == englobant.uid, "l'enfant est rattaché à l'ancêtre ouvert"
+    assert s.verifier(execution.proposition, registre, doc_id=DOC, settings=settings).accepte
+    # La borne de l'ancêtre s'étend jusqu'à la fin de son enfant.
+    parent = next(noeud for noeud in execution.proposition.noeuds
+                  if noeud.titre_line_uid == englobant.uid)
+    assert parent.derniere_line_uid == ordonnes[-1].uid
 
 
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
