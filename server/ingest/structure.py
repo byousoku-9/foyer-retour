@@ -1313,6 +1313,103 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
     )
 
 
+def _requete_cachable(requete_: dict[str, Any]) -> dict[str, Any]:
+    """Requête telle que l'audit la conserve : sans ses entrées `None`.
+
+    `LlmClient` calcule sa clé sur un corps qui porte des `None` (`tools`, `extra_body`) et
+    n'archive que les entrées renseignées. Nettoyer des deux côtés est ce qui fait qu'un couple
+    archivé et sa requête vivante rendent **la même** clé, sans supposer laquelle des deux formes
+    est la bonne.
+    """
+    return {nom: valeur for nom, valeur in requete_.items() if valeur is not None}
+
+
+def cache_de_rejeu(chemin: Path) -> dict[str, dict[str, Any]]:
+    """Couples requête/réponse archivés d'un fichier d'audit, indexés par clé de cache LLM.
+
+    La clé est celle que `server.app.llm.client._cache_key` calcule, importée et non réécrite :
+    une empreinte recalculée ici dériverait dès que le client changerait la sienne, et le rejeu
+    deviendrait silencieusement vide (idiome `replay_typing_audit` — ne jamais recalculer une
+    empreinte que l'implémentation courante possède déjà).
+
+    Seuls les appels `step=structure` réellement rendus sont retenus : une ligne d'erreur n'a pas
+    de réponse à resservir. À clé égale, la **dernière** ligne gagne — c'est la plus récente.
+    """
+    from server.app.llm.client import _cache_key
+
+    cache: dict[str, dict[str, Any]] = {}
+    with chemin.open("r", encoding="utf-8") as fichier:
+        for ligne in fichier:
+            ligne = ligne.strip()
+            if not ligne:
+                continue
+            try:
+                evenement = json.loads(ligne)
+            except json.JSONDecodeError:
+                continue  # une ligne tronquée par la rotation n'invalide pas le reste du fichier
+            if (not isinstance(evenement, dict) or evenement.get("step") != "structure"
+                    or evenement.get("error_class")):
+                continue
+            requete_ = evenement.get("request")
+            reponse = evenement.get("response")
+            if not isinstance(requete_, dict) or not isinstance(reponse, dict):
+                continue
+            cache[_cache_key(_requete_cachable(requete_))] = {
+                "response": reponse, "call_uid": evenement.get("call_uid", ""),
+            }
+    return cache
+
+
+class _MessagesRejoues:
+    """`messages.parse` qui sert d'abord un enregistrement, puis le fournisseur."""
+
+    def __init__(self, cache: dict[str, dict[str, Any]], fournisseur: Any = None) -> None:
+        self._cache = cache
+        self._fournisseur = fournisseur
+        self.servis: list[str] = []
+
+    def parse(self, **params: Any) -> Any:
+        from server.app.llm.client import _cache_key
+
+        entree = self._cache.get(_cache_key(_requete_cachable(params)))
+        if entree is None:
+            if self._fournisseur is None:
+                raise RuntimeError(
+                    "requête absente du rejeu et aucun fournisseur configuré; aucun appel soumis")
+            return self._fournisseur.messages.parse(**params)
+        self.servis.append(entree.get("call_uid", ""))
+        return ReponseRejouee(message=anthropic.types.Message.model_validate(entree["response"]))
+
+
+class ClientRejeu:
+    """Client injectable : une requête identique est resservie, une requête inconnue part.
+
+    C'est tout ce que `--rejouer-audit` change au chemin. Corriger le code hors ligne puis rejouer
+    les réponses déjà payées coûte zéro ; ce qui n'a jamais été soumis part normalement, sous le
+    même plafond.
+    """
+
+    def __init__(self, cache: dict[str, dict[str, Any]], fournisseur: Any = None) -> None:
+        self.messages = _MessagesRejoues(cache, fournisseur)
+
+    def servi_du_cache(self, requete_: dict[str, Any]) -> bool:
+        from server.app.llm.client import _cache_key
+
+        return _cache_key(_requete_cachable(requete_)) in self.messages._cache
+
+
+def _majorant_a_reserver(plan: PlanStructure, client: Any) -> float:
+    """Majorant du plan **moins** ce qu'un rejeu sert déjà : un segment rejoué ne coûte rien.
+
+    Sans cela, un rejeu intégralement gratuit serait refusé par le préflight du plan complet — le
+    plafond arrêterait précisément le chemin qui ne dépense pas.
+    """
+    servi = getattr(client, "servi_du_cache", None)
+    return _arrondir_eur_superieur(sum(
+        segment.majorant_eur_brut for segment in plan.segments
+        if servi is None or not servi(segment.request)))
+
+
 def _refus(motif: str, detail: str) -> Verdict:
     return Verdict(accepte=False, motif=motif, detail=detail[:1000])
 
@@ -1848,11 +1945,48 @@ def charger_octets(path: Path, *, settings: Settings | None = None
                                f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
 
 
+@dataclass(frozen=True)
+class ReponseRejouee:
+    """Réponse archivée resservie sans réseau : même contenu exact, coût réel nul.
+
+    Le contenu **est** celui du fichier d'audit, reconstruit dans le type du SDK ; seul le coût
+    change, parce qu'aucun appel n'a eu lieu. Tout le reste du chemin — texte, rapprochement des
+    index, vérificateur — ne voit aucune différence, et c'est précisément ce qui rend le rejeu
+    probant : il juge la réponse d'hier avec le code d'aujourd'hui.
+    """
+
+    message: Any
+    cout_original_eur: float = 0.0
+
+    def __getattr__(self, nom: str) -> Any:
+        if nom.startswith("__"):
+            raise AttributeError(nom)
+        return getattr(object.__getattribute__(self, "message"), nom)
+
+
+def _usage_mesure(message: Any, settings: Settings) -> Usage | None:
+    """Usage facturable d'une réponse, ou `None` s'il est absent.
+
+    Une réponse rejouée porte l'usage de l'appel d'origine — c'est la seule chose honnête à
+    consigner — mais son coût réel est **nul** : rien n'a été soumis. Le coût d'origine reste dit,
+    sous le nom que le domaine lui donne déjà pour le cache d'évals.
+    """
+    api_usage = getattr(message, "usage", None)
+    if not api_usage:
+        return None
+    mesure = cost_from_usage(MODEL, api_usage, settings.usd_eur, batch=False)
+    if not isinstance(message, ReponseRejouee):
+        return mesure
+    return mesure.model_copy(update={
+        "cached_response": True, "cost_eur_original": mesure.cost_eur, "cost_eur": 0.0})
+
+
 def _texte(message: Any, settings: Settings) -> tuple[str, Usage]:
     usage = getattr(message, "usage", None)
     if not usage:  # absente **ou vide** : sans usage, aucun coût réel ne peut être certifié
         raise ValueError("réponse sans usage facturable; aucun artefact écrit")
-    measured = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False)
+    measured = _usage_mesure(message, settings)
+    assert measured is not None
     stop_reason = getattr(message, "stop_reason", None)
     if stop_reason is not None and stop_reason not in NORMAL_STOPS:
         raise ValueError(
@@ -2150,9 +2284,10 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     """
     _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
     ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
-    if plan.majorant_eur > ceiling:
+    a_reserver = _majorant_a_reserver(plan, client)
+    if a_reserver > ceiling:
         raise ValueError(
-            f"majorant cumulé {plan.majorant_eur:.4f} € > plafond {ceiling:.4f} €; "
+            f"majorant cumulé {a_reserver:.4f} € > plafond {ceiling:.4f} €; "
             "aucun appel soumis")
     artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     run_uid = f"structure:{doc_id}:{plan.plan_uid}"
@@ -2206,11 +2341,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
                 "rien n'a été écrit") from exc
         raw = ""
         usage: Usage | None = None
-        api_usage = getattr(message, "usage", None)
-        measured_before_validation = (
-            cost_from_usage(MODEL, api_usage, settings.usd_eur, batch=False)
-            if api_usage else None
-        )
+        measured_before_validation = _usage_mesure(message, settings)
         audited_usages = [*usages]
         if measured_before_validation is not None:
             audited_usages.append(measured_before_validation)
@@ -2218,6 +2349,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             settings.llm_audit_path, run_uid=run_uid, step="structure",
             model=MODEL, request=segment.request, response=message,
             trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+            cache_hit=isinstance(message, ReponseRejouee),
             max_bytes=settings.llm_audit_max_bytes,
             retention_files=settings.llm_audit_retention_files,
             usage_cumule=_usage_audit(
@@ -2338,6 +2470,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--data", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-cost", type=float)
+    parser.add_argument(
+        "--rejouer-audit", type=Path, metavar="JSONL",
+        help="sert les réponses déjà enregistrées dans ce fichier d'audit ; une requête absente "
+             "part au fournisseur sous le même plafond")
     args = parser.parse_args(argv)
     settings = settings or get_settings()
     # AD-9 : le plafond est résolu et validé **avant** toute lecture, toute extraction et toute
@@ -2412,10 +2548,20 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             print("dry-run : aucune soumission, aucune écriture", file=output)
             return 0
         if client is None:
-            if cle_absente(settings):
+            fournisseur = None
+            if not cle_absente(settings):
+                fournisseur = anthropic.Anthropic(
+                    api_key=settings.anthropic_api_key, max_retries=0)
+            if args.rejouer_audit is not None:
+                cache = cache_de_rejeu(args.rejouer_audit)
+                print(f"rejeu : {len(cache)} réponse(s) enregistrée(s) dans "
+                      f"{args.rejouer_audit}", file=output)
+                client = ClientRejeu(cache, fournisseur)
+            elif fournisseur is None:
                 print("ANTHROPIC_API_KEY absente; aucun appel soumis", file=sys.stderr)
                 return 2
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=0)
+            else:
+                client = fournisseur
         source_hash = hashlib.sha256((doc_dir / "source.pdf").read_bytes()).hexdigest()
         execution = executer_plan(
             client, plan, registre, doc_id=args.doc_id, settings=settings,

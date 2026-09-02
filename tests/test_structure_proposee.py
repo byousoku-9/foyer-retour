@@ -2292,6 +2292,121 @@ def test_le_document_publie_et_sa_porte_de_certification_lisent_la_meme_provenan
     assert structure_gate._semantic_issues(document) == []
 
 
+# --- 2 ter. Rejeu depuis l'audit, et mode diagnostic --------------------------------------------
+
+def _message_archive(noeuds: list[dict[str, Any]], *,
+                     stop_reason: str = "end_turn") -> dict[str, Any]:
+    """Réponse au format exact du SDK, telle qu'un fichier d'audit la conserve."""
+    return {
+        "id": "msg_archive", "type": "message", "role": "assistant", "model": s.MODEL,
+        "stop_reason": stop_reason, "stop_sequence": None,
+        "content": [{"type": "text", "text": json.dumps({"noeuds": noeuds})}],
+        "usage": {"input_tokens": 120, "output_tokens": 30},
+    }
+
+
+def _noeuds_par_ligne(nombre: int) -> list[dict[str, Any]]:
+    return [{"titre_line_uid": index, "premiere_line_uid": index, "derniere_line_uid": index,
+             "parent_line_uid": None} for index in range(nombre)]
+
+
+def _ecrire_audit(chemin: Path, couples: list[tuple[dict[str, Any], dict[str, Any]]]) -> None:
+    chemin.write_text("\n".join(
+        json.dumps({"step": "structure", "call_uid": f"call:{index}", "error_class": None,
+                    # L'audit écrit la requête **sans ses entrées `None`** : le rejeu doit
+                    # reconstruire la clé exactement comme le client la calcule.
+                    "request": {nom: valeur for nom, valeur in requete.items()
+                                if valeur is not None},
+                    "response": reponse}, ensure_ascii=False)
+        for index, (requete, reponse) in enumerate(couples)) + "\n", "utf-8")
+
+
+def test_le_rejeu_sert_une_requete_identique_sans_appel_et_laisse_partir_linconnue(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Corriger le code hors ligne puis rejouer les réponses déjà payées doit coûter zéro.
+
+    La clé du cache est celle du client LLM, importée et non réécrite : c'est ce qui fait qu'une
+    requête vivante et son enregistrement se retrouvent. Une requête que personne n'a archivée part
+    au fournisseur, normalement.
+    """
+    registre = _registre(_corpus())
+    settings = get_settings()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) == 1
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(plan.segments[0].request,
+                            _message_archive(_noeuds_par_ligne(len(registre))))])
+
+    cache = s.cache_de_rejeu(chemin)
+    assert len(cache) == 1
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    fournisseur = SimpleNamespace(messages=FauxMessagesUnNoeudParLigne())
+    client = s.ClientRejeu(cache, fournisseur)
+    assert client.servi_du_cache(plan.segments[0].request)
+
+    execution = s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert fournisseur.messages.calls == [], "aucun appel fournisseur n'a été soumis"
+    assert client.messages.servis == ["call:0"]
+    assert execution.usage.cost_eur == 0.0 and execution.usage.cached_response
+    assert execution.usage.cost_eur_original > 0, "le coût de l'appel d'origine reste dit"
+    assert len(execution.proposition.noeuds) == len(registre)
+
+    # Une requête que le fichier ne contient pas part au fournisseur, sous le même plafond.
+    autre = replace(plan.segments[0],
+                    request={**plan.segments[0].request, "max_tokens": 4096})
+    assert not client.servi_du_cache(autre.request)
+    client.messages.parse(**autre.request)
+    assert len(fournisseur.messages.calls) == 1
+
+
+def test_la_cle_du_rejeu_est_celle_du_client_et_ignore_les_entrees_absentes(
+        tmp_path: Path) -> None:
+    """L'audit écrit la requête **sans ses entrées `None`** ; la requête vivante peut en porter.
+
+    Les deux doivent se retrouver, sinon le rejeu est silencieusement vide — le pire des échecs,
+    puisqu'il repart au fournisseur sans rien dire. La clé est celle du client LLM, importée : la
+    recalculer ici la ferait dériver à la première évolution de `_cache_key`.
+    """
+    from server.app.llm.client import _cache_key
+
+    vivante = {"model": s.MODEL, "max_tokens": 8, "system": [{"type": "text", "text": "s"}],
+               "messages": [{"role": "user", "content": "{}"}], "tools": None,
+               "extra_body": None}
+    archivee = {nom: valeur for nom, valeur in vivante.items() if valeur is not None}
+    assert "tools" not in archivee and "tools" in vivante
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(archivee, _message_archive([]))])
+
+    cache = s.cache_de_rejeu(chemin)
+    assert list(cache) == [_cache_key(archivee)]
+    assert s.ClientRejeu(cache).servi_du_cache(vivante), (
+        "la requête vivante et son enregistrement doivent rendre la même clé")
+
+
+def test_le_prefligth_ne_reserve_rien_pour_un_segment_que_le_rejeu_sert(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans cela, le plafond arrêterait précisément le chemin qui ne dépense pas."""
+    registre = _registre(_corpus())
+    settings = get_settings()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(plan.segments[0].request,
+                            _message_archive(_noeuds_par_ligne(len(registre))))])
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    plafond = plan.majorant_eur / 2
+    assert plafond < plan.majorant_eur
+
+    with pytest.raises(ValueError, match="majorant cumulé"):
+        s.executer_plan(FauxClient(), plan, registre, doc_id=DOC, settings=settings,
+                        max_cost_eur=plafond)
+
+    rejeu = s.ClientRejeu(s.cache_de_rejeu(chemin))
+    execution = s.executer_plan(rejeu, plan, registre, doc_id=DOC, settings=settings,
+                                max_cost_eur=plafond)
+    assert execution.usage.cost_eur == 0.0
+
+
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
 
 @pytest.mark.parametrize("noeuds,motif", [
