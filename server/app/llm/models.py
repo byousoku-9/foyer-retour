@@ -19,10 +19,10 @@ TIERS: dict[Tier, str] = {
 }
 
 STEP_TIERS: dict[str, Tier | None] = {
-    "comprendre": "micro",
+    "comprendre": "reason",
     "retrouver": "reason",
     "rediger": "reason",
-    "verifier": "micro",
+    "verifier": "reason",
     "restituer": None,
     "ingest": "ingest",
 }

@@ -19,6 +19,14 @@ BlockKind = Literal[
 ]
 StructuralBlockKind = Literal["para", "heading", "table", "list", "autre"]
 RelationKind = Literal["exception_de", "specialise", "contredit"]
+SurfaceClass = Literal["preliminaire", "table_des_matieres", "substantiel", "inconnu"]
+ContextRole = Literal[
+    "target", "parent_preamble", "same_clause_continuation", "explicit_dependency",
+    "definition_override",
+]
+NodeRelationKind = Literal[
+    "same_clause_continuation", "explicit_dependency", "definition_override",
+]
 # Typage des clauses : seul un kind `manual` ou `model_verified` est confirmé (AD-6, AD-8).
 KindSource = Literal["manual", "model", "model_verified"]
 
@@ -41,8 +49,13 @@ class Line(DomainModel):
     """Ligne d'un bloc PDF, pour le surlignage précis."""
 
     line_id: str
+    # Identité d'extraction content-addressée, indépendante du bloc qui porte la ligne. Les anciens
+    # artefacts restent lisibles (`None`) mais toute nouvelle ingestion PDF la renseigne.
+    line_uid: str | None = None
     text: str
     bbox: Bbox | None = None
+    page: int | None = None
+    order: int | None = Field(default=None, ge=1)
 
 
 class Scope(DomainModel):
@@ -70,6 +83,13 @@ class Relation(DomainModel):
     contredit: str | None = None
 
 
+class NodeRelation(DomainModel):
+    """Relation structurelle acceptée, distincte du typage juridique porté par ``Block``."""
+
+    kind: NodeRelationKind
+    target_node_id: str
+
+
 class Block(DomainModel):
     block_id: str
     text: str
@@ -87,6 +107,11 @@ class Block(DomainModel):
     kind_confidence: float | None = Field(default=None, ge=0, le=1)
     kind_source: KindSource | None = None
     source_field: str | None = None
+    # L'identité juridique, la classe de citabilité et l'identité technique du bloc sont
+    # orthogonales. Une structure Opus projette ces deux champs avant indexation.
+    article_uid: str | None = None
+    surface_class: SurfaceClass = "substantiel"
+    context_role: ContextRole | None = None
     continues: str | None = None
     refs: list[str] = Field(default_factory=list)
     unresolved_refs: list[str] = Field(default_factory=list)
@@ -116,6 +141,12 @@ class Block(DomainModel):
         suffix = f":{self.loc}:{self.seq}"
         if not self.block_id.endswith(suffix):
             raise ValueError(f"block_id {self.block_id!r} doit se terminer par {suffix!r}")
+        # Migration déterministe des artefacts antérieurs : la provenance historique reste une
+        # donnée d'extraction, mais sa projection de surface est explicite dans le modèle courant.
+        if self.source_field == "preliminaire":
+            self.surface_class = "preliminaire"
+        elif self.source_field == "tdm":
+            self.surface_class = "table_des_matieres"
         return self
 
 
@@ -124,13 +155,18 @@ NON_CITABLE_SOURCE_FIELDS = frozenset({"preliminaire", "tdm"})
 
 def is_citable(block: Block) -> bool:
     """Prédicat unique du rappel : les préliminaires restent auditables, jamais proposés comme preuve."""
-    return block.kind != "autre" and block.source_field not in NON_CITABLE_SOURCE_FIELDS
+    return (block.kind != "autre"
+            and block.surface_class == "substantiel"
+            and block.source_field not in NON_CITABLE_SOURCE_FIELDS)
 
 
 class Node(DomainModel):
     node_id: str
     level: int = 0
     title: str = ""
+    article_uid: str | None = None
+    surface_class: SurfaceClass = "substantiel"
+    relations: list[NodeRelation] = Field(default_factory=list)
     items: list[BlockRef | NodeRef] = Field(default_factory=list)  # source unique de l'ordre de lecture
     scope: Scope = Field(default_factory=Scope)
     sources: list[Source] = Field(default_factory=list)
@@ -227,6 +263,7 @@ class Document(DomainModel):
     def _tree_invariants(self) -> Document:
         """AD-8 : block_id uniques, références résolues, chaque bloc rattaché à exactement un nœud, une seule racine."""
         by_id: dict[str, Block] = {}
+        line_provenance: dict[str, tuple[str, int | None, Bbox | None, int | None, str]] = {}
         prefix = f"{self.doc_id}:"
         for b in self.blocks:
             if b.block_id in by_id:
@@ -234,11 +271,33 @@ class Document(DomainModel):
             if not b.block_id.startswith(prefix):
                 raise ValueError(f"block_id {b.block_id!r} ne commence pas par {prefix!r}")
             by_id[b.block_id] = b
+            for line in b.lines:
+                if line.line_uid is None:
+                    continue
+                provenance = (b.block_id, line.page or b.page, line.bbox, line.order, line.text)
+                previous = line_provenance.get(line.line_uid)
+                if previous is not None:
+                    raise ValueError(
+                        "line_uid dupliqué : "
+                        f"{line.line_uid} ({previous!r} et {provenance!r})"
+                    )
+                line_provenance[line.line_uid] = provenance
         node_ids = {n.node_id for n in self.nodes}
         if len(node_ids) != len(self.nodes):
             raise ValueError("node_id dupliqué")
         parents: dict[str, str] = {}
         for n in self.nodes:
+            relation_keys: set[tuple[str, str]] = set()
+            for relation in n.relations:
+                key = (relation.kind, relation.target_node_id)
+                if key in relation_keys:
+                    raise ValueError(f"{n.node_id}.relations contient un doublon : {key}")
+                relation_keys.add(key)
+                if relation.target_node_id not in node_ids:
+                    raise ValueError(
+                        f"{n.node_id}.relations vise un nœud inconnu : {relation.target_node_id}")
+                if relation.target_node_id == n.node_id:
+                    raise ValueError(f"{n.node_id}.relations contient une auto-relation : {key}")
             for item in n.items:
                 if isinstance(item, NodeRef):
                     if item.node_id not in node_ids:
@@ -294,6 +353,32 @@ class Document(DomainModel):
                 if cur in seen:
                     raise ValueError(f"cycle de nœuds via {cur}")
                 seen.add(cur)
+        relation_graph = {
+            node.node_id: [relation.target_node_id for relation in node.relations]
+            for node in self.nodes
+        }
+        for start in relation_graph:
+            pending = [start]
+            active: set[str] = set()
+            finished: set[str] = set()
+            while pending:
+                current = pending[-1]
+                if current in finished:
+                    pending.pop()
+                    continue
+                if current not in active:
+                    active.add(current)
+                    targets = [target for target in relation_graph[current]
+                               if target not in finished]
+                    cycle_target = next((target for target in targets if target in active), None)
+                    if cycle_target is not None:
+                        raise ValueError(
+                            f"cycle de relations structurelles via {cycle_target}")
+                    pending.extend(targets)
+                    continue
+                active.remove(current)
+                finished.add(current)
+                pending.pop()
         roots = [n for n in children if n not in node_parent]
         if self.nodes and len(roots) != 1:
             raise ValueError(f"exactement un nœud racine attendu, trouvé : {roots}")

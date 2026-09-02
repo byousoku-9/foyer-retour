@@ -44,6 +44,7 @@ from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FIL
                                      exiger_espace_installe, merge_manifest, read_manifest,
                                      verifier_couverture_du_lot)
 from server.ingest.fetch_source import GS_URL_RE
+from server.ingest.line_identity import line_uid
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   canoniser_transition_apres_typage, enrich_typing_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
@@ -62,7 +63,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # vérifiée. La génération reste `10` : elle nomme la story, dont les artefacts committés sont déjà
 # déclarés périmés dans `docs/choix-et-limites.md`, et c'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact de la règle et change dès qu'elle change.
-PARSER_VERSION = "10"
+PARSER_VERSION = "11-line-uid"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -1188,6 +1189,11 @@ class _Builder:
         self.body_indents: dict[str, list[float]] = {}
         self.block_uids: dict[str, list[str]] = {}  # story 4.2c : bloc → lignes source, hors `Document`
 
+    def _line_uid(self, page: int, line: PageLine) -> str:
+        """Identité v1 de la ligne portée, indépendante du ``block_id`` et de la segmentation."""
+        return line_uid(document_uid=self.doc_id, page=page, source_uids=line.source_uids,
+                        bbox=line.bbox, order=line.ordre_lecture, text=line.text)
+
     def node_propose(self, node_id: str) -> Node:
         """Instancie à la demande un nœud **déjà prouvé**, et ses ancêtres, dans l'ordre de lecture.
 
@@ -1199,7 +1205,10 @@ class _Builder:
             return self.nodes[node_id]
         spec = self.plan[node_id]
         parent = self.root if spec.parent_id is None else self.node_propose(spec.parent_id)
-        node = Node(node_id=node_id, level=spec.level, title=spec.title)
+        node = Node(node_id=node_id, level=spec.level, title=spec.title,
+                    article_uid=getattr(spec, "article_uid", None),
+                    surface_class=getattr(spec, "surface_class", "substantiel"),
+                    relations=list(getattr(spec, "relations", ())))
         self.nodes[node_id] = node
         self.parents[node_id] = parent.node_id
         self.order.append(node_id)
@@ -1223,7 +1232,7 @@ class _Builder:
                 break
         # Le parseur ne donne aucun sens juridique au numéro. `type_clauses` est l'unique écrivain
         # sémantique de `Node.scope.kind`, à partir des relations et portées explicites résolues.
-        node = Node(node_id=node_id, level=len(parts), title="")
+        node = Node(node_id=node_id, level=len(parts), title="", article_uid=f"article:{numero}")
         self.nodes[node_id] = node
         self.parents[node_id] = parent.node_id
         self.order.append(node_id)
@@ -1289,10 +1298,17 @@ class _Builder:
         block_id = f"{self.doc_id}:{loc}:{seq}"
         bbox = [min(l.bbox[0] for l in lines), min(l.bbox[1] for l in lines),
                 max(l.bbox[2] for l in lines), max(l.bbox[3] for l in lines)]
+        surface_class = ("preliminaire" if source_field == "preliminaire" else
+                         "table_des_matieres" if source_field == "tdm" else
+                         self.current.surface_class)
         block = Block(block_id=block_id, text="\n".join(l.text for l in lines), loc=loc, seq=seq, page=page,
                       bbox=bbox, kind=kind, structural_kind=kind, continues=continues,
+                      article_uid=self.current.article_uid, surface_class=surface_class,
                       source_field=source_field,  # type: ignore[arg-type]
-                      lines=[Line(line_id=f"{block_id}:l{i}", text=l.text, bbox=l.bbox) for i, l in enumerate(lines, 1)])
+                      lines=[Line(line_id=f"{block_id}:l{i}", line_uid=self._line_uid(page, l),
+                                  text=l.text, bbox=l.bbox, page=page,
+                                  order=l.ordre_lecture)
+                             for i, l in enumerate(lines, 1)])
         self.blocks.append(block)
         self.block_uids[block_id] = [uid for line in lines for uid in line.source_uids]
         self.current.items.append(BlockRef(block_id=block_id))
@@ -1396,7 +1412,11 @@ def _segment_page(pt: PageText, node_of_uid: dict[str, str] | None = None,
             ]
             colonne = pt.layout.colonne(table.bbox)
             rows.append(PageLine(text=" | ".join(row), bbox=bbox, size=0.0,
-                                 colonne=colonne, bande=pt.layout.bande(table.bbox[1])))
+                                 colonne=colonne, bande=pt.layout.bande(table.bbox[1]),
+                                 # Une rangée synthétique n'est pas une ligne extraite : elle reçoit
+                                 # ici son ordre stable propre, au lieu de laisser `add_block`
+                                 # transformer silencieusement le sentinel 0 en index local via `or`.
+                                 ordre_lecture=index + 1))
         # Les lignes brutes absorbées sont portées par la **première** rangée du bloc : le bloc les
         # porte donc exactement une fois, quel que soit le nombre de rangées reconstruites — les
         # rangées ne sont pas les lignes source et n'ont aucune raison de leur correspondre une à une.
@@ -1491,11 +1511,23 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     plan: dict[str, NoeudVerifie] = {}
     node_of_uid: dict[str, str] = {}
     if structure is not None:
-        registre = registre_lignes(pages)
+        # v1 reste relisible comme artefact historique. Toute proposition nouvellement produite est
+        # v2 et adresse exactement les `line_uid` content-addressés persistés dans `Document.Line`.
+        registre = registre_lignes(
+            pages, document_uid=doc_id if structure.schema_version == "2" else None,
+        )
         verdict = verifier(structure, registre, doc_id=doc_id, settings=get_settings())
         if not verdict.accepte:
             raise StructureRefusee(verdict.motif or "refus", verdict.detail)
-        plan, node_of_uid = arbre(structure, registre, doc_id)
+        plan, canonical_node_of_uid = arbre(structure, registre, doc_id)
+        # Le fournisseur et l'audit parlent l'identité publique content-addressée. Le parseur garde
+        # ses ancres d'extraction `pN:lN` uniquement pour rattacher les fragments bruts aux porteurs.
+        node_of_uid = ({
+            source_uid: canonical_node_of_uid[entree.uid]
+            for entree in registre.values()
+            if entree.uid in canonical_node_of_uid
+            for source_uid in entree.source_uids
+        } if structure.schema_version == "2" else canonical_node_of_uid)
     b = _Builder(doc_id, title, plan=plan)
     toc_node: Node | None = None
     last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
@@ -1628,7 +1660,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             if kind in ("para", "list"):
                 page_last = blk
             if lines[0].number is not None and kind == "para":
-                b.current.title = lines[0].text[:80]
+                b.current.title = lines[0].text
         last_text_block = page_last
     anomalies = anomalies_registre(pages, b.block_uids)
     if anomalies:
@@ -1646,6 +1678,46 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         # réconciliation compare le propriétaire effectif de chaque uid à celui que `node_of_uid`
         # prescrit, sur le document réellement bâti.
         reconcilier_affectation(b.nodes, b.block_uids, node_of_uid)
+        block_by_uid = {
+            line.line_uid: block.block_id
+            for block in b.blocks
+            for line in block.lines
+            if line.line_uid is not None
+        }
+        missing_line_uids = (sorted(set(registre) - set(block_by_uid))
+                             if structure.schema_version == "2" else [])
+        if missing_line_uids:
+            raise StructureRefusee(
+                "affectation_non_prouvee",
+                "line_uid proposé absent du Document construit : "
+                + ", ".join(missing_line_uids[:20]),
+            )
+        blocks_by_id = {block.block_id: block for block in b.blocks}
+        for node_id, spec in plan.items():
+            direct_blocks = b.nodes[node_id].blocks
+            positions = {block_id: position for position, block_id in enumerate(direct_blocks)}
+            continuation_blocks = list(dict.fromkeys(
+                block_by_uid[uid] for uid in spec.continuation_line_uids
+            ))
+            for block_id in continuation_blocks:
+                position = positions.get(block_id)
+                if position is None or position == 0:
+                    raise StructureRefusee(
+                        "affectation_non_prouvee",
+                        f"continuation {block_id} sans cible antérieure sous {node_id}")
+                target_id = direct_blocks[position - 1]
+                block = blocks_by_id[block_id]
+                block.continues = target_id
+                block.context_role = "same_clause_continuation"
+        # Le document validé ci-dessous est la frontière publique : toute continuation proposée
+        # doit y survivre exactement, sinon l'artefact entier est refusé avant publication.
+        projected = {
+            uid: blocks_by_id[block_by_uid[uid]].continues
+            for spec in plan.values() for uid in spec.continuation_line_uids
+        }
+        if any(target is None for target in projected.values()):
+            raise StructureRefusee(
+                "affectation_non_prouvee", "projection incomplète des continuations acceptées")
     toc_gaps = _apply_toc(b, toc)
     nodes = [b.nodes[nid] for nid in b.order]
     doc = Document(doc_id=doc_id, kind="contrat", title=title, edition=edition, lang="fr", nodes=nodes,
@@ -1771,12 +1843,7 @@ def _apply_toc(b: _Builder, toc: list[Any]) -> list[str]:
 
 
 def build_summary(doc: Document) -> str:
-    """Sommaire compact : nœuds de niveau ≤ `summary_max_level` avec leur titre et leur première page.
-
-    Abaissé de 3 à 2 en story 1.3 : mesuré à 10 153 tokens (reason) au niveau ≤ 3, au-delà du seuil
-    de décision de la spec (5 000) ; les sous-articles restent atteignables par `chercher` (blocs).
-    """
-    max_level = get_settings().summary_max_level
+    """Projection exhaustive ; l'exposition au modèle est paginée par ``Index.sommaire_page``."""
     lines = [f"<!-- {doc.doc_id} · edition {doc.edition} · source_hash {doc.source_hash} · "
              f"ingest_fingerprint {doc.ingest_fingerprint} -->", f"# {doc.title}", ""]
     by_id = {n.node_id: n for n in doc.nodes}
@@ -1800,8 +1867,9 @@ def build_summary(doc: Document) -> str:
     def walk(node: Node) -> None:
         for child_id in node.children:
             child = by_id[child_id]
-            if 1 <= child.level <= max_level \
-                    and any(is_citable(doc.block(block_id)) for block_id in child.blocks):
+            if child.level >= 1 and (
+                    any(is_citable(doc.block(block_id)) for block_id in child.blocks)
+                    or child.children):
                 pg = page_of(child)
                 lines.append(f"{'  ' * (child.level - 1)}- `{child.node_id}` · {child.title} · p. {pg}")
             walk(child)

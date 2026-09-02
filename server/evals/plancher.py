@@ -36,6 +36,7 @@ from server.app.digests import pipeline_digest, prompts_digest
 from server.app.llm.models import TIERS
 from server.evals.cache import empreinte_canonique
 from server.evals.revision import ARBRE_NON_VERIFIABLE, revision_executee
+from server.evals.quality_closure import OTHER_ROW_IDS, ROW_IDS
 
 REFERENCE_DIR = Path(__file__).resolve().parent / "reference"
 PLANCHER_PATH = REFERENCE_DIR / "plancher.yaml"
@@ -125,6 +126,23 @@ class SeriesPlancher(BaseModel):
     max_repeat: int = Field(ge=3)
 
 
+class QualityClosureProtocol(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1]
+    row_ids: list[str]
+    v05_dependencies: list[str]
+    missing_artifact: Literal["OPEN"]
+
+    @model_validator(mode="after")
+    def _canonical(self) -> QualityClosureProtocol:
+        if tuple(self.row_ids) != ROW_IDS:
+            raise ValueError("quality_closure.row_ids doit être l'ensemble canonique ordonné")
+        if tuple(self.v05_dependencies) != OTHER_ROW_IDS:
+            raise ValueError("V-05 doit dépendre exactement des 29 autres lignes")
+        return self
+
+
 class Plancher(BaseModel):
     """Le protocole entier, tel que figé — validé strictement, jamais complété par défaut."""
 
@@ -138,6 +156,7 @@ class Plancher(BaseModel):
     splits: dict[str, dict[str, Any]]
     budget: BudgetPlancher
     series: SeriesPlancher
+    quality_closure: QualityClosureProtocol
     regles_incident: list[str] = Field(min_length=1)
     imports: Imports
     temoins: list[Temoin] = Field(min_length=1)

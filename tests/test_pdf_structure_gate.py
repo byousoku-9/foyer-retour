@@ -7,8 +7,9 @@ import json
 from pathlib import Path
 
 import pymupdf
+import pytest
 
-from server.app.domain import Check, Report
+from server.app.domain import Check, Document, Node, Report
 from server.ingest import pdf_structure_gate as gate
 from server.ingest.artifacts import document_json
 from server.ingest.pdf_to_blocks import build_document, extract_pages
@@ -162,3 +163,49 @@ def test_un_verdict_exonere_rouge_ou_ambigu_garde_la_porte_rouge(tmp_path: Path)
 
         assert report["status"] == "rouge"
         assert not report["global_checks"]["revue_visuelle_complete"]["ok"]
+
+
+@pytest.mark.parametrize(("target", "field", "value"), [
+    ("node", "title", "Titre inventé"),
+    ("node", "article_uid", "article-inventé"),
+    ("node", "surface_class", "preliminaire"),
+    ("node", "relations", [{"kind": "explicit_dependency", "target_node_id": "d:s2"}]),
+    ("block", "article_uid", "article-inventé"),
+    ("block", "surface_class", "preliminaire"),
+    ("block", "continues", "d:p9:9"),
+])
+def test_projection_gate_refuse_toute_semantique_non_issue_de_la_structure_trusted(
+        tmp_path: Path, target: str, field: str, value: object) -> None:
+    doc_dir = _corpus(tmp_path)
+    trusted = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    candidate = trusted.model_copy(deep=True)
+    if target == "node":
+        source = candidate.nodes[-1]
+        candidate.nodes[-1] = source.model_copy(update={field: value})
+    else:
+        source = candidate.blocks[-1]
+        candidate.blocks[-1] = source.model_copy(update={field: value})
+
+    issues = gate._projection_issues(trusted, candidate)
+
+    assert any(field in issue and "trusted" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(("title", "article_uid", "surface", "expected"), [
+    ("Sommaire", None, "substantiel", "table_des_matieres"),
+    ("Préambule", None, "substantiel", "preliminaire"),
+    ("Article 12 Garanties", "article:13", "substantiel", "article_uid"),
+])
+def test_gate_rejoue_oracle_semantique_sans_faire_confiance_a_la_structure_trusted(
+        tmp_path: Path, title: str, article_uid: str | None, surface: str,
+        expected: str) -> None:
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    document.nodes.append(Node(
+        node_id=f"{document.doc_id}:s1", level=1, title=title,
+        article_uid=article_uid, surface_class=surface,
+    ))
+
+    issues = gate._semantic_issues(document)
+
+    assert any(expected in issue for issue in issues)

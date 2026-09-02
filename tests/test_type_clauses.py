@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from server.app.config import Settings
 from server.app.domain import Block, BlockRef, Document, ManifestEntry, Node, NodeRef, Report
 from server.app.domain.ingest import Check, Gate
+from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import cost_from_usage
 from server.evals.espace import EspaceNonInstalle, EspacePublie
 from server.ingest.artifacts import TYPING_REUSED_IDS_STAT, document_json
@@ -88,11 +89,13 @@ def test_t1_t2_resolution_et_scopes_sont_du_code() -> None:
     assert definition.defines == "contenu" and definition.scope_node_id is None
     exclusion = typed.block("contrat:p3:2")
     assert exclusion.kind == "exclusion" and exclusion.kind_source == "model"
-    assert exclusion.scope_node_id == "contrat:a3.1" and exclusion.scope_node_ids == ["contrat:a3.1"]
-    assert exclusion.unresolved_refs == ["99"]
-    assert exclusion.relation.exception_de == "contrat:p2:1"  # T1 conservé malgré le désaccord T2
+    # Un payload T1 non confirmé ne peut alimenter aucune surface aval, y compris les
+    # portées, renvois et relations qui seraient pourtant résolubles mécaniquement.
+    assert exclusion.scope_node_id is None and exclusion.scope_node_ids == []
+    assert exclusion.refs == [] and exclusion.unresolved_refs == []
+    assert exclusion.relation.exception_de is None
     assert typed.node_scope_kind("contrat:a3") == "commun"
-    assert typed.node_scope_kind("contrat:a3.1") == "special"  # signal enfant le plus proche prioritaire
+    assert typed.node_scope_kind("contrat:a3.1") == "commun"
     assert [(b.block_id, b.text, b.lines, b.bbox) for b in typed.blocks] == \
         [(b.block_id, b.text, b.lines, b.bbox) for b in doc.blocks]
 
@@ -350,6 +353,11 @@ def test_empreinte_de_campagne_lie_texte_structure_modele_schema_prompts_regles_
     plans = tc.requests_for(doc, doc.blocks, 1, base_settings)
     assert fingerprint[:12] in plans[0].custom_id
     assert plans[0].custom_id != tc._legacy_custom_id(1, 1, plans[0].block_ids)
+    budget = RequestBudget(deadline_s=1, max_attempts=1, max_cost_eur=1)
+    assert plans[0].artifact_uid == budget.bind_artifact(
+        document_uid=doc.doc_id, source_hash=doc.source_hash,
+        ingest_fingerprint=doc.ingest_fingerprint,
+    )
 
 
 def test_output_schema_forbids_unknown_fields_and_bounds_confidence() -> None:
@@ -559,7 +567,6 @@ def test_t4_lot_incomplet_ou_tronque_ne_modifie_aucun_octet(tmp_path: Path) -> N
         FakeBatches({}, truncate=True),
         FakeBatches({}, invalid_json=True),
         FakeBatches({}, missing_usage=True),
-        FakeBatches({"contrat:p1:1": "garantie"}, fail_second=True),
     )
     for index, batches in enumerate(cases):
         doc_dir, _ = write_data(tmp_path / str(index))
@@ -906,24 +913,163 @@ def test_standard_initial_respecte_plafond_avant_appel_et_echec_terminal_necrit_
     assert {path: path.read_bytes() for path in failed_paths} == failed_before
 
 
-def test_standard_initial_t1_facturee_puis_t2_terminale_reste_atomique(tmp_path: Path) -> None:
+def test_standard_initial_t1_facturee_puis_t2_terminale_publie_non_confirme(tmp_path: Path) -> None:
     doc_dir, _doc = write_data(tmp_path)
     kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
     client = FakeStandardClient(
         FakeBatches(kinds), kinds, interrupted_reading=2, interrupted_stop_reason="max_tokens",
     )
-    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
-    before = {path: path.read_bytes() for path in tracked}
-
-    with pytest.raises(tc.BatchFailure, match=r"coût réel acquis 0\.[0-9]*[1-9][0-9]* €.*aucun artefact écrit"):
-        tc.run(
-            doc_dir, settings=settings(type_clauses_standard_concurrency=1), client=client,
-            transport="standard", max_cost=12, output=io.StringIO(),
-        )
+    tc.run(
+        doc_dir, settings=settings(type_clauses_standard_concurrency=1), client=client,
+        transport="standard", max_cost=12, output=io.StringIO(),
+    )
 
     assert len(client.messages.calls) >= 2
     assert client.messages.batches.created == []
-    assert {path: path.read_bytes() for path in tracked} == before
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert report.stats["t2_failed_plan_ids"]
+    decisions = report.stats["t2_terminal_decisions"]
+    assert any(decision["state"] == "NON_CONFIRMED" for decision in decisions)
+    assert all(decision[key] == 0 for decision in decisions for key in (
+        "retrieval_effect", "citation_effect", "applicability_effect",
+        "decision_effect", "verdict_effect",
+    ))
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_lecture_2_batch_echec_ou_timeout_termine_et_audite_chaque_identite(
+        tmp_path: Path, timeout: bool) -> None:
+    doc_dir, _doc = write_data(tmp_path)
+    audit_path = tmp_path / "audit" / "typing.jsonl"
+    kinds = {block.block_id: "garantie" for block in miniature().blocks}
+
+    class TimeoutSecond(FakeBatches):
+        def retrieve(self, batch_id: str) -> Any:
+            return SimpleNamespace(
+                processing_status="ended" if batch_id == "batch-1" else "processing",
+            )
+
+    batches = TimeoutSecond(kinds) if timeout else FakeBatches(kinds, fail_second=True)
+    clock = iter(range(0, 100, 2))
+    tc.run(
+        doc_dir,
+        settings=settings(
+            llm_audit_path=audit_path, type_clauses_max_blocks_per_request=1,
+            type_clauses_batch_timeout_s=1,
+        ),
+        client=FakeClient(batches), max_cost=12, output=io.StringIO(), sleep=lambda _s: None,
+        now=lambda: next(clock),
+    )
+
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    decisions = report.stats["t2_terminal_decisions"]
+    expected_reason = "TIMEOUT" if timeout else "FAILED"
+    negative = [decision for decision in decisions if decision["reason"] == expected_reason]
+    assert decisions and negative
+    assert len(decisions) == report.stats["t2_terminal_count"]
+    assert report.stats["t2_planned_plan_hash"] == report.stats["t2_consumed_plan_hash"]
+    assert report.stats["t2_planned_order"] == report.stats["t2_consumed_order"]
+    assert all(decision[key] == 0 for decision in negative for key in (
+        "retrieval_effect", "citation_effect", "applicability_effect",
+        "decision_effect", "verdict_effect",
+    ))
+    audit = [json.loads(line) for line in audit_path.read_text("utf-8").splitlines()]
+    errors = [event for event in audit if event["error_class"] is not None]
+    assert errors and {event["artifact_uid"] for event in errors} != {""}
+    assert all("trusted_line_uids" in event for event in errors)
+
+
+def test_run_execute_la_troisieme_lecture_pour_les_quatre_desaccords_et_projette_les_effets(
+        tmp_path: Path) -> None:
+    doc_dir, doc = write_data(tmp_path)
+    audit_path = tmp_path / "audit" / "typing.jsonl"
+
+    class ArbitrationMessages:
+        def __init__(self) -> None:
+            self.batches = FakeBatches({})
+            self.calls: list[dict[str, Any]] = []
+
+        def create(self, **params: Any) -> Any:
+            self.calls.append(params)
+            prompt = params["system"][0]["text"]
+            reading = 1 if prompt == tc._prompt(1) else 2 if prompt == tc._prompt(2) else 3
+            payload = json.loads(params["messages"][0]["content"])
+            values = []
+            for position, item in enumerate(payload["blocks"]):
+                value: dict[str, Any] = {
+                    "block_id": item["block_id"], "kind": "garantie", "confidence": 0.9,
+                    "article_refs": [], "scope_articles": [], "defines": None,
+                    "overrides_article": None, "relations": [],
+                }
+                if reading == 2:
+                    global_position = [block.block_id for block in doc.blocks].index(item["block_id"])
+                    if global_position == 0:
+                        value["kind"] = "exclusion"
+                    elif global_position == 1:
+                        value["scope_articles"] = ["3"]
+                    elif global_position == 2:
+                        value["article_refs"] = ["2"]
+                    else:
+                        value["confidence"] = 0.7
+                values.append(value)
+            rendered: object = ({value["block_id"]: value for value in values}
+                                if reading == 1 else values)
+            return SimpleNamespace(
+                usage={"input_tokens": 100, "output_tokens": 20}, stop_reason="end_turn",
+                content=[SimpleNamespace(type="text", text=json.dumps({"labels": rendered}))],
+            )
+
+    messages = ArbitrationMessages()
+    client = SimpleNamespace(messages=messages)
+    tc.run(
+        doc_dir,
+        settings=settings(
+            llm_audit_path=audit_path, type_clauses_max_blocks_per_request=1,
+            type_clauses_standard_concurrency=1,
+        ),
+        client=client, transport="standard", max_cost=12, output=io.StringIO(),
+    )
+
+    third_calls = [call for call in messages.calls if call["system"][0]["text"] == tc._prompt(3)]
+    assert len(third_calls) == 4
+    assert {json.loads(call["messages"][0]["content"])["blocks"][0]["block_id"]
+            for call in third_calls} == {block.block_id for block in doc.blocks}
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert report.stats["arbitration_request_count"] == 4
+    decisions = report.stats["t2_terminal_decisions"]
+    assert all(decision["state"] == "CONFIRMED" for decision in decisions)
+    assert all((decision["retrieval_effect"], decision["citation_effect"],
+                decision["decision_effect"], decision["verdict_effect"]) == (1, 1, 1, 1)
+               for decision in decisions)
+    typed = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    assert all(decision["applicability_effect"] == int(bool(
+        typed.block(decision["block_id"]).scope_node_id
+        or typed.block(decision["block_id"]).scope_node_ids
+    )) for decision in decisions)
+
+
+def test_causes_echec_et_timeout_t3_restent_terminales_et_sans_effet() -> None:
+    doc = miniature()
+    blocks = doc.blocks[:2]
+    first = {block.block_id: label(block.block_id, "garantie") for block in blocks}
+    second = {block.block_id: label(block.block_id, "exclusion") for block in blocks}
+    plans = tc.requests_for(doc, blocks, 2, settings(type_clauses_max_blocks_per_request=1))
+    arbitration_plans = tc.requests_for(
+        doc, blocks, 3, settings(type_clauses_max_blocks_per_request=1),
+    )
+    decisions = tc.terminal_t2_decisions(
+        first, second, plans, arbitration_plans=arbitration_plans,
+        failed_arbitration_plan_ids={arbitration_plans[0].custom_id},
+        timeout_arbitration_plan_ids={arbitration_plans[1].custom_id},
+    )
+
+    assert [decision.reason for decision in decisions] == [
+        "ARBITRATION_FAILED", "ARBITRATION_TIMEOUT"]
+    assert all(decision.state == "NON_CONFIRMED" and decision.kind_t2 == "exclusion"
+               for decision in decisions)
+    assert all(sum((decision.retrieval_effect, decision.citation_effect,
+                    decision.applicability_effect, decision.decision_effect,
+                    decision.verdict_effect)) == 0 for decision in decisions)
 
 
 @pytest.mark.parametrize("transport", ["batch", "standard"])
@@ -1152,7 +1298,7 @@ def test_garde_cout_concurrente_reserve_avant_chaque_create() -> None:
 
 
 @pytest.mark.parametrize("stop_reason", ["max_tokens", "refusal"])
-def test_lecture_2_standard_interrompue_ne_publie_rien(
+def test_lecture_2_standard_interrompue_publie_des_decisions_terminales(
     tmp_path: Path, stop_reason: str,
 ) -> None:
     doc_dir, doc = write_data(tmp_path)
@@ -1166,20 +1312,19 @@ def test_lecture_2_standard_interrompue_ne_publie_rien(
     client = FakeStandardClient(
         batches, kinds, interrupted_reading=2, interrupted_stop_reason=stop_reason,
     )
-    tracked = [doc_dir / "document.json", doc_dir / "report.json", doc_dir.parent / "manifest.json"]
-    before = {path: path.read_bytes() for path in tracked}
+    tc.run(
+        doc_dir, settings=configured, client=client, max_cost=12,
+        first_batch_id="complete-first", transport="standard-resume",
+        resume_campaign=campaign,
+        resume_payload_sha256=tc.resume_payload_fingerprint(first, configured),
+        resume_justification="fixture : lecture 1 identique, lecture 2 standard interrompue",
+        output=io.StringIO(),
+    )
 
-    with pytest.raises(tc.BatchFailure, match="premier échec terminal"):
-        tc.run(
-            doc_dir, settings=configured, client=client, max_cost=12,
-            first_batch_id="complete-first", transport="standard-resume",
-            resume_campaign=campaign,
-            resume_payload_sha256=tc.resume_payload_fingerprint(first, configured),
-            resume_justification="fixture : lecture 1 identique, lecture 2 standard interrompue",
-            output=io.StringIO(),
-        )
-
-    assert client.messages.calls and {path: path.read_bytes() for path in tracked} == before
+    report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
+    assert client.messages.calls and report.stats["t2_failed_plan_ids"]
+    assert all(decision["state"] == "NON_CONFIRMED"
+               for decision in report.stats["t2_terminal_decisions"])
 
 
 def test_reprise_refuse_un_payload_different_avant_tout_appel_standard(tmp_path: Path) -> None:
@@ -1254,7 +1399,7 @@ def test_premier_echec_terminal_n_amorce_aucune_future_supplementaire() -> None:
             guard=guard, output=io.StringIO(),
         )
     assert messages.started <= configured.type_clauses_standard_concurrency
-    assert guard.spent <= guard.ceiling and guard.reserved == 0
+    assert 0 < guard.spent <= guard.ceiling and guard.reserved == 0
 
 
 def test_reprise_incompatible_echoue_et_voie_legacy_auditee_ne_soumet_rien(tmp_path: Path) -> None:

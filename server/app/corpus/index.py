@@ -9,7 +9,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from fractions import Fraction
 
-from server.app.domain import Block, BlockRef, Document, NodeChild, NodeRef, NodeWindow, is_citable
+from server.app.domain import (Block, BlockRef, ContextUnit, Document, NodeChild, NodeRef,
+                               NodeWindow, QuestionClauseScore, ScoredHit, SummaryEntry,
+                               SummaryPage, is_citable)
+from server.app.domain.retrieval import stable_uid
 
 from .loader import Corpus
 from .text import normalize
@@ -51,14 +54,19 @@ def reading_order(doc: Document) -> list[tuple[str, str]]:
 
 
 class Index:
-    def __init__(self, corpus: Corpus) -> None:
+    def __init__(self, corpus: Corpus, *, excerpt_max_chars: int = 1000) -> None:
+        if excerpt_max_chars < 1:
+            raise ValueError("excerpt_max_chars doit être ≥ 1")
         self.corpus = corpus
+        self.excerpt_max_chars = excerpt_max_chars
         self._entries: list[_Entry] = []
         self._by_block: dict[str, _Entry] = {}
         self._block_frequencies: dict[str, dict[str, int]] = {}
         self._nodes: dict[str, tuple[str, list[str]]] = {}  # node_id → (doc_id, block_ids directs)
         self._node_titles: dict[str, str] = {}
         self._node_children: dict[str, list[str]] = {}
+        self._node_parents: dict[str, str] = {}
+        self._node_relations: dict[str, list[tuple[str, str]]] = {}
         self._levels: dict[str, int] = {}  # node_id → profondeur déclarée (AD-2), pour « la plus proche »
         for doc_id, doc in sorted(corpus.documents.items()):
             for n in doc.nodes:
@@ -70,6 +78,11 @@ class Index:
                                                    if is_citable(doc.block(block_id))])
                 self._node_titles[n.node_id] = n.title
                 self._node_children[n.node_id] = n.children
+                self._node_relations[n.node_id] = [
+                    (relation.target_node_id, relation.kind) for relation in n.relations
+                ]
+                for child in n.children:
+                    self._node_parents[child] = n.node_id
                 self._levels[n.node_id] = n.level
             for block_id, node_id in reading_order(doc):
                 if block_id in self._by_block:
@@ -105,6 +118,92 @@ class Index:
     def sommaire(self, doc_id: str) -> str:
         return self.corpus.summaries[doc_id]
 
+    def sommaire_page(self, doc_id: str, *, cursor: int = 0, page_size: int = 40) -> SummaryPage:
+        """Navigation complète, paginée en profondeur, sans injection de l'arbre entier."""
+        if page_size < 1 or cursor < 0:
+            raise ValueError("cursor et page_size doivent être positifs")
+        if doc_id not in self.corpus.documents:
+            raise KeyError(doc_id)
+        doc = self.corpus.documents[doc_id]
+        entries = [SummaryEntry(node_id=node.node_id, title=node.title, level=node.level)
+                   for node in doc.nodes if node.node_id != doc_id]
+        if cursor > len(entries):
+            raise ValueError("cursor hors sommaire")
+        page = tuple(entries[cursor:cursor + page_size])
+        next_cursor = cursor + len(page) if cursor + len(page) < len(entries) else None
+        return SummaryPage(document_uid=doc_id, entries=page, cursor=cursor,
+                           next_cursor=next_cursor, truncated=next_cursor is not None)
+
+    def ouvrir_singleton(self, block_id: str, *, node_window: int) -> NodeWindow:
+        """Cible et contexte typé, bornés au document et à la section propriétaire."""
+        if node_window < 1:
+            raise ValueError("node_window doit être ≥ 1")
+        entry = self._by_block[block_id]
+        doc = self.corpus.documents[entry.doc_id]
+        target = entry.block
+        candidates: list[tuple[str, str, str]] = [(block_id, "target", entry.node_id)]
+
+        # Fermeture transitive de la chaîne `continues`, dans les deux sens, bornée par le nombre de
+        # blocs du document. Chaque bloc est visité au plus une fois.
+        continuation_ids: list[str] = []
+        frontier = [block_id]
+        visited = {block_id}
+        while frontier:
+            current = frontier.pop(0)
+            current_block = doc.block(current)
+            neighbors = [candidate.block_id for candidate in doc.blocks
+                         if candidate.continues == current]
+            if current_block.continues is not None:
+                neighbors.append(current_block.continues)
+            for candidate in neighbors:
+                if (candidate in visited or candidate not in self._by_block
+                        or self._by_block[candidate].node_id != entry.node_id):
+                    continue
+                visited.add(candidate)
+                frontier.append(candidate)
+                continuation_ids.append(candidate)
+        candidates.extend((candidate, "same_clause_continuation", entry.node_id)
+                          for candidate in continuation_ids)
+        candidates.extend((candidate, "explicit_dependency", entry.node_id) for candidate in target.refs
+                          if candidate in self._by_block
+                          and self._by_block[candidate].doc_id == entry.doc_id
+                          and self._by_block[candidate].node_id == entry.node_id)
+        if target.overrides and target.overrides in self._by_block \
+                and self._by_block[target.overrides].doc_id == entry.doc_id \
+                and self._by_block[target.overrides].node_id == entry.node_id:
+            candidates.append((target.overrides, "definition_override", entry.node_id))
+        # Les relations Opus portent des nœuds, pas des blocs. Leur contexte est donc constitué des
+        # blocs directs citables du nœud cible, avec le rôle exact de la relation acceptée.
+        for target_node_id, role in self._node_relations.get(entry.node_id, []):
+            if self._nodes[target_node_id][0] != entry.doc_id:
+                continue
+            candidates.extend((candidate, role, target_node_id)
+                              for candidate in self._nodes[target_node_id][1])
+        # L'amorce parent est volontairement dernière : elle est la première tronquée.
+        parent_id = self._node_parents.get(entry.node_id)
+        if parent_id is not None:
+            candidates.extend((candidate, "parent_preamble", parent_id)
+                              for candidate in self._nodes[parent_id][1])
+        unique: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for candidate, role, section_id in candidates:
+            if candidate not in seen and candidate in self._by_block:
+                seen.add(candidate)
+                unique.append((candidate, role, section_id))
+        selected = unique[:node_window]
+        blocks = [doc.block(candidate).model_copy(update={"context_role": role}, deep=True)
+                  for candidate, role, _section_id in selected]
+        units = [ContextUnit(
+            block_uid=candidate, role=role, document_uid=entry.doc_id,
+            section_uid=section_id, order=order,
+        ) for order, (candidate, role, section_id) in enumerate(selected)]
+        return NodeWindow(
+            node_id=entry.node_id, title=self._node_titles[entry.node_id],
+            children=[NodeChild(node_id=child, title=self._node_titles[child])
+                      for child in self._node_children[entry.node_id]],
+            blocks=blocks, context_units=units, truncated=len(selected) < len(unique),
+        )
+
     def ouvrir_noeud(self, node_id: str, focus_block_id: str | None = None, cursor: int | None = None, *,
                      node_window: int) -> NodeWindow:
         """Blocs directs du nœud, par pages de `node_window` ; la page contenant `focus_block_id` si donné."""
@@ -113,6 +212,8 @@ class Index:
         if focus_block_id is not None and cursor is not None:
             raise ValueError("focus_block_id et cursor sont exclusifs")
         doc_id, block_ids = self._nodes[node_id]
+        if focus_block_id is not None and len(block_ids) == 1:
+            return self.ouvrir_singleton(focus_block_id, node_window=node_window)
         start = 0
         if focus_block_id is not None:
             if focus_block_id not in block_ids:
@@ -157,11 +258,12 @@ class Index:
 
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
+                 question: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None,
                  kinds_confirmes: Iterable[str] | None = None,
                  groupes_prioritaires: Iterable[str] | None = None,
                  reservations_out: list[tuple[str, str]] | None = None,
-                 ) -> list[tuple[str, str]]:
+                 ) -> list[ScoredHit]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
 
         Le classement compte d'abord tous les canoniques dont au moins une forme est entièrement
@@ -227,12 +329,27 @@ class Index:
         groups = groupes(mapping)
         if not groups:
             return []
+        # Les termes et leurs variantes ne servent qu'au rappel. La pertinence publique est mesurée
+        # contre la question résolue entière : une reformulation de recherche ne devient jamais la
+        # question à la place de celle réellement posée.
+        question_form = frozenset(words(normalize(question or "")))
+        score_groups = [[question_form]] if question_form else groups
+        canonical_question = [
+            [" ".join(sorted(form)) for form in forms]
+            for forms in score_groups
+        ]
+        canonical_question.sort(key=lambda forms: tuple(forms))
+        question_uid = stable_uid("question-v1", {
+            "resolved_question": normalize(question) if question is not None else None,
+            "groups": canonical_question,
+        })
         prioritaires = frozenset(kinds_prioritaires or ())
         selection_confirmed = (frozenset(kinds_confirmes)
                                if kinds_confirmes is not None else None)
 
-        def classer(groupes_: list[list[frozenset[str]]]) -> list[tuple[str, str]]:
-            scored: list[tuple[int, Fraction, Fraction, int, int, str, str]] = []
+        def classer(groupes_: list[list[frozenset[str]]], *, question_uid_: str,
+                    score_groups_: list[list[frozenset[str]]] | None = None) -> list[ScoredHit]:
+            scored: list[ScoredHit] = []
             for e in self._entries:
                 if doc_id is not None and e.doc_id != doc_id:
                     continue
@@ -242,31 +359,24 @@ class Index:
                         and (e.block.kind not in selection_confirmed
                              or not e.block.kind_confirmed)):
                     continue
-                pleins = 0
-                precision_plein = Fraction()
-                partiels = Fraction()
-                frequencies = self._block_frequencies[e.doc_id]
-                for forms in groupes_:
-                    formes_pleines = [form for form in forms if form <= e.tokens]
-                    if formes_pleines:
-                        pleins += 1
-                        formes_composees = [form for form in formes_pleines if len(form) > 1]
-                        if formes_composees:
-                            precision_plein = max(
-                                precision_plein,
-                                max(Fraction(len(form), len(e.tokens)) for form in formes_composees),
-                            )
-                        continue
-                    partiels += max(self._hit(e, form, frequencies) for form in forms)
-                if pleins or partiels:
-                    rang_kind = 0 if e.block.kind in prioritaires else 1
-                    rappel = partiels if pleins == 0 else Fraction()
-                    scored.append((-pleins, -rappel, -precision_plein, rang_kind, e.rank,
-                                   e.block.block_id, e.node_id))
-            scored.sort()
-            return [(b, n) for _, _, _, _, _, b, n in scored]
+                candidate_match = any(
+                    any(form <= e.tokens or e.tokens & form for form in forms)
+                    for forms in groupes_
+                )
+                if not candidate_match:
+                    continue
+                public_hit = self._score_entry(
+                    e, groupes_, question_uid_, prioritaires, whole_question=False,
+                )
+                scored.append(public_hit)
+            scored.sort(key=lambda hit: (
+                # Le score public précède les seuls tie-breaks canoniques auditables. Les formes de
+                # rappel décident de l'éligibilité, jamais d'un ordre caché divergent du record rendu.
+                *hit.score.sort_key,
+                hit.document_uid, hit.clause_uid, hit.result_uid))
+            return scored
 
-        classement = classer(groups)
+        classement = classer(groups, question_uid_=question_uid, score_groups_=score_groups)
         if groupes_prioritaires is None:
             return classement[:limit]
         if isinstance(groupes_prioritaires, str):
@@ -285,22 +395,102 @@ class Index:
             # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe. Elle
             # exige en outre une couverture pleine : un mot-outil partagé avec une facette ne rend
             # pas, à lui seul, un passage « utile » à cette sous-question.
+            facette_uid = stable_uid("question-v1", [[" ".join(sorted(form))
+                                                      for form in groupes_facette[0]]])
+            classement_ids = {hit.clause_uid for hit in classement}
             candidats = [
-                item for item in classer(groupes_facette)
-                if item in classement
-                and any(form <= self._by_block[item[0]].tokens for form in groupes_facette[0])
+                item for item in classer(groupes_facette, question_uid_=facette_uid)
+                if item.clause_uid in classement_ids
+                and any(form <= self._by_block[item.clause_uid].tokens
+                        for form in groupes_facette[0])
             ]
             if not candidats:
                 continue
-            choisi = next((item for item in candidats if item[1] not in noeuds_reserves), candidats[0])
-            if choisi not in reserves:
+            choisi = next((item for item in candidats if item.node_uid not in noeuds_reserves),
+                           candidats[0])
+            # La réservation réutilise le record de la recherche complète : le score, le titre et
+            # l'identité vus à l'admission restent exactement ceux de ``chercher``.
+            choisi = next(item for item in classement if item.clause_uid == choisi.clause_uid)
+            if all(item.clause_uid != choisi.clause_uid for item in reserves):
                 reserves.append(choisi)
-                noeuds_reserves.add(choisi[1])
-        resultat = [*reserves, *(item for item in classement if item not in reserves)][:limit]
+                noeuds_reserves.add(choisi.node_uid)
+        reserved_ids = {item.clause_uid for item in reserves}
+        resultat = [*reserves, *(item for item in classement
+                                 if item.clause_uid not in reserved_ids)][:limit]
         if reservations_out is not None:
-            reservations_out.extend(item for item in reserves
-                                     if item in resultat and item not in reservations_out)
+            reservations_out.extend(
+                (item.clause_uid, item.node_uid) for item in reserves
+                if item in resultat and (item.clause_uid, item.node_uid) not in reservations_out)
         return resultat
+
+    def score_clause(self, question: str, block_id: str) -> ScoredHit:
+        """Score une clause désignée sans transformer sa sélection en pertinence implicite."""
+        entry = self._by_block[block_id]
+        if not is_citable(entry.block):
+            raise ValueError(f"{block_id}: clause non citable ou non scorée")
+        form = frozenset(words(normalize(question)))
+        groups = [[form]] if form else []
+        question_uid = stable_uid("question-v1", {
+            "resolved_question": normalize(question),
+            "groups": [[" ".join(sorted(form))]] if form else [],
+        })
+        return self._score_entry(
+            entry, groups, question_uid, frozenset(), whole_question=True,
+        )
+
+    def _score_entry(self, entry: _Entry, score_groups: list[list[frozenset[str]]],
+                     question_uid: str, prioritaires: frozenset[str], *,
+                     whole_question: bool = False) -> ScoredHit:
+        """Construit le record question-clause, indépendamment du mécanisme de rappel."""
+        pleins = 0
+        precision_plein = Fraction()
+        partiels = Fraction()
+        frequencies = self._block_frequencies[entry.doc_id]
+        for forms in score_groups:
+            formes_pleines = [form for form in forms if form and form <= entry.tokens]
+            if formes_pleines:
+                pleins += 1
+                composees = [form for form in formes_pleines if len(form) > 1]
+                if composees:
+                    precision_plein = max(
+                        precision_plein,
+                        max(Fraction(len(form), len(entry.tokens)) for form in composees),
+                    )
+                continue
+            if forms:
+                if whole_question:
+                    partiels += max(
+                        Fraction(len(entry.tokens & form), len(form))
+                        for form in forms if form
+                    )
+                else:
+                    partiels += max(self._hit(entry, form, frequencies) for form in forms)
+        rappel = (partiels / len(score_groups)
+                  if pleins == 0 and score_groups else Fraction())
+        score = QuestionClauseScore(
+            question_uid=question_uid, clause_uid=entry.block.block_id,
+            scorer_uid="lexical-question-clause", scorer_version="3-whole-question",
+            full_matches=pleins, partial_numerator=rappel.numerator,
+            partial_denominator=rappel.denominator,
+            precision_numerator=precision_plein.numerator,
+            precision_denominator=precision_plein.denominator,
+            # Un label modèle ne devient décisionnel qu'après confirmation terminale T2/T3.
+            kind_priority=(0 if entry.block.kind_confirmed
+                           and entry.block.kind in prioritaires else 1),
+        )
+        excerpt = entry.block.text[:self.excerpt_max_chars]
+        payload = {
+            "question_uid": score.question_uid, "clause_uid": entry.block.block_id,
+            "scorer_uid": score.scorer_uid, "scorer_version": score.scorer_version,
+            "score": score.model_dump(mode="json"), "document_uid": entry.doc_id,
+            "node_uid": entry.node_id, "title": self._node_titles[entry.node_id],
+            "excerpt": excerpt,
+        }
+        return ScoredHit(
+            result_uid=stable_uid("result-v1", payload), document_uid=entry.doc_id,
+            clause_uid=entry.block.block_id, node_uid=entry.node_id,
+            title=self._node_titles[entry.node_id], excerpt=excerpt, score=score,
+        )
 
     @staticmethod
     def _hit(e: _Entry, form: frozenset[str], frequencies: dict[str, int]) -> Fraction:

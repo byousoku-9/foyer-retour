@@ -224,7 +224,7 @@ class Settings(BaseSettings):
     # faits qui l'établit (`fait_cite`, relu par le code). Un bloc d'applicabilité peut donc rendre
     # jusqu'à `qualites_exigees_max` libellés de plus, chacun borné par `fait_manquant_max_chars` —
     # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072.
-    verifier_sinistre_max_tokens: int = Field(3072, ge=1)
+    verifier_sinistre_max_tokens: int = Field(1536, ge=1)
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -285,17 +285,20 @@ class Settings(BaseSettings):
     # runner convergent au prochain démarrage/chargement sans dépendre d'une constante importée
     # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
     retrieval_variant: Literal["deterministe", "outils", "full_context"] = RETRIEVAL_DEFAULT.variant
-    retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
+    retrouver_outils_tier: Literal["reason"] = RETRIEVAL_DEFAULT.tier
     retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
+    # Artefact contrôlé exact, distinct de la trace publique. Le fichier n'est créé qu'au premier
+    # événement et reste hors des surfaces servies par l'API.
+    llm_audit_path: Path = REPO_ROOT / ".audit" / "llm-calls.jsonl"
     retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
     # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
     # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
     # défauts sont l'affectation d'AD-9 (`STEP_TIERS`) ; la valeur active est publiée dans
     # `thresholds()` (projection 0/1, `Trace.thresholds` étant numérique) et entre donc dans
     # l'identité de cache des évals — deux runs à tiers différents ne partagent jamais une réponse.
-    comprendre_tier: Literal["micro", "reason"] = "micro"
+    comprendre_tier: Literal["reason"] = "reason"
     rediger_tier: Literal["micro", "reason"] = "reason"
-    verifier_tier: Literal["micro", "reason"] = "micro"
+    verifier_tier: Literal["reason"] = "reason"
     retrouver_outils_max_tokens: int = Field(1024, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
@@ -318,7 +321,7 @@ class Settings(BaseSettings):
     # Coût (AD-9, AD-10). Le chemin sinistre `outils` engage 0,0149 € avant une rédaction dont le
     # majorant froid mesuré est 0,0945 €, soit 0,1094 € au total. 0,12 € conserve 0,0106 € de marge
     # (≈ 9,7 %) sans modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
-    max_cost_eur_per_request: float = Field(0.12, ge=0)
+    max_cost_eur_per_request: float = Field(0.20, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
@@ -424,6 +427,7 @@ class Settings(BaseSettings):
     summary_max_tags: int = Field(5, ge=1)
     summary_resume_max_chars: int = Field(90, ge=10)
     summary_max_level: int = Field(2, ge=1)
+    summary_page_size: int = Field(40, ge=1)
 
     # Limiteur best-effort par instance (AD-13)
     rate_limit_per_minute: int = Field(10, ge=1)
@@ -555,6 +559,7 @@ class Settings(BaseSettings):
     # document dont la moitié des lignes seraient des titres n'est pas une hiérarchie.
     structure_max_nodes: int = Field(2000, ge=1)
     structure_max_children: int = Field(256, ge=1)
+    structure_max_blocks_per_leaf: int = Field(100, ge=1)
     # Part minimale des lignes du registre que les intervalles proposés doivent couvrir. L'AC exige
     # une borne de couverture **explicite** : elle est nommée ici, publiée par `thresholds()` et
     # documentée. Son défaut est `1.0` parce que l'AC exige aussi que « toute ligne omise » mette le
@@ -628,6 +633,7 @@ class Settings(BaseSettings):
     # Majorant des **deux** lectures, vérifié avant la première soumission avec le pire cas où tous
     # les blocs seraient juridiques. Le coût publié après exécution vient toujours de l'usage API.
     type_clauses_max_cost_eur: float = Field(12.0, gt=0)
+    type_clauses_arbitration_confidence_min: float = Field(0.8, ge=0, le=1)
     type_clauses_batch_poll_s: float = Field(20.0, gt=0)
     type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
     # Transport CLI de reprise (jamais utilisé par le runtime HTTP) : Messages standard, sans
@@ -854,6 +860,7 @@ class Settings(BaseSettings):
             "summary_max_tags": self.summary_max_tags,
             "summary_resume_max_chars": self.summary_resume_max_chars,
             "summary_max_level": self.summary_max_level,
+            "summary_page_size": self.summary_page_size,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "rate_limit_per_day": self.rate_limit_per_day,
             "rate_limit_max_clients": self.rate_limit_max_clients,
@@ -885,6 +892,7 @@ class Settings(BaseSettings):
             "structure_max_depth": self.structure_max_depth,
             "structure_max_nodes": self.structure_max_nodes,
             "structure_max_children": self.structure_max_children,
+            "structure_max_blocks_per_leaf": self.structure_max_blocks_per_leaf,
             "structure_min_coverage": self.structure_min_coverage,
             "structure_max_input_chars": self.structure_max_input_chars,
             "structure_max_output_tokens": self.structure_max_output_tokens,
@@ -913,6 +921,7 @@ class Settings(BaseSettings):
             "type_clauses_max_requests_per_batch": self.type_clauses_max_requests_per_batch,
             "type_clauses_max_output_tokens": self.type_clauses_max_output_tokens,
             "type_clauses_max_cost_eur": self.type_clauses_max_cost_eur,
+            "type_clauses_arbitration_confidence_min": self.type_clauses_arbitration_confidence_min,
             "type_clauses_batch_poll_s": self.type_clauses_batch_poll_s,
             "type_clauses_batch_timeout_s": self.type_clauses_batch_timeout_s,
             "type_clauses_standard_concurrency": self.type_clauses_standard_concurrency,

@@ -134,7 +134,7 @@ def _settings(**kw) -> Settings:
 
 
 def _budget(deadline_s: float = 30.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
@@ -345,6 +345,7 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
     script = [
         _comprendre(), _outils(termes=["mobilier", "chaleur", "contenu"],
                                node_id=f"{DOC_ID}:socle"),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -388,6 +389,7 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
         _comprendre(cause="fuite progressive depuis des mois",
                     evenement="effondrement soudain du plafond", moment="hier"),
         _outils(termes=["mobilier", "chaleur", "contenu"], node_id=f"{DOC_ID}:socle"),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -726,7 +728,8 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
     ], settings=settings)
 
     assert fake.remaining_script == 0
-    redactions = [request for request in fake.requests if request["model"] == TIERS["reason"]]
+    redactions = [request for request in fake.requests
+                  if request["max_tokens"] == settings.rediger_max_tokens]
     assert len(redactions) == 2
     premiere_consigne = redactions[0]["messages"][-1]["content"]
     assert "Plan de sortie concis : 1 facette(s)" in premiere_consigne
@@ -1645,10 +1648,19 @@ def _tous_les_noeuds(corpus: CorpusNeutre) -> tuple[str, ...]:
 
 
 def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
-    """Le script nominal : comprendre, un tour d'outils qui lit tout, rédiger, vérifier."""
+    """Script nominal question-aware : lecture, conclusion d'insuffisance, rédaction, vérification.
+
+    La question canonique neutre ne partage volontairement aucun terme avec les clauses. Les termes
+    fournis par *comprendre* permettent donc leur rappel, mais ne peuvent plus clore la suffisance à
+    leur place : après un tour contenant des outils, le navigateur consomme son second tour borné.
+    Un tour sans outil conclut déjà au premier message et ne reçoit pas cette réponse supplémentaire.
+    """
     navigation.setdefault("noeuds", _tous_les_noeuds(corpus))
-    return [_comprendre_neutre(corpus), _navigation(corpus, **navigation),
-            _rediger_neutre(corpus), _verifier_neutre()]
+    demande_outil = bool(navigation.get("chercher", True) or navigation["noeuds"])
+    script = [_comprendre_neutre(corpus), _navigation(corpus, **navigation)]
+    if demande_outil:
+        script.append(fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]))
+    return [*script, _rediger_neutre(corpus), _verifier_neutre()]
 
 
 async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = SANS_VARIANTE,
@@ -1669,7 +1681,7 @@ async def test_sans_variante_le_sinistre_navigue_par_outils(neutre: CorpusNeutre
     retrouver = trace.steps[1]
     # Le tier **réellement** appelé est publié (AD-10) : la navigation a bien eu lieu ici, là où le
     # chemin déterministe n'appelait aucun modèle.
-    assert retrouver.tier == _tier_de_navigation() and len(retrouver.calls) == 1
+    assert retrouver.tier == _tier_de_navigation() and len(retrouver.calls) == 2
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
     assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
@@ -1681,14 +1693,14 @@ async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatr
     """La suffisance du sinistre atteint une claim fondatrice sans forcer son applicabilité."""
     auxiliaire = neutre.bloc("definition_objet")
     termes = ["désigne"]
-    assert neutre.index.chercher(
-        termes, limit=20, doc_id=neutre.identite.doc_id) == [
+    assert [(hit.clause_uid, hit.node_uid) for hit in neutre.index.chercher(
+        termes, limit=20, doc_id=neutre.identite.doc_id)] == [
             (auxiliaire, neutre.identite.noeud(neutre.identite.socle))]
     navigation_auxiliaire = _outils(
         termes=termes,
         node_id=neutre.identite.noeud(neutre.identite.socle),
         focus_block_id=auxiliaire)
-    fin_navigation = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
+    fin_navigation = fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])
     reglages = _settings_neutre(
         neutre.identite, node_window=1, max_opens=2, profil_max_opens=0)
 
@@ -1758,7 +1770,8 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
             "doc_id": neutre.identite.doc_id, "question": QUESTION_NEUTRE,
             "faits": FAITS_NEUTRES.model_dump()})
 
-    redactions = [request for request in fake.requests if request["model"] == TIERS["reason"]]
+    redactions = [request for request in fake.requests
+                  if request["max_tokens"] == reglages.rediger_max_tokens]
     assert redactions
     blocs_transmis = str(redactions[0]["messages"])
     assert auxiliaire in blocs_transmis
@@ -1842,7 +1855,7 @@ def test_une_requete_http_sans_variante_sert_la_navigation_par_outils(
     assert fake.remaining_script == 0
     assert corps["trace"]["pipeline"] == "sinistre" and corps["trace"]["variant"] == "outils"
     navigation = corps["trace"]["steps"][1]
-    assert navigation["name"] == "retrouver" and len(navigation["calls"]) == 1
+    assert navigation["name"] == "retrouver" and len(navigation["calls"]) == 2
     assert corps["sources"][0]["block_id"] == neutre.bloc("prise_en_charge")
 
 
@@ -2410,7 +2423,7 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     (AD-1, « aucun retry ne démarre sans marge »), la réponse vérifiée est servie, et elle n'est pas
     donnée pour complète — avec une phrase qui dit pourquoi.
     """
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, False, False, False, None))], budget=budget)

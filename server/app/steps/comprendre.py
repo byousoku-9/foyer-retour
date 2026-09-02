@@ -1,4 +1,4 @@
-"""AD-5 — *comprendre* : un seul appel `micro` transforme question + historique + profil en une question comprise.
+"""AD-5 — *comprendre* : un appel `reason` transforme question + historique + profil en une question comprise.
 
 Le modèle de sortie LLM est dédié et plat, tous champs requis (un schéma sans défauts force le modèle à
 tout remplir), puis converti en un type du domaine. `language` = `lang` si fourni, sinon la

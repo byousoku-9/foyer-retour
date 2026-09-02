@@ -201,20 +201,24 @@ async def test_les_deux_variantes_completent_les_memes_roles_sous_permutation() 
             settings=settings, doc_id=prefixe)
         premier = next(block for block in corpus.documents[prefixe].blocks
                         if block.text == attendus[0])
-        fake = FakeAnthropic([fake_message(
-            model=TIERS["micro"], stop_reason="tool_use", content=[
+        fake = FakeAnthropic([
+            fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
                 {"type": "tool_use", "id": "t1", "name": "chercher",
                  "input": {"termes": parsed.termes_de_recherche()}},
                 {"type": "tool_use", "id": "t2", "name": "ouvrir_noeud",
                  "input": {"node_id": index.parent_node(premier.block_id),
                            "focus_block_id": premier.block_id}},
-            ])])
+            ]),
+            # « Comparer deux démarches » rappelle les deux formulations singulières, mais ne
+            # les rend pas lexicalement suffisantes : le second tour borné conclut sans outil.
+            fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+        ])
         request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
         outils, _ = await retrouver_outils(
             parsed, corpus=corpus, index=index, budget=budget, settings=settings,
             client=LlmClient(settings, anthropic_client=fake),
             request_budget=request_budget, doc_id=prefixe)
-        assert request_budget.attempts == 1
+        assert request_budget.attempts == 2
 
         def textes(resultat) -> list[str]:
             return [block.text for block in resultat.blocs]

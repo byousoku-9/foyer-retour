@@ -24,7 +24,7 @@ from server.app.pipelines import sinistre as pipeline_sinistre
 from server.app.steps.comprendre import comprendre
 from tests.llm_fake import FakeAnthropic, fake_message
 
-HAIKU = TIERS["micro"]
+HAIKU = TIERS["reason"]  # alias historique : le plancher sémantique est désormais Sonnet
 UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', re.DOTALL)
 
 
@@ -70,7 +70,7 @@ async def test_nominal_builds_parsed_question_and_its_own_step_trace() -> None:
     assert parsed.question_resolue == "À quelle école inscrire mes enfants ?"
     assert parsed.terms == ["école", "inscription scolaire"]  # toujours en français
     assert {"école", "allocations"} <= set(parsed.scope.themes)  # profil enfants → école/allocations
-    assert step.name == "comprendre" and step.tier == "micro" and step.ms >= 0
+    assert step.name == "comprendre" and step.tier == "reason" and step.ms >= 0
     assert len(step.calls) == 1 and step.calls[0].model == HAIKU
     assert step.opened_block_ids == [] and step.discarded_block_ids == []
 
@@ -319,15 +319,15 @@ async def test_request_shape_static_prefix_untrusted_sections_and_thresholds() -
     await _comprendre(client, question=question, historique=historique, profil=Profil(enfants=True, autre="x"))
     (req,) = fake.requests
     s = _settings()
-    # préfixe statique byte-identique (pas de sommaire : micro, cache 5 min), tier micro
+    # Préfixe statique byte-identique, au plancher Sonnet et cache 1 h.
     assert req["model"] == HAIKU
     attendu = load_prompt("commun") + "\n\n" + render_prompt(
         "comprendre", question_min_terms=s.question_min_terms, question_max_terms=s.question_max_terms,
         question_max_facettes=s.question_max_facettes, perimetre_guide="")
     assert req["system"] == [{"type": "text", "text": attendu,
-                              "cache_control": {"type": "ephemeral"}}]
-    assert req["extra_body"] == {"temperature": 0}
-    assert "effort" not in req["output_config"]
+                              "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    assert "extra_body" not in req
+    assert req["output_config"]["effort"] == "medium"
     assert req["max_tokens"] == s.comprendre_max_tokens == 1024
     # le schéma dédié est plat et tout est requis (aucun défaut)
     assert set(req["output_config"]["format"]["schema"]["required"]) == {

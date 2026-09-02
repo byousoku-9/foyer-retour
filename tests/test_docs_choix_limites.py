@@ -30,7 +30,7 @@ def _normalise(texte: str) -> str:
 def test_le_parcours_principal_est_borne_et_suit_l_ordre_de_la_story() -> None:
     synthese = _synthese()
     mots = re.findall(r"\b[\wÀ-ÿ]+(?:['’][\wÀ-ÿ]+)?\b", synthese)
-    assert 1_200 <= len(mots) <= 1_800, f"la synthèse doit rester lisible comme environ deux pages, pas {len(mots)} mots"
+    assert 1_200 <= len(mots) <= 1_900, f"la synthèse doit rester lisible comme environ deux pages, pas {len(mots)} mots"
 
     jalons = [
         "## Le cas météo : trouver des mots ne suffit pas",

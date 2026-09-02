@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.corpus.index import Index
@@ -1869,8 +1870,7 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE)
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
-    variants = ["deterministe", "deterministe", "outils", "outils",
-                "full_context", "full_context"]
+    variants = ["deterministe", "outils", "full_context"]
     double = DoublePipeline([(answer, _trace(variant=variant)) for variant in variants])
     _COURANT["guide"] = double
     _COURANT["sinistre"] = DoublePipeline([])
@@ -1878,7 +1878,7 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
 
     def matrix_settings() -> Settings:
         return _settings(
-            retrouver_outils_tier=os.environ.get("RETROUVER_OUTILS_TIER", "micro"),
+            retrouver_outils_tier=os.environ.get("RETROUVER_OUTILS_TIER", "reason"),
             retrieval_prompt_cache=(
                 os.environ.get("RETRIEVAL_PROMPT_CACHE", "true").casefold() == "true"))
 
@@ -1892,20 +1892,19 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
     )
     code = runner.main([
         "--suite", "guide", "--compare", "deterministe,outils,full_context",
-        "--tiers", "reason,micro", "--max-cost", "1.0",
+        "--tiers", "reason", "--max-cost", "1.0",
         "--cases-dir", str(cases), "--data-dir", str(data),
     ])
 
     assert code == 0
-    assert len(double.appels) == 6
+    assert len(double.appels) == 3
     assert [call["kw"]["variant"] for call in double.appels] == variants
     json_path = tmp_path / "docs" / "evals" / "baselines.json"
     markdown_path = tmp_path / "docs" / "evals" / "baselines.md"
     assert json_path.is_file() and markdown_path.is_file()
     report = json.loads(json_path.read_text(encoding="utf-8"))
     assert [cell["key"] for cell in report["cells"]] == [
-        "deterministe/reason", "deterministe/micro", "outils/reason", "outils/micro",
-        "full_context/reason", "full_context/micro"]
+        "deterministe/reason", "outils/reason", "full_context/reason"]
     assert all(cell["complete"] for cell in report["cells"])
 
 
@@ -2965,8 +2964,8 @@ def test_deux_configurations_de_tiers_ne_partagent_jamais_une_namespace_de_cache
     réglage pourrait resservir les réponses d'un autre, et le rapport comparerait deux images.
     """
     cas = _cas(id="g-tiers")
-    micro = _contexte([], settings=_settings(verifier_tier="micro"))
-    reason = _contexte([], settings=_settings(verifier_tier="reason"))
+    micro = _contexte([], settings=_settings(rediger_tier="micro"))
+    reason = _contexte([], settings=_settings(rediger_tier="reason"))
 
     espace_micro = runner.namespace_cache(cas, micro, doc_id=GUIDE, variant="outils")
     espace_reason = runner.namespace_cache(cas, reason, doc_id=GUIDE, variant="outils")
@@ -2975,18 +2974,16 @@ def test_deux_configurations_de_tiers_ne_partagent_jamais_une_namespace_de_cache
     assert (runner.empreinte_canonique(espace_micro)
             != runner.empreinte_canonique(espace_reason))
     # La surcharge se lit dans les seuils actifs, et la table des modèles servis est épinglée aussi.
-    assert espace_micro["parameters"]["thresholds"]["verifier_tier_reason"] == 0
-    assert espace_reason["parameters"]["thresholds"]["verifier_tier_reason"] == 1
+    assert espace_micro["parameters"]["thresholds"]["rediger_tier_reason"] == 0
+    assert espace_reason["parameters"]["thresholds"]["rediger_tier_reason"] == 1
     assert espace_micro["models"] == dict(runner.TIERS)
 
-    # Le tier de navigation, l'autre surcharge par étape, sépare pareillement deux images.
-    navigation = _contexte([], settings=_settings(retrouver_outils_tier="reason"))
-    assert (runner.empreinte_canonique(runner.namespace_cache(
-        cas, navigation, doc_id=GUIDE, variant="outils"))
-        != runner.empreinte_canonique(espace_micro))
+    # La navigation n'accepte plus le tier micro : Sonnet reason est le plancher contractuel.
+    with pytest.raises(ValidationError):
+        _settings(retrouver_outils_tier="micro")
 
     # Et à réglages identiques, la namespace est stable : le cache reste utile.
-    jumeau = _contexte([], settings=_settings(verifier_tier="micro"))
+    jumeau = _contexte([], settings=_settings(rediger_tier="micro"))
     assert runner.empreinte_canonique(runner.namespace_cache(
         cas, jumeau, doc_id=GUIDE, variant="outils")) == runner.empreinte_canonique(espace_micro)
 

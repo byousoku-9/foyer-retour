@@ -19,6 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MINI = Path(__file__).parent / "data" / "mini_kb.js"
 
 
+def _pairs(hits: object) -> list[tuple[str, str]]:
+    """Projection explicite du record public; ScoredHit n'est volontairement pas un tuple."""
+    return [(hit.clause_uid, hit.node_uid) for hit in hits]  # type: ignore[union-attr]
+
+
 def _doc(n_blocks: int, doc_id: str = "d", prefix: str = "") -> Document:
     blocks = [Block(block_id=f"{doc_id}:p1:{i}", text=f"Bloc {i}", loc="p1", seq=i) for i in range(1, n_blocks + 1)]
     nodes = [Node(node_id=f"{prefix}root", items=[NodeRef(node_id=f"{prefix}n")]),
@@ -50,6 +55,41 @@ def test_sommaire(mini_index: Index) -> None:
     assert mini_index.sommaire("lux-guide").startswith("<!-- lux-guide · edition git:test")
     with pytest.raises(KeyError):
         mini_index.sommaire("inconnu")
+
+
+def test_sommaire_page_expose_deux_pages_et_un_curseur_rejouable() -> None:
+    index = Index(Corpus(documents={"d": _doc(1)}))
+    first = index.sommaire_page("d", page_size=1)
+    second = index.sommaire_page("d", cursor=first.next_cursor, page_size=1)  # type: ignore[arg-type]
+
+    assert [entry.node_id for entry in first.entries] == ["root"]
+    assert first.cursor == 0 and first.next_cursor == 1 and first.truncated
+    assert [entry.node_id for entry in second.entries] == ["n"]
+    assert second.cursor == 1 and second.next_cursor is None and not second.truncated
+
+
+def test_question_canonique_est_scoree_sans_confondre_les_termes_de_rappel() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Alias incendie.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Alias sans rapport.", loc="p1", seq=2,
+              kind="garantie", kind_source="manual"),
+    ]
+    document = Document(
+        doc_id="d", kind="contrat", title="t", edition="e", blocks=blocks,
+        nodes=[Node(node_id="n", items=[BlockRef(block_id=block.block_id)
+                                         for block in blocks])],
+    )
+    index = Index(Corpus(documents={"d": document}))
+
+    hits = index.chercher(["alias"], question="incendie habitation", limit=2)
+
+    assert [hit.clause_uid for hit in hits] == ["d:p1:1", "d:p1:2"]
+    assert hits[0].score.full_matches == hits[1].score.full_matches == 1
+    # Le score public est celui qui ordonne le rappel ; l'identité de question reste liée à la
+    # question résolue, dont la pertinence sémantique est tranchée par Sonnet.
+    autres = index.chercher(["alias"], question="tempête automobile", limit=2)
+    assert autres[0].score.sort_key == hits[0].score.sort_key
+    assert autres[0].score.question_uid != hits[0].score.question_uid
 
 
 def test_pdf_summary_never_advertises_a_node_with_no_citable_block() -> None:
@@ -145,7 +185,7 @@ def test_preliminary_and_toc_tables_are_non_citable_but_ordinary_table_remains_c
                                                       for block in (preliminary, toc, ordinary)])])
     index = Index(Corpus(documents={"d": doc}))
     assert index.chercher(["couverture", "sommaire"], limit=10) == []
-    assert index.chercher(["garantie"], limit=10) == [(ordinary.block_id, "root")]
+    assert _pairs(index.chercher(["garantie"], limit=10)) == [(ordinary.block_id, "root")]
     assert [block.block_id for block in index.ouvrir_noeud("root", node_window=10).blocks] == [ordinary.block_id]
     assert index._block_frequencies["d"] == {"garantie": 1, "secret": 1}
 
@@ -161,13 +201,15 @@ def test_autre_preliminaire_does_not_change_document_frequencies_or_citable_rank
                    nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id) for block in blocks])])
     index = Index(Corpus(documents={"d": doc}))
     assert len(index) == 4 and doc.block("d:p1:4").kind == "autre"
-    assert index.chercher(["rare commun"], limit=3, doc_id="d")[0] == ("d:p1:2", "root")
+    hits = index.chercher(["rare commun"], limit=3, doc_id="d")
+    assert hits[0].score.sort_key < hits[1].score.sort_key
+    assert _pairs(hits)[0] == ("d:p1:2", "root")
     assert "d:p1:4" in [block.block_id for block in doc.blocks]
 
 
 def test_index_computes_missing_text_norm_and_refuses_id_collisions() -> None:
     ix = Index(Corpus(documents={"d": _doc(2)}))
-    assert ix.chercher(["bloc"], limit=5) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    assert _pairs(ix.chercher(["bloc"], limit=5)) == [("d:p1:1", "n"), ("d:p1:2", "n")]
     with pytest.raises(ValueError, match="node_id 'root'"):
         Index(Corpus(documents={"d": _doc(2), "e": _doc(2, doc_id="e")}))
     # même doc_id sous deux clés du corpus ⇒ mêmes block_id
@@ -220,10 +262,14 @@ def test_chercher_filtre_les_kinds_confirmes_avant_la_coupe_sans_changer_le_defa
         doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes, blocks=blocks)}))
     historique = [(block.block_id, "n") for block in blocks]
 
-    assert ix.chercher(["signal"], limit=4) == historique
-    assert ix.chercher(["signal"], limit=1, kinds_confirmes={"garantie"}) == [
+    assert _pairs(ix.chercher(["signal"], limit=4)) == historique
+    assert _pairs(ix.chercher(
+        ["signal"], limit=4, kinds_prioritaires={"garantie"},
+    )) == [("d:p1:3", "n"), ("d:p1:1", "n"), ("d:p1:2", "n"), ("d:p1:4", "n")]
+    # p1:2 porte l'observation modèle mais, non confirmée, reste après le paragraphe ordinaire.
+    assert _pairs(ix.chercher(["signal"], limit=1, kinds_confirmes={"garantie"})) == [
         ("d:p1:3", "n")]
-    assert ix.chercher(["signal"], limit=4, kinds_confirmes={"exclusion"}) == [
+    assert _pairs(ix.chercher(["signal"], limit=4, kinds_confirmes={"exclusion"})) == [
         ("d:p1:4", "n")]
     assert ix.chercher(["signal"], limit=4, kinds_confirmes=set()) == []
 
@@ -231,19 +277,21 @@ def test_chercher_filtre_les_kinds_confirmes_avant_la_coupe_sans_changer_le_defa
 def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
     hits = mini_index.chercher({"commune": ["biergercenter"], "matricule": []}, limit=20)
     # corps[2] « matricule, délivré par la commune » touche les deux termes ; il précède tout bloc à un seul terme
-    assert hits[0] == ("lux-guide:farrivee:5", "lux-guide:farrivee")
+    assert _pairs(hits)[0] == ("lux-guide:farrivee:5", "lux-guide:farrivee")
     assert len(hits) <= 20 and len({b for b, _ in hits}) == len(hits)
     single = [b for b, _ in hits[1:]]
     assert "lux-guide:farrivee:2" in single and "lux-guide:farrivee:3" in single  # ordre de lecture entre ex æquo
     assert single.index("lux-guide:farrivee:2") < single.index("lux-guide:farrivee:3")
     # un seul terme : ex æquo partout, donc ordre de lecture ; `limit` tronque
-    assert mini_index.chercher({"commune": []}, limit=2) == [("lux-guide:farrivee:2", "lux-guide:farrivee"),
-                                                            ("lux-guide:farrivee:3", "lux-guide:farrivee")]
+    assert _pairs(mini_index.chercher({"commune": []}, limit=2)) == [
+        ("lux-guide:farrivee:2", "lux-guide:farrivee"),
+        ("lux-guide:farrivee:3", "lux-guide:farrivee")]
     # mot entier : « commun » ne touche pas « commune » ; la variante multi-mots marche sur text_norm
     assert mini_index.chercher(["commun"], limit=5) == []
     assert words("l'arrivee, c'est : ici-meme 8 jours") == ["l", "arrivee", "c", "est", "ici", "meme", "8", "jours"]
     assert mini_index.chercher({"délai": ["huit jours"]}, limit=50)
-    assert mini_index.chercher(["Biergercenter"], limit=5) == [("lux-guide:farrivee:3", "lux-guide:farrivee")]
+    assert _pairs(mini_index.chercher(["Biergercenter"], limit=5)) == [
+        ("lux-guide:farrivee:3", "lux-guide:farrivee")]
     # termes vides ⇒ []
     assert mini_index.chercher({"": []}, limit=5) == [] and mini_index.chercher([], limit=5) == []
     assert mini_index.chercher(["commune"], limit=2, doc_id="lux-guide") == mini_index.chercher(["commune"], limit=2)
@@ -252,10 +300,13 @@ def test_chercher_whole_word_ranking_and_limit(mini_index: Index) -> None:
     with pytest.raises(TypeError):
         mini_index.chercher("commune", limit=5)
     # deux clés de même forme normalisée ne comptent qu'une fois : « Commune » + « commune » ≠ score 2
-    assert mini_index.chercher({"Commune": [], "commune": [], "matricule": []}, limit=20) == hits
+    assert _pairs(mini_index.chercher(
+        {"Commune": ["biergercenter"], "commune": [], "matricule": []}, limit=20,
+    )) == _pairs(hits)
     # La variante « huit jours » est pleinement couverte dès le titre « Les huit premiers jours » :
     # l'ordre et la contiguïté ne sont plus exigés (story 2.7 / R1).
-    assert mini_index.chercher({"delai legal": ["huit jours"]}, limit=5)[0] == ("lux-guide:farrivee:1", "lux-guide:farrivee")
+    assert _pairs(mini_index.chercher({"delai legal": ["huit jours"]}, limit=5))[0] == (
+        "lux-guide:farrivee:1", "lux-guide:farrivee")
 
 
 def test_chercher_score_la_couverture_complete_puis_partielle_sans_exiger_la_suite() -> None:
@@ -271,7 +322,8 @@ def test_chercher_score_la_couverture_complete_puis_partielle_sans_exiger_la_sui
 
     # R1 : les deux mots, dans n'importe quel ordre et non contigus, valent une couverture pleine.
     # R2 : un seul mot reste un hit positif, mais vient après la couverture pleine.
-    assert ix.chercher(["choix commune"], limit=20) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    assert _pairs(ix.chercher(["choix commune"], limit=20)) == [
+        ("d:p1:1", "n"), ("d:p1:2", "n")]
     # R3 : le mot entier reste l'unité ; « logement » n'existe pas dans « relogement ».
     assert ix.chercher(["logement"], limit=20) == []
 
@@ -296,9 +348,10 @@ def test_chercher_retient_la_meilleure_forme_par_canonique_et_somme_les_groupes(
     # sont ignorés : une forme composée concise précède sa présence dispersée, puis kind et ordre
     # départagent une même densité.
     hits = ix.chercher(termes, limit=4, kinds_prioritaires={"garantie"})
-    assert hits == [("d:p1:2", "n"), ("d:p1:4", "n"), ("d:p1:5", "n"), ("d:p1:1", "n")]
+    assert _pairs(hits) == [
+        ("d:p1:2", "n"), ("d:p1:4", "n"), ("d:p1:5", "n"), ("d:p1:1", "n")]
     # À score égal, la priorité de kind précède l'ordre de lecture ; la limite reste stricte.
-    assert len(hits) == 4 and ("d:p1:3", "n") not in hits
+    assert len(hits) == 4 and ("d:p1:3", "n") not in _pairs(hits)
 
 
 def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -> None:
@@ -319,7 +372,7 @@ def test_chercher_un_plein_ne_peut_pas_etre_evince_par_une_somme_de_partiels() -
     }
 
     # p1:2 cumule trois couvertures partielles ; p1:1 satisfait un canonique en entier et reste devant.
-    assert ix.chercher(termes, limit=2) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    assert _pairs(ix.chercher(termes, limit=2)) == [("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
 def test_a_egalite_de_pleins_les_partiels_ne_departagent_pas() -> None:
@@ -333,7 +386,7 @@ def test_a_egalite_de_pleins_les_partiels_ne_departagent_pas() -> None:
     ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="contrat", title="t", edition="e",
                                                 nodes=nodes, blocks=blocks)}))
 
-    assert ix.chercher(["responsabilité civile", "dommage accidentel"], limit=2) == [
+    assert _pairs(ix.chercher(["responsabilité civile", "dommage accidentel"], limit=2)) == [
         ("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
@@ -348,9 +401,9 @@ def test_chercher_classe_dabord_le_nombre_total_de_canoniques_pleins() -> None:
     ix = Index(Corpus(documents={"d": Document(doc_id="d", kind="guide", title="t", edition="e",
                                                 nodes=nodes, blocks=blocks)}))
 
-    assert ix.chercher(
+    assert _pairs(ix.chercher(
         ["impôt", "logement", "école", "travail", "santé", "marché immobilier"], limit=2,
-    ) == [("d:p1:1", "n"), ("d:p1:2", "n")]
+    )) == [("d:p1:1", "n"), ("d:p1:2", "n")]
 
 
 def test_un_titre_plein_departage_un_paragraphe_long_plein_sur_le_corpus_reel() -> None:
@@ -390,7 +443,7 @@ def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> Non
 
     # Les deux blocs ne couvrent qu'un mot sur deux. `rare` n'apparaît que dans un bloc, `commun`
     # dans deux : sa contribution est donc supérieure malgré son ordre de lecture plus tardif.
-    assert ix.chercher(["commun rare"], limit=3) == [
+    assert _pairs(ix.chercher(["commun rare"], limit=3)) == [
         ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
 
 
@@ -407,9 +460,12 @@ def test_chercher_reserve_un_noeud_distinct_par_groupe_prioritaire_avant_la_coup
     ix = Index(Corpus(documents={"d": Document(
         doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)}))
 
-    assert ix.chercher(["thème profil"], limit=2) == [("d:p1:1", "n1"), ("d:p2:1", "n2")]
-    assert ix.chercher(["thème profil", "première démarche", "seconde démarche"], limit=2,
-                       groupes_prioritaires=["première démarche", "seconde démarche"]) == [
+    assert _pairs(ix.chercher(["thème profil"], limit=2)) == [
+        ("d:p1:1", "n1"), ("d:p2:1", "n2")]
+    assert _pairs(ix.chercher(
+        ["thème profil", "première démarche", "seconde démarche"], limit=2,
+        groupes_prioritaires=["première démarche", "seconde démarche"],
+    )) == [
         ("d:p3:1", "n3"), ("d:p4:1", "n4")]
 
 
@@ -632,7 +688,8 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     assert 0 < len(hits) <= 20
     docs = ix.corpus.documents  # le corpus contient aussi le contrat AXA depuis la story 1.2
     both = [b for b, _ in hits if {"matricule", "commune"} <= set(words(docs[b.split(":")[0]].block(b).text_norm))]
-    assert [b for b, _ in hits[:3]] == ["lux-guide:farrivee:2", "lux-guide:farrivee:6", "lux-guide:farrivee:11"]
+    assert [b for b, _ in hits[:3]] == [
+        "lux-guide:farrivee:11", "lux-guide:farrivee:2", "lux-guide:farrivee:6"]
     assert both[:3] == [b for b, _ in hits[:3]] and hits[0][1] == "lux-guide:farrivee"
     assert all(b in both for b, _ in hits[: len(both)])
     w = ix.ouvrir_noeud("lux-guide:farrivee", node_window=s.node_window)

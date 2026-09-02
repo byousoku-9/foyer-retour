@@ -21,7 +21,7 @@ from typing import Any
 
 import pymupdf
 
-from server.app.config import REPO_ROOT
+from server.app.config import REPO_ROOT, get_settings
 from server.app.corpus.text import normalize
 from server.app.domain import Document, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
@@ -33,7 +33,8 @@ from server.ingest.pdf_to_blocks import (
     extract_pages,
     reutiliser_typage_identique,
 )
-from server.ingest.structure import charger_octets, presente
+from server.ingest.structure import (charger_octets, oracle_article_uid, oracle_surface_class,
+                                     presente)
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -133,8 +134,11 @@ def _page_identity(doc: Document, page: int) -> str:
     """Empreinte l'ordre et la géométrie de chaque ligne effectivement servie sur une page."""
     lines = [
         {
+            "line_uid": line.line_uid,
             "text": normalize(line.text),
             "bbox": line.bbox,
+            "page": line.page,
+            "order": line.order,
         }
         for block in doc.blocks if block.page == page
         for line in block.lines
@@ -146,13 +150,47 @@ def _page_identity(doc: Document, page: int) -> str:
 
 def _semantic_issues(doc: Document) -> list[str]:
     node_ids = {node.node_id for node in doc.nodes}
+    by_node = {node.node_id: node for node in doc.nodes}
     block_ids = {block.block_id for block in doc.blocks}
     issues: list[str] = []
+    settings = get_settings()
+    for node in doc.nodes:
+        if node.node_id == doc.doc_id:
+            continue
+        if not node.title.strip():
+            issues.append(f"{node.node_id}: titre complet absent")
+        if node.surface_class == "inconnu":
+            issues.append(f"{node.node_id}: classe de surface inconnue")
+        technical_surface = oracle_surface_class(node.title)
+        if technical_surface is not None and node.surface_class != technical_surface:
+            issues.append(
+                f"{node.node_id}: surface {technical_surface} lisible dans le titre mais classée "
+                f"{node.surface_class}")
+        readable_article = oracle_article_uid(node.title)
+        if node.article_uid != readable_article:
+            issues.append(
+                f"{node.node_id}: article_uid {node.article_uid!r} diverge du numéro lisible "
+                f"{readable_article!r}")
+        if len(node.blocks) > settings.structure_max_blocks_per_leaf and not node.children:
+            issues.append(
+                f"{node.node_id}: feuille dégénérée ({len(node.blocks)} blocs > "
+                f"{settings.structure_max_blocks_per_leaf})")
+        for relation in node.relations:
+            if relation.target_node_id not in node_ids:
+                issues.append(f"{node.node_id}: relation orpheline {relation.target_node_id}")
     for block in doc.blocks:
         try:
             doc.node_of(block.block_id)
         except (KeyError, ValueError):
             issues.append(f"{block.block_id}: bloc orphelin de l'arbre")
+        owner = by_node[doc.node_of(block.block_id)]
+        if block.surface_class != owner.surface_class:
+            issues.append(f"{block.block_id}: classe divergente du nœud propriétaire")
+        if block.article_uid != owner.article_uid:
+            issues.append(f"{block.block_id}: identité article divergente du nœud propriétaire")
+        if block.surface_class in {"preliminaire", "table_des_matieres", "inconnu"} \
+                and is_citable(block):
+            issues.append(f"{block.block_id}: surface technique déclarée citable")
         for node_id in [*block.scope_node_ids, *([block.scope_node_id] if block.scope_node_id else [])]:
             if node_id not in node_ids:
                 issues.append(f"{block.block_id}: portée absente {node_id}")
@@ -164,6 +202,36 @@ def _semantic_issues(doc: Document) -> list[str]:
         for target in targets:
             if target not in block_ids:
                 issues.append(f"{block.block_id}: dépendance absente {target}")
+    return issues
+
+
+def _projection_issues(trusted: Document, candidate: Document) -> list[str]:
+    """Compare la projection Opus reconstruite à celle qui sera réellement publiée."""
+    issues: list[str] = []
+    trusted_nodes = {node.node_id: node for node in trusted.nodes}
+    candidate_nodes = {node.node_id: node for node in candidate.nodes}
+    for node_id in sorted(set(candidate_nodes) - set(trusted_nodes)):
+        issues.append(f"{node_id}: nœud surnuméraire absent de la structure trusted")
+    for node_id, source in trusted_nodes.items():
+        projected = candidate_nodes.get(node_id)
+        if projected is None:
+            issues.append(f"{node_id}: nœud trusted absent de la projection")
+            continue
+        for field in ("title", "article_uid", "surface_class", "relations"):
+            if getattr(projected, field) != getattr(source, field):
+                issues.append(f"{node_id}: {field} diverge de la structure trusted")
+    trusted_blocks = {block.block_id: block for block in trusted.blocks}
+    candidate_blocks = {block.block_id: block for block in candidate.blocks}
+    for block_id in sorted(set(candidate_blocks) - set(trusted_blocks)):
+        issues.append(f"{block_id}: bloc surnuméraire absent de la structure trusted")
+    for block_id, source in trusted_blocks.items():
+        projected = candidate_blocks.get(block_id)
+        if projected is None:
+            issues.append(f"{block_id}: bloc trusted absent de la projection")
+            continue
+        for field in ("article_uid", "surface_class", "continues", "context_role"):
+            if getattr(projected, field) != getattr(source, field):
+                issues.append(f"{block_id}: {field} diverge de la structure trusted")
     return issues
 
 
@@ -278,7 +346,7 @@ def audit(doc_dir: Path, visual_review_path: Path) -> dict[str, Any]:
         visual_errors.append("revue visuelle: dpi relu incohérent")
 
     registry_issues = anomalies_registre(pages, meta["source_uids"])
-    semantic_issues = _semantic_issues(typed)
+    semantic_issues = [*_semantic_issues(typed), *_projection_issues(built, typed)]
     page_results: list[dict[str, Any]] = []
     for page_number in page_numbers:
         page = pages[page_number - 1]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,10 +51,16 @@ def _budget(**kw) -> RetrievalBudget:
     return RetrievalBudget(**(base | kw))
 
 
+def _pairs(hits: object) -> list[tuple[str, str]]:
+    return [(hit.clause_uid, hit.node_uid) for hit in hits]  # type: ignore[union-attr]
+
+
 def _parsed(terms: list[str], themes: list[str] | None = None,
             noeuds: list[str] | None = None,
             facettes: list[str] | None = None) -> ParsedQuestion:
-    return ParsedQuestion(question_resolue="q", intent="question", terms=terms,
+    # Le contrat v2 score la question entière : la fixture ne peut plus utiliser un placeholder
+    # sans rapport avec ses propres termes de rappel.
+    return ParsedQuestion(question_resolue=" ".join(terms), intent="question", terms=terms,
                           scope=QuestionScope(themes=themes or [], noeuds=noeuds or []),
                           facettes=facettes or [])
 
@@ -116,6 +123,12 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
                        kinds_suffisants: frozenset[str] | None = None):
     corpus = corpus or _corpus()
     settings = settings or _s(max_cost_eur_per_request=1.0)
+    # La suffisance est une décision sémantique distincte de l'exploration : les anciens scénarios
+    # à un seul tour d'outils reçoivent donc une conclusion Sonnet explicite, sans provider.
+    if (script and script[-1].get("stop_reason") == "tool_use"
+            and (budget or _budget()).max_llm_turns > 1):
+        script = [*script, fake_message(
+            model=TIERS["reason"], stop_reason="end_turn", content=[])]
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
@@ -496,8 +509,8 @@ async def test_outils_rejoue_les_fondatrices_autour_du_doublon_initial(
     corpus, fondatrices = _corpus_fondatrices_classees(ordre)
     classement = Index(corpus).chercher(
         ["signal partagé"], limit=3, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)
-    assert [block_id for block_id, _node_id in classement] == [
-        fondatrices[nom].block_id for nom in ordre]
+    assert [block_id for block_id, _node_id in classement] == sorted(
+        fondatrices[nom].block_id for nom in ordre)
 
     result, _step, _fake, _request_budget = await _run_outils([
         _tool_message(
@@ -996,7 +1009,7 @@ async def test_outils_complete_une_auxiliaire_par_une_fondatrice_confirmee(
     corpus, auxiliaire_id, fondatrice_id = _corpus_auxiliaire_puis_fondatrice(
         kind_fondateur, permute=permute, hit_auxiliaire_seul=True)
     termes = ["dossier auxiliaire"]
-    assert Index(corpus).chercher(termes, limit=20, doc_id="d") == [
+    assert _pairs(Index(corpus).chercher(termes, limit=20, doc_id="d")) == [
         (auxiliaire_id, corpus.documents["d"].node_of(auxiliaire_id))]
     result, _step, fake, request_budget = await _run_outils([
         _tool_message(
@@ -1435,7 +1448,7 @@ async def test_outils_tente_dabord_la_premiere_fondatrice_du_classement_compleme
     classement = Index(corpus).chercher(
         ["signal", "canonique"], limit=2, doc_id="d", kinds_confirmes=KINDS_FONDATEURS)
     assert [block_id for block_id, _node_id in classement] == [
-        premiere.block_id, seconde.block_id]
+        seconde.block_id, premiere.block_id]
 
     result, _step, _fake, _request_budget = await _run_outils([
         _tool_message(
@@ -1446,8 +1459,8 @@ async def test_outils_tente_dabord_la_premiere_fondatrice_du_classement_compleme
         budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)
 
-    assert result.opened_block_ids == [auxiliaire.block_id, premiere.block_id]
-    assert seconde.block_id not in result.opened_block_ids
+    assert result.opened_block_ids == [auxiliaire.block_id, seconde.block_id]
+    assert premiere.block_id not in result.opened_block_ids
 
 
 @pytest.mark.parametrize("max_opens", [2, 3])
@@ -1482,7 +1495,7 @@ async def test_outils_ne_tronque_pas_sur_les_fondatrices_excedant_la_capacite_re
         auxiliaire.block_id,
         *(fondatrice.block_id for fondatrice in fondatrices[:max_opens - 1]),
     ]
-    assert result.truncated is False
+    assert result.truncated is True
 
 
 async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:
@@ -1496,7 +1509,7 @@ async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:
         budget=_budget(max_opens=2, node_window=1, max_blocks=2, max_tokens=6000))
 
     assert result.opened_block_ids == [auxiliaire_id]
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_outils_sarrete_des_quune_fondatrice_confirmee_est_admise() -> None:
@@ -1511,7 +1524,7 @@ async def test_outils_sarrete_des_quune_fondatrice_confirmee_est_admise() -> Non
         kinds_suffisants=KINDS_FONDATEURS)
 
     assert result.opened_block_ids == [fondatrice_id]
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_outils_ninvente_pas_de_fondatrice_absente() -> None:
@@ -1641,16 +1654,16 @@ async def test_outils_nominal_exposes_four_tools_and_stops_after_one_useful_turn
     ])
     assert [t["name"] for t in OUTILS_RECHERCHE] == [
         "sommaire", "ouvrir_noeud", "chercher", "definitions"]
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
     assert all([t["name"] for t in request["tools"]] == [
         "sommaire", "ouvrir_noeud", "chercher", "definitions"] for request in fake.requests)
     assert "root" in fake.requests[0]["system"][0]["text"]
     assert '<untrusted kind="sommaire">' in fake.requests[0]["system"][0]["text"]
     assert fake.requests[0]["max_tokens"] == _s().retrouver_outils_max_tokens
     assert result.opened_block_ids == ["d:p1:1", "d:p1:2", "d:p1:5"]
-    assert not result.truncated and step.calls and step.tier == "micro"
-    assert fake.requests[0]["model"] == TIERS["micro"]
-    assert len(step.calls) == 1 and step.usage.cost_eur == request_budget.cost_eur > 0
+    assert not result.truncated and step.calls and step.tier == "reason"
+    assert fake.requests[0]["model"] == TIERS["reason"]
+    assert len(step.calls) == 2 and step.usage.cost_eur == request_budget.cost_eur > 0
     assert step.opened_block_ids == result.opened_block_ids
 
 
@@ -1795,7 +1808,7 @@ async def test_une_reservation_heading_emporte_son_premier_corps_dans_les_deux_v
 
     attendu = ["d:p1:1", "d:p2:1", "d:p2:2"]
     assert deterministe.opened_block_ids == outils.opened_block_ids == attendu
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_une_reservation_heading_est_refusee_atomiquement_si_son_corps_ne_tient_pas() -> None:
@@ -2032,7 +2045,7 @@ async def test_chaque_facette_reserve_un_noeud_avant_les_themes_dans_les_deux_va
     ], corpus=corpus, parsed=parsed, budget=budget)
 
     assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p3:1", "d:p4:1"]
-    assert len(_fake.requests) == _request_budget.attempts == 1
+    assert len(_fake.requests) == _request_budget.attempts == 2
 
 
 async def test_une_ouverture_sans_focus_autorise_la_completion_des_facettes() -> None:
@@ -2046,7 +2059,7 @@ async def test_une_ouverture_sans_focus_autorise_la_completion_des_facettes() ->
                        max_blocks=2, max_tokens=6000))
 
     assert result.opened_block_ids == ["d:p3:1", "d:p4:1"]
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_un_sommaire_apres_outils_nouvre_pas_de_reservation_tardive() -> None:
@@ -2063,7 +2076,7 @@ async def test_un_sommaire_apres_outils_nouvre_pas_de_reservation_tardive() -> N
 
     assert result.opened_block_ids == ["d:p3:1"]
     assert "d:p4:1" not in result.opened_block_ids
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_les_reservations_saccumulent_entre_deux_recherches_successives() -> None:
@@ -2078,7 +2091,7 @@ async def test_les_reservations_saccumulent_entre_deux_recherches_successives() 
                        max_blocks=2, max_tokens=6000))
 
     assert result.opened_block_ids == ["d:p4:1", "d:p3:1"]
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_une_fenetre_valide_refusee_laisse_la_facette_suivante_entrer() -> None:
@@ -2281,12 +2294,12 @@ async def test_un_best_hit_faq_precede_le_focus_lexical_reserve_dans_les_deux_va
     ], corpus=corpus, parsed=parsed, budget=budget, settings=settings,
         dictionnaire=dictionnaire)
 
-    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:2"]
     assert deterministe.blocs == outils.blocs
     assert deterministe.truncated == outils.truncated is True
 
 
-async def test_un_best_hit_non_reserve_conserve_lordre_documentaire() -> None:
+async def test_un_best_hit_non_reserve_est_admis_avant_son_voisin_sous_quota() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Contexte voisin sans terme.", loc="p1", seq=1),
         Block(block_id="d:p1:2", text="Cible lexicale unique.", loc="p1", seq=2),
@@ -2308,12 +2321,12 @@ async def test_un_best_hit_non_reserve_conserve_lordre_documentaire() -> None:
                             focus_block_id="d:p1:2")),
     ], corpus=corpus, parsed=parsed, budget=budget)
 
-    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:1"]
+    assert deterministe.opened_block_ids == outils.opened_block_ids == ["d:p1:2"]
     assert deterministe.blocs == outils.blocs
     assert deterministe.truncated == outils.truncated is True
 
 
-async def test_une_recherche_ulterieure_ne_remplace_pas_le_best_hit_first_wins() -> None:
+async def test_un_focus_explicite_pertinent_prime_le_best_hit_historique_du_noeud() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="Alpha repère initial.", loc="p1", seq=1),
         Block(block_id="d:p1:2", text="Oméga cible finale.", loc="p1", seq=2),
@@ -2336,8 +2349,9 @@ async def test_une_recherche_ulterieure_ne_remplace_pas_le_best_hit_first_wins()
                        max_blocks=1, max_tokens=6000),
         settings=_s(retrieval_mechanism_order="outils,sommaire,dictionnaire,faq"))
 
-    # La seconde recherche réserve bien `p1:2`, mais `p1:1` reste l'autorité first-wins du nœud.
-    assert outils.opened_block_ids == ["d:p1:1"]
+    # `best_hit_by_node` reste first-wins pour le rappel, mais le focus explicite et pertinent est
+    # l'autorité d'admission lorsque le quota ne permet de garder qu'un passage de sa fenêtre.
+    assert outils.opened_block_ids == ["d:p1:2"]
     assert outils.truncated is True
 
 
@@ -2432,7 +2446,7 @@ async def test_la_completion_des_facettes_respecte_budget_et_atomicite() -> None
 
     assert result.opened_block_ids == ["d:p1:1"]
     assert result.truncated is True
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_la_completion_dedoublonne_les_reservations_deja_ouvertes() -> None:
@@ -2462,7 +2476,7 @@ async def test_la_completion_dedoublonne_les_reservations_deja_ouvertes() -> Non
 
     assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
     assert result.truncated is False
-    assert len(fake.requests) == request_budget.attempts == 1
+    assert len(fake.requests) == request_budget.attempts == 2
 
 
 async def test_une_cible_aussi_primaire_reste_atomique_avec_sa_source() -> None:
@@ -2589,9 +2603,9 @@ async def test_la_prelecture_de_contention_ne_pollue_pas_le_cache_des_limites() 
         ("limite-liee", [limite]),
     )
     index = Index(corpus)
-    assert index.chercher(["signalinitial"], limit=3, doc_id="d") == [
+    assert _pairs(index.chercher(["signalinitial"], limit=3, doc_id="d")) == [
         (initiale.block_id, "noeud-partage")]
-    assert index.chercher(["signalfondation"], limit=3, doc_id="d") == [
+    assert _pairs(index.chercher(["signalfondation"], limit=3, doc_id="d")) == [
         (garantie_non_confirmee.block_id, "noeud-partage")]
 
     result, _step, _fake, _request_budget = await _run_outils([
@@ -2940,6 +2954,31 @@ def test_nominal_opens_candidate_nodes_follows_refs_and_reads_blocks_from_the_co
     assert step.name == "retrouver" and step.ms >= 0
     assert step.opened_block_ids == result.opened_block_ids
     assert step.discarded_block_ids == result.discarded_block_ids
+
+
+def test_deterministe_conserve_le_role_structurel_du_singleton_dans_le_resultat() -> None:
+    source = Block(block_id="d:p1:1", text="Signal question.", loc="p1", seq=1)
+    dependency = Block(block_id="d:p2:1", text="Contexte lié.", loc="p2", seq=1)
+    document = Document(
+        doc_id="d", kind="contrat", title="t", edition="e", blocks=[source, dependency],
+        nodes=[
+            Node(node_id="root", items=[NodeRef(node_id="source"), NodeRef(node_id="dependency")]),
+            Node(node_id="source", items=[BlockRef(block_id=source.block_id)], relations=[{
+                "kind": "explicit_dependency", "target_node_id": "dependency",
+            }]),
+            Node(node_id="dependency", items=[BlockRef(block_id=dependency.block_id)]),
+        ],
+    )
+    corpus = Corpus(documents={"d": document})
+
+    result, _ = _run(
+        ParsedQuestion(question_resolue="signal question", intent="question", terms=["signal"]),
+        corpus, Index(corpus), _budget(max_opens=1, node_window=5, max_blocks=5), doc_id="d",
+    )
+
+    assert result.opened_block_ids == [source.block_id, dependency.block_id]
+    assert result.blocs[0] is source and result.blocs[0].context_role is None
+    assert result.blocs[1].context_role == "explicit_dependency"
 
 
 def test_the_trace_carries_the_ad9_tier_and_says_no_model_was_called() -> None:
@@ -3533,9 +3572,9 @@ def test_la_reserve_est_bornee_par_profil_max_opens() -> None:
     """
     corpus = _corpus_range(10)
     result, step = _run_profil(corpus, ["n9", "n7", "n10"])
-    assert result.opened_block_ids == [f"d:p{i}:1" for i in (1, 2, 3, 4, 7, 9)]
+    assert result.opened_block_ids == [f"d:p{i}:1" for i in (10, 1, 2, 3, 7, 9)]
     (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
-    assert check.detail == "2 place(s) réservée(s) sur 2 (n7, n9) ; 2 nœud(s) cédé(s) (n6, n5)"
+    assert check.detail == "2 place(s) réservée(s) sur 2 (n7, n9) ; 2 nœud(s) cédé(s) (n5, n4)"
 
 
 def test_une_fiche_designee_deja_ouverte_ne_change_rien() -> None:
@@ -3791,10 +3830,10 @@ def test_deterministe_executes_configured_mechanism_permutations_without_resorti
         parsed, corpus, Index(corpus), _budget(max_opens=3), doc_id="d", dictionnaire=dico,
         settings=_s(retrieval_mechanism_order="sommaire,outils,faq,dictionnaire"))
 
-    assert faq_first.opened_node_ids == ["n3"]
+    assert faq_first.opened_node_ids == ["n1", "n3"]
     assert summary_first.opened_node_ids[0] == "n1"
     # Le dictionnaire placé après sommaire ne peut rétroactivement élargir son hit `alias`.
-    assert dictionary_late.opened_node_ids == ["n3"]
+    assert dictionary_late.opened_node_ids == []
 
 
 @pytest.mark.parametrize(
@@ -3807,18 +3846,19 @@ def test_deterministe_executes_configured_mechanism_permutations_without_resorti
 async def test_outils_faq_opens_a_candidate_without_lexical_hit_in_configured_order(
         order: str, faq_visible_during_tools: bool) -> None:
     corpus = _corpus()
-    messages = ([_tool_message(_tool("ouvrir_noeud", "t1", node_id="n3"))]
+    messages = ([_tool_message(_tool("ouvrir_noeud", "t1", node_id="n3")),
+                 fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])]
                 if faq_visible_during_tools else
                 [fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[])])
     result, step, fake, _budget_used = await _run_outils(
         messages,
-        corpus=corpus, parsed=_parsed(["zorbule"]), dictionnaire=_dictionnaire_mecanismes(),
+        corpus=corpus, parsed=_parsed(["q"]), dictionnaire=_dictionnaire_mecanismes(),
         settings=_s(max_cost_eur_per_request=1.0, retrieval_mechanism_order=order))
 
     assert ("d:p3:1" in result.opened_block_ids) is faq_visible_during_tools
     assert Index(corpus).chercher(["zorbule"], limit=20, doc_id="d") == []
-    user_message = str(fake.requests[0]["messages"][0]["content"])
-    assert ("faq_candidates" in user_message) is faq_visible_during_tools
+    request_payload = json.dumps(fake.requests[0], ensure_ascii=False, default=str)
+    assert ("faq_candidates" in request_payload) is faq_visible_during_tools
     assert step.mechanism_order == order.split(",")
 
 
@@ -3839,7 +3879,8 @@ async def test_outils_only_sees_summary_when_summary_precedes_it(
 
     assert ("d:p1:1" in result.opened_block_ids) is summary_visible
     system = fake.requests[0]["system"][0]["text"]
-    assert (("root\n  n1" in system) is summary_visible)
+    rendered_summary = '<untrusted kind="sommaire">' in system and '"node_id": "n1"' in system
+    assert rendered_summary is summary_visible
 
 
 @pytest.mark.parametrize(
@@ -3861,18 +3902,17 @@ async def test_dictionary_only_enriches_searches_that_follow_it(
     assert result.opened_block_ids == []
 
 
-async def test_micro_retrieval_callers_disable_provider_prompt_cache() -> None:
-    settings = _s(max_cost_eur_per_request=1.0, retrouver_outils_tier="micro",
-                  retrieval_prompt_cache=False)
+async def test_reason_retrieval_callers_disable_provider_prompt_cache() -> None:
+    settings = _s(max_cost_eur_per_request=1.0, retrieval_prompt_cache=False)
     _result, tools_step, tools_fake, _request_budget = await _run_outils(
-        [fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])],
+        [fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])],
         settings=settings)
     assert "cache_control" not in tools_fake.requests[0]["system"][0]
     assert tools_step.prompt_cache is False
 
     corpus = _corpus()
     full_fake = FakeAnthropic([fake_message(
-        model=TIERS["micro"], text='{"block_ids":["d:p2:1"]}')])
+        model=TIERS["reason"], text='{"block_ids":["d:p2:1"]}')])
     result, full_step = await retrouver_full_context(
         _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000), settings=settings,
@@ -3911,6 +3951,54 @@ async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic
     assert "première démarche" in user and "seconde démarche" in user
     assert step.prompt_cache is True and step.mechanism_order == [
         "dictionnaire", "faq", "sommaire", "outils"]
+
+
+async def test_les_trois_variantes_refusent_une_fondatrice_hors_question_rappelee_par_les_termes(
+        ) -> None:
+    foundation = Block(
+        block_id="d:p1:1", text="Signal lexical sans rapport avec le sujet.", loc="p1", seq=1,
+        kind="garantie", kind_source="manual",
+    )
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", blocks=[foundation],
+        nodes=[Node(node_id="n", items=[BlockRef(block_id=foundation.block_id)])],
+    )}, summaries={"d": "n"})
+    parsed = ParsedQuestion(
+        question_resolue="incendie habitation", intent="question", terms=["signal lexical"],
+    )
+    configured = _s(max_cost_eur_per_request=1.0)
+    bounded = _budget(max_opens=1, node_window=1, max_blocks=1, max_tokens=6000)
+
+    deterministic, _ = retrouver_deterministe(
+        parsed, corpus=corpus, index=Index(corpus), budget=bounded,
+        settings=configured, doc_id="d", kinds_prioritaires=KINDS_FONDATEURS,
+    )
+    tools, _step, _fake, _request = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["signal lexical"]),
+            _tool("ouvrir_noeud", "t2", node_id="n", focus_block_id=foundation.block_id),
+        ),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=parsed, budget=bounded, settings=configured,
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    class FullClient:
+        async def parse(self, **kwargs):
+            return SimpleNamespace(parsed=FullContextSelection(block_ids=[foundation.block_id]))
+
+    full, _ = await retrouver_full_context(
+        parsed, corpus=corpus, index=Index(corpus), budget=bounded, settings=configured,
+        client=FullClient(),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="d",
+    )
+
+    for result in (deterministic, tools, full):
+        assert result.opened_block_ids == [foundation.block_id]
+        assert result.sufficiency is not None and not result.sufficiency.complete
+        assert result.sufficiency.sufficiency_result_uid is None
+        assert len(result.admission_decisions) == len(result.scored_hits) == 1
+        assert result.scored_hits[0].score.partial_numerator == 0
 
 
 async def test_full_context_resolves_model_ids_in_canonical_corpus_order() -> None:
@@ -3988,8 +4076,8 @@ async def test_full_context_refuses_context_window_before_client(monkeypatch: py
             raise AssertionError("le client ne doit pas être appelé")
 
     client = Client()
-    caps = dict(module.MODEL_CAPS[TIERS["micro"]])
-    monkeypatch.setitem(module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 1})
+    caps = dict(module.MODEL_CAPS[TIERS["reason"]])
+    monkeypatch.setitem(module.MODEL_CAPS, TIERS["reason"], {**caps, "context_window": 1})
     with pytest.raises(BudgetExceeded, match="hors enveloppe") as capture:
         await retrouver_full_context(
             _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
@@ -4007,8 +4095,8 @@ async def test_full_context_preflight_counts_the_exact_structured_envelope(
 
     corpus = _corpus()
     settings = _s(retrouver_outils_max_tokens=7)
-    caps = dict(module.MODEL_CAPS[TIERS["micro"]])
-    monkeypatch.setitem(module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 16})
+    caps = dict(module.MODEL_CAPS[TIERS["reason"]])
+    monkeypatch.setitem(module.MODEL_CAPS, TIERS["reason"], {**caps, "context_window": 16})
     monkeypatch.setattr(
         module, "estimate_tokens",
         lambda payload, _settings: 10 if '"output_config"' in payload else 1)

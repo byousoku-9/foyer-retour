@@ -23,7 +23,7 @@ from server.app.digests import cases_hash, harness_digest, pipeline_digest, prom
 from server.evals.plancher import PlancherInvalide, charger_plancher
 
 VARIANTS = ("deterministe", "outils", "full_context")
-TIERS = ("reason", "micro")
+TIERS = ("reason",)
 CANONICAL_CELLS = tuple((variant, tier) for variant in VARIANTS for tier in TIERS)
 SHA256_LEN = 64
 REFERENCE_4_2D = {
@@ -559,9 +559,9 @@ def run_comparison(*, plan: list[BaselineCell], max_cost_eur: float,
                    producer: Literal["builder", "orchestrator"] = "builder",
                    default_path: Path = RETRIEVAL_DEFAULT_PATH,
                    proof_4_2d_path: Path | None = None) -> int:
-    """Exécute les cellules séquentiellement sous un unique solde et publie toujours six états."""
+    """Exécute les cellules Sonnet reason sous un unique solde fini."""
     if [(cell.variant, cell.tier) for cell in plan] != list(CANONICAL_CELLS):
-        raise BaselineError("le plan interne doit contenir les six cellules canoniques")
+        raise BaselineError("le plan interne doit contenir toutes les cellules canoniques")
     if not math.isfinite(max_cost_eur) or max_cost_eur <= 0:
         raise BaselineError("le plafond global doit être fini et strictement positif")
     before = load_retrieval_default(default_path)

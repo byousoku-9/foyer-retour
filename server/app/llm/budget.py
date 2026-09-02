@@ -5,6 +5,9 @@ avant chaque appel et y consigne chaque usage réel."""
 from __future__ import annotations
 
 import time
+import uuid
+
+from server.app.domain.artifact import document_artifact_uid
 
 
 class RequestBudget:
@@ -17,12 +20,26 @@ class RequestBudget:
         self.attempts = 0
         self.cost_eur = 0.0
         self.cost_alerted = False  # AD-10 : `cout_eleve` levé une seule fois par requête, au franchissement
+        self.run_uid = f"run:{uuid.uuid4()}"
+        self.artifact_uid = ""
         # Story 1.4 (reprise B5) : empreintes des préfixes dont le fournisseur a confirmé l'écriture (ou la
         # lecture) pendant cette requête — `estimate_cost` peut alors compter le préfixe au tarif
         # `cache_read` (0,1×) au lieu de l'écriture (2×). Le cache reste chaud : deadline 55 s, TTL ≥ 5 min.
         # Un préfixe que le fournisseur n'a pas caché (trop court pour son seuil minimal) n'entre jamais ici.
         self._prefixes: set[str] = set()
         self._t0 = time.monotonic()
+
+    def bind_artifact(self, *, document_uid: str, source_hash: str | None,
+                      ingest_fingerprint: str | None) -> str:
+        """Lie tout le pipeline à un artefact sans publier son contenu."""
+        candidate = document_artifact_uid(
+            document_uid=document_uid, source_hash=source_hash,
+            ingest_fingerprint=ingest_fingerprint,
+        )
+        if self.artifact_uid and self.artifact_uid != candidate:
+            raise ValueError("le budget est déjà lié à un autre artefact documentaire")
+        self.artifact_uid = candidate
+        return candidate
 
     def remaining(self) -> float:
         """Secondes restantes avant la deadline (peut être négatif)."""

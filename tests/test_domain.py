@@ -37,16 +37,17 @@ def test_document_fields() -> None:
                                         "source_url", "source_hash", "ingest_fingerprint"}
     assert fields(document.ParcoursCondition) == {"node_id", "si"}
     assert literal_values(document.Document, "kind") == {"guide", "contrat"}
-    assert fields(document.Node) == {"node_id", "level", "title", "items", "scope", "sources"}
+    assert fields(document.Node) == {"node_id", "level", "title", "article_uid", "surface_class",
+                                     "relations", "items", "scope", "sources"}
     assert literal_values(document.Scope, "kind") == {"commun", "special", "extension"}
-    assert fields(document.Line) == {"line_id", "text", "bbox"}
+    assert fields(document.Line) == {"line_id", "line_uid", "text", "bbox", "page", "order"}
 
 
 def test_block_fields_and_kinds() -> None:
     assert fields(document.Block) == {
         "block_id", "text", "text_norm", "lang", "loc", "seq", "page", "bbox", "kind", "structural_kind", "kind_confidence",
         "kind_source", "source_field", "continues", "refs", "unresolved_refs", "defines", "scope_node_id",
-        "scope_node_ids", "overrides", "relation", "lines",
+        "scope_node_ids", "overrides", "relation", "lines", "article_uid", "surface_class", "context_role",
     }
     assert literal_values(document.Block, "kind") == {
         "para", "heading", "table", "list", "definition", "garantie", "exclusion", "condition",
@@ -514,8 +515,54 @@ def test_trace_models() -> None:
     # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`
     # reste le tier *demandé* de l'étape, et `model` ne suffit pas — il n'existe aucune table
     # inverse modèle → tier, et deux tiers peuvent pointer le même modèle.
-    assert {"model", "tier", "ms", "usage", "cache_read", "cache_write",
-            "tools"} == fields(trace.LLMCall)
+    assert {"model", "tier", "ms", "usage", "cache_read", "cache_write", "tools",
+            "call_uid", "run_uid", "artifact_uid", "trusted_line_uids", "input_sha256",
+            "input_bytes", "response_sha256", "response_bytes", "audit_persisted"} == fields(trace.LLMCall)
+
+
+def test_retrieval_result_exige_une_decision_par_hit_et_une_suffisance_admise() -> None:
+    score = retrieval.QuestionClauseScore(
+        question_uid="question:1", clause_uid="d:p1:1", scorer_uid="s",
+        scorer_version="1", full_matches=1, partial_numerator=0, partial_denominator=1,
+        precision_numerator=1, precision_denominator=1, kind_priority=0,
+    )
+    payload = {
+        "question_uid": score.question_uid, "clause_uid": score.clause_uid,
+        "scorer_uid": score.scorer_uid, "scorer_version": score.scorer_version,
+        "score": score.model_dump(mode="json"), "document_uid": "d", "node_uid": "n",
+        "title": "Titre", "excerpt": "Texte",
+    }
+    hit = retrieval.ScoredHit(
+        result_uid=retrieval.stable_uid("result-v1", payload), document_uid="d",
+        clause_uid="d:p1:1", node_uid="n", title="Titre", excerpt="Texte", score=score,
+    )
+    snapshot = retrieval.BudgetSnapshot(
+        opens_used=1, blocks_used=1, tokens_used=2, opens_remaining=0,
+    )
+    with pytest.raises(ValidationError, match="exactement une décision"):
+        retrieval.RetrievalResult(scored_hits=[hit])
+
+    rejected = retrieval.AdmissionDecision(
+        result_uid=hit.result_uid, state="rejected", reason="budget", snapshot=snapshot,
+    )
+    with pytest.raises(ValidationError, match="doit être admis"):
+        retrieval.RetrievalResult(
+            scored_hits=[hit], admission_decisions=[rejected],
+            sufficiency=retrieval.SufficiencyDecision(
+                complete=True, sufficiency_result_uid=hit.result_uid,
+                reason="test", considered_result_uids=(hit.result_uid,),
+            ),
+        )
+
+    admitted = rejected.model_copy(update={"state": "admitted", "reason": "selected"})
+    with pytest.raises(ValidationError, match="fausse interdit"):
+        retrieval.RetrievalResult(
+            scored_hits=[hit], admission_decisions=[admitted],
+            sufficiency=retrieval.SufficiencyDecision(
+                complete=False, sufficiency_result_uid=hit.result_uid,
+                reason="encore insuffisant", considered_result_uids=(hit.result_uid,),
+            ),
+        )
 
 
 # AD-10 (story 2.5) — les trois résolutions de la trace
@@ -666,7 +713,7 @@ def test_question_and_retrieval() -> None:
     # réponse ne pouvait pas dire combien elle avait lu.
     assert fields(retrieval.RetrievalResult) == {
         "blocs", "opened_block_ids", "opened_node_ids", "decision_dependency_block_ids",
-        "discarded_block_ids", "truncated",
+        "discarded_block_ids", "scored_hits", "admission_decisions", "sufficiency", "truncated",
     }
     assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
     with pytest.raises(ValidationError):
@@ -753,7 +800,7 @@ def test_ingest_models() -> None:
     assert literal_values(ingest.ManifestEntry, "status") == {"servi", "quarantaine"}
     assert fields(retrieval.NodeChild) == {"node_id", "title"}
     assert fields(retrieval.NodeWindow) == {
-        "node_id", "title", "children", "blocks", "truncated", "next_cursor"}
+        "node_id", "title", "children", "blocks", "context_units", "truncated", "next_cursor"}
     r = ingest.Report(doc_id="d", checks=[{"name": "a", "level": "bloquant"}, {"name": "b", "level": "alerte"}])
     assert [c.name for c in r.blocking] == ["a"] and [c.name for c in r.alerts] == ["b"]
 

@@ -255,6 +255,12 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # du texte des blocs — il est délimité comme tout le reste, jamais concaténé en clair.
         tail += "\n" + untrusted("motif", motif)
     content = "\n\n".join(parts) + "\n\n" + tail
+    trusted_line_uids = tuple(dict.fromkeys(
+        line.line_uid
+        for block in retrieval.blocs
+        for line in block.lines
+        if line.line_uid is not None
+    ))
     try:
         result = await client.parse(tier=tier, system_prefix=prefix,
                                     messages=[{"role": "user", "content": content}], output_model=AnswerDraft,
@@ -269,7 +275,8 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                                     # Story 4.2b : un tier épinglé sur un modèle sans `effort`
                                     # (Haiku) ne reçoit aucune dérogation — le client refuserait.
                                     effort=(EFFORT_PAR_PROMPT.get(prompt)
-                                            if MODEL_CAPS[model_for(tier)]["effort"] else None))
+                                            if MODEL_CAPS[model_for(tier)]["effort"] else None),
+                                    trusted_line_uids=trusted_line_uids)
     except PipelineError as exc:
         # AD-10/AD-16 : l'appel raté a pu être facturé (`step.calls` le porte, `budget` aussi). Sans
         # ce rattachement, l'étape disparaît de la trace alors que son coût y compte, et l'appelant ne

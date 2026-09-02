@@ -31,6 +31,8 @@ from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
 from server.app.config import Settings, get_settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import Corpus
 from server.app.domain import Document
 from server.ingest import pdf_to_blocks as p
 from server.ingest import structure as s
@@ -478,11 +480,14 @@ def test_le_schema_nadmet_que_des_uid_du_registre_et_aucun_champ_de_jugement() -
     noeud = schema["properties"]["noeuds"]["items"]
     assert set(noeud["properties"]) == {
         "titre_line_uid", "premiere_line_uid", "derniere_line_uid", "parent_line_uid",
+        "title_line_uids", "article_uid", "surface_class", "continuation_line_uids",
+        "relations",
     }
     assert noeud["additionalProperties"] is False and schema["additionalProperties"] is False
     assert noeud["properties"]["titre_line_uid"]["enum"] == list(registre)
     rendu = json.dumps(schema)
-    for interdit in ("kind", "portee", "scope", "applicab", "verdict", "titre\"", "texte"):
+    # `relations.kind` est un vocabulaire structurel fermé, pas un jugement juridique.
+    for interdit in ("portee", "scope", "applicab", "verdict", "titre\"", "texte"):
         assert interdit not in rendu, interdit
 
 
@@ -556,6 +561,185 @@ def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acce
     assert cout > 0 and proposition.doc_id == DOC
     assert proposition.noeuds[0].titre_line_uid == "p1:l1"
     assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+
+
+def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Régression O-01 : proposition → audit → arbre publié ne change jamais d'identité de ligne."""
+    pages = _corpus()
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    attendus = tuple(registre)
+    assert attendus and all(uid.startswith("line-v1:") and len(uid) == s.LINE_UID_MAX
+                            for uid in attendus)
+    assert not any(uid.startswith("p") and ":l" in uid for uid in attendus)
+
+    audit: dict[str, Any] = {}
+
+    def capturer_audit(_path: Path, **event: Any) -> dict[str, Any]:
+        audit.update(event)
+        return {}
+
+    monkeypatch.setattr(s, "append_ingest_audit", capturer_audit)
+    client = FauxClient()
+    proposition_filaire, _ = s.proposer(
+        client, registre, doc_id=DOC, settings=get_settings(),
+    )
+    uids_envoyes = tuple(
+        ligne["uid"]
+        for ligne in json.loads(client.messages.calls[0]["messages"][0]["content"])["lignes"]
+    )
+    assert uids_envoyes == attendus
+    assert audit["trusted_line_uids"] == tuple(sorted(attendus))
+    assert proposition_filaire.noeuds[0].titre_line_uid in attendus
+
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=attendus[0], premiere_line_uid=attendus[0],
+            derniere_line_uid=attendus[-1], parent_line_uid=None,
+            title_line_uids=[attendus[0]], article_uid=None, surface_class="substantiel",
+            continuation_line_uids=[], relations=[],
+        ),
+    ])
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+        title="Contrat", structure=proposition,
+    )
+    publies = [line.line_uid for block in document.blocks for line in block.lines]
+    assert set(attendus) == set(publies)
+    assert len(publies) == len(set(publies))
+    noeud = next(node for node in document.nodes if node.node_id == f"{DOC}:s1")
+    assert set(noeud.blocks) == {block.block_id for block in document.blocks}
+
+
+def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_singleton() -> None:
+    pages = [_page(1, [
+        "Article 0 Parent", "Article 1 Cible singleton", "Article 2 Clause liée",
+        "Suite liée un.", "Suite liée deux.", "Définition dérogatoire.",
+    ])]
+    p.ordonner_pages(pages)
+    uids = tuple(s.registre_lignes(pages, document_uid=DOC))
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[5],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid="article:0",
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[1], premiere_line_uid=uids[1], derniere_line_uid=uids[1],
+            parent_line_uid=uids[0], title_line_uids=[uids[1]], article_uid="article:1",
+            surface_class="substantiel", continuation_line_uids=[], relations=[
+                {"kind": "explicit_dependency", "target_line_uid": uids[2]},
+                {"kind": "definition_override", "target_line_uid": uids[5]},
+            ],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[2], premiere_line_uid=uids[2], derniere_line_uid=uids[4],
+            parent_line_uid=uids[0], title_line_uids=[uids[2]], article_uid="article:2",
+            surface_class="substantiel", continuation_line_uids=[uids[3], uids[4]], relations=[],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[5], premiere_line_uid=uids[5], derniere_line_uid=uids[5],
+            parent_line_uid=uids[0], title_line_uids=[uids[5]], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+        title="Contrat", structure=proposition,
+    )
+    index = Index(Corpus(documents={DOC: document}))
+    source_node = next(node for node in document.nodes if node.article_uid == "article:1")
+    dependency_node = next(node for node in document.nodes if node.article_uid == "article:2")
+    parent_node = next(node for node in document.nodes if node.article_uid == "article:0")
+    source_block = source_node.blocks[0]
+
+    window = index.ouvrir_noeud(
+        source_node.node_id, focus_block_id=source_block, node_window=20,
+    )
+    roles = {unit.role for unit in window.context_units}
+    assert roles == {"target", "explicit_dependency", "definition_override", "parent_preamble"}
+    assert next(unit for unit in window.context_units
+                if unit.role == "parent_preamble").section_uid == parent_node.node_id
+    assert all(unit.section_uid == dependency_node.node_id
+               for unit in window.context_units if unit.role == "explicit_dependency")
+    assert [block.context_role for block in window.blocks] == [
+        unit.role for unit in window.context_units]
+
+    continuation = index.ouvrir_singleton(dependency_node.blocks[0], node_window=20)
+    continued = [unit.block_uid for unit in continuation.context_units
+                 if unit.role == "same_clause_continuation"]
+    assert continued == dependency_node.blocks[1:]
+
+
+@pytest.mark.parametrize(("title", "article_uid", "surface", "detail"), [
+    ("Sommaire", None, "substantiel", "table_des_matieres"),
+    ("Préambule", None, "substantiel", "preliminaire"),
+    ("Article 12 Garanties", "article:13", "substantiel", "article_uid"),
+    ("Titre sans article", "article:12", "substantiel", "article_uid"),
+])
+def test_oracle_independant_refuse_semantique_opus_contredite_par_le_titre(
+        title: str, article_uid: str | None, surface: str, detail: str) -> None:
+    pages = [_page(1, [title, "Corps de la section."])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[-1],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid=article_uid,
+            surface_class=surface, continuation_line_uids=[], relations=[],
+        ),
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
+    assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
+    assert detail in verdict.detail
+
+
+def test_oracle_independant_refuse_une_ligne_de_corps_annexee_au_titre() -> None:
+    pages = [_page(1, ["Titre de section", "Phrase de corps arbitraire.", "Suite."])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[-1],
+            parent_line_uid=None, title_line_uids=[uids[0], uids[1]], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
+    assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
+    assert "ligne de corps" in verdict.detail
+
+
+def test_le_line_uid_canonique_dune_table_est_celui_de_sa_ligne_publiee() -> None:
+    """Une table reste atomique, mais son ancre Opus est bien une `Document.Line` réelle."""
+    page, _sources = _page_avec_table([["Colonne A", "Colonne B"], ["Valeur A", "Valeur B"]])
+    p.ordonner_pages([page])
+    registre = s.registre_lignes([page], document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[-1],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+    document, _ = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+        title="Contrat", structure=proposition,
+    )
+    publies = [line.line_uid for block in document.blocks for line in block.lines]
+    assert set(registre) <= set(publies)
+    table = next(block for block in document.blocks if block.kind == "table")
+    ancre_table = next(entree.uid for entree in registre.values()
+                        if len(entree.source_uids) == 2)
+    assert table.lines[0].line_uid == ancre_table
 
 
 def test_lappel_passe_par_messages_parse_sans_output_format_et_jamais_par_create() -> None:
@@ -800,6 +984,29 @@ def test_un_cycle_de_parents_est_refuse() -> None:
                        derniere_line_uid="p2:l3", parent_line_uid="p1:l1"),
     ])
     verdict = _verdict(proposition)
+    assert not verdict.accepte and verdict.motif == "cycle"
+
+
+def test_un_long_cycle_de_relations_est_refuse_par_parcours_iteratif_borne() -> None:
+    page = _page(1, [f"Ligne source {index}." for index in range(1100)])
+    p.ordonner_pages([page])
+    registre = s.registre_lignes([page], document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uid, premiere_line_uid=uid, derniere_line_uid=uid,
+            parent_line_uid=None if index == 0 else uids[index - 1],
+            title_line_uids=[uid], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[{
+                "kind": "explicit_dependency",
+                "target_line_uid": uids[(index + 1) % len(uids)],
+            }],
+        )
+        for index, uid in enumerate(uids)
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
     assert not verdict.accepte and verdict.motif == "cycle"
 
 
@@ -1081,19 +1288,17 @@ def test_le_schema_fournisseur_borne_le_nombre_de_noeuds_proposables(
     assert borne["properties"]["noeuds"]["maxItems"] == 3
 
 
-def test_le_modele_pydantic_refuse_une_proposition_plus_large_que_la_borne(
+def test_le_modele_pydantic_reste_independant_des_settings_dynamiques(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Deuxième point : aucune `StructureProposee` hors borne ne peut seulement être bâtie."""
+    """Le DTO ne capture pas le singleton Settings; la requête et le parse portent la borne."""
     _pages, proposition = _plate(4)
     charge = proposition.model_dump()
     with _regle(monkeypatch, STRUCTURE_MAX_NODES="4", STRUCTURE_MAX_CHILDREN="4"):
         assert len(s.StructureProposee.model_validate(charge).noeuds) == 4  # à la borne : bâtie
     with _regle(monkeypatch, STRUCTURE_MAX_NODES="3"):
-        with pytest.raises(ValidationError, match="largeur_excessive"):
-            s.StructureProposee.model_validate(charge)
+        assert len(s.StructureProposee.model_validate(charge).noeuds) == 4
     with _regle(monkeypatch, STRUCTURE_MAX_CHILDREN="3"):
-        with pytest.raises(ValidationError, match="largeur_excessive"):
-            s.StructureProposee.model_validate(charge)
+        assert len(s.StructureProposee.model_validate(charge).noeuds) == 4
 
 
 def test_parse_proposition_refuse_une_reponse_plus_large_que_la_borne(
@@ -1612,9 +1817,11 @@ def test_le_registre_ne_fuit_pas_dans_les_artefacts_servis(tmp_path: Path) -> No
     dossier = _dossier(tmp_path)
     p.run(dossier, edition="test 2026", doc_id=DOC, title="Contrat")
     brut = (dossier / "document.json").read_text("utf-8")
-    assert "source_uids" not in brut and "line_uid" not in brut and "p1:l1" not in brut
+    assert "source_uids" not in brut and "p1:l1" not in brut
     document = Document.model_validate_json(brut)
     assert all(line.line_id.startswith(block.block_id)
+               for block in document.blocks for line in block.lines)
+    assert all(line.line_uid and line.line_uid.startswith("line-v1:")
                for block in document.blocks for line in block.lines)
     assert hashlib.sha256(brut.encode("utf-8")).hexdigest()  # artefact bien sérialisé
 

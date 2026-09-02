@@ -416,6 +416,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         raise CorpusUnavailable(f"document {doc_id!r} non servi (absent du corpus ou en quarantaine)")
     if budget is None:
         budget = client.new_budget(deadline_s=deadline_s) if deadline_s is not None else client.new_budget()
+    document = corpus.documents[doc_id]
+    budget.bind_artifact(
+        document_uid=document.doc_id, source_hash=document.source_hash,
+        ingest_fingerprint=document.ingest_fingerprint)
 
     steps: list[StepTrace] = []
     relances = 0

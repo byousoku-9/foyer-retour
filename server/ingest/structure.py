@@ -33,7 +33,9 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
+import unicodedata
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -41,14 +43,19 @@ from pathlib import Path
 from typing import Any, Literal
 
 import anthropic
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
+                      field_validator, model_validator)
 
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.corpus.racine import racine_couvrant
-from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.artifact import document_artifact_uid
+from server.app.domain.document import (DOC_ID_MAX, DOC_ID_RE, NodeRelation,
+                                        NodeRelationKind, SurfaceClass)
 from server.app.llm.models import EFFORT, TIERS
+from server.app.llm.audit import append_ingest_audit
 from server.app.llm.pricing import cost_from_usage, estimate_cost
 from server.ingest.artifacts import exiger_espace_installe, write_atomic
+from server.ingest.line_identity import line_uid
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 TIER = "ingest"
@@ -59,30 +66,83 @@ MODEL = TIERS[TIER]
 # `structure_max_children`). `-2` : la couverture est devenue totale et les lignes d'une table sont
 # entrées au registre. Une proposition acceptée sous les règles précédentes ne l'est plus forcément,
 # et le registre qu'elle adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
-STRUCTURE_RULES_VERSION = "4.2c-4"
+STRUCTURE_RULES_VERSION = "5.0-v3-line-uid"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
           "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "largeur_excessive",
           "ordre_impossible", "intervalles_croises", "parent_non_contenant", "ligne_omise",
           "affectation_non_prouvee", "noeud_non_construit")
-# Longueur maximale d'un `line_uid`. Ce n'est pas un réglage mais la **forme** d'un identifiant du
-# registre — `p{page}:l{rang}`, idiome de `DOC_ID_MAX` —, et c'est elle qui empêche un artefact de
-# concentrer tout son poids dans un seul `uid` que le vérificateur comparerait ensuite au registre.
-LINE_UID_MAX = 64
+# `line-v1:` + SHA-256 hexadécimal. La borne empêche toujours un artefact de concentrer son poids
+# dans un seul identifiant, mais elle décrit désormais la même identité que `Document.Line`.
+LINE_UID_MAX = len("line-v1:") + 64
+
+_ARTICLE_TITLE_RE = re.compile(
+    r"^\s*(?:article|art\.)\s+(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
+    re.IGNORECASE,
+)
+_TECHNICAL_SURFACES: tuple[tuple[re.Pattern[str], SurfaceClass], ...] = (
+    (re.compile(r"^(?:table\s+des\s+matieres|sommaire)\b"), "table_des_matieres"),
+    (re.compile(
+        r"^(?:preambule|avant-propos|introduction|dispositions?\s+preliminaires?)\b"),
+     "preliminaire"),
+)
+
+
+def _oracle_text(value: str) -> str:
+    return " ".join(
+        "".join(char for char in unicodedata.normalize("NFKD", value)
+                if not unicodedata.combining(char)).casefold().split()
+    )
+
+
+def oracle_surface_class(title: str) -> SurfaceClass | None:
+    """Classe technique lisible du titre, indépendante de la proposition Opus."""
+    normalized = _oracle_text(title)
+    return next((surface for pattern, surface in _TECHNICAL_SURFACES
+                 if pattern.search(normalized)), None)
+
+
+def oracle_article_uid(title: str) -> str | None:
+    """Identité canonique uniquement lorsqu'un numéro d'article est réellement lisible."""
+    match = _ARTICLE_TITLE_RE.search(_oracle_text(title))
+    return f"article:{match.group('number')}" if match else None
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RelationProposee(StrictModel):
+    kind: NodeRelationKind
+    target_line_uid: str = Field(max_length=LINE_UID_MAX)
+
+
 class NoeudPropose(StrictModel):
-    """Un nœud proposé : quatre ancres de lignes, et rien d'autre — ni titre, ni kind, ni portée."""
+    """Nœud proposé ; les champs v2 portent la vérité sémantique à projeter."""
 
     titre_line_uid: str = Field(max_length=LINE_UID_MAX)
     premiere_line_uid: str = Field(max_length=LINE_UID_MAX)
     derniere_line_uid: str = Field(max_length=LINE_UID_MAX)
     parent_line_uid: str | None = Field(default=None, max_length=LINE_UID_MAX)
+    title_line_uids: list[str] = Field(default_factory=list)
+    article_uid: str | None = Field(default=None, max_length=256)
+    surface_class: SurfaceClass | None = None
+    continuation_line_uids: list[str] = Field(default_factory=list)
+    relations: list[RelationProposee] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _listes_uniques(self) -> NoeudPropose:
+        for name, values in (
+            ("title_line_uids", self.title_line_uids),
+            ("continuation_line_uids", self.continuation_line_uids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"{name} contient un doublon")
+        relation_keys = [(relation.kind, relation.target_line_uid) for relation in self.relations]
+        if len(relation_keys) != len(set(relation_keys)):
+            raise ValueError("relations contient un doublon")
+        return self
 
 
 def _trop_de_noeuds(total: int, settings: Settings) -> str | None:
@@ -142,23 +202,38 @@ def _largeur_brute(charge: Any, settings: Settings) -> str | None:
 
 
 class StructureProposee(StrictModel):
-    schema_version: Literal["1"] = "1"
+    schema_version: Literal["1", "2"] = "2"
     doc_id: str = Field(max_length=DOC_ID_MAX)
     noeuds: list[NoeudPropose] = Field(default_factory=list)
 
     @field_validator("noeuds")
     @classmethod
     def _borner_la_largeur(cls, noeuds: list[NoeudPropose]) -> list[NoeudPropose]:
-        """Aucune proposition hors borne ne peut seulement être **bâtie**, d'où qu'elle vienne.
+        """La forme reste indépendante du singleton global ; chaque frontière applique ses Settings.
 
-        La borne n'est pas un `Field(max_length=…)` parce qu'elle est un seuil, pas une forme : elle
-        vit dans `server/app/config.py` et se règle, quand un littéral figé ici serait précisément le
-        seuil en dur que la convention interdit.
+        ``parse_proposition``, ``charger_octets``, ``verifier`` et ``arbre`` portent tous la borne
+        effective. La figer ici via ``get_settings()`` faisait refuser une proposition valide à un
+        appelant qui avait explicitement fourni une borne plus large.
         """
-        detail = largeur_hors_borne(noeuds, get_settings())
-        if detail is not None:
-            raise ValueError(f"largeur_excessive : {detail}")
         return noeuds
+
+    @model_validator(mode="after")
+    def _v2_complete(self) -> StructureProposee:
+        if self.schema_version != "2":
+            return self
+        for node in self.noeuds:
+            required = {
+                "title_line_uids", "article_uid", "surface_class",
+                "continuation_line_uids", "relations",
+            }
+            missing = required - node.model_fields_set
+            if missing:
+                raise ValueError(f"nœud v2 incomplet : champs absents {sorted(missing)}")
+            if not node.title_line_uids or node.titre_line_uid not in node.title_line_uids:
+                raise ValueError("title_line_uids doit contenir titre_line_uid")
+            if node.surface_class is None:
+                raise ValueError("surface_class obligatoire en v2")
+        return self
 
 
 class PropositionFilaire(StrictModel):
@@ -183,12 +258,10 @@ class Entree:
     qui porte cet uid : les deux ne diffèrent que lorsque `_merge_number_lines` a réuni un numéro et
     son intitulé, et c'est alors `texte_porte` qui dit ce qu'un lecteur voit — donc le titre servi.
 
-    `unite` nomme l'**unité de portage** : l'ensemble des uid qu'un même bloc portera nécessairement
-    ensemble. Deux cas la produisent, et une seule règle générique les couvre — les uid réunis par
-    `_merge_number_lines` sur une même ligne de travail, et les uid d'une table, que le bloc `table`
-    porte en entier. L'identifiant est **positionnel** (l'uid de la première ligne de l'unité dans
-    l'ordre de lecture, lui-même `p{page}:l{rang}`) : il ne nomme ni assureur, ni document, ni page
-    particulière, ni titre, ni numérotation. Vide = l'entrée est sa propre unité.
+    `source_uids` garde les ancres d'extraction internes qui composent la ligne portée. Pour le
+    contrat v2, `uid` est l'identité `line-v1` de cette ligne et `unite` reste vide : exactement la
+    valeur qui sera persistée. Le lecteur v1 historique conserve ses entrées positionnelles et
+    utilise `unite` pour grouper les fragments que le même bloc porte nécessairement ensemble.
     """
 
     uid: str
@@ -199,6 +272,7 @@ class Entree:
     texte: str
     texte_porte: str = ""
     unite: str = ""
+    source_uids: tuple[str, ...] = ()
 
     @property
     def titre(self) -> str:
@@ -227,6 +301,10 @@ class NoeudVerifie:
     premiere: int
     derniere: int
     parent_id: str | None
+    article_uid: str | None = None
+    surface_class: SurfaceClass = "substantiel"
+    continuation_line_uids: tuple[str, ...] = ()
+    relations: tuple[NodeRelation, ...] = ()
 
 
 class StructureRefusee(ValueError):
@@ -252,8 +330,8 @@ def empreinte_proposition(proposition: StructureProposee | None) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _porteurs(page: Any) -> list[tuple[list[str], int, str]]:
-    """(uid portés, colonne, texte porté) d'une page, dans l'ordre de lecture — tables comprises.
+def _porteurs(page: Any) -> list[tuple[list[str], int, str, tuple[float, float, float, float], int]]:
+    """Porteurs d'une page, avec les données exactes qui seront persistées dans `Document.Line`.
 
     Une table sert son contenu dans un bloc `table` : les lignes brutes qu'elle a absorbées sont donc
     portées, pas retirées, et doivent figurer au registre présenté au proposant — **à la position de
@@ -262,7 +340,8 @@ def _porteurs(page: Any) -> list[tuple[list[str], int, str]]:
     table est insérée devant la première ligne que sa clé de lecture précède, la clé même dont
     `_segment_page` se sert pour replacer la table entre les groupes.
     """
-    porteurs = [(line.source_uids, line.colonne, line.text) for line in page.lines]
+    porteurs = [(line.source_uids, line.colonne, line.text, tuple(line.bbox), line.ordre_lecture)
+                for line in page.lines]
     cles = [(line.bande, line.colonne, line.bbox[1], line.bbox[0]) for line in page.lines]
     layout = page.layout
     tables = sorted((table for table in page.tables if table.sert_un_bloc),
@@ -271,11 +350,21 @@ def _porteurs(page: Any) -> list[tuple[list[str], int, str]]:
     for decalage, table in enumerate(tables):
         cle = (layout.bande(table.bbox[1]), layout.colonne(table.bbox), table.bbox[1], table.bbox[0])
         position = sum(1 for autre in cles if autre < cle)
-        porteurs.insert(position + decalage, (table.source_uids, layout.colonne(table.bbox), ""))
+        row_height = max((table.bbox[3] - table.bbox[1]) / max(len(table.rows), 1), 1.0)
+        bbox = table.row_bboxes[0] if table.row_bboxes else [
+            table.bbox[0], table.bbox[1], table.bbox[2],
+            round(min(table.bbox[1] + row_height, table.bbox[3]), 2),
+        ]
+        text = " | ".join(table.rows[0])
+        porteurs.insert(position + decalage, (
+            # Le bloc table persiste sa première rangée comme ancre atomique d'ordre 1. Garder le
+            # sentinel 0 ici faisait diverger le line_uid Opus de la Document.Line réellement servie.
+            table.source_uids, layout.colonne(table.bbox), text, tuple(bbox), 1,
+        ))
     return porteurs
 
 
-def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
+def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dict[str, Entree]:
     """Registre adressable : les lignes source qu'un bloc porte, dans l'ordre de lecture.
 
     Les lignes écartées par un motif de retrait explicite (bande récurrente) n'y figurent pas : leur
@@ -288,7 +377,21 @@ def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
     rang = 0
     for page in pages:
         par_uid = {source.uid: source for source in page.source.lines}
-        for uids, colonne, texte_porte in _porteurs(page):
+        for uids, colonne, texte_porte, bbox_porte, ordre_porte in _porteurs(page):
+            if document_uid is not None:
+                sources = [par_uid[uid] for uid in uids if uid in par_uid]
+                if not sources:
+                    continue
+                rang += 1
+                uid = line_uid(document_uid=document_uid, page=page.page, source_uids=uids,
+                               bbox=bbox_porte, order=ordre_porte, text=texte_porte)
+                if uid in out:
+                    raise ValueError(f"collision line_uid dans le registre structure : {uid}")
+                out[uid] = Entree(
+                    uid=uid, page=page.page, colonne=colonne, ordre=rang, bbox=bbox_porte,
+                    texte=texte_porte, texte_porte=texte_porte, source_uids=tuple(uids),
+                )
+                continue
             # Un porteur **est** une unité de portage : ce que ce bloc-là portera d'un seul tenant.
             # L'unité est nommée par son premier uid retenu, donc par sa position de lecture ; les
             # rangs qu'elle reçoit ici sont consécutifs, ce dont `_unite_scindee` tire son span.
@@ -301,7 +404,7 @@ def registre_lignes(pages: list[Any]) -> dict[str, Entree]:
                 unite = unite or uid
                 out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
                                   bbox=source.bbox, texte=source.text, texte_porte=texte_porte,
-                                  unite=unite)
+                                  unite=unite, source_uids=(uid,))
     return out
 
 
@@ -344,8 +447,29 @@ def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
             "premiere_line_uid": uid_schema,
             "derniere_line_uid": uid_schema,
             "parent_line_uid": {"anyOf": [uid_schema, {"type": "null"}]},
+            "title_line_uids": {"type": "array", "items": uid_schema, "minItems": 1},
+            "article_uid": {"anyOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
+            "surface_class": {"type": "string", "enum": [
+                "preliminaire", "table_des_matieres", "substantiel", "inconnu"]},
+            "continuation_line_uids": {"type": "array", "items": uid_schema},
+            "relations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": [
+                            "same_clause_continuation", "explicit_dependency",
+                            "definition_override"]},
+                        "target_line_uid": uid_schema,
+                    },
+                    "required": ["kind", "target_line_uid"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        "required": ["titre_line_uid", "premiere_line_uid", "derniere_line_uid", "parent_line_uid"],
+        "required": ["titre_line_uid", "premiere_line_uid", "derniere_line_uid", "parent_line_uid",
+                     "title_line_uids", "article_uid", "surface_class",
+                     "continuation_line_uids", "relations"],
         "additionalProperties": False,
     }
     schema = {
@@ -407,7 +531,24 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
         if noeud.titre_line_uid in vus:
             raise ValueError(f"titre_line_uid dupliqué {noeud.titre_line_uid!r}")
         vus.add(noeud.titre_line_uid)
-    return StructureProposee(schema_version="1", doc_id=doc_id, noeuds=noeuds)
+    # Compatibilité des doubles historiques : le schéma filaire courant impose v2, mais les tests
+    # ou reprises v1 sont migrés sans inventer de relation. L'identité d'article reste explicitement
+    # nulle et la classe conservatrice ``inconnu`` interdit la citation jusqu'à re-proposition.
+    migrated = []
+    for node in noeuds:
+        if not node.title_line_uids:
+            node = node.model_copy(update={
+                "title_line_uids": [node.titre_line_uid],
+            # Migration de lecture uniquement : avant V2, seules les lignes préliminaires/TDM
+            # étaient exclues par leur provenance. Une proposition V1 portant le corps est donc
+            # substantielle ; les nouvelles propositions doivent déclarer la classe explicitement.
+            "surface_class": "substantiel",
+            })
+        migrated.append(node)
+    version = "2" if all({"title_line_uids", "article_uid", "surface_class",
+                           "continuation_line_uids", "relations"} <= node.model_fields_set
+                         for node in noeuds) else "1"
+    return StructureProposee(schema_version=version, doc_id=doc_id, noeuds=migrated)
 
 
 def _refus(motif: str, detail: str) -> Verdict:
@@ -474,20 +615,101 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     noeuds = proposition.noeuds
     titres: dict[str, NoeudPropose] = {}
     for noeud in noeuds:
-        for champ, uid in (("titre_line_uid", noeud.titre_line_uid),
-                           ("premiere_line_uid", noeud.premiere_line_uid),
-                           ("derniere_line_uid", noeud.derniere_line_uid)):
+        referenced_uids = [
+            ("titre_line_uid", noeud.titre_line_uid),
+            ("premiere_line_uid", noeud.premiere_line_uid),
+            ("derniere_line_uid", noeud.derniere_line_uid),
+            *(("title_line_uids", uid) for uid in noeud.title_line_uids),
+            *(("continuation_line_uids", uid) for uid in noeud.continuation_line_uids),
+            *(("relations.target_line_uid", relation.target_line_uid)
+              for relation in noeud.relations),
+        ]
+        for champ, uid in referenced_uids:
             if uid not in registre:
                 return _refus("ligne_inconnue", f"{champ}={uid!r}")
         if noeud.titre_line_uid in titres:
             return _refus("titre_duplique", f"titre_line_uid={noeud.titre_line_uid!r}")
         titres[noeud.titre_line_uid] = noeud
+        if proposition.schema_version == "2":
+            title_orders = [registre[uid].ordre for uid in noeud.title_line_uids]
+            if title_orders != sorted(title_orders):
+                return _refus("ordre_impossible", "title_line_uids hors ordre documentaire")
+            if noeud.title_line_uids[0] != noeud.titre_line_uid:
+                return _refus(
+                    "affectation_non_prouvee",
+                    "title_line_uids doit commencer par titre_line_uid",
+                )
+            if title_orders != list(range(title_orders[0], title_orders[0] + len(title_orders))):
+                return _refus(
+                    "affectation_non_prouvee",
+                    "title_line_uids non contigus : une ligne de corps ne peut être annexée au titre",
+                )
+            title = " ".join(registre[uid].titre.strip() for uid in noeud.title_line_uids).strip()
+            if any(len(registre[uid].titre.strip()) > 160
+                   or registre[uid].titre.rstrip().endswith((".", ";"))
+                   for uid in noeud.title_line_uids[1:]):
+                return _refus(
+                    "affectation_non_prouvee",
+                    "title_line_uids contient une ligne de corps selon l'oracle local",
+                )
+            technical_surface = oracle_surface_class(title)
+            if technical_surface is not None and noeud.surface_class != technical_surface:
+                return _refus(
+                    "affectation_non_prouvee",
+                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r}",
+                )
+            readable_article = oracle_article_uid(title)
+            if noeud.article_uid != readable_article:
+                return _refus(
+                    "affectation_non_prouvee",
+                    f"article_uid {noeud.article_uid!r} diverge du numéro lisible "
+                    f"{readable_article!r}",
+                )
+            if noeud.surface_class == "inconnu":
+                return _refus("affectation_non_prouvee", "surface_class=inconnu interdite en publication v2")
     for noeud in noeuds:
         parent = noeud.parent_line_uid
         if parent is not None and parent not in titres:
             # Un `uid` qui existe mais n'intitule aucun nœud ne peut pas être un parent : la ligne
             # est inconnue **en tant que nœud**, et l'arbre serait suspendu à rien.
             return _refus("ligne_inconnue", f"parent_line_uid={parent!r} n'intitule aucun nœud")
+        for relation in noeud.relations:
+            if relation.target_line_uid not in titres:
+                return _refus(
+                    "ligne_inconnue",
+                    f"relation {relation.kind} vise un titre absent {relation.target_line_uid!r}",
+                )
+            if relation.target_line_uid == noeud.titre_line_uid:
+                return _refus("cycle", f"auto-relation sur {noeud.titre_line_uid!r}")
+
+    # Les relations structurelles sont un graphe orienté distinct de la parenté. Toute boucle rend
+    # navigation et contexte singleton non terminants, même si l'arbre parent/enfant est valide.
+    relation_graph = {
+        node.titre_line_uid: [relation.target_line_uid for relation in node.relations]
+        for node in noeuds
+    }
+    # Parcours itératif borné : une chaîne valide à la profondeur maximale ne dépend jamais de la
+    # limite de récursion Python, et chaque arête est examinée au plus une fois.
+    colors: dict[str, int] = {uid: 0 for uid in relation_graph}  # 0 blanc, 1 gris, 2 noir
+    for origin in relation_graph:
+        if colors[origin] != 0:
+            continue
+        colors[origin] = 1
+        stack: list[tuple[str, int]] = [(origin, 0)]
+        while stack:
+            current, offset = stack[-1]
+            targets = relation_graph[current]
+            if offset >= len(targets):
+                colors[current] = 2
+                stack.pop()
+                continue
+            target = targets[offset]
+            stack[-1] = (current, offset + 1)
+            if colors[target] == 1:
+                return _refus("cycle", "cycle dans les relations structurelles")
+            if colors[target] == 0:
+                colors[target] = 1
+                stack.append((target, 0))
 
     # (page, bbox) est l'identité visuelle d'un titre : deux titres au même endroit rendraient
     # l'arbre inspectable à deux réponses différentes pour la même page surlignée.
@@ -529,6 +751,7 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                           f"{uid!r} à la profondeur {profondeurs[uid]} > {settings.structure_max_depth}")
 
     bornes: dict[str, tuple[int, int]] = {}
+    article_owners: dict[str, str] = {}
     for uid, noeud in titres.items():
         premiere = registre[noeud.premiere_line_uid].ordre
         derniere = registre[noeud.derniere_line_uid].ordre
@@ -537,6 +760,26 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             return _refus("ordre_impossible", f"{uid!r} : première ligne après la dernière")
         if not premiere <= titre <= derniere:
             return _refus("ordre_impossible", f"{uid!r} : titre hors de son propre intervalle")
+        semantic_uids = [*noeud.title_line_uids, *noeud.continuation_line_uids]
+        outside = [candidate for candidate in semantic_uids
+                   if not premiere <= registre[candidate].ordre <= derniere]
+        if outside:
+            return _refus(
+                "affectation_non_prouvee",
+                f"{uid!r} projette des lignes sémantiques hors de son intervalle : {outside}")
+        if set(noeud.title_line_uids) & set(noeud.continuation_line_uids):
+            return _refus(
+                "affectation_non_prouvee",
+                f"{uid!r} classe une même ligne comme titre et continuation")
+        if noeud.article_uid is not None:
+            if noeud.article_uid != noeud.article_uid.strip() or not noeud.article_uid:
+                return _refus("affectation_non_prouvee", f"article_uid invalide sous {uid!r}")
+            previous = article_owners.get(noeud.article_uid)
+            if previous is not None:
+                return _refus(
+                    "titre_ambigu",
+                    f"article_uid {noeud.article_uid!r} collisionne entre {previous!r} et {uid!r}")
+            article_owners[noeud.article_uid] = uid
         bornes[uid] = (premiere, derniere)
     fratries: dict[str | None, list[str]] = {}
     for noeud in noeuds:  # l'ordre de la proposition est celui que le modèle revendique
@@ -641,17 +884,39 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
             node_id = f"{doc_id}:s{'.'.join(str(n) for n in position)}"
             node_ids[uid] = node_id
             noeud = titres[uid]
+            title_uids = noeud.title_line_uids or [uid]
+            full_title = " ".join(dict.fromkeys(
+                registre[title_uid].titre.strip() for title_uid in title_uids
+                if registre[title_uid].titre.strip()))
             plan[node_id] = NoeudVerifie(
                 # Le titre est celui de la ligne **portée** : un intitulé que l'extracteur scinde en
                 # « 1 » puis « Objet … » est servi entier, comme sur le chemin heuristique.
-                node_id=node_id, level=len(position), title=registre[uid].titre,
+                node_id=node_id, level=len(position), title=full_title or registre[uid].titre,
                 premiere=registre[noeud.premiere_line_uid].ordre,
                 derniere=registre[noeud.derniere_line_uid].ordre,
                 parent_id=None if parent_uid is None else node_ids[parent_uid],
+                article_uid=noeud.article_uid,
+                surface_class=(noeud.surface_class or
+                               ("substantiel" if proposition.schema_version == "1" else "inconnu")),
+                continuation_line_uids=tuple(noeud.continuation_line_uids),
             )
             parcourir(uid, position)
 
     parcourir(None, ())
+    # Les cibles de relation deviennent des ``node_id`` seulement après le parcours positionnel.
+    for uid, node_id in node_ids.items():
+        proposed = titres[uid]
+        spec = plan[node_id]
+        plan[node_id] = NoeudVerifie(
+            node_id=spec.node_id, level=spec.level, title=spec.title,
+            premiere=spec.premiere, derniere=spec.derniere, parent_id=spec.parent_id,
+            article_uid=spec.article_uid, surface_class=spec.surface_class,
+            continuation_line_uids=spec.continuation_line_uids,
+            relations=tuple(NodeRelation(
+                kind=relation.kind,
+                target_node_id=node_ids[relation.target_line_uid],
+            ) for relation in proposed.relations),
+        )
     # Même exigence, même raison que la borne de largeur ci-dessus : `arbre()` est documenté « sur une
     # proposition déjà vérifiée », et un appel programmatique direct rendrait sinon un `node_of_uid`
     # qui scinde une unité indivisible. Le coût est en O(lignes + nœuds), payé une fois.
@@ -793,7 +1058,7 @@ def _texte(message: Any, settings: Settings) -> tuple[str, float]:
 
 
 def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
-             settings: Settings) -> tuple[StructureProposee, float]:
+             settings: Settings, source_hash: str | None = None) -> tuple[StructureProposee, float]:
     """Un seul appel structuré du tier `ingest`, client **injecté** : ce module n'en construit pas.
 
     Convention LLM du spine : `messages.parse(..., output_config={"format": …})` **sans**
@@ -803,12 +1068,22 @@ def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
     d'un appel pourtant facturé, et le motif exact du refus. Ils sont ici tous portés par le refus.
     """
     params = requete(registre, doc_id, settings)
+    artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     try:
         message = client.messages.parse(**params)
     except Exception as exc:  # noqa: BLE001 - toute panne fournisseur est un refus, pas une trace
         # Réseau coupé, 429, 5xx, authentification : l'appelant reçoit un refus contrôlé et la
         # promesse « rien n'a été écrit », jamais un traceback brut sorti du SDK.
+        append_ingest_audit(
+            settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
+            model=MODEL, request=params, response=None,
+            trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid,
+            error_class=type(exc).__name__)
         raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
+    append_ingest_audit(
+        settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
+        model=MODEL, request=params, response=message,
+        trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid)
     raw, cost = _texte(message, settings)
     try:
         return parse_proposition(raw, registre, doc_id, settings=settings), cost
@@ -876,7 +1151,7 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         from server.ingest.pdf_to_blocks import extract_pages, ordonner_pages
         pages, _toc = extract_pages(doc_dir / "source.pdf")
         ordonner_pages(pages)
-        registre = registre_lignes(pages)
+        registre = registre_lignes(pages, document_uid=args.doc_id)
         if not registre:
             raise ValueError("registre vide : aucune ligne source à proposer")
         params = requete(registre, args.doc_id, settings)
@@ -893,7 +1168,9 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                 print("ANTHROPIC_API_KEY absente; aucun appel soumis", file=sys.stderr)
                 return 2
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=0)
-        proposition, cost = proposer(client, registre, doc_id=args.doc_id, settings=settings)
+        source_hash = hashlib.sha256((doc_dir / "source.pdf").read_bytes()).hexdigest()
+        proposition, cost = proposer(
+            client, registre, doc_id=args.doc_id, settings=settings, source_hash=source_hash)
         verdict = verifier(proposition, registre, doc_id=args.doc_id, settings=settings)
         print(f"coût réel {cost:.4f} € ; verdict {'accepté' if verdict.accepte else verdict.motif} : "
               f"{verdict.detail}", file=output)

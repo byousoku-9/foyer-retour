@@ -10,8 +10,9 @@ def test_tiers_and_step_assignment() -> None:
     assert models.TIERS["ingest"].startswith("claude-opus-5")
     assert models.TIERS["reason"].startswith("claude-sonnet-5")
     assert models.TIERS["micro"].startswith("claude-haiku-4-5")
-    assert models.STEP_TIERS == {"comprendre": "micro", "retrouver": "reason", "rediger": "reason",
-                                 "verifier": "micro", "restituer": None, "ingest": "ingest"}
+    assert models.STEP_TIERS == {"comprendre": "reason", "retrouver": "reason",
+                                 "rediger": "reason", "verifier": "reason",
+                                 "restituer": None, "ingest": "ingest"}
 
 
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:

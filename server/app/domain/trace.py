@@ -64,6 +64,15 @@ class LLMCall(DomainModel):
     cache_read: int = 0
     cache_write: int = 0
     tools: list[str] = Field(default_factory=list)
+    call_uid: str = ""
+    run_uid: str = ""
+    artifact_uid: str = ""
+    trusted_line_uids: list[str] = Field(default_factory=list)
+    input_sha256: str = ""
+    input_bytes: int = 0
+    response_sha256: str = ""
+    response_bytes: int = 0
+    audit_persisted: bool = False
 
 
 class StepTrace(DomainModel):

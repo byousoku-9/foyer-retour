@@ -1166,6 +1166,13 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             {"segment": position, "kind": segment.kind, "texte": segment.text,
              "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
+    trusted_line_uids = tuple(dict.fromkeys(
+        line.line_uid
+        for _claim, quotes, _edition in evaluees
+        for quote in quotes
+        for line in corpus.documents[index.doc_of(quote.block_id)].block(quote.block_id).lines
+        if line.line_uid is not None
+    ))
     try:
         result = await client.parse(tier=step.tier,
                                     system_prefix=prefix,
@@ -1173,7 +1180,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                                     output_model=SortieVerifierSinistre if sinistre else SortieVerifier,
                                     budget=budget, step=step,
                                     max_tokens=(settings.verifier_sinistre_max_tokens if sinistre
-                                                else settings.verifier_max_tokens))
+                                                else settings.verifier_max_tokens),
+                                    trusted_line_uids=trusted_line_uids)
     except PipelineError as exc:
         # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le
         # porte, `budget` aussi. Sans ce rattachement, le pipeline ne peut pas distinguer un appel

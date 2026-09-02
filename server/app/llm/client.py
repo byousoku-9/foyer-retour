@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Literal, Protocol, TypeVar
 
@@ -32,6 +33,7 @@ from server.app.domain.errors import BudgetExceeded, ErrorCode, LlmParse, LlmUna
 from server.app.domain.trace import CheckResult, LLMCall, StepTrace, Usage
 
 from .budget import RequestBudget
+from .audit import AuditSink, ExactLlmAuditEvent, MemoryAuditSink
 from .models import EFFORT, MODEL_CAPS, Tier, model_for
 from .pricing import cost_from_usage, estimate_cost
 from .prompting import untrusted
@@ -204,11 +206,17 @@ class LlmClient:
 
     def __init__(self, settings: Settings, anthropic_client: Any | None = None,
                  cache: ResponseCache | None = None,
+                 audit_sink: AuditSink | None = None,
+                 run_uid: str | None = None,
                  campaign_budget_eur: float | None = None,
                  campaign_accrued_eur: float = 0.0,
                  campaign_cost_recorder: Callable[[float], None] | None = None) -> None:
         self._settings = settings
         self._cache = cache
+        # Un assemblage qui n'injecte pas encore le sink fichier reste auditable en mémoire ; il
+        # n'existe jamais de chemin silencieux où l'événement n'est pas créé.
+        self.audit_sink: AuditSink = audit_sink or MemoryAuditSink()
+        self.run_uid = run_uid or f"run:{uuid.uuid4()}"
         # Story 4.2b — budget de **campagne** (règle trusted `LIVE_BUDGET_EUR`) : cumul de tous les
         # appels facturés à travers ce client, quel que soit le nombre de requêtes. `None` (défaut,
         # serveur HTTP) : aucune limite de campagne — le plafond par requête d'AD-9 reste seul.
@@ -221,6 +229,36 @@ class LlmClient:
         if anthropic_client is None:
             anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0)
         self._anthropic = anthropic_client
+
+    def _audit_call(self, *, step: StepTrace, tier: Tier, model: str,
+                    request: dict[str, Any], response: dict[str, Any] | None,
+                    cache_hit: bool = False, error_class: str | None = None,
+                    trusted_line_uids: tuple[str, ...] = (),
+                    artifact_uid: str = "",
+                    run_uid: str | None = None) -> dict[str, Any]:
+        event = ExactLlmAuditEvent(
+            call_uid=f"call:{uuid.uuid4()}", run_uid=run_uid or self.run_uid,
+            artifact_uid=artifact_uid, step=step.name,
+            tier=tier, model=model, cache_hit=cache_hit,
+            trusted_line_uids=trusted_line_uids, request=request, response=response,
+            error_class=error_class,
+        )
+        self.audit_sink.append(event)
+        return event.public_projection() | {
+            "audit_persisted": bool(getattr(self.audit_sink, "persistent", False)),
+        }
+
+    @staticmethod
+    def _apply_audit(call: LLMCall, projection: dict[str, Any]) -> None:
+        call.call_uid = str(projection["call_uid"])
+        call.run_uid = str(projection["run_uid"])
+        call.artifact_uid = str(projection["artifact_uid"])
+        call.trusted_line_uids = [str(uid) for uid in projection["trusted_line_uids"]]
+        call.input_sha256 = str(projection["request_sha256"])
+        call.input_bytes = int(projection["request_bytes"])
+        call.response_sha256 = str(projection["response_sha256"])
+        call.response_bytes = int(projection["response_bytes"])
+        call.audit_persisted = bool(projection.get("audit_persisted", False))
 
     def _refuser_hors_campagne(self, estimate: float) -> None:
         """Refus chiffré avant l'appel qui déborderait le budget de campagne (story 4.2b)."""
@@ -282,6 +320,7 @@ class LlmClient:
         max_tokens: int | None = None,
         effort: Literal["low", "medium", "high", "max"] | None = None,
         prompt_cache: bool = True,
+        trusted_line_uids: tuple[str, ...] = (),
     ) -> LlmResult[T]:
         """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide."""
         settings = self._settings
@@ -320,6 +359,13 @@ class LlmClient:
                     raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
                 usage = Usage(cached_response=True, cost_eur=0.0, cost_eur_original=hit["cost_eur"])
                 call = LLMCall(model=message.model, ms=0, usage=usage)
+                projection = self._audit_call(
+                    step=step, tier=tier, model=message.model,
+                    request={k: v for k, v in body.items() if v is not None},
+                    response=message.to_dict(), cache_hit=True,
+                    trusted_line_uids=trusted_line_uids, artifact_uid=budget.artifact_uid,
+                    run_uid=budget.run_uid)
+                self._apply_audit(call, projection)
                 self._note_call(step, call, tier)
                 return LlmResult(parsed=parsed_hit, usage=usage, call=call)
 
@@ -353,8 +399,15 @@ class LlmClient:
                 # AD-10 : l'appel en échec est tracé aussi — modèle demandé, durée, usage nul
                 # (l'API n'a rien renvoyé : timeout, 429, 529, réseau…).
                 ms = int((time.monotonic() - t0) * 1000)
-                self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names),
-                                tier)
+                call = LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names)
+                projection = self._audit_call(
+                    step=step, tier=tier, model=model,
+                    request={k: v for k, v in body.items() if v is not None},
+                    response=None, error_class=type(exc).__name__,
+                    trusted_line_uids=trusted_line_uids, artifact_uid=budget.artifact_uid,
+                    run_uid=budget.run_uid)
+                self._apply_audit(call, projection)
+                self._note_call(step, call, tier)
                 raise map_provider_error(exc) from exc
             ms = int((time.monotonic() - t0) * 1000)
 
@@ -373,7 +426,6 @@ class LlmClient:
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=cache_write,
                            tools=tool_names)
-            self._note_call(step, call, tier)
             # AD-10 (revue Codex 1.3, I1) : le seuil porte sur le coût cumulé de la requête — un appel
             # cher isolé le franchit aussi ; le check n'est ajouté qu'une fois, au franchissement.
             if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
@@ -384,22 +436,34 @@ class LlmClient:
                            f"cost_alert_eur {settings.cost_alert_eur:.4f} € (dernier appel : {usage.cost_eur:.4f} €)"))
 
             text = _text_of(message)
-            if message.stop_reason == "refusal":
-                raise LlmParse("le modèle a refusé de répondre (stop_reason=refusal)")
-            if message.stop_reason in ("tool_use", "pause_turn"):
-                # revue P9 : le dialogue d'outils (story 2.6) n'est pas supporté par ce client — pas de retry,
-                # rejouer la même requête reproduirait le même stop_reason.
-                raise LlmParse(f"dialogue d'outils non supporté par ce client (story 2.6) — "
-                               f"stop_reason={message.stop_reason}")
-
             problem: str | None = None
-            if message.stop_reason == "max_tokens":
+            hard_problem = False
+            if message.stop_reason == "refusal":
+                problem = "le modèle a refusé de répondre (stop_reason=refusal)"
+                hard_problem = True
+            elif message.stop_reason in ("tool_use", "pause_turn"):
+                problem = ("dialogue d'outils non supporté par ce client (story 2.6) — "
+                           f"stop_reason={message.stop_reason}")
+                hard_problem = True
+            elif message.stop_reason == "max_tokens":
                 problem = f"réponse tronquée (stop_reason=max_tokens, max_tokens={max_tokens})"
             else:
                 try:
                     parsed = adapter.validate_json(text)
                 except pydantic.ValidationError as exc:
                     problem = f"réponse non conforme au schéma : {self._validation_motive(exc, champs)}"
+            # L'événement persistant n'est écrit qu'après validation locale : une réponse réellement
+            # reçue mais invalide conserve ainsi à la fois son enveloppe exacte et sa classe d'erreur.
+            projection = self._audit_call(
+                step=step, tier=tier, model=message.model,
+                request={k: v for k, v in body.items() if v is not None},
+                response=message.to_dict(), error_class="LlmParse" if problem else None,
+                trusted_line_uids=trusted_line_uids,
+                artifact_uid=budget.artifact_uid, run_uid=budget.run_uid)
+            self._apply_audit(call, projection)
+            self._note_call(step, call, tier)
+            if hard_problem:
+                raise LlmParse(problem)
             if problem is None:
                 if self._cache is not None:
                     self._cache.set(key, {"response": message.to_dict(), "cost_eur": usage.cost_eur})
@@ -446,6 +510,7 @@ class LlmClient:
         step: StepTrace,
         max_tokens: int,
         prompt_cache: bool = True,
+        trusted_line_uids: tuple[str, ...] = (),
     ) -> ToolTurnResult:
         """Un tour brut d'outils, avec les mêmes bornes, prix, cache et traces que `parse()`.
 
@@ -488,6 +553,13 @@ class LlmClient:
                 raise LlmParse(f"entrée de cache d'évals invalide : {type(exc).__name__}") from exc
             call = LLMCall(model=message.model, ms=0, usage=usage,
                            tools=[str(t.get("name", "")) for t in tools])
+            projection = self._audit_call(
+                step=step, tier=tier, model=message.model,
+                request={k: v for k, v in body.items() if v is not None},
+                response=message.to_dict(), cache_hit=True,
+                trusted_line_uids=trusted_line_uids, artifact_uid=budget.artifact_uid,
+                run_uid=budget.run_uid)
+            self._apply_audit(call, projection)
             self._note_call(step, call, tier)
             return ToolTurnResult(message=message, usage=usage, call=call)
 
@@ -516,8 +588,15 @@ class LlmClient:
             message = await self._anthropic.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 — même mapping total que `parse`
             ms = int((time.monotonic() - t0) * 1000)
-            self._note_call(step, LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names),
-                            tier)
+            call = LLMCall(model=model, ms=ms, usage=Usage(), tools=tool_names)
+            projection = self._audit_call(
+                step=step, tier=tier, model=model,
+                request={k: v for k, v in body.items() if v is not None},
+                response=None, error_class=type(exc).__name__,
+                trusted_line_uids=trusted_line_uids, artifact_uid=budget.artifact_uid,
+                run_uid=budget.run_uid)
+            self._apply_audit(call, projection)
+            self._note_call(step, call, tier)
             raise map_provider_error(exc) from exc
         ms = int((time.monotonic() - t0) * 1000)
         usage = cost_from_usage(model, message.usage, settings.usd_eur)
@@ -528,6 +607,12 @@ class LlmClient:
             budget.note_prefix(prefix_digest)
         call = LLMCall(model=message.model, ms=ms, usage=usage,
                        cache_read=usage.cached, cache_write=cache_write, tools=tool_names)
+        projection = self._audit_call(
+            step=step, tier=tier, model=message.model,
+            request={k: v for k, v in body.items() if v is not None},
+            response=message.to_dict(), trusted_line_uids=trusted_line_uids,
+            artifact_uid=budget.artifact_uid, run_uid=budget.run_uid)
+        self._apply_audit(call, projection)
         self._note_call(step, call, tier)
         if budget.cost_eur > settings.cost_alert_eur and not budget.cost_alerted:
             budget.cost_alerted = True

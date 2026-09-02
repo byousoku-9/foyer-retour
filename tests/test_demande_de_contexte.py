@@ -226,11 +226,11 @@ def _settings(identite: Identite, **kw) -> Settings:
 
 
 def _budget(*, max_attempts: int = 6, deadline_s: float = 30.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=0.20)
 
 
 def _comprendre(corpus: CorpusNeutre) -> dict:
-    return fake_message(model=TIERS["micro"], text=json.dumps({
+    return fake_message(model=TIERS["reason"], text=json.dumps({
         "intent": "question", "question_resolue": QUESTION_RESOLUE, "clarification": None,
         "language": "fr", "terms": corpus.identite.termes(), "themes": [],
         "facettes": ["prise en charge"], "bien": "objet inventorié",
@@ -266,7 +266,7 @@ def _verifier(corpus: CorpusNeutre, *, demande: dict | None = None, pertinente: 
     }
     if demande is not None:
         charge["demande_contexte"] = demande
-    return fake_message(model=TIERS["micro"], text=json.dumps(charge))
+    return fake_message(model=TIERS["reason"], text=json.dumps(charge))
 
 
 def _demande(corpus: CorpusNeutre, kind: str, cible: str, *,
@@ -510,7 +510,7 @@ async def test_une_demande_qui_nest_pas_un_objet_ne_tue_pas_le_lot(
     base["demande_contexte"] = brut
     answer, trace, fake = await _run(neutre, [
         _comprendre(neutre), _rediger(neutre),
-        fake_message(model=TIERS["micro"], text=json.dumps(base))])
+        fake_message(model=TIERS["reason"], text=json.dumps(base))])
 
     assert fake.remaining_script == 0  # aucun retry de parse : la sortie était exploitable
     noms = _tous_les_checks(trace)
@@ -727,7 +727,7 @@ def _verifier_libre(*paires: tuple[str, bool], demande: dict | None = None) -> d
                            "qualites_exigees": [], "qualites_etablies": []} for cid, _ok in paires]}
     if demande is not None:
         charge["demande_contexte"] = demande
-    return fake_message(model=TIERS["micro"], text=json.dumps(charge))
+    return fake_message(model=TIERS["reason"], text=json.dumps(charge))
 
 
 async def test_la_reprise_relit_lebauche_qui_a_produit_la_demande(
@@ -854,7 +854,7 @@ async def test_un_champ_absent_et_un_champ_nul_sont_le_meme_chemin(neutre: Corpu
         neutre, [_comprendre(neutre), _rediger(neutre), _verifier(neutre)])
     nul, trace_nul, _f2 = await _run(neutre, [
         _comprendre(neutre), _rediger(neutre),
-        fake_message(model=TIERS["micro"], text=json.dumps({
+        fake_message(model=TIERS["reason"], text=json.dumps({
             **json.loads(_verifier(neutre)["content"][0]["text"]), "demande_contexte": None}))])
 
     assert _tous_les_checks(trace_sans) == _tous_les_checks(trace_nul)

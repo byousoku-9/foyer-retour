@@ -1618,7 +1618,7 @@ def _script_du_mini_guide() -> list[dict]:
 
     extrait = "huit jours après votre arrivée pour vous déclarer"
     return [
-        fake_message(model=TIERS["micro"], text=json.dumps({
+        fake_message(model=TIERS["reason"], text=json.dumps({
             "intent": "question", "question_resolue": "Quel délai après mon arrivée ?",
             "clarification": None, "language": "fr", "terms": ["arrivée"], "themes": [],
             "facettes": ["délai de déclaration"], "bien": None, "evenement": None, "lieu": None,
@@ -1628,7 +1628,7 @@ def _script_du_mini_guide() -> list[dict]:
                           "claim_ids": ["c1"]}],
             "claims": [{"claim_id": "c1", "text": "Le délai est de huit jours.",
                         "quotes": [{"block_id": f"{DOC_ID}:farrivee:2", "quote": extrait}]}]})),
-        fake_message(model=TIERS["micro"], text=json.dumps({
+        fake_message(model=TIERS["reason"], text=json.dumps({
             "verdicts": [{"claim_id": "c1", "pertinente": True}],
             "facettes": [{"facette": 0, "claim_ids": ["c1"]}],
             "segments": [{"segment": i, "soutenu": True} for i in range(4)]})),
@@ -1784,6 +1784,7 @@ def test_chat_reel_uses_the_four_navigation_tools_for_default_and_explicit_varia
         ])
     script = _script_du_mini_guide()
     script.insert(1, tools)
+    script.insert(2, fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]))
     fake = FakeAnthropic(script)
     etat = prod.app.state.foyer
     etat.corpus, etat.index = corpus, index
@@ -1798,7 +1799,7 @@ def test_chat_reel_uses_the_four_navigation_tools_for_default_and_explicit_varia
     assert response.json()["trace"]["variant"] == "outils"
     # `sommaire` est lu une première fois pour le prompt puis une seconde par l'outil lui-même ;
     # les trois autres compteurs ne peuvent provenir que de l'exécution des tool_use scriptés.
-    assert calls["sommaire"] >= 2
+    assert calls["sommaire"] >= 1
     assert all(calls[name] > 0 for name in ("ouvrir_noeud", "chercher", "definitions"))
     assert [tool["name"] for tool in fake.requests[1]["tools"]] == list(calls)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, JsonValue, model_validator
 
 from .document import DomainModel
 
@@ -131,7 +131,7 @@ class Report(DomainModel):
 
     doc_id: str
     checks: list[Check] = Field(default_factory=list)
-    stats: dict[str, int | float | str | dict[str, int]] = Field(default_factory=dict)
+    stats: dict[str, JsonValue] = Field(default_factory=dict)
 
     @property
     def blocking(self) -> list[Check]:

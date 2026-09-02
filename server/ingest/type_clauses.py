@@ -19,7 +19,7 @@ import os
 import re
 import sys
 import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,8 +32,10 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 from server.app.config import REPO_ROOT, Settings, cle_absente, get_settings
 from server.app.corpus.text import normalize
 from server.app.domain import Block, BlockKind, Check, Document, ManifestEntry, Node, Report, is_citable
+from server.app.domain.artifact import document_artifact_uid
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation
 from server.app.llm.models import EFFORT, TIERS
+from server.app.llm.audit import append_ingest_audit
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 from server.app.corpus.racine import Lecture, relire
 from server.ingest.artifacts import (STRUCTURE_FILE, TYPING_REUSED_IDS_STAT, LectureDuLot,
@@ -54,7 +56,8 @@ ARTICLE_RE = re.compile(r"^\d+(?:\.\d+)*$")
 ARTICLE_RANGE_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*(?:-|à)\s*(\d+(?:\.\d+)*)$")
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 STRUCTURAL_KINDS = frozenset({"para", "heading", "table", "list", "autre"})
-TYPING_RULES_VERSION = "3.2-review-2"
+TYPING_RULES_VERSION = "5.0-t2-terminal"
+T2_ELIGIBILITY_MODE = "ISOLATED"
 
 
 class StrictModel(BaseModel):
@@ -79,6 +82,170 @@ class ClauseLabel(StrictModel):
 
 class ReadingOutput(StrictModel):
     labels: list[ClauseLabel]
+
+
+class T1RegistryEntry(StrictModel):
+    t1_uid: str
+    block_id: str
+    kind_t1: MODEL_KINDS
+    confidence_t1: float
+    kind_source: Literal["model"] = "model"
+    model_run_uid: str
+    t1_record_hash: str
+
+
+class T2TerminalDecision(StrictModel):
+    t1_uid: str
+    plan_id: str | None = None
+    block_id: str
+    state: Literal["CONFIRMED", "NON_CONFIRMED"]
+    reason: Literal["KIND_MATCH", "NOT_PLANNED", "FAILED", "TIMEOUT", "KIND_MISMATCH",
+                    "ARBITRATION_MISMATCH", "ARBITRATION_LOW_CONFIDENCE",
+                    "ARBITRATION_FAILED", "ARBITRATION_TIMEOUT"]
+    kind_t2: MODEL_KINDS | None = None
+    retrieval_effect: int = Field(0, ge=0, le=1)
+    citation_effect: int = Field(0, ge=0, le=1)
+    applicability_effect: int = Field(0, ge=0, le=1)
+    decision_effect: int = Field(0, ge=0, le=1)
+    verdict_effect: int = Field(0, ge=0, le=1)
+
+
+def _uid(prefix: str, payload: object) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                     separators=(",", ":")).encode("utf-8")
+    return f"{prefix}:{hashlib.sha256(raw).hexdigest()}"
+
+
+def t2_confirmable(label: ClauseLabel) -> bool:
+    """Mode ISOLATED : ``renvoi`` rejoint T2 sans élargir ``LEGAL_KINDS``."""
+    return label.kind in LEGAL_KINDS or label.kind == "renvoi"
+
+
+def _t1_entries(first: dict[str, ClauseLabel], *, model_run_uid: str) -> tuple[T1RegistryEntry, ...]:
+    entries = []
+    for block_id, label in first.items():
+        payload = {"block_id": block_id, "label": label.model_dump(mode="json"),
+                   "rules": TYPING_RULES_VERSION, "model_run_uid": model_run_uid}
+        record_hash = _uid("t1-record", payload)
+        entries.append(T1RegistryEntry(
+            t1_uid=_uid("t1", {"record_hash": record_hash}), block_id=block_id,
+            kind_t1=label.kind, confidence_t1=label.confidence,
+            model_run_uid=model_run_uid, t1_record_hash=record_hash,
+        ))
+    return tuple(entries)
+
+
+def t1_registry(first: dict[str, ClauseLabel], *, model_run_uid: str = "typing:t1"
+                ) -> tuple[T1RegistryEntry, ...]:
+    """Dénominateur T-01 exact : tous les ``renvoi`` T1 produits par le modèle."""
+    return tuple(entry for entry in _t1_entries(first, model_run_uid=model_run_uid)
+                 if entry.kind_t1 == "renvoi")
+
+
+def t1_registry_hash(entries: tuple[T1RegistryEntry, ...]) -> str:
+    return _uid("t1-registry", [entry.model_dump(mode="json") for entry in entries])
+
+
+def terminal_t2_decisions(
+    first: dict[str, ClauseLabel], second: dict[str, ClauseLabel], plans: list[RequestPlan],
+    *, failed_plan_ids: set[str] | None = None, timeout_plan_ids: set[str] | None = None,
+    arbitration: dict[str, ClauseLabel] | None = None, confidence_min: float = 0.0,
+    arbitration_plans: list[RequestPlan] | None = None,
+    failed_arbitration_plan_ids: set[str] | None = None,
+    timeout_arbitration_plan_ids: set[str] | None = None,
+    model_run_uid: str = "typing:t1",
+) -> tuple[T2TerminalDecision, ...]:
+    """Une décision terminale par identité T1 ; toute absence conserve cinq effets à zéro."""
+    failed_plan_ids = failed_plan_ids or set()
+    timeout_plan_ids = timeout_plan_ids or set()
+    arbitration = arbitration or {}
+    failed_arbitration_plan_ids = failed_arbitration_plan_ids or set()
+    timeout_arbitration_plan_ids = timeout_arbitration_plan_ids or set()
+    plan_by_block = {block_id: plan.custom_id for plan in plans for block_id in plan.block_ids}
+    arbitration_plan_by_block = {
+        block_id: plan.custom_id for plan in (arbitration_plans or []) for block_id in plan.block_ids
+    }
+    out = []
+    for entry in _t1_entries(first, model_run_uid=model_run_uid):
+        label = first[entry.block_id]
+        plan_id = plan_by_block.get(entry.block_id)
+        confirmation = second.get(entry.block_id)
+        if not t2_confirmable(label) or plan_id is None:
+            reason, kind_t2 = "NOT_PLANNED", None
+        elif plan_id in timeout_plan_ids:
+            reason, kind_t2 = "TIMEOUT", None
+        elif plan_id in failed_plan_ids:
+            reason, kind_t2 = "FAILED", None
+        elif confirmation is None:
+            reason, kind_t2 = "FAILED", None
+        elif _critical_disagreement(label, confirmation, confidence_min=confidence_min):
+            arbiter = arbitration.get(entry.block_id)
+            kind_t2 = confirmation.kind
+            arbitration_plan_id = arbitration_plan_by_block.get(entry.block_id)
+            if arbitration_plan_id in timeout_arbitration_plan_ids:
+                reason = "ARBITRATION_TIMEOUT"
+            elif arbitration_plan_id in failed_arbitration_plan_ids:
+                reason = "ARBITRATION_FAILED"
+            elif arbiter is None:
+                reason = ("KIND_MISMATCH" if confirmation.kind != label.kind
+                          else "ARBITRATION_MISMATCH")
+            elif not _same_critical_payload(arbiter, label):
+                reason = "ARBITRATION_MISMATCH"
+            elif arbiter.confidence < confidence_min:
+                reason = "ARBITRATION_LOW_CONFIDENCE"
+            else:
+                reason, kind_t2 = "KIND_MATCH", arbiter.kind
+        else:
+            reason, kind_t2 = "KIND_MATCH", confirmation.kind
+        state = "CONFIRMED" if reason == "KIND_MATCH" else "NON_CONFIRMED"
+        out.append(T2TerminalDecision(
+            t1_uid=entry.t1_uid, plan_id=plan_id, block_id=entry.block_id,
+            state=state, reason=reason, kind_t2=kind_t2,
+        ))
+    return tuple(out)
+
+
+def terminal_effects(decisions: tuple[T2TerminalDecision, ...], typed: Document
+                     ) -> tuple[T2TerminalDecision, ...]:
+    """Projette les effets réellement présents après assemblage, jamais des effets déclaratifs."""
+    projected: list[T2TerminalDecision] = []
+    for decision in decisions:
+        if decision.state != "CONFIRMED":
+            projected.append(decision)
+            continue
+        block = typed.block(decision.block_id)
+        confirmed = block.kind_source == "model_verified"
+        decisional = confirmed and block.kind in {"garantie", "exclusion"}
+        projected.append(decision.model_copy(update={
+            "retrieval_effect": int(confirmed),
+            "citation_effect": int(confirmed and block.kind != "autre"),
+            "applicability_effect": int(confirmed and bool(
+                block.scope_node_id or block.scope_node_ids)),
+            "decision_effect": int(decisional),
+            "verdict_effect": int(decisional),
+        }))
+    return tuple(projected)
+
+
+def _same_critical_payload(first: ClauseLabel, second: ClauseLabel) -> bool:
+    return (
+        first.kind == second.kind
+        and first.scope_articles == second.scope_articles
+        and (first.article_refs, first.defines, first.overrides_article, first.relations)
+        == (second.article_refs, second.defines, second.overrides_article, second.relations)
+    )
+
+
+def _critical_disagreement(
+        first: ClauseLabel, second: ClauseLabel | None, *, confidence_min: float = 0.0) -> bool:
+    if second is None:
+        return True
+    return any((
+        not _same_critical_payload(first, second),
+        first.confidence != second.confidence,
+        first.confidence < confidence_min,
+        second.confidence < confidence_min,
+    ))
 
 
 class MigrationBlock(StrictModel):
@@ -109,6 +276,8 @@ class RequestPlan:
     custom_id: str
     block_ids: tuple[str, ...]
     request: dict[str, Any]
+    line_uids: tuple[str, ...] = ()
+    artifact_uid: str = ""
 
 
 @dataclass(frozen=True)
@@ -119,6 +288,7 @@ class TypingResult:
     cost_eur: float
     first_requests: int
     second_requests: int
+    third_requests: int = 0
     transport: str = "batch"
     reused_requests: int = 0
     replayed_requests: int = 0
@@ -203,7 +373,7 @@ def campaign_fingerprint(
             "source_field": block.source_field, "continues": block.continues,
             "lines": [line.model_dump() for line in block.lines],
         } for block in doc.blocks],
-        "prompts": {str(reading): _prompt(reading) for reading in (1, 2)},
+        "prompts": {str(reading): _prompt(reading) for reading in (1, 2, 3)},
         "model": MODEL,
         "schemas": {
             "first": [
@@ -211,6 +381,7 @@ def campaign_fingerprint(
                 for chunk in _chunks(doc, planned, settings)
             ],
             "second": _schema(),
+            "third": _schema(),
         },
         "settings": {
             name: value for name, value in settings.thresholds().items()
@@ -331,8 +502,14 @@ def requests_for(doc: Document, blocks: list[Block], reading: int, settings: Set
             "messages": [{"role": "user", "content": _payload(doc, chunk, paths)}],
             "output_config": {"format": schema, "effort": EFFORT[TIER]},
         }
+        line_uids = tuple(
+            line.line_uid for block in chunk for line in block.lines if line.line_uid is not None)
         plans.append(RequestPlan(custom_id=cid, block_ids=block_ids,
-                                 request={"custom_id": cid, "params": params}))
+                                 request={"custom_id": cid, "params": params},
+                                 line_uids=line_uids,
+                                 artifact_uid=document_artifact_uid(
+                                     document_uid=doc.doc_id, source_hash=doc.source_hash,
+                                     ingest_fingerprint=doc.ingest_fingerprint)))
     if len(plans) > settings.type_clauses_max_requests_per_batch:
         raise ValueError(
             f"lecture {reading}: {len(plans)} requêtes dépassent le plafond "
@@ -460,15 +637,15 @@ def execute_standard(client: Any, plans: list[RequestPlan], settings: Settings, 
         estimate = standard_majorant_eur(plan, settings)
         if stopped.is_set():
             raise BatchFailure(f"{plan.custom_id}: appel annulé avant démarrage")
-        guard.reserve(estimate)
-        reserved = True
-        try:
+        for attempt in range(settings.type_clauses_standard_max_retries + 1):
             if stopped.is_set():
-                raise BatchFailure(f"{plan.custom_id}: appel annulé avant démarrage")
-            for attempt in range(settings.type_clauses_standard_max_retries + 1):
-                if stopped.is_set():
-                    raise BatchFailure(f"{plan.custom_id}: appel annulé avant nouvelle tentative")
+                raise BatchFailure(f"{plan.custom_id}: appel annulé avant nouvelle tentative")
+            guard.reserve(estimate)
+            reserved = True
+            submitted = False
+            try:
                 try:
+                    submitted = True
                     message = client.messages.create(**plan.request["params"])
                     usage = _attr(message, "usage")
                     if usage is None:
@@ -482,19 +659,38 @@ def execute_standard(client: Any, plans: list[RequestPlan], settings: Settings, 
                     guard.commit(estimate, actual)
                     reserved = False
                     text, actual = _standard_response(message, settings)
+                    append_ingest_audit(
+                        settings.llm_audit_path, run_uid=f"typing:{plan.custom_id}",
+                        step=plan.custom_id.split("-", 2)[1], model=MODEL,
+                        request=plan.request["params"], response=message,
+                        trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid)
                     return plan.custom_id, text, actual
                 except Exception as exc:  # noqa: BLE001 - classification stricte par statut HTTP
                     if (not _retryable_standard(exc)
                             or attempt >= settings.type_clauses_standard_max_retries):
+                        append_ingest_audit(
+                            settings.llm_audit_path, run_uid=f"typing:{plan.custom_id}",
+                            step=plan.custom_id.split("-", 2)[1], model=MODEL,
+                            request=plan.request["params"], response=None,
+                            trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid,
+                            error_class=type(exc).__name__)
                         raise BatchFailure(
                             f"{plan.custom_id}: appel standard échoué après {attempt + 1} tentative(s) "
                             f"({type(exc).__name__}); aucun artefact écrit"
                         ) from exc
                     sleep(settings.type_clauses_standard_retry_base_s * (2 ** attempt))
-        except Exception:
-            if reserved:
-                guard.release(estimate)
-            raise
+                # Une tentative fournisseur sans usage récupérable consomme son majorant avant une
+                # éventuelle relance : jamais de coût zéro après soumission.
+                if reserved:
+                    guard.commit(estimate, estimate)
+                    reserved = False
+            except Exception:
+                if reserved:
+                    if submitted:
+                        guard.commit(estimate, estimate)
+                    else:
+                        guard.release(estimate)
+                raise
         raise AssertionError("boucle de retry standard impossible")
 
     completed: dict[str, tuple[str, float]] = {}
@@ -507,7 +703,10 @@ def execute_standard(client: Any, plans: list[RequestPlan], settings: Settings, 
         # La fenêtre seule est soumise : aucune file de dizaines d'appels n'est créée d'avance.
         next_index = len(futures)
         while futures and failure is None:
-            done, _pending = wait(futures, return_when=FIRST_COMPLETED)
+            # Une vague entière termine avant d'en soumettre une autre : si l'un de ses appels
+            # échoue, aucune future supplémentaire ne peut avoir été amorcée entre le succès d'un
+            # voisin rapide et l'observation de cet échec terminal.
+            done, _pending = wait(futures)
             succeeded = 0
             for future in done:
                 futures.pop(future)
@@ -535,13 +734,44 @@ def execute_standard(client: Any, plans: list[RequestPlan], settings: Settings, 
             executor.shutdown(wait=True, cancel_futures=True)
     if failure is not None:
         raise BatchFailure(
-            f"arrêt des appels standard au premier échec terminal; coût réel acquis "
+            f"arrêt des appels standard au premier échec terminal; coût réel cumulé "
             f"{guard.spent:.4f} €; cause: {failure}; aucun artefact écrit"
         ) from failure
     ordered = {plan.custom_id: completed[plan.custom_id][0] for plan in plans}
     cost = round(sum(completed[plan.custom_id][1] for plan in plans), 4)
     print(f"Messages standard: {len(plans)} appel(s), coût réel {cost:.4f} €", file=output)
     return ordered, cost
+
+
+def execute_standard_tolerant(
+    client: Any, plans: list[RequestPlan], settings: Settings, *, guard: _CostGuard,
+    output: Any = sys.stdout, sleep: Any = time.sleep,
+) -> tuple[dict[str, str], float, set[str], set[str]]:
+    """T2/T3 : poursuit la réconciliation après un échec terminal par identité.
+
+    T1 reste atomique parce qu'il crée le dénominateur. Les lectures de confirmation, elles,
+    doivent produire ``FAILED``/``TIMEOUT`` sans faire disparaître les autres identités.
+    """
+    before = guard.spent
+    texts: dict[str, str] = {}
+    failed: set[str] = set()
+    timed_out: set[str] = set()
+    for plan in plans:
+        try:
+            result, _cost = execute_standard(
+                client, [plan], settings, guard=guard, output=output, sleep=sleep)
+            texts.update(result)
+        except BatchFailure as exc:
+            chain: BaseException | None = exc
+            labels: list[str] = []
+            while chain is not None:
+                labels.append(f"{type(chain).__name__}:{chain}".casefold())
+                chain = chain.__cause__
+            if any("timeout" in label for label in labels):
+                timed_out.add(plan.custom_id)
+            else:
+                failed.add(plan.custom_id)
+    return texts, round(guard.spent - before, 4), failed, timed_out
 
 
 def _cancel(client: Any, batch_id: str) -> str:
@@ -559,6 +789,7 @@ def execute_batch(client: Any, plans: list[RequestPlan], settings: Settings, *, 
     if not plans:
         return {}, 0.0, []
     expected = {plan.custom_id for plan in plans}
+    by_plan = {plan.custom_id: plan for plan in plans}
     if batch_id is None:
         try:
             batch = client.messages.batches.create(requests=[plan.request for plan in plans])
@@ -609,25 +840,54 @@ def execute_batch(client: Any, plans: list[RequestPlan], settings: Settings, *, 
             result = _attr(entry, "result")
             result_type = _attr(result, "type")
             if result_type != "succeeded":
+                plan = by_plan[cid]
+                append_ingest_audit(
+                    settings.llm_audit_path, run_uid=f"typing:{batch_id}", step=cid,
+                    model=MODEL, request=plan.request["params"], response=None,
+                    trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid,
+                    error_class=str(result_type or "resultat_absent"))
                 failures.append(f"{cid}: {result_type or 'résultat absent'}")
                 continue
             message = _attr(result, "message")
             usage = _attr(message, "usage")
             if usage is None:
+                plan = by_plan[cid]
+                append_ingest_audit(
+                    settings.llm_audit_path, run_uid=f"typing:{batch_id}", step=cid,
+                    model=MODEL, request=plan.request["params"], response=message,
+                    trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid,
+                    error_class="usage_absent")
                 failures.append(f"{cid}: succeeded sans usage facturable")
                 continue
             cost += cost_from_usage(MODEL, usage, settings.usd_eur, batch=True).cost_eur
             stop_reason = _attr(message, "stop_reason")
             if stop_reason is not None and stop_reason not in NORMAL_STOPS:
+                plan = by_plan[cid]
+                append_ingest_audit(
+                    settings.llm_audit_path, run_uid=f"typing:{batch_id}", step=cid,
+                    model=MODEL, request=plan.request["params"], response=message,
+                    trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid,
+                    error_class=f"stop:{stop_reason}")
                 failures.append(f"{cid}: réponse interrompue (stop_reason={stop_reason!r})")
                 continue
             texts[cid] = "".join(
                 str(_attr(part, "text", "")) for part in (_attr(message, "content") or [])
                 if _attr(part, "type") == "text"
             )
+            plan = by_plan[cid]
+            append_ingest_audit(
+                settings.llm_audit_path, run_uid=f"typing:{batch_id}", step=cid,
+                model=MODEL, request=plan.request["params"], response=message,
+                trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid)
     except Exception as exc:
         raise BatchFailure(f"résultats du lot {batch_id} illisibles ({type(exc).__name__}); rien n'a été écrit") from exc
     for missing in sorted(expected - seen):
+        plan = by_plan[missing]
+        append_ingest_audit(
+            settings.llm_audit_path, run_uid=f"typing:{batch_id}", step=missing,
+            model=MODEL, request=plan.request["params"], response=None,
+            trusted_line_uids=plan.line_uids, artifact_uid=plan.artifact_uid,
+            error_class="resultat_absent")
         failures.append(f"{missing}: résultat absent")
     return texts, round(cost, 4), failures
 
@@ -688,13 +948,36 @@ def parse_reading(texts: dict[str, str], plans: list[RequestPlan], doc: Document
     return labels
 
 
+def parse_reading_tolerant(texts: dict[str, str], plans: list[RequestPlan], doc: Document,
+                           settings: Settings) -> tuple[dict[str, ClauseLabel], set[str]]:
+    """T2/T3 : un plan fautif devient FAILED sans interrompre les identités voisines."""
+    labels: dict[str, ClauseLabel] = {}
+    failed: set[str] = set()
+    for plan in plans:
+        try:
+            parsed = parse_reading(texts, [plan], doc, settings, require_all_labels=False)
+        except ValueError:
+            failed.add(plan.custom_id)
+            continue
+        if set(labels).intersection(parsed):
+            failed.add(plan.custom_id)
+            continue
+        labels.update(parsed)
+    return labels, failed
+
+
 def _article_index(doc: Document) -> dict[str, list[str]]:
     prefix = f"{doc.doc_id}:a"
     out: dict[str, list[str]] = {}
     for node in doc.nodes:
-        if not node.node_id.startswith(prefix):
-            continue
-        number = node.node_id[len(prefix):].split("-", 1)[0]
+        number = ""
+        if node.article_uid:
+            number = node.article_uid.removeprefix("article:")
+        elif node.node_id.startswith(prefix):
+            number = node.node_id[len(prefix):].split("-", 1)[0]
+        else:
+            match = re.match(r"^\s*Article\s+(\d+(?:\.\d+)*)\b", node.title, re.IGNORECASE)
+            number = match.group(1) if match else ""
         if ARTICLE_RE.fullmatch(number):
             out.setdefault(number, []).append(node.node_id)
     return out
@@ -776,7 +1059,8 @@ def definition_rejections(doc: Document, first: dict[str, ClauseLabel]) -> dict[
 
 
 def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, ClauseLabel],
-             settings: Settings, *, preserve_block_ids: set[str] | None = None) -> Document:
+             settings: Settings, *, preserve_block_ids: set[str] | None = None,
+             decisions: tuple[T2TerminalDecision, ...] | None = None) -> Document:
     """Fusionne les lectures puis résout articles, relations et scopes sans heuristique documentaire."""
     preserve_block_ids = preserve_block_ids or set()
     original_identity = [
@@ -786,6 +1070,8 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
     ]
     blocks: list[Block] = []
     metadata: dict[str, dict[str, Any]] = {}
+    terminal = {decision.block_id: decision for decision in (
+        decisions if decisions is not None else terminal_t2_decisions(first, second, []))}
     for block in doc.blocks:
         structural_kind = _structural_kind(block)
         label = first.get(block.block_id)
@@ -803,7 +1089,12 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             }, deep=True))
             continue
         confirmation = second.get(block.block_id)
-        verified = label.kind in LEGAL_KINDS and confirmation is not None and confirmation.kind == label.kind
+        decision = terminal.get(block.block_id)
+        verified = (
+            (decision is not None and decision.state == "CONFIRMED")
+            if decisions is not None else
+            (t2_confirmable(label) and confirmation is not None and confirmation.kind == label.kind)
+        )
         update: dict[str, Any] = {
             "kind": label.kind, "structural_kind": structural_kind,
             "kind_source": "model_verified" if verified else "model",
@@ -814,10 +1105,11 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
         # Le propriétaire structurel n'est pas une portée. Pour une définition, la portée reste
         # vide tant qu'un `scope_articles` résolu ou une dérogation locale ne prouve pas la branche
         # qu'elle gouverne. Les autres clauses décisionnelles portent bien sur leur branche propre.
-        if label.kind in LEGAL_KINDS - {"definition"} or label.kind == "renvoi":
+        if verified and (label.kind in LEGAL_KINDS - {"definition"} or label.kind == "renvoi"):
             update["scope_node_id"] = doc.node_of(block.block_id)
         blocks.append(block.model_copy(update=update, deep=True))
-        metadata[block.block_id] = _metadata(label)
+        if verified:
+            metadata[block.block_id] = _metadata(label)
 
     typed = doc.model_copy(update={"blocks": blocks}, deep=True)
     # `model_copy` ne rejoue pas les validateurs ni les index privés.
@@ -846,9 +1138,8 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
                           and is_citable(by_block[bid])]
             if not candidates:
                 candidates = [bid for bid in subtree_blocks if is_citable(by_block[bid])][:1]
-            if block_id in candidates:
-                unresolved.append(original_article)
-                continue
+            # Une auto-référence n'annule que la source ; toute autre cible valide demeure.
+            candidates = [candidate for candidate in candidates if candidate != block_id]
             if not candidates or len(candidates) > settings.type_clauses_ref_expansion_max_blocks:
                 unresolved.append(original_article)
                 continue
@@ -888,9 +1179,8 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             candidates = [] if target is None else [
                 bid for bid in _subtree_items(typed, target)[0] if by_block[bid].kind == "definition"
             ]
-            if candidates == [block_id]:
-                unresolved.append(article)
-            elif len(candidates) == 1:
+            candidates = [candidate for candidate in candidates if candidate != block_id]
+            if len(candidates) == 1:
                 block.overrides = candidates[0]
             else:
                 unresolved.append(article)
@@ -909,9 +1199,8 @@ def assemble(doc: Document, first: dict[str, ClauseLabel], second: dict[str, Cla
             candidates = [] if target is None else [
                 bid for bid in _subtree_items(typed, target)[0] if by_block[bid].kind in LEGAL_KINDS
             ]
-            if candidates == [block_id]:
-                unresolved.append(article)
-            elif len(candidates) == 1:
+            candidates = [candidate for candidate in candidates if candidate != block_id]
+            if len(candidates) == 1:
                 relation_values[relation_kind] = candidates[0]
             else:
                 unresolved.append(article)
@@ -1314,17 +1603,25 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             f"plans_modifiés={len(changed_payload_ids)}; justification={resume_justification}",
             file=output,
         )
-    # Pire cas avant le premier euro : chaque bloc de lecture 1 est juridique et repasse en lecture 2.
+    # Pire sous-ensemble réel avant le premier euro : tous les blocs passent en T2 puis divergent
+    # sur un des quatre axes critiques et passent à l'arbitre Messages standard.
     worst_second = requests_for(
         doc, citable, 2, settings, legacy_custom_ids=legacy_resume is not None,
         campaign_override=plan_campaign,
     )
+    worst_third = requests_for(
+        doc, citable, 3, settings, legacy_custom_ids=legacy_resume is not None,
+        campaign_override=plan_campaign,
+    )
+    arbitration_worst = sum(standard_majorant_eur(plan, settings) for plan in worst_third)
     if transport in {"batch", "standard-resume"}:
-        estimate = round(majorant_eur(first_plans, settings) + majorant_eur(worst_second, settings), 4)
-        estimate_label = f"majorant Batch {estimate:.4f} € (remise {BATCH_DISCOUNT})"
+        estimate = round(majorant_eur(first_plans, settings) + majorant_eur(worst_second, settings)
+                         + arbitration_worst, 4)
+        estimate_label = (f"majorant Batch+arbitre standard {estimate:.4f} € "
+                          f"(remise {BATCH_DISCOUNT} sur T1/T2)")
     else:
         estimate = round(sum(standard_majorant_eur(plan, settings)
-                             for plan in [*first_plans, *worst_second]), 4)
+                             for plan in [*first_plans, *worst_second, *worst_third]), 4)
         estimate_label = f"majorant Messages standard {estimate:.4f} € (sans remise Batch)"
     ceiling = settings.type_clauses_max_cost_eur if max_cost is None else max_cost
     if not math.isfinite(ceiling) or ceiling <= 0:
@@ -1335,7 +1632,8 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         )
     print(f"delta: {len(reused_block_ids)} bloc(s) réutilisé(s); lecture 1: {len(citable)} bloc(s), "
           f"{len(first_plans)} requête(s); lecture 2: au plus "
-          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); {estimate_label} "
+          f"{len(citable)} bloc(s), {len(worst_second)} requête(s); arbitre: au plus "
+          f"{len(citable)} bloc(s), {len(worst_third)} requête(s); {estimate_label} "
           f"/ plafond cumulé {ceiling:.4f} €", file=output)
     if transport in {"batch", "standard"} and prior_cost_eur + estimate > ceiling:
         raise ValueError(
@@ -1429,39 +1727,105 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         raise BatchFailure(
             f"lecture 1 hors schéma (coût réel {first_cost:.4f} €); aucun artefact écrit: {exc}"
         ) from exc
-    legal_blocks = [doc.block(block_id) for block_id, label in first.items() if label.kind in LEGAL_KINDS]
+    legal_blocks = [doc.block(block_id) for block_id, label in first.items()
+                    if t2_confirmable(label)]
     second_plans = requests_for(
         doc, legal_blocks, 2, settings, legacy_custom_ids=legacy_resume is not None,
         campaign_override=plan_campaign,
     )
-    actual_estimate = round(majorant_eur(first_plans, settings) + majorant_eur(second_plans, settings), 4)
+    worst_actual_third = requests_for(
+        doc, legal_blocks, 3, settings, legacy_custom_ids=legacy_resume is not None,
+        campaign_override=plan_campaign)
+    actual_estimate = round(
+        majorant_eur(first_plans, settings) + majorant_eur(second_plans, settings)
+        + sum(standard_majorant_eur(plan, settings) for plan in worst_actual_third), 4)
     if transport == "batch" and actual_estimate > ceiling:
         raise BatchFailure(f"les candidats de lecture 2 portent le majorant à {actual_estimate:.4f} € > plafond; "
                            "lecture 1 facturée, aucun artefact écrit")
+    failed_t2_transport: set[str] = set()
+    timeout_t2: set[str] = set()
     if transport in {"standard", "standard-resume"}:
-        second_texts, second_cost = execute_standard(
+        second_texts, second_cost, failed_t2_transport, timeout_t2 = execute_standard_tolerant(
             client, second_plans, settings, guard=guard, output=output, sleep=sleep,
         )
         standard_requests += len(second_plans)
         standard_cost += second_cost
         print(f"coût cumulé acquis après lecture 2: {guard.spent:.4f} €", file=output)
     else:
-        second_texts, second_cost, failures = execute_batch(
-            client, second_plans, settings, batch_id=second_batch_id,
-            output=output, sleep=sleep, now=now,
-        )
-        if failures:
-            total_cost = round(first_cost + second_cost, 4)
-            raise BatchFailure(f"lecture 2 incomplète (coût réel cumulé {total_cost:.4f} €): "
-                               + "; ".join(failures))
+        try:
+            second_texts, second_cost, failures = execute_batch(
+                client, second_plans, settings, batch_id=second_batch_id,
+                output=output, sleep=sleep, now=now,
+            )
+        except BatchFailure as exc:
+            # Le lot a été soumis mais son usage n'est plus récupérable : le majorant Batch devient
+            # le coût réservé fail-closed publié dans le run, jamais zéro.
+            second_texts, second_cost, failures = {}, majorant_eur(second_plans, settings), []
+            timed_out = "non terminé" in str(exc).casefold() or "timeout" in str(exc).casefold()
+            target = timeout_t2 if timed_out else failed_t2_transport
+            for plan in second_plans:
+                target.add(plan.custom_id)
+                append_ingest_audit(
+                    settings.llm_audit_path, run_uid=f"typing:{second_batch_id or 't2'}",
+                    step=plan.custom_id, model=MODEL, request=plan.request["params"],
+                    response=None, trusted_line_uids=plan.line_uids,
+                    artifact_uid=plan.artifact_uid, error_class=type(exc).__name__,
+                )
         batch_cost += second_cost
+        for failure in failures:
+            plan_id = failure.split(":", 1)[0]
+            if "timeout" in failure.casefold():
+                timeout_t2.add(plan_id)
+            else:
+                failed_t2_transport.add(plan_id)
     total_cost = round(batch_cost + standard_cost, 4)
-    cumulative_cost = round((prior_cost_eur or batch_cost) + standard_cost, 4)
     # Une omission de label **dans** une réponse valide est un désaccord T2, pas un lot T4 incomplet.
     try:
-        second = parse_reading(second_texts, second_plans, doc, settings, require_all_labels=False)
+        second, failed_t2_parse = parse_reading_tolerant(second_texts, second_plans, doc, settings)
+        failed_t2 = failed_t2_transport | failed_t2_parse
+        disputed_blocks = [
+            doc.block(block_id) for block_id, label in first.items()
+            if t2_confirmable(label) and second.get(block_id) is not None
+            and _critical_disagreement(
+                label, second.get(block_id),
+                confidence_min=settings.type_clauses_arbitration_confidence_min)
+        ]
+        third_plans = requests_for(
+            doc, disputed_blocks, 3, settings,
+            legacy_custom_ids=legacy_resume is not None, campaign_override=plan_campaign)
+        arbitration: dict[str, ClauseLabel] = {}
+        failed_t3: set[str] = set()
+        timeout_t3: set[str] = set()
+        if third_plans:
+            acquired_before_third = round(
+                (prior_cost_eur if transport in {"standard", "standard-resume"} else batch_cost)
+                + standard_cost,
+                4,
+            )
+            arbitration_guard = _CostGuard(ceiling, spent=acquired_before_third)
+            third_texts, third_cost, failed_t3_transport, timeout_t3 = execute_standard_tolerant(
+                client, third_plans, settings, guard=arbitration_guard,
+                output=output, sleep=sleep)
+            arbitration, failed_t3_parse = parse_reading_tolerant(
+                third_texts, third_plans, doc, settings)
+            failed_t3 = failed_t3_transport | failed_t3_parse
+            standard_requests += len(third_plans)
+            standard_cost += third_cost
+            total_cost = round(total_cost + third_cost, 4)
+        decisions = terminal_t2_decisions(
+            first, second, second_plans, failed_plan_ids=failed_t2,
+            timeout_plan_ids=timeout_t2,
+            arbitration=arbitration,
+            arbitration_plans=third_plans,
+            failed_arbitration_plan_ids=failed_t3,
+            timeout_arbitration_plan_ids=timeout_t3,
+            confidence_min=settings.type_clauses_arbitration_confidence_min,
+            model_run_uid=f"typing:{first_batch_id or plan_campaign}")
+        cumulative_cost = round((prior_cost_eur or batch_cost) + standard_cost, 4)
         rejected_definitions = definition_rejections(doc, first)
-        typed = assemble(doc, first, second, settings, preserve_block_ids=reused_block_ids)
+        typed = assemble(doc, first, second, settings, preserve_block_ids=reused_block_ids,
+                         decisions=decisions)
+        decisions = terminal_effects(decisions, typed)
         _check_migration(typed, migration)
     except ValueError as exc:
         raise BatchFailure(
@@ -1472,6 +1836,52 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
         canoniser_transition_apres_typage(report), typed,
         rejected_definitions=rejected_definitions,
     )
+    model_run_uid = f"typing:{first_batch_id or plan_campaign}"
+    registry_t1 = t1_registry(first, model_run_uid=model_run_uid)
+    all_t1 = _t1_entries(first, model_run_uid=model_run_uid)
+    t1_uid_by_block = {entry.block_id: entry.t1_uid for entry in all_t1}
+    renvoi_decisions = [
+        decision for decision in decisions
+        if decision.t1_uid in {entry.t1_uid for entry in registry_t1}
+    ]
+    plan_surface = [
+        {"plan_id": plan.custom_id, "order": order, "block_ids": list(plan.block_ids),
+         "t1_uids": [t1_uid_by_block[block_id] for block_id in plan.block_ids],
+         "plan_hash": _uid("t2-plan", plan.request)}
+        for order, plan in enumerate(second_plans)
+    ]
+    consumed_ids = set(second_texts) | failed_t2 | timeout_t2
+    consumed_surface = [entry for entry in plan_surface if entry["plan_id"] in consumed_ids]
+    # Même fonction d'identité des deux côtés : l'égalité porte sur la surface, pas sur le nom du
+    # moment où elle est observée. Deux préfixes différents rendaient l'égalité impossible même
+    # lorsque ordre, cardinalité et contenu étaient strictement identiques.
+    planned_plan_hash = _uid("t2-plan-surface", plan_surface)
+    consumed_plan_hash = _uid("t2-plan-surface", consumed_surface)
+    typed_report.stats.update({
+        "t2_eligibility_mode": T2_ELIGIBILITY_MODE,
+        "t1_registry": [entry.model_dump(mode="json") for entry in registry_t1],
+        "t1_registry_hash": t1_registry_hash(registry_t1),
+        "t2_terminal_decisions": [decision.model_dump(mode="json") for decision in decisions],
+        "t2_renvoi_terminal_decisions": [
+            decision.model_dump(mode="json") for decision in renvoi_decisions],
+        "t2_renvoi_terminal_ids_equal_registry": (
+            {decision.t1_uid for decision in renvoi_decisions}
+            == {entry.t1_uid for entry in registry_t1}),
+        "t2_planned_surface": plan_surface,
+        "t2_consumed_surface": consumed_surface,
+        "t2_planned_plan_hash": planned_plan_hash,
+        "t2_consumed_plan_hash": consumed_plan_hash,
+        "t2_planned_order": [entry["plan_id"] for entry in plan_surface],
+        "t2_consumed_order": [entry["plan_id"] for entry in consumed_surface],
+        "t2_plan_ids": [plan.custom_id for plan in second_plans],
+        "t2_plan_count": len(second_plans),
+        "t2_terminal_count": len(decisions),
+        "t2_failed_plan_ids": sorted(failed_t2),
+        "t2_timeout_plan_ids": sorted(timeout_t2),
+        "arbitration_request_count": len(third_plans),
+        "arbitration_failed_plan_ids": sorted(failed_t3),
+        "arbitration_timeout_plan_ids": sorted(timeout_t3),
+    })
     if transport in {"standard", "standard-resume"}:
         if transport == "standard":
             transport_detail = (
@@ -1602,6 +2012,7 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
     return TypingResult(document=typed, report=typed_report, entry=merged_entry,
                         cost_eur=total_cost,
                         first_requests=len(first_plans), second_requests=len(second_plans),
+                        third_requests=len(third_plans),
                         transport=transport, reused_requests=reused_requests,
                         replayed_requests=replayed_requests,
                         standard_requests=standard_requests, batch_cost_eur=round(batch_cost, 4),

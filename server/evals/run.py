@@ -100,6 +100,7 @@ from server.app.domain.trace import Trace
 from server.app.domain.verdict import KINDS_FONDATEURS
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
+from server.app.llm.audit import JsonlAuditSink
 from server.app.llm.models import TIERS
 from server.app.llm.pricing import estimate_run_majorant
 from server.app.pipelines import sinistre as pipeline_sinistre
@@ -116,6 +117,8 @@ from server.evals.espace import (EspaceIllisible, EspaceNonInstalle, EspacePubli
                                  LotHorsEspace)
 from server.evals.plancher import (ChargePlancher, PlancherInvalide, PreuveExterneVerifiee,
                                    charger_plancher, verifier_liaison_preuve)
+from server.evals.quality_closure import (QualityClosureRunInput, QualityClosureRunResult,
+                                          evaluate_run, open_run_result)
 from server.evals.publication import (DOCS_ARCHIVES, DOCS_LATEST, ArchivePrecedenteIllisible,
                                       RapportInexploitable, construire_publication, digest_contenu,
                                       preparer_publication, rendre_publication_markdown,
@@ -2049,6 +2052,15 @@ def charger_decisions_orchestrateur(path: Path, *, plancher: ChargePlancher,
     return decisions, preuve
 
 
+def charger_cloture_qualite(path: Path) -> QualityClosureRunResult:
+    """Charge les 30 lignes ; un artefact absent ou invalide ne peut produire que des OPEN."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return evaluate_run(QualityClosureRunInput.model_validate(raw))
+    except (OSError, UnicodeDecodeError, ValueError, ValidationError):
+        return open_run_result()
+
+
 def _blocs_attendus_ouverts(r: Resultat) -> bool:
     """« Blocs attendus ∈ blocs lus » — la suite `parsing` est locale : aucun bloc n'y est *lu*."""
     return r.suite == "parsing" or set(r.expected_block_ids) <= set(r.opened_block_ids)
@@ -2236,7 +2248,8 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                        exigences_full: bool = False,
                        structure: tuple[int, int] | None = None,
                        arbre: tuple[int, int] | None = None,
-                       dictionary_validated: bool | None = None) -> dict[str, Any]:
+                       dictionary_validated: bool | None = None,
+                       quality_closure: QualityClosureRunResult | None = None) -> dict[str, Any]:
     snapshot = snapshot or snapshot_cas(cas, cases_dir)
     verifier_snapshot_cas(snapshot)
     labels = {label: sum(1 for r in resultats if r.label == label) for label in LABELS}
@@ -2346,6 +2359,9 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
             }
             for r in resultats
         ],
+        # L'absence de l'artefact fermé ne peut jamais disparaître du rapport ni devenir un vert
+        # par vacuité. Un runner local produit donc explicitement les 30 lignes OPEN.
+        "quality_closure": (quality_closure or open_run_result()).model_dump(mode="json"),
     }
     # Story 4.5 (P6) : les trois réserves entrent dans le **rapport**, donc dans le résumé que la CI
     # concatène — pas seulement dans la publication, que la CI ne produit pas (elle tourne sans
@@ -3169,6 +3185,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     response_cache = PersistentResponseCache(cache_dir) if cache_dir is not None else None
     return Contexte(settings=settings, index=Index(corpus),
                     client=LlmClient(settings, cache=response_cache,
+                                     audit_sink=JsonlAuditSink(settings.llm_audit_path),
                                      campaign_budget_eur=campaign_budget_eur,
                                      campaign_accrued_eur=campaign_accrued_eur,
                                      campaign_cost_recorder=campaign_cost_recorder),
@@ -3263,7 +3280,7 @@ def _parser() -> argparse.ArgumentParser:
                        f"{suite} → {defaut}" for suite, defaut in DEFAUT_PAR_SUITE.items()) + ")")
     p.add_argument("--compare",
                    help="matrice 4.4 : deterministe,outils,full_context (ensemble exact)")
-    p.add_argument("--tiers", help="profils retrieval 4.4 : reason,micro (ensemble exact)")
+    p.add_argument("--tiers", help="profil retrieval : reason (ensemble exact)")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
     p.add_argument("--repeat", type=int, default=1, metavar="N",
@@ -3283,6 +3300,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--orchestrator-report", type=Path,
                    help="rapport dont la preuve trusted se réclame ; ses octets sont recoupés avec "
                         "report_digest (obligatoire avec --orchestrator-evidence)")
+    p.add_argument("--quality-evidence", type=Path,
+                   help="artefact fermé des 30 lignes Epic 5 ; absent ou invalide, les lignes et "
+                        "V-05 restent explicitement OPEN")
     p.add_argument("--candidate-revision", metavar="SHA40",
                    help="révision produit mesurée par ce run (40 hexadécimaux) ; obligatoire sous "
                         "--gate {doc_id} --profile full et avec --orchestrator-evidence")
@@ -3393,6 +3413,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
     snapshot: CasesSnapshot | None = None
     run_identity: dict[str, Any] | None = None
     decisions_orchestrateur: list[GateDecision] = []
+    quality_closure = open_run_result()
     # **L'ancrage des empreintes de run étrangères**, porté d'ici jusqu'aux quatre surfaces (revue
     # B5, tour correctif 2/3). `None` ne veut pas dire « pas de contrainte » mais « aucune preuve
     # externe n'a été vérifiée, donc aucune décision étrangère n'est publiable » — un diagnostic
@@ -3421,7 +3442,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
             contenu_json=contenu_json)
         if comparison_cell:
             # Une cellule 4.4 n'est pas une surface publiée : son parent consomme ce rapport privé,
-            # construit le comparatif à six cellules puis publie seulement ce dernier par le
+            # construit le comparatif canonique puis publie seulement ce dernier par le
             # pointeur atomique. Forcer ces fichiers jetables dans l'espace 4.5 obligerait le run à
             # installer dynamiquement des cibles — précisément ce que la bascule interdit.
             for chemin, contenu in prepares:
@@ -3631,6 +3652,11 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
         elif args.orchestrator_report is not None:
             raise RefusDeTourner(
                 "--orchestrator-report n'a de sens qu'avec --orchestrator-evidence")
+        if args.quality_evidence is not None:
+            if args.producer != "orchestrator" or args.gate is None or args.profile != "full":
+                raise RefusDeTourner(
+                    "--quality-evidence exige --producer orchestrator --gate et --profile full")
+            quality_closure = charger_cloture_qualite(args.quality_evidence)
         # 1. Le profil, avant tout le reste.
         if args.profile not in PROFILS_LIVRES:
             raise RefusDeTourner(f"profil `{args.profile}` inconnu (livré : {', '.join(PROFILS_LIVRES)})")
@@ -3848,7 +3874,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 snapshot=snapshot, run_identity=identite_refus, repeat=args.repeat,
                 plancher=charge_plancher, producer=args.producer, preflight=preflight,
                 decisions_orchestrateur=decisions_orchestrateur,
-                exigences_full=exigences_full)
+                exigences_full=exigences_full, quality_closure=quality_closure)
             ecrire_rapports_du_run(rapport_refus)
             print("refus de budget avant le premier appel : "
                   f"configured_budget_eur={settings.live_budget_eur:.4f} "
@@ -3953,7 +3979,7 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                     stop_http=exc.http, stop_latency_ms=exc.latency_ms_engaged,
                     decisions_orchestrateur=decisions_orchestrateur,
                     exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot,
-                    dictionary_validated=dictionary_validated)
+                    dictionary_validated=dictionary_validated, quality_closure=quality_closure)
                 ecrire_rapports_du_run(rapport)
                 print(f"rapports partiels écrits : {output_json} ; {output_markdown}", file=sortie)
             except Exception as rapport_exc:  # noqa: BLE001 — frontière d'incident du writer
@@ -3986,7 +4012,8 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                                      decisions_orchestrateur=decisions_orchestrateur,
                                      exigences_full=exigences_full, structure=structure_lot,
                                      arbre=arbre_lot,
-                                     dictionary_validated=dictionary_validated)
+                                     dictionary_validated=dictionary_validated,
+                                     quality_closure=quality_closure)
         # **Les octets du rapport, une fois pour toute l'opération** (tour correctif 3/3).
         # `gate.report_digest` s'en déduit sans relire le disque, donc sans exiger que le rapport
         # ait déjà été publié : c'est ce qui permet au rapport, à la publication et au manifest de
@@ -4036,8 +4063,24 @@ def _main(argv: list[str] | None = None, *, lifecycle: ExitStack,
                 run_digest=str(run_identity.get("run_digest", "")) if run_identity else "",
                 producer=args.producer, decisions_orchestrateur=decisions_orchestrateur,
                 exigences_full=exigences_full, structure=structure_lot, arbre=arbre_lot)
+            if exigences_full:
+                # V-05 est une décision de gate à part entière, pas un booléen caché ajouté après
+                # les décisions chiffrées. Le domaine peut ainsi vérifier l'équivalence stricte
+                # `evals_ok == all(decisions green)` et l'audit public nomme la preuve manquante.
+                decisions.append(GateDecision(
+                    metric="v05_quality_closure", producer="quality_closure", threshold=1.0,
+                    scope="epic5:quality-closure",
+                    n=len(quality_closure.rows) if quality_closure.complete_input else 0,
+                    run_digest=(str(run_identity.get("run_digest", ""))
+                                if run_identity else ""),
+                    value=1.0 if quality_closure.v05_gate else 0.0,
+                    status="green" if quality_closure.v05_gate else "red",
+                    reason=(None if quality_closure.v05_gate
+                            else "fermeture Epic 5 absente, invalide ou incomplète"),
+                ))
             # HIGH 1 : une liste de décisions vide serait un vert par vacuité (`all([])` est vrai).
-            evals_ok = tous_ok and bool(decisions) and all(d.status == "green" for d in decisions)
+            evals_ok = (tous_ok and bool(decisions)
+                        and all(d.status == "green" for d in decisions))
             gate = construire_gate(entry, ctx, profil=args.profile, cas=cas,
                                    cases_dir=args.cases_dir, evals_ok=evals_ok, snapshot=snapshot,
                                    decisions=decisions,

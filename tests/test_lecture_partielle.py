@@ -131,12 +131,12 @@ def _settings_sinistre(prefixe: str, **kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=30.0, max_attempts=6, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=30.0, max_attempts=6, max_cost_eur=0.20)
 
 
 def _comprendre(*, question_resolue: str = QUESTION_INITIALE, terms: list[str] | None = None,
                 **champs: Any) -> dict:
-    return fake_message(model=TIERS["micro"], text=json.dumps({
+    return fake_message(model=TIERS["reason"], text=json.dumps({
         "intent": "question", "question_resolue": question_resolue, "clarification": None,
         "language": "fr", "terms": terms if terms is not None else list(TERMES),
         "themes": [], "facettes": ["moment de consultation"],
@@ -214,12 +214,12 @@ def _navigation(index: Index) -> dict:
 def _script_outils(index: Index, *, besoin_fondateur: bool = False) -> list:
     """Le même scénario, sur la variante **servie** : le tour d'outils s'insère après *comprendre*."""
     ferme = _bloc_ferme(index)
-    navigation = [_navigation(index)]
-    if besoin_fondateur:
-        # Le corpus de lecture partielle ne contient volontairement que des paragraphes. Le
-        # sinistre emploie donc son second tour borné avant de conclure qu'aucune fondatrice
-        # confirmée n'est disponible ; le guide conserve son arrêt substantiel historique.
-        navigation.append(fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]))
+    navigation = [
+        _navigation(index),
+        # La conclusion de suffisance est un choix sémantique distinct de la navigation et passe
+        # donc toujours par le plancher Sonnet, y compris lorsque le guide n'impose pas de kind.
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
+    ]
     return [_comprendre(), *navigation, _rediger(ferme), _rediger(ferme)]
 
 

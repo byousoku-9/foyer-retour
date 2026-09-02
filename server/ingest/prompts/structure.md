@@ -8,6 +8,18 @@ Rends une liste `noeuds`. Chaque nœud désigne des lignes existantes par leur `
 - `titre_line_uid`: la ligne qui **intitule** la section.
 - `premiere_line_uid` et `derniere_line_uid`: les bornes de la section dans l'ordre de lecture, titre inclus.
 - `parent_line_uid`: le `titre_line_uid` de la section qui contient celle-ci, ou `null` au premier niveau.
+- `title_line_uids`: toutes les lignes qui composent le titre complet, dans l'ordre, y compris
+  `titre_line_uid`; ne mets aucune ligne de corps dans cette liste.
+- `article_uid`: l'identité juridique neutre et stable de l'article lorsqu'elle est explicitement
+  lisible dans le titre (par exemple `article:3.1`), sinon `null`. Elle ne dépend jamais du futur
+  `node_id`, ni d'un suffixe technique.
+- `surface_class`: exactement `preliminaire`, `table_des_matieres` ou `substantiel`, selon la fonction
+  sémantique de la surface ; n'utilise jamais une section technique comme preuve juridique.
+- `continuation_line_uids`: les lignes de corps qui continuent explicitement la même clause après
+  une scission de mise en page ; liste vide s'il n'y en a pas.
+- `relations`: les seules dépendances explicites entre sections, chacune sous la forme
+  `{ "kind": ..., "target_line_uid": ... }`. `kind` vaut `same_clause_continuation`,
+  `explicit_dependency` ou `definition_override`; la cible est le `titre_line_uid` d'un autre nœud.
 
 Règles vérifiées par le code ; une proposition qui les enfreint est refusée en entier :
 

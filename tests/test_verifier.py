@@ -33,7 +33,7 @@ from server.app.steps.verifier import (
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
-HAIKU = TIERS["micro"]
+HAIKU = TIERS["reason"]  # alias historique : le plancher sémantique est désormais Sonnet
 
 
 def test_le_prompt_sinistre_generalise_la_frontiere_objet_applicabilite() -> None:
@@ -111,7 +111,7 @@ def _settings(**kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.20)
 
 
 def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
@@ -191,7 +191,7 @@ async def test_nominal_quote_is_found_with_its_offsets(mini: Index) -> None:
     assert bloc.text_norm[q.start:q.end] == normalize(quote)
     assert q.line_ids == []  # le guide n'a pas de lignes (kb.js)
     assert v.found is True and v.rejected_claims == [] and v.motif is None
-    assert step.name == "verifier" and step.tier == "micro" and len(step.calls) == 1
+    assert step.name == "verifier" and step.tier == "reason" and len(step.calls) == 1
 
 
 async def test_unknown_block_id_never_reaches_the_motive(mini: Index) -> None:
@@ -270,7 +270,7 @@ async def test_relevance_is_one_grouped_micro_call_with_delimited_content(mini: 
     (req,) = fake.requests
     assert req["model"] == HAIKU and req["max_tokens"] == _settings().verifier_max_tokens
     assert req["system"] == [{"type": "text", "text": load_prompt("commun") + "\n\n" + load_prompt("verifier"),
-                             "cache_control": {"type": "ephemeral"}}]
+                             "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
     (msg,) = req["messages"]
     found = UNTRUSTED.findall(msg["content"])
     # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, ses

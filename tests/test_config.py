@@ -26,10 +26,10 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
-    assert s.retrouver_outils_tier == "micro"
+    assert s.retrouver_outils_tier == "reason"
     assert s.rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in Settings.model_fields
-    assert s.max_cost_eur_per_request == 0.12 and s.cost_alert_eur == 0.05
+    assert s.max_cost_eur_per_request == 0.20 and s.cost_alert_eur == 0.05
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
     assert s.evals_max_cost_eur == 1.0
@@ -48,7 +48,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
     # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
-    assert s.verifier_sinistre_max_tokens == 3072
+    assert s.verifier_sinistre_max_tokens == 1536
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
     assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
@@ -81,7 +81,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
-    assert t.thresholds["max_cost_eur_per_request"] == 0.12
+    assert t.thresholds["max_cost_eur_per_request"] == 0.20
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
@@ -485,7 +485,7 @@ def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
 
     path = tmp_path / "retrieval-default.json"
     path.write_text(
-        '{"variant":"outils","tier":"micro","prompt_cache":true}', encoding="utf-8")
+        '{"variant":"outils","tier":"reason","prompt_cache":true}', encoding="utf-8")
     monkeypatch.setattr(module, "RETRIEVAL_DEFAULT_PATH", path)
     first = module.Settings(_env_file=None)
     path.write_text(
@@ -493,7 +493,7 @@ def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
     fresh = module.Settings(_env_file=None)
 
     assert (first.retrieval_variant, first.retrouver_outils_tier,
-            first.retrieval_prompt_cache) == ("outils", "micro", True)
+            first.retrieval_prompt_cache) == ("outils", "reason", True)
     assert (fresh.retrieval_variant, fresh.retrouver_outils_tier,
             fresh.retrieval_prompt_cache) == ("full_context", "reason", False)
 

@@ -40,6 +40,10 @@ from server.app.domain.trace import StepTrace, Trace
 from server.app.domain.verdict import Verdict
 from server.evals import run as runner
 from server.evals.espace import EspacePublie, POINTEUR, Transaction
+from server.evals.quality_closure import (DEPENDENCIES, ROW_IDS, BranchKey, ClosureInput,
+                                          EvidenceArtifact, EvidenceStatus,
+                                          QualityClosureRunInput, canonical_registry,
+                                          canonical_registry_hash, canonical_required_refs)
 from tests.helpers_espace import poser_espace
 from server.evals.plancher import charger_plancher
 
@@ -1016,6 +1020,40 @@ def _temporaires(racine: Path) -> list[str]:
                   if p.is_file() and p.name.endswith(".tmp"))
 
 
+def _quality_evidence(path: Path, *, red_row: str | None = None) -> None:
+    registry = canonical_registry()
+    rows = []
+    for row_id in ROW_IDS:
+        key = BranchKey(
+            row_id=row_id, trigger_branch="TRUE",
+            t2_eligibility_mode="ISOLATED" if row_id == "T-01" else "NONE",
+        )
+        refs = canonical_required_refs(key)
+        requires_live = any(registry[ref].evidence_class == "LIVE" for ref in refs)
+        rows.append(ClosureInput(
+            branch_key=key, trigger="TRUE",
+            tests=("RED",) if row_id == red_row else ("GREEN",),
+            live_mode="REQUIRED" if requires_live else "N_A",
+            live_branch="SATISFIED_LIVE" if requires_live else "SATISFIED_NO_LIVE",
+            live_justification=None if requires_live else "preuve hermétique",
+            gate_rule="TRUE", provided_ref_list=tuple(sorted(refs)), required_refs=refs,
+            evidence_status={ref: EvidenceStatus.RESOLVED for ref in refs},
+            evidence_artifacts={
+                ref: EvidenceArtifact.create(
+                    ref=ref, run_uid="run-quality-main",
+                    source=("LIVE_ORCHESTRATOR"
+                            if registry[ref].evidence_class == "LIVE"
+                            else "HERMETIC_RUNNER"),
+                    payload=f"preuve:{ref}",
+                ) for ref in refs
+            },
+            registry=registry, registry_hash=canonical_registry_hash(registry),
+            hermetic_selection="NON_EMPTY",
+        ))
+    value = QualityClosureRunInput(dependencies=DEPENDENCIES, rows=tuple(rows))
+    path.write_text(json.dumps(value.model_dump(mode="json")), encoding="utf-8")
+
+
 def _etat_du_lot(cibles: list[Path]) -> dict[str, tuple[bytes | None, int | None]]:
     """Contenu **et** type d'entrée (`lstat`) de chaque cible d'un lot — l'état observable entier.
 
@@ -1097,6 +1135,42 @@ def test_un_gate_full_de_bout_en_bout_ecrit_ses_decisions_et_publie(
     # Et la publication du **dépôt** n'a pas été touchée : le run écrit sous son `--data-dir`.
     assert not (tmp_path / "docs" / "evals" / "latest.md").samefile(
         runner.REPO_ROOT / "docs" / "evals" / "latest.md")
+
+
+def test_main_full_propage_quality_closure_rouge_au_rapport_et_au_gate(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La preuve n'est pas un helper isolé : `_main` la charge et elle ferme le gate publié."""
+    evidence = tmp_path / "quality-evidence.json"
+    _quality_evidence(evidence, red_row="P-01")
+    monkeypatch.setenv("LIVE_CAMPAIGN_ID", "campaign-quality-main")
+    monkeypatch.setattr(runner.pipeline_sinistre, "run", _double_sinistre())
+    green = runner.GateDecision(
+        metric="preuve_interne", producer="builder", threshold=1.0, scope="run",
+        n=3, run_digest="a" * 64, value=1.0, status="green",
+    )
+    monkeypatch.setattr(
+        runner, "construire_decisions",
+        lambda *_a, **kw: [green.model_copy(update={"run_digest": kw["run_digest"]})],
+    )
+
+    code = _cli(tmp_path, monkeypatch, [
+        "--gate", DOC, "--profile", "full", "--repeat", "3",
+        "--candidate-revision", REVISION, "--producer", "orchestrator",
+        "--series-kind", "final", "--series-id", "quality-main", "--max-cost", "1",
+        "--quality-evidence", str(evidence),
+    ])
+
+    assert code == 1
+    report = json.loads((tmp_path / "eval-results.json").read_text(encoding="utf-8"))
+    closure = report["quality_closure"]
+    assert closure["complete_input"] is True and closure["v05_gate"] is False
+    assert closure["rows"]["P-01"]["gate"] is False
+    manifest = json.loads((tmp_path / "data" / "manifest.json").read_text(encoding="utf-8"))
+    gate = manifest[DOC]["gate"]
+    decisions = {decision["metric"]: decision for decision in gate["decisions"]}
+    assert decisions["preuve_interne"]["status"] == "green"
+    assert decisions["v05_quality_closure"]["status"] == "red"
+    assert gate["evals_ok"] is False
 
 
 def test_un_second_gate_full_rouge_ne_touche_pas_un_vert_existant(

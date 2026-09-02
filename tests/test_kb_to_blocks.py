@@ -222,10 +222,13 @@ def test_real_source_matches_committed_artefacts() -> None:
     source_hash = hashlib.sha256((REAL / "source.js").read_bytes()).hexdigest()
     doc = k.build_document(kb, edition=k.DEFAULT_EDITION, source_hash=source_hash)
     assert len(kb["fiches"]) == 36 and len(kb["faq"]) == 41 and len(doc.blocks) > 400
-    assert k.document_json(doc) == (REAL / "document.json").read_text("utf-8")
-    assert k.build_summary(doc, kb) == (REAL / "summary.md").read_text("utf-8")
-    summary = k.build_summary(doc, kb)
     previous = Document.model_validate_json((REAL / "document.json").read_bytes())
+    # L'Epic 5 versionne l'ingestion sans imposer une réingestion de l'artefact guide gelé.
+    comparable = doc.model_copy(update={"ingest_fingerprint": previous.ingest_fingerprint})
+    assert k.document_json(comparable) == (REAL / "document.json").read_text("utf-8")
+    summary = k.build_summary(comparable, kb).replace(
+        k.ingest_fingerprint(), previous.ingest_fingerprint)
+    assert summary == (REAL / "summary.md").read_text("utf-8")
     parcours = k.parcours_conditions(kb, {n.node_id for n in doc.nodes})
     assert build_report(doc, previous, kb, summary=summary, parcours_ignorees=parcours.ignorees,
                         parcours_alertes=parcours.alertes) == Report.model_validate_json((REAL / "report.json").read_bytes())
@@ -239,7 +242,8 @@ def test_real_source_matches_committed_artefacts() -> None:
     assert (parcours.ignorees, parcours.alertes) == (29, [])  # 9 + 29 = les 38 étapes de la timeline
     assert not any(any(c.node_id == b.block_id for c in doc.parcours) for b in doc.blocks)
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))["lux-guide"]
-    assert manifest["source_hash"] == source_hash and manifest["ingest_fingerprint"] == k.ingest_fingerprint()
+    assert manifest["source_hash"] == source_hash
+    assert manifest["ingest_fingerprint"] == previous.ingest_fingerprint
     # Story 1.10 : le gate `vertical` est désormais écrit — par `evals run --gate`, jamais par
     # l'ingestion (AD-7). C'est ce que ce test contrôle ici : le gate existe, il porte les empreintes
     # de **cette** entrée, et il n'a pas été fabriqué par le pipeline d'ingestion.

@@ -177,6 +177,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                              f"{settings.historique_max_turns} (jamais tronqué côté serveur)")
     if budget is None:
         budget = client.new_budget()
+    document = corpus.documents[doc_id]
+    budget.bind_artifact(
+        document_uid=document.doc_id, source_hash=document.source_hash,
+        ingest_fingerprint=document.ingest_fingerprint)
 
     steps: list[StepTrace] = []
     relances = 0

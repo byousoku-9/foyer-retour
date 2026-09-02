@@ -2,9 +2,153 @@
 
 from __future__ import annotations
 
-from pydantic import Field, field_validator, model_validator
+import hashlib
+import json
+from fractions import Fraction
+from typing import Literal
+
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .document import Block, DomainModel
+
+
+def stable_uid(prefix: str, payload: object) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return f"{prefix}:{hashlib.sha256(encoded).hexdigest()}"
+
+
+class QuestionClauseScore(DomainModel):
+    """Score exact calculé une fois par l'index et transporté sans recomputation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    question_uid: str
+    clause_uid: str
+    scorer_uid: str
+    scorer_version: str
+    # Tuple lexical explicite : nombre de groupes pleins, rappel partiel et précision. Les fractions
+    # sont sérialisées par numérateur/dénominateur pour ne jamais dépendre d'un arrondi flottant.
+    full_matches: int = Field(ge=0)
+    partial_numerator: int = Field(ge=0)
+    partial_denominator: int = Field(ge=1)
+    precision_numerator: int = Field(ge=0)
+    precision_denominator: int = Field(ge=1)
+    kind_priority: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _fractions_dans_le_domaine(self) -> QuestionClauseScore:
+        if self.partial_numerator > self.partial_denominator:
+            raise ValueError("score partiel hors domaine [0,1]")
+        if self.precision_numerator > self.precision_denominator:
+            raise ValueError("précision hors domaine [0,1]")
+        return self
+
+    @property
+    def sort_key(self) -> tuple[int, Fraction, Fraction, int]:
+        partial = Fraction(self.partial_numerator, self.partial_denominator)
+        precision = Fraction(self.precision_numerator, self.precision_denominator)
+        return (-self.full_matches, -partial, -precision, self.kind_priority)
+
+
+class ScoredHit(DomainModel):
+    """Record canonique de ``chercher`` ; titre, extrait et score survivent ensemble."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_uid: str
+    document_uid: str
+    clause_uid: str
+    node_uid: str
+    title: str
+    excerpt: str
+    score: QuestionClauseScore
+
+    @model_validator(mode="after")
+    def _identites_coherentes(self) -> ScoredHit:
+        if self.score.clause_uid != self.clause_uid:
+            raise ValueError("score et hit ne désignent pas la même clause")
+        expected = stable_uid("result-v1", {
+            "question_uid": self.score.question_uid,
+            "clause_uid": self.clause_uid,
+            "scorer_uid": self.score.scorer_uid,
+            "scorer_version": self.score.scorer_version,
+            "score": self.score.model_dump(mode="json"),
+            "document_uid": self.document_uid,
+            "node_uid": self.node_uid,
+            "title": self.title,
+            "excerpt": self.excerpt,
+        })
+        if self.result_uid != expected:
+            raise ValueError("result_uid ne correspond pas au contenu canonique du hit")
+        return self
+
+    def __iter__(self):
+        """Dépaquetage transitoire ``block_id, node_id`` sans égalité avec un tuple."""
+        yield self.clause_uid
+        yield self.node_uid
+
+    def __getitem__(self, index: int) -> str:
+        if index == 0:
+            return self.clause_uid
+        if index == 1:
+            return self.node_uid
+        raise IndexError(index)
+
+
+class ContextUnit(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    block_uid: str
+    role: Literal[
+        "target", "parent_preamble", "same_clause_continuation", "explicit_dependency",
+        "definition_override",
+    ]
+    document_uid: str
+    section_uid: str
+    order: int = Field(ge=0)
+
+
+class BudgetSnapshot(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    opens_used: int = Field(ge=0)
+    blocks_used: int = Field(ge=0)
+    tokens_used: int = Field(ge=0)
+    opens_remaining: int = Field(ge=0)
+    blocks_remaining: int | None = Field(default=None, ge=0)
+    tokens_remaining: int | None = Field(default=None, ge=0)
+
+
+class AdmissionDecision(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_uid: str
+    state: Literal["admitted", "rejected"]
+    reason: str
+    snapshot: BudgetSnapshot
+
+
+class SufficiencyDecision(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    complete: bool
+    reason: str
+    sufficiency_result_uid: str | None = None
+    considered_result_uids: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _appartenance(self) -> SufficiencyDecision:
+        if len(self.considered_result_uids) != len(set(self.considered_result_uids)):
+            raise ValueError("considered_result_uids contient un doublon")
+        if self.complete and self.sufficiency_result_uid is None:
+            raise ValueError("une suffisance vraie exige sufficiency_result_uid")
+        if not self.complete and self.sufficiency_result_uid is not None:
+            raise ValueError("une suffisance fausse interdit sufficiency_result_uid")
+        if (self.sufficiency_result_uid is not None
+                and self.sufficiency_result_uid not in self.considered_result_uids):
+            raise ValueError("sufficiency_result_uid n'appartient pas aux résultats considérés")
+        return self
 
 
 class RetrievalBudget(DomainModel):
@@ -57,7 +201,32 @@ class RetrievalResult(DomainModel):
     # peut ainsi rendre visibles les résolutions utiles sans exiger une claim pour tout le contexte.
     decision_dependency_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)
+    scored_hits: list[ScoredHit] = Field(default_factory=list)
+    admission_decisions: list[AdmissionDecision] = Field(default_factory=list)
+    sufficiency: SufficiencyDecision | None = None
     truncated: bool = False
+
+    @model_validator(mode="after")
+    def _decisions_uniques(self) -> RetrievalResult:
+        hit_ids = [hit.result_uid for hit in self.scored_hits]
+        if len(hit_ids) != len(set(hit_ids)):
+            raise ValueError("scored_hits contient un result_uid dupliqué")
+        decision_ids = [decision.result_uid for decision in self.admission_decisions]
+        if len(decision_ids) != len(set(decision_ids)):
+            raise ValueError("un résultat possède plusieurs décisions terminales")
+        if set(decision_ids) != set(hit_ids):
+            raise ValueError("chaque hit exige exactement une décision terminale")
+        if self.sufficiency is not None:
+            if set(self.sufficiency.considered_result_uids) - set(hit_ids):
+                raise ValueError("la suffisance considère un hit absent")
+            sufficient = self.sufficiency.sufficiency_result_uid
+            if sufficient is not None:
+                decisions = {decision.result_uid: decision for decision in self.admission_decisions}
+                if sufficient not in self.sufficiency.considered_result_uids:
+                    raise ValueError("le résultat suffisant doit être considéré")
+                if decisions[sufficient].state != "admitted":
+                    raise ValueError("le résultat suffisant doit être admis")
+        return self
 
 
 class FullContextSelection(DomainModel):
@@ -82,6 +251,24 @@ class NodeChild(DomainModel):
     title: str = ""
 
 
+class SummaryEntry(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str
+    title: str
+    level: int = Field(ge=0)
+
+
+class SummaryPage(DomainModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_uid: str
+    entries: tuple[SummaryEntry, ...]
+    cursor: int = Field(ge=0)
+    next_cursor: int | None = Field(default=None, ge=0)
+    truncated: bool = False
+
+
 class NodeWindow(DomainModel):
     """Résultat d'`ouvrir_noeud` (AD-1) : fenêtre de blocs du nœud, `truncated` si le nœud dépasse `node_window`."""
 
@@ -89,5 +276,6 @@ class NodeWindow(DomainModel):
     title: str = ""
     children: list[NodeChild] = Field(default_factory=list)
     blocks: list[Block] = Field(default_factory=list)
+    context_units: list[ContextUnit] = Field(default_factory=list)
     truncated: bool = False
     next_cursor: int | None = None

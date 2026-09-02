@@ -61,7 +61,9 @@ from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index, reading_order
 from server.app.corpus.loader import Corpus
-from server.app.domain import Block, FullContextSelection, RetrievalBudget, RetrievalResult, is_citable
+from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FullContextSelection,
+                               RetrievalBudget, RetrievalResult, ScoredHit,
+                               SufficiencyDecision, QuestionClauseScore, is_citable)
 from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import BudgetExceeded, LlmParse, PipelineError
 from server.app.domain.question import ParsedQuestion
@@ -75,10 +77,12 @@ from server.app.llm.prompting import render_prompt, untrusted
 OUTILS_RECHERCHE: list[dict[str, Any]] = [
     {
         "name": "sommaire",
-        "description": "Relire le sommaire compact versionné du document courant.",
+        "description": "Parcourir une page du sommaire exhaustif versionné.",
         "input_schema": {
             "type": "object", "additionalProperties": False,
-            "properties": {"doc_id": {"type": "string"}}, "required": ["doc_id"],
+            "properties": {"doc_id": {"type": "string"},
+                           "cursor": {"type": "integer", "minimum": 0}},
+            "required": ["doc_id"],
         },
     },
     {
@@ -132,6 +136,10 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 
 _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
 _KINDS_CONTEXTUELS = frozenset({"heading", "definition"})
+
+
+def _score_positif(score: QuestionClauseScore) -> bool:
+    return score.full_matches > 0 or score.partial_numerator > 0
 _MOTS_OUTILS_LIMITES = frozenset({
     "a", "au", "aux", "avec", "ce", "ces", "d", "dans", "de", "des", "du", "elle", "en",
     "est", "et", "il", "ils", "l", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
@@ -246,24 +254,15 @@ def _unite_primaire(block_id: str, *, kind: str, index: Index,
 
 
 def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve: bool) -> list[str]:
-    """Ordre d'essai partagé : un focus réellement réservé passe avant ses frères.
+    """Ordre d'essai partagé : un focus prioritaire passe avant ses frères.
 
     Cet ordre sert uniquement à l'admission sous budget. Les appelants conservent séparément
-    l'ordre documentaire nécessaire au rendu. Un focus non réservé reste dans cet ordre.
+    l'ordre documentaire nécessaire au rendu. Un focus non prioritaire reste dans cet ordre.
     """
     ids = list(block_ids)
     if not reserve or focus_id is None or focus_id not in ids:
         return ids
     return [focus_id, *(block_id for block_id in ids if block_id != focus_id)]
-
-
-def _focus_est_reserve(block_id: str | None, node_id: str, *,
-                       reservations: Iterable[tuple[str, str]],
-                       best_hit_by_node: dict[str, str]) -> bool:
-    """Autorité commune : réservation survivante et meilleur hit effectif du nœud."""
-    return (block_id is not None
-            and best_hit_by_node.get(node_id) == block_id
-            and (block_id, node_id) in reservations)
 
 
 def _ajouter_best_hits_faq(node_ids: Iterable[str], *, index: Index,
@@ -309,11 +308,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     summary_ready = False
 
     def navigation_prompt() -> str:
+        summary_page = index.sommaire_page(
+            doc_id, page_size=settings.summary_page_size) if summary_ready else None
         return render_prompt(
             "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
             max_opens=budget.max_opens, profil_max_opens=budget.profil_max_opens,
             sommaire=untrusted(
-                "sommaire", index.sommaire(doc_id) if summary_ready else ""))
+                "sommaire", json.dumps(summary_page.model_dump(mode="json"), ensure_ascii=False)
+                if summary_page is not None else ""))
     question = {
         "question_resolue": parsed.question_resolue,
         "termes": terms,
@@ -329,10 +331,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     admitted_set: set[str] = set()
     window_opened: list[str] = []
     primary_node_by_block: dict[str, str] = {}
+    context_role_by_block: dict[str, str] = {}
     search_candidates: list[str] = []
     tool_search_candidates: list[str] = []
     tool_search_mappings: list[dict[str, list[str]] | list[str]] = []
     search_runs: list[list[str]] = []
+    scored_hits: list[ScoredHit] = []
+    hit_by_block: dict[str, ScoredHit] = {}
+    admission_by_result: dict[str, AdmissionDecision] = {}
     reserved_candidates: list[tuple[str, str]] = []
     best_hit_by_node: dict[str, str] = {}
     valid_window_attempted = False
@@ -346,11 +352,34 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     opens = 0
     truncated = False
     pagination_expected: dict[str, int] = {}
+    canonical_question = parsed.question_resolue.strip() or " ".join(parsed.termes_de_recherche())
 
     def block(block_id: str) -> Block:
         if index.doc_of(block_id) != doc_id:
             raise KeyError(block_id)
         return document.block(block_id)
+
+    def budget_snapshot() -> BudgetSnapshot:
+        return BudgetSnapshot(
+            opens_used=opens, blocks_used=blocks_used, tokens_used=tokens_used,
+            opens_remaining=max(0, budget.max_opens - opens),
+            blocks_remaining=(None if budget.max_blocks is None else
+                              max(0, budget.max_blocks - blocks_used)),
+            tokens_remaining=(None if budget.max_tokens is None else
+                              max(0, budget.max_tokens - tokens_used)),
+        )
+
+    def record_admitted(block_id: str, reason: str) -> None:
+        hit = hit_by_block.get(block_id)
+        if hit is None or hit.result_uid in admission_by_result:
+            return
+        # Un candidat préparé par un mécanisme devient réellement présenté lorsque son bloc entre
+        # dans le résultat d'ouverture ; c'est cette frontière, et elle seule, qui publie son hit.
+        if hit.result_uid not in {existing.result_uid for existing in scored_hits}:
+            scored_hits.append(hit)
+        admission_by_result[hit.result_uid] = AdmissionDecision(
+            result_uid=hit.result_uid, state="admitted", reason=reason,
+            snapshot=budget_snapshot())
 
     def admit(unit: list[str]) -> list[str]:
         """Admet une unité atomique sous les deux budgets ; rend ses nouveaux blocs."""
@@ -377,6 +406,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         for b in new:
             admitted_set.add(b)
             admitted.append(b)
+            record_admitted(b, "admitted_by_exact_unit")
         return new
 
     def rendered(block_ids: Iterable[str]) -> list[dict[str, Any]]:
@@ -399,9 +429,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if not isinstance(args, dict):
             return invalid()
         if name == "sommaire":
-            if set(args) != {"doc_id"} or args.get("doc_id") != doc_id:
+            if not set(args) <= {"doc_id", "cursor"} or args.get("doc_id") != doc_id:
                 return invalid()
-            return {"doc_id": doc_id, "sommaire": index.sommaire(doc_id)}, False
+            cursor = args.get("cursor", 0)
+            if isinstance(cursor, bool) or not isinstance(cursor, int):
+                return invalid()
+            try:
+                page = index.sommaire_page(
+                    doc_id, cursor=cursor, page_size=settings.summary_page_size)
+            except ValueError:
+                return invalid()
+            return page.model_dump(mode="json"), False
         if name == "chercher":
             termes = _strings(args.get("termes"))
             if set(args) != {"termes"} or not termes:
@@ -422,6 +460,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     dictionary_searched_terms.append(terme)
             run_reservations: list[tuple[str, str]] = []
             hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
+                                  question=canonical_question,
                                   groupes_prioritaires=parsed.facettes,
                                   reservations_out=run_reservations)
             search_truncated = len(hits) > budget.search_limit
@@ -429,7 +468,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 truncated = True
                 hits = hits[:budget.search_limit]
             for reservation in run_reservations:
-                if reservation in hits and reservation not in reserved_candidates:
+                if any((hit.clause_uid, hit.node_uid) == reservation for hit in hits) \
+                        and reservation not in reserved_candidates:
                     reserved_candidates.append(reservation)
             for block_id, hit_node_id in hits:
                 best_hit_by_node.setdefault(hit_node_id, block_id)
@@ -437,8 +477,20 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     search_candidates.append(block_id)
                 if not mechanism and block_id not in tool_search_candidates:
                     tool_search_candidates.append(block_id)
+            for hit in hits:
+                if (not mechanism
+                        and hit.result_uid not in {existing.result_uid for existing in scored_hits}):
+                    scored_hits.append(hit)
+                hit_by_block.setdefault(hit.clause_uid, hit)
             search_runs.append([block_id for block_id, _node_id in hits])
-            return {"candidats": [{"block_id": b, "node_id": n} for b, n in hits],
+            return {"candidats": [{
+                        "result_uid": hit.result_uid,
+                        "block_id": hit.clause_uid,
+                        "node_id": hit.node_uid,
+                        "title": hit.title,
+                        "excerpt": hit.excerpt,
+                        "score": hit.score.model_dump(mode="json"),
+                    } for hit in hits],
                     "truncated": search_truncated}, False
         if name == "ouvrir_noeud":
             # Le quota porte sur les appels, pas sur les seules ouvertures valides : une rafale
@@ -491,6 +543,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             admitted_before_window = set(admitted_set)
             promoted_dependency = False
             window_blocks = list(window.blocks)
+            context_role_by_block.update({
+                item.block_uid: item.role for item in window.context_units
+                if item.role != "target"
+            })
             window_ids = [item.block_id for item in window_blocks]
             window_block_by_id = {item.block_id: item for item in window_blocks}
             focus_companions = (set(index.unite_de_renvoi(focus)[1:])
@@ -500,9 +556,23 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if not (item.block_id in focus_companions
                         and item.block_id not in relevant_candidates)
             ]
-            focus_reserve = (prioritize_focus or _focus_est_reserve(
-                focus, node_id, reservations=reserved_candidates,
-                best_hit_by_node=best_hit_by_node))
+            # Le rappel garde une autorité first-wins par nœud, mais ne peut évincer un focus dont
+            # le score canonique est strictement meilleur. Une égalité conserve l'autorité
+            # historique ; les complétions décisionnelles peuvent explicitement forcer la priorité.
+            focus_hit = hit_by_block.get(focus) if focus is not None else None
+            best_id = best_hit_by_node.get(node_id)
+            canonical_focus = (index.score_clause(parsed.question_resolue, focus).score
+                               if focus_hit is not None and focus is not None else None)
+            canonical_best = (index.score_clause(parsed.question_resolue, best_id).score
+                              if best_id is not None else None)
+            focus_reserve = bool(
+                focus is not None and (
+                    prioritize_focus
+                    or focus == best_id
+                    or (canonical_focus is not None and canonical_best is not None
+                        and canonical_focus.sort_key < canonical_best.sort_key)
+                )
+            )
             admission_ids = _prioriser_focus(
                 primary_ids, focus, reserve=focus_reserve)
             for primary_id in admission_ids:
@@ -626,11 +696,16 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
 
     def suffisance_atteinte() -> bool:
-        if kinds_suffisants is not None:
-            return any(
-                block(block_id).kind in kinds_suffisants and block(block_id).kind_confirmed
-                for block_id in admitted)
-        return any(block(block_id).kind not in _KINDS_CONTEXTUELS for block_id in admitted)
+        return any(
+            block_id in hit_by_block
+            and (hit_by_block[block_id].score.full_matches > 0
+                 or hit_by_block[block_id].score.partial_numerator > 0)
+            and block(block_id).kind not in _KINDS_CONTEXTUELS
+            and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+            and (kinds_suffisants is None
+                 or (block(block_id).kind in kinds_suffisants
+                     and block(block_id).kind_confirmed))
+            for block_id in admitted)
 
     def complete_search_candidates_for_sufficiency() -> None:
         nonlocal truncated
@@ -733,10 +808,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     if unit is not None:
                         blocs_potentiels.update(unit)
             blocs_potentiels.difference_update(admitted_set)
+            # Même représentation et même tokenizer que ``admit`` : identifiant, saut de ligne,
+            # texte. La déduplication précède le calcul, donc un contexte partagé ne paie qu'une fois.
+            cout_tokens_potentiel = sum(
+                estimate_tokens(f"{block_id}\n{block(block_id).text}", settings)
+                for block_id in blocs_potentiels)
             capacite_contestee = (
                 (budget.max_blocks is not None
                  and len(blocs_potentiels) > budget.max_blocks - blocks_used)
                 or len(candidats_disponibles) > budget.max_opens - opens
+                or (budget.max_tokens is not None
+                    and cout_tokens_potentiel > budget.max_tokens - tokens_used)
             )
             if kinds_suffisants is not None and capacite_contestee:
                 # La complétion est explicitement chargée d'atteindre l'un de ces kinds. Une
@@ -790,6 +872,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             indisponibles = admitted_set | focused_windows_attempted
             hits = index.chercher(
                 mapping, limit=budget.search_limit + len(indisponibles), doc_id=doc_id,
+                question=canonical_question,
                 kinds_confirmes=kinds_suffisants)
             return [
                 hit for hit in hits if hit[0] not in indisponibles
@@ -909,9 +992,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             cohorte_precedente = cohorte[1:]
 
     used_tools = False
+    semantic_completion = False
 
     async def navigate() -> None:
-        nonlocal truncated, used_tools
+        nonlocal truncated, used_tools, semantic_completion
         # Les candidats FAQ ne deviennent visibles au navigateur qu'une fois le mécanisme FAQ
         # franchi. Cela rend notamment `outils → FAQ` distinct de `FAQ → outils`.
         if faq_candidates and "faq_candidates" in question:
@@ -928,7 +1012,13 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     messages=messages, tools=OUTILS_RECHERCHE,
                     budget=request_budget, step=step,
                     max_tokens=settings.retrouver_outils_max_tokens,
-                    prompt_cache=settings.retrieval_prompt_cache)
+                    prompt_cache=settings.retrieval_prompt_cache,
+                    trusted_line_uids=tuple(dict.fromkeys(
+                        line.line_uid
+                        for block_id in admitted
+                        for line in block(block_id).lines
+                        if line.line_uid is not None
+                    )))
             except PipelineError as exc:
                 # Comme les autres étapes LLM : l'appel éventuellement commencé et son coût doivent
                 # survivre dans la trace partielle de l'erreur terminale.
@@ -945,6 +1035,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 # couverture canonique réellement observée décide alors seule de la complétude.
                 if turn == 0:
                     truncated = True
+                elif used_tools and result.message.stop_reason == "end_turn":
+                    semantic_completion = True
                 break
             used_tools = True
             tool_results: list[dict[str, Any]] = []
@@ -958,12 +1050,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if is_error:
                     item["is_error"] = True
                 tool_results.append(item)
+            if result.message.stop_reason in {"max_tokens", "refusal", "pause_turn"}:
+                break
             # Sans besoin déclaré, un titre ou une définition éclaire les candidats sans fournir
             # encore la règle utile et tout autre bloc conserve l'arrêt froid historique. Lorsqu'un
             # appelant déclare des kinds suffisants, seuls un kind demandé **et confirmé** satisfait
             # cet arrêt. La pagination garde dans les deux cas sa propre priorité.
-            if turn == 0 and suffisance_atteinte() and not pagination_expected:
-                break
             if turn + 1 < budget.max_llm_turns:
                 messages.extend([
                     {"role": "assistant", "content": _content_json(result.message)},
@@ -1014,15 +1106,46 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     discarded = [b for b in tool_search_candidates if b not in admitted_set]
     if candidats_out is not None:
         candidats_out.extend(b for b in search_candidates if b not in candidats_out)
+    # Tout hit réellement présenté obtient exactement un état terminal. Les refus sont capturés
+    # ici, à l'instant où plus aucun outil ne peut les admettre, avec le snapshot courant.
+    for hit in scored_hits:
+        if hit.result_uid not in admission_by_result:
+            admission_by_result[hit.result_uid] = AdmissionDecision(
+                result_uid=hit.result_uid, state="rejected",
+                reason="not_admitted_within_bounded_navigation", snapshot=budget_snapshot())
+    sufficient_hit = next((
+        hit_by_block[block_id]
+        for block_id in admitted
+        if block_id in hit_by_block
+        and (hit_by_block[block_id].score.full_matches > 0
+             or hit_by_block[block_id].score.partial_numerator > 0)
+        and block(block_id).kind not in _KINDS_CONTEXTUELS
+        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+        and (kinds_suffisants is None
+             or (block(block_id).kind in kinds_suffisants and block(block_id).kind_confirmed))
+    ), None) if semantic_completion else None
+    considered = tuple(hit.result_uid for hit in scored_hits
+                       if hit.clause_uid in admitted_set)
+    sufficiency = SufficiencyDecision(
+        complete=sufficient_hit is not None,
+        reason=("relevant_foundation_admitted" if sufficient_hit is not None
+                else "no_relevant_foundation_within_budget"),
+        sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
+        considered_result_uids=considered,
+    )
     result = RetrievalResult(
-        blocs=[block(b) for b in admitted], opened_block_ids=list(admitted),
+        blocs=[block(b).model_copy(
+            update={"context_role": context_role_by_block.get(b)}, deep=True,
+        ) for b in admitted], opened_block_ids=list(admitted),
         # Story 4.2f : les nœuds d'où viennent les blocs **transmis**, tous, y compris ceux entrés
         # par `definitions` ou comme dépendance directe — `primary_node_by_block` n'en connaît que
         # les blocs de fenêtre, et s'y limiter laissait la variante servie annoncer « 0 section lue,
         # N passages transmis ».
         opened_node_ids=_noeuds_des_blocs(admitted, corpus=corpus, index=index),
         decision_dependency_block_ids=[b for b in decision_dependencies if b in admitted_set],
-        discarded_block_ids=discarded, truncated=truncated)
+        discarded_block_ids=discarded, scored_hits=scored_hits,
+        admission_decisions=list(admission_by_result.values()), sufficiency=sufficiency,
+        truncated=truncated)
     step.ms = int((time.monotonic() - t0) * 1000)
     step.opened_block_ids = list(admitted)
     step.discarded_block_ids = list(discarded)
@@ -1124,7 +1247,11 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
         response = await client.parse(
             tier=settings.retrouver_outils_tier, system_prefix=prompt, messages=messages,
             output_model=FullContextSelection, budget=request_budget, step=step,
-            max_tokens=max_tokens, prompt_cache=settings.retrieval_prompt_cache)
+            max_tokens=max_tokens, prompt_cache=settings.retrieval_prompt_cache,
+            trusted_line_uids=tuple(dict.fromkeys(
+                line.line_uid for block in ordered for line in block.lines
+                if line.line_uid is not None
+            )))
     except PipelineError as exc:
         raise failure(exc)
     known = {block.block_id: block for block in ordered}
@@ -1139,6 +1266,11 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
     # Le modèle sélectionne un ensemble d'IDs ; il ne décide jamais de l'ordre documentaire. Les
     # objets sont résolus depuis le corpus et restent dans l'ordre de lecture canonique.
     selected_ids = [block.block_id for block in ordered if block.block_id in requested]
+    canonical_question = parsed.question_resolue.strip() or " ".join(parsed.termes_de_recherche())
+    scored_hits = [index.score_clause(canonical_question, block_id)
+                   for block_id in selected_ids]
+    hit_by_id = {hit.clause_uid: hit for hit in scored_hits}
+    unscored: list[str] = []
 
     def block(block_id: str) -> Block:
         if index.doc_of(block_id) != doc_id:
@@ -1149,7 +1281,7 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
     # des deux autres variantes. Plusieurs passages du même nœud ne consomment qu'une ouverture.
     primary_nodes: list[str] = []
     admitted_primary_ids: list[str] = []
-    discarded: list[str] = []
+    discarded: list[str] = list(unscored)
     for block_id in selected_ids:
         node_id = document.node_of(block_id)
         if node_id not in primary_nodes:
@@ -1186,7 +1318,23 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
     tokens_used = 0
     truncated = bool(discarded)
     admitted_primaries: list[str] = []
+    admission_by_result: dict[str, AdmissionDecision] = {}
+
+    opened_nodes_used: list[str] = []
+
+    def snapshot() -> BudgetSnapshot:
+        return BudgetSnapshot(
+            opens_used=len(opened_nodes_used), blocks_used=blocks_used, tokens_used=tokens_used,
+            opens_remaining=max(0, budget.max_opens - len(opened_nodes_used)),
+            blocks_remaining=(None if budget.max_blocks is None else
+                              max(0, budget.max_blocks - blocks_used)),
+            tokens_remaining=(None if budget.max_tokens is None else
+                              max(0, budget.max_tokens - tokens_used)),
+        )
     for unit in units:
+        primary_node_id = document.node_of(unit[0])
+        if primary_node_id not in opened_nodes_used:
+            opened_nodes_used.append(primary_node_id)
         new: list[str] = []
         for candidate in unit:
             if candidate not in admitted and candidate not in new:
@@ -1197,16 +1345,31 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
             truncated = True
             if unit[0] not in admitted and unit[0] not in discarded:
                 discarded.append(unit[0])
+            hit = hit_by_id.get(unit[0])
+            if hit is not None:
+                admission_by_result[hit.result_uid] = AdmissionDecision(
+                    result_uid=hit.result_uid, state="rejected", reason="block_budget_exceeded",
+                    snapshot=snapshot())
             continue
         if budget.max_tokens is not None and tokens_used + token_cost > budget.max_tokens:
             truncated = True
             if unit[0] not in admitted and unit[0] not in discarded:
                 discarded.append(unit[0])
+            hit = hit_by_id.get(unit[0])
+            if hit is not None:
+                admission_by_result[hit.result_uid] = AdmissionDecision(
+                    result_uid=hit.result_uid, state="rejected", reason="token_budget_exceeded",
+                    snapshot=snapshot())
             continue
         blocks_used += len(new)
         tokens_used += token_cost
         admitted.update(new)
         admitted_primaries.append(unit[0])
+        hit = hit_by_id.get(unit[0])
+        if hit is not None:
+            admission_by_result[hit.result_uid] = AdmissionDecision(
+                result_uid=hit.result_uid, state="admitted", reason="admitted_by_exact_unit",
+                snapshot=snapshot())
 
     opened: list[str] = []
     for block_id in (*admitted_primaries, *(candidate for unit in units for candidate in unit[1:])):
@@ -1222,11 +1385,32 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
     step.ms = int((time.monotonic() - t0) * 1000)
     step.opened_block_ids = list(opened)
     step.discarded_block_ids = list(discarded)
+    for hit in scored_hits:
+        admission_by_result.setdefault(hit.result_uid, AdmissionDecision(
+            result_uid=hit.result_uid, state="rejected", reason="open_budget_exceeded",
+            snapshot=snapshot()))
+    sufficient_hit = next((
+        hit_by_id[block_id] for block_id in opened
+        if block_id in hit_by_id
+        and (hit_by_id[block_id].score.full_matches > 0
+             or hit_by_id[block_id].score.partial_numerator > 0)
+        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+    ), None)
+    considered = tuple(hit.result_uid for hit in scored_hits
+                       if hit.clause_uid in set(opened))
     return RetrievalResult(
         blocs=[block(block_id) for block_id in opened], opened_block_ids=opened,
         opened_node_ids=_noeuds_des_blocs(opened, corpus=corpus, index=index),
         decision_dependency_block_ids=decision_dependencies,
-        discarded_block_ids=discarded, truncated=truncated), step
+        discarded_block_ids=discarded, scored_hits=scored_hits,
+        admission_decisions=list(admission_by_result.values()),
+        sufficiency=SufficiencyDecision(
+            complete=sufficient_hit is not None,
+            reason=("relevant_result_admitted" if sufficient_hit else
+                    "no_relevant_result_within_budget"),
+            sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit else None),
+            considered_result_uids=considered,
+        ), truncated=truncated), step
 
 
 def _reserver(nodes: list[str], noeuds_prioritaires: Iterable[str] | None, max_opens: int,
@@ -1317,6 +1501,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # Source unique des termes cherchés (story 1.5) : l'`AbsenceProof` d'un refus « zéro hit » doit
     # nommer exactement ce que cette étape a cherché (AD-4 `terms_searched`).
     terms = parsed.termes_de_recherche()
+    canonical_question = parsed.question_resolue.strip() or " ".join(terms)
 
     if doc_id is not None and doc_id not in corpus.documents:
         # `chercher` lève déjà sur un doc_id inconnu, mais il n'est pas appelé quand aucun terme n'a
@@ -1336,7 +1521,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     mechanisms = settings.retrieval_mechanisms()
     dictionary_ready = False
     expanded_search: dict[str, list[str]] | None = None
-    hits: list[tuple[str, str]] = []
+    hits: list[ScoredHit] = []
     # Nœuds candidats par phase puis, à l'intérieur de chaque phase, dans l'ordre propre de la
     # source. Il n'y a aucun retri global des hits documentaires.
     nodes: list[str] = []
@@ -1355,15 +1540,18 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             phase_reservations: list[tuple[str, str]] = []
             phase_hits = index.chercher(
                 cherches, limit=budget.search_limit, doc_id=doc_id,
+                question=canonical_question,
                 kinds_prioritaires=kinds_prioritaires,
                 groupes_prioritaires=parsed.facettes,
                 reservations_out=phase_reservations)
             reserved_candidates.extend(
                 reservation for reservation in phase_reservations
-                if reservation in phase_hits and reservation not in reserved_candidates)
-            for block_id, node_id in phase_hits:
+                if any((hit.clause_uid, hit.node_uid) == reservation for hit in phase_hits)
+                and reservation not in reserved_candidates)
+            for hit in phase_hits:
+                block_id, node_id = hit.clause_uid, hit.node_uid
                 if block_id not in {candidate for candidate, _node in hits}:
-                    hits.append((block_id, node_id))
+                    hits.append(hit)
                 if node_id not in best_hit:
                     best_hit[node_id] = block_id
                     nodes.append(node_id)
@@ -1375,7 +1563,10 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         truncated = True  # des nœuds candidats avaient des hits au-delà du quota
     related_cache: dict[str, list[str]] = {}
 
-    def lire(ouverts: list[str]) -> tuple[list[str], dict[str, str], list[str], bool]:
+    def lire(ouverts: list[str]) -> tuple[
+        list[str], dict[str, str], list[str], bool,
+        dict[str, BudgetSnapshot], BudgetSnapshot, dict[str, str],
+    ]:
         """Ouvre ces nœuds, suit renvois et définitions, applique le budget de blocs/tokens.
 
         Rend `(ordre des blocs transmis, nœud d'origine de chaque bloc de fenêtre, troncature)`.
@@ -1388,6 +1579,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # De quel nœud vient chaque bloc de fenêtre : c'est ce qui permet de dire, **après** le
         # budget, quels nœuds ont réellement contribué aux blocs transmis (revue coordonnée 2.3, A1).
         noeud_de: dict[str, str] = {}
+        context_roles: dict[str, str] = {}
         for node_id in ouverts:
             window = index.ouvrir_noeud(node_id, focus_block_id=best_hit[node_id],
                                         node_window=budget.node_window)
@@ -1397,6 +1589,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if b.block_id not in fenetres:
                     fenetres.append(b.block_id)
                     noeud_de[b.block_id] = node_id
+                    if b.context_role is not None and b.context_role != "target":
+                        context_roles[b.block_id] = b.context_role
 
         # Unités de dépendance, hors quota `max_opens` : fermeture commune aux deux variantes.
         # Le primaire, ses refs directes, ses définitions applicables et toute limite classée parmi
@@ -1423,10 +1617,11 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 and (candidate not in focus_companions
                      or candidate in compagnons_candidats)
             ]
-            primaires.extend(_prioriser_focus(
-                voisins, focus_id, reserve=_focus_est_reserve(
-                    focus_id, node_id, reservations=reserved_candidates,
-                    best_hit_by_node=best_hit)))
+            # Le meilleur hit effectif du nœud est le point focal de cette fenêtre. Il doit être
+            # essayé avant ses voisins lorsque le budget ne peut pas tous les admettre ; autrement
+            # le score question-clause serait calculé puis ignoré exactement à la frontière où il
+            # décide quel passage est réellement consommé. L'ordre rendu reste documentaire.
+            primaires.extend(_prioriser_focus(voisins, focus_id, reserve=True))
         for block_id in primaires:
             directes = _dependances_directes(
                 block_id, block=bloc, index=index, terms=terms, doc_id=doc_id,
@@ -1457,6 +1652,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             unites.extend([block_id] for block_id in definitions_autonomes)
 
         seen: set[str] = set()
+        snapshots: dict[str, BudgetSnapshot] = {}
         blocs_utilises, tokens_utilises = 0, 0
         for unite in unites:
             nouveaux = [b for b in unite if b not in seen]
@@ -1470,6 +1666,17 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             blocs_utilises += len(nouveaux)
             tokens_utilises += cout_tokens
             seen.update(nouveaux)
+            actual = BudgetSnapshot(
+                opens_used=len(ouverts), blocks_used=blocs_utilises,
+                tokens_used=tokens_utilises,
+                opens_remaining=max(0, budget.max_opens - len(ouverts)),
+                blocks_remaining=(None if budget.max_blocks is None else
+                                  max(0, budget.max_blocks - blocs_utilises)),
+                tokens_remaining=(None if budget.max_tokens is None else
+                                  max(0, budget.max_tokens - tokens_utilises)),
+            )
+            for candidate in nouveaux:
+                snapshots[candidate] = actual
 
         # Ordre rendu au modèle : les fenêtres dans l'ordre de lecture, puis leurs dépendances ;
         # sans aucune fenêtre, les définitions directement demandées gardent l'ordre du corpus.
@@ -1484,10 +1691,21 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             dependances_decisionnelles.extend(
                 candidate for candidate in directes
                 if candidate in seen and candidate not in dependances_decisionnelles)
-        return ordre, noeud_de, dependances_decisionnelles, tronque
+        final_snapshot = BudgetSnapshot(
+            opens_used=len(ouverts), blocks_used=blocs_utilises,
+            tokens_used=tokens_utilises,
+            opens_remaining=max(0, budget.max_opens - len(ouverts)),
+            blocks_remaining=(None if budget.max_blocks is None else
+                              max(0, budget.max_blocks - blocs_utilises)),
+            tokens_remaining=(None if budget.max_tokens is None else
+                              max(0, budget.max_tokens - tokens_utilises)),
+        )
+        return (ordre, noeud_de, dependances_decisionnelles, tronque,
+                snapshots, final_snapshot, context_roles)
 
     ouverts, (promus, cedes) = _reserver(nodes, designes, budget.max_opens, budget.profil_max_opens)
-    ordre, noeud_de, dependances_decisionnelles, tronque = lire(ouverts)
+    (ordre, noeud_de, dependances_decisionnelles, tronque,
+     snapshots_by_block, final_snapshot, context_roles) = lire(ouverts)
     # **Réserver une place n'est pas l'occuper, et une place réservée pour rien doit être rendue**
     # (revue Codex 2.3, I1). L'unité de dépendance d'un nœud promu est soumise au budget de
     # blocs/tokens comme n'importe quelle autre : elle peut être écartée en entier. Le nœud qu'il
@@ -1509,9 +1727,14 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         promus = [p for p, _ in paires if p not in perdus]
         cedes = [c for p, c in paires if p not in perdus]
         ouverts = [n for n in nodes[:budget.max_opens] if n not in set(cedes)] + promus
-        ordre, noeud_de, dependances_decisionnelles, tronque = lire(ouverts)
+        (ordre, noeud_de, dependances_decisionnelles, tronque,
+         snapshots_by_block, final_snapshot, context_roles) = lire(ouverts)
     truncated = truncated or tronque
-    blocs = [bloc(b) for b in ordre]
+    blocs = [
+        (bloc(b).model_copy(update={"context_role": context_roles[b]}, deep=True)
+         if b in context_roles else bloc(b))
+        for b in ordre
+    ]
 
     opened = [b.block_id for b in blocs]
     # AD-10, littéralement : « candidats de `chercher` non ouverts » — donc les hits qui ne sont pas
@@ -1521,10 +1744,41 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # Story 4.2f : la même règle que côté outils, sur `ordre` — donc **après** le budget de blocs et
     # de tokens. Un nœud dont toute la fenêtre a été écartée n'a rien fait lire ; un bloc entré hors
     # fenêtre (définition autonome, renvoi direct) a bien été lu, et son nœud compte.
+    hit_by_id = {hit.clause_uid: hit for hit in hits}
+    # Les ouvertures précèdent l'admission des fenêtres. Les snapshots admis sont ensuite capturés
+    # à la frontière exacte où leur bloc entre dans le contexte, et non reconstruits depuis l'état
+    # final du run. Les candidats rejetés terminent après la navigation bornée et voient donc, eux,
+    # le dernier état réellement atteint.
+    decisions = [AdmissionDecision(
+        result_uid=hit.result_uid,
+        state="admitted" if hit.clause_uid in snapshots_by_block else "rejected",
+        reason=("admitted_by_deterministic_unit" if hit.clause_uid in snapshots_by_block
+                else "not_admitted_within_bounded_navigation"),
+        snapshot=snapshots_by_block.get(hit.clause_uid, final_snapshot),
+    ) for hit in hits]
+    priorities = frozenset(kinds_prioritaires or ())
+    sufficient_hit = next((
+        hit_by_id[block_id] for block_id in ordre
+        if block_id in hit_by_id
+        and (hit_by_id[block_id].score.full_matches > 0
+             or hit_by_id[block_id].score.partial_numerator > 0)
+        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+        and (not priorities or (bloc(block_id).kind in priorities
+                                and bloc(block_id).kind_confirmed))
+    ), None)
+    considered = tuple(hit.result_uid for hit in hits if hit.clause_uid in set(ordre))
     result = RetrievalResult(blocs=blocs, opened_block_ids=opened,
                              opened_node_ids=_noeuds_des_blocs(ordre, corpus=corpus, index=index),
                              discarded_block_ids=discarded,
                              decision_dependency_block_ids=dependances_decisionnelles,
+                             scored_hits=hits, admission_decisions=decisions,
+                             sufficiency=SufficiencyDecision(
+                                 complete=sufficient_hit is not None,
+                                 reason=("relevant_foundation_admitted" if sufficient_hit else
+                                         "no_relevant_foundation_within_budget"),
+                                 sufficiency_result_uid=(sufficient_hit.result_uid
+                                                         if sufficient_hit else None),
+                                 considered_result_uids=considered),
                              truncated=truncated)
     step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"],
                      prompt_cache=None,

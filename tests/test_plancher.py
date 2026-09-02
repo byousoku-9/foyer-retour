@@ -351,10 +351,10 @@ def test_les_tiers_par_etape_sont_pilotables_et_publies() -> None:
     assert seuils["comprendre_tier_reason"] == 1
     assert seuils["rediger_tier_reason"] == 0
     assert seuils["verifier_tier_reason"] == 1
-    # Les défauts restent l'affectation d'AD-9.
+    # Tout choix sémantique reste au plancher Sonnet (`reason`).
     defauts = _settings().thresholds()
     assert (defauts["comprendre_tier_reason"], defauts["rediger_tier_reason"],
-            defauts["verifier_tier_reason"]) == (0, 1, 0)
+            defauts["verifier_tier_reason"]) == (1, 1, 1)
 
 
 # --- digests non concordants sous gate full : quarantaine ------------------------------------------

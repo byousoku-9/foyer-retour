@@ -85,7 +85,7 @@ def _settings(**kw) -> Settings:
 
 
 def _budget(deadline_s: float = 30.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.10)
+    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
 
 
 def test_la_trace_desarme_un_dictionnaire_signe_applique_a_un_autre_document() -> None:
@@ -179,7 +179,8 @@ def _avec_navigation_outils(script: list, variant: str) -> list:
              "input": {"node_id": f"{DOC_ID}:f2", "focus_block_id": f"{DOC_ID}:f2:1"}},
         ],
     )
-    return [script[0], navigation, *script[1:]]
+    conclusion = fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])
+    return [script[0], navigation, conclusion, *script[1:]]
 
 
 def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
@@ -223,7 +224,7 @@ AUTRE_ECOLE = ("c2", "L'inscription se fait avant le 1er septembre.",
 async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index: Index) -> None:
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2, transition=True),
                                              _verdicts(("c1", True), ("c2", True))])
-    assert fake.remaining_script == 0 and len(fake.requests) == 3  # micro, reason, micro — pas un de plus
+    assert fake.remaining_script == 0 and len(fake.requests) == 3  # trois appels reason — pas un de plus
     assert answer.found is True and answer.reason is None
     assert answer.texte == "Segment c1. Segment c2. En résumé."
     assert [c.claim_id for c in answer.claims] == ["c1", "c2"]
@@ -232,7 +233,7 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
 
     # AD-1 : la chaîne est fixe et complète, dans cet ordre
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    assert [s.tier for s in trace.steps] == ["micro", "reason", "reason", "micro", None]
+    assert [s.tier for s in trace.steps] == ["reason", "reason", "reason", "reason", None]
     assert trace.steps[1].calls == []  # *retrouver* déterministe n'appelle aucun modèle
     assert trace.pipeline == "guide" and trace.variant == "deterministe" and trace.request_id == "req-test"
     # Story 1.9 : `faits_compris` et `verdict` sont les deux champs de l'unique `Answer` que le guide
@@ -258,32 +259,33 @@ async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_cha
                   "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}}])
     answer, trace, fake = await _run(
         index, [_comprendre(terms=["arrivée"]), tool_call,
+                fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
                 _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
     assert answer.found and trace.variant == "outils"
     assert [s.name for s in trace.steps] == [
         "comprendre", "retrouver", "rediger", "verifier", "restituer"]
     retrouver = trace.steps[1]
-    assert len(retrouver.calls) == 1 and retrouver.tier == "micro"
+    assert len(retrouver.calls) == 2 and retrouver.tier == "reason"
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
-    assert fake.requests[2]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in trace.thresholds
-    assert len(fake.requests) == 4
+    assert len(fake.requests) == 5
 
 
 async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieval(index: Index) -> None:
     answer, trace, fake = await _run(
         index, [_comprendre(terms=["arrivée"]),
-                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
+                fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
                 _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
     assert answer.found and trace.variant == "outils"
     retrouver = trace.steps[1]
-    assert retrouver.tier == "micro" and len(retrouver.calls) == 1
+    assert retrouver.tier == "reason" and len(retrouver.calls) == 1
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
     assert [request["model"] for request in fake.requests] == [
-        TIERS["micro"], TIERS["micro"], TIERS["reason"], TIERS["micro"]]
+        TIERS["reason"], TIERS["reason"], TIERS["reason"], TIERS["reason"]]
 
 
 async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
@@ -331,6 +333,7 @@ async def test_outils_partial_truncated_result_keeps_its_useful_blocks_without_f
                   "input": {"node_id": f"{DOC_ID}:f2"}}])
     answer, trace, fake = await _run(
         index, [_comprendre(terms=["arrivée"]), tool_call,
+                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
                 _rediger(BONNE_2), _verdicts(("c2", True))], variant="outils")
 
     retrouver = trace.steps[1]
@@ -339,7 +342,7 @@ async def test_outils_partial_truncated_result_keeps_its_useful_blocks_without_f
         block_id for block_id in tool_candidates if block_id != f"{DOC_ID}:f2:1"]
     assert not any(check.name == "repli_deterministe" for check in retrouver.checks)
     assert answer.found and not answer.complete and answer.reason is None
-    assert trace.truncations == 1 and len(fake.requests) == 4
+    assert trace.truncations == 1 and len(fake.requests) == 5
 
 
 async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:
@@ -376,7 +379,7 @@ async def test_full_context_traverses_the_real_pipeline_and_publishes_its_trace(
     assert trace.variant == "full_context"
     retrieval = next(step for step in trace.steps if step.name == "retrouver")
     assert retrieval.opened_block_ids == [f"{DOC_ID}:f1:2"]
-    assert len(retrieval.calls) == 1 and retrieval.calls[0].tier == "micro"
+    assert len(retrieval.calls) == 1 and retrieval.calls[0].tier == "reason"
 
 
 async def test_direct_pipeline_without_variant_uses_runtime_versioned_setting(index: Index) -> None:
@@ -393,9 +396,9 @@ async def test_full_context_preflight_incident_keeps_partial_pipeline_trace(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
     from server.app.steps import retrouver as retrieval_module
 
-    caps = dict(retrieval_module.MODEL_CAPS[TIERS["micro"]])
+    caps = dict(retrieval_module.MODEL_CAPS[TIERS["reason"]])
     monkeypatch.setitem(
-        retrieval_module.MODEL_CAPS, TIERS["micro"], {**caps, "context_window": 1})
+        retrieval_module.MODEL_CAPS, TIERS["reason"], {**caps, "context_window": 1})
     with pytest.raises(BudgetExceeded) as capture:
         await _run(index, [_comprendre(terms=["arrivée"])], variant="full_context")
 
@@ -724,7 +727,7 @@ async def test_the_relevance_retry_can_be_switched_on_by_configuration(index: In
 async def test_an_unaffordable_retry_serves_the_verified_answer_instead_of_a_503(index: Index) -> None:
     """NFR4 : la relance est une tentative d'amélioration. Refusée faute de budget, elle ne doit pas
     emporter une réponse déjà vérifiée — et la trace le dit."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)  # 3 appels, pas 4
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)  # 3 appels, pas 4
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
@@ -741,7 +744,7 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     draft relancé mais non vérifié. Avec la place pour un seul, démarrer *rédiger* serait payer un
     appel `reason` dont rien ne pourrait sortir (NFR4). Mesuré en live (revue Codex 1.5, tour 3) :
     le plafond par défaut coupait pile entre les deux, et la question ressortait en 503."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.10)  # 3 + 1 : pas les deux
+    budget = RequestBudget(deadline_s=30.0, max_attempts=4, max_cost_eur=0.20)  # 3 + 1 : pas les deux
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
@@ -790,7 +793,7 @@ def _ferme_le_budget_apres(budget: RequestBudget, appels: int) -> RequestBudget:
 
 async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: Index) -> None:
     """AD-1 : « aucun retry ne démarre sans marge » — le retry ne démarre pas, la requête garde sa réponse."""
-    budget = RequestBudget(deadline_s=3.0, max_attempts=6, max_cost_eur=0.10)  # < llm_retry_margin_s
+    budget = RequestBudget(deadline_s=3.0, max_attempts=6, max_cost_eur=0.20)  # < llm_retry_margin_s
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
@@ -800,7 +803,7 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
 
 
 async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_error(index: Index) -> None:
-    budget = RequestBudget(deadline_s=30.0, max_attempts=2, max_cost_eur=0.10)  # comprendre + rediger
+    budget = RequestBudget(deadline_s=30.0, max_attempts=2, max_cost_eur=0.20)  # comprendre + rediger
     answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE)], budget=budget)
     assert fake.remaining_script == 0
     assert answer.found is False and answer.reason is not None
@@ -854,8 +857,8 @@ async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(
         index: Index, variant: str) -> None:
     """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
     (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3 + (variant == "outils"),
-                           max_cost_eur=0.10)
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3 + 2 * (variant == "outils"),
+                           max_cost_eur=0.20)
     script = _avec_navigation_outils(
         [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))], variant)
     answer, trace, fake = await _run(index, script, budget=budget,
@@ -876,11 +879,15 @@ async def test_a_retry_that_verifies_worse_never_replaces_the_answer(
         variant)
     answer, trace, fake = await _run(index, script,
                                      variant=variant)
-    assert fake.remaining_script == 0  # la seconde vérification n'a rien à juger : aucun appel micro
+    assert fake.remaining_script == (1 if variant == "outils" else 0)
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
-    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
-    assert "0 affirmation(s) contre 1" in check.detail
+    checks = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    if variant == "deterministe":
+        (check,) = checks
+        assert "0 affirmation(s) contre 1" in check.detail
+    else:
+        assert checks == []  # la suffisance Sonnet n'a pas demandé de relance inutile
 
 
 @pytest.mark.parametrize("variant", ["deterministe", "outils"])
@@ -899,7 +906,7 @@ async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
 async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
     """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
     settings = _settings(retrieval_max_blocks=2)  # pas de troncature « naturelle » ici
-    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.10)
+    budget = RequestBudget(deadline_s=30.0, max_attempts=3, max_cost_eur=0.20)
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]),
                                                _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
                                        settings=settings, budget=budget)
