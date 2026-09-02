@@ -64,7 +64,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "17-preuve-locale-sans-lecture-arriere"
+PARSER_VERSION = "18-le-renvoi-ferme-la-ligne-le-corps-sort"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -80,12 +80,13 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "&continuation+article&sans_preuve_forte(geometrie|points_de_conduite|intitule)"
                       "=>corps;fragments_meme_bas_geometrique_et_colonne"
                       "=>gauche_droite;"
-                      "entree:preuve_geometrique_seule(renvoi_apres_la_fin_de_la_ligne"
-                      "&fragment_qui_ouvre_la_ligne|points_de_conduite)"
+                      "entree:preuve_geometrique_seule(intitule_ouvre_la_ligne"
+                      "&renvoi_ferme_la_ligne|points_de_conduite)"
                       ",cherchee_sur_les_fragments_natifs;"
                       "jamais_le_texte_seul,jamais_la_taille_du_document;"
                       "fin_tdm:premier_groupe_numerote_non_entree(prefixe_contigu"
-                      ";sans_aucune_lecture_arriere)&meme_predicat_aux_deux_frontieres;"
+                      ";sans_aucune_lecture_arriere)&meme_predicat_aux_deux_frontieres"
+                      ";page_de_continuation_portant_du_hors_sommaire=>corps;"
                       "sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
@@ -858,7 +859,8 @@ def _has_toc_title(page: PageText) -> bool:
     )
 
 
-def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], tolerance: float) -> bool:
+def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], tolerance: float,
+                             *, ferme: float | None = None) -> bool:
     """Une ligne réduite à un numéro de page, après la **fin** de celle-ci et sur sa ligne de base.
 
     « À droite du début » ne suffisait pas : un nombre posé au milieu de l'empan horizontal de la
@@ -866,6 +868,7 @@ def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], toleranc
     """
     return any(_PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
                and candidate.bbox[0] >= line.bbox[2]
+               and (ferme is None or candidate.bbox[0] >= ferme)
                and abs(candidate.bbox[1] - line.bbox[1]) <= tolerance
                for candidate in lines)
 
@@ -906,17 +909,27 @@ def _est_entree_de_sommaire(line: PageLine, page: PageText) -> bool:
         return True
     reference = page.toc_fragments or page.lines
     tolerance = get_settings().toc_page_number_baseline_pt
-    # `_TOC_NUMBER_RE` est une garde **défensive et redondante** : tout chemin qui mène ici passe
-    # déjà par `_has_toc_entries` ou par un groupe dont la première ligne porte un numéro. Sa
-    # mutation ne fait donc rougir aucun témoin, et elle n'est pas annoncée comme une propriété
-    # gardée — elle est déclarée telle, pour qu'on ne la prenne pas pour une preuve.
+    # Le renvoi doit **fermer** la ligne : aucun fragment couvert ne le suit. Sans cette borne, un
+    # nombre posé au milieu d'une ligne assemblée — « 1 Assistance | 24 | heures sur 24 » — passait
+    # pour un renvoi et faisait rentrer un titre d'article dans le sommaire.
+    ferme = max((fragment.bbox[0] for fragment in reference
+                 if _center_inside(fragment.bbox, line.bbox)), default=None)
+    if ferme is None:
+        return False
+    # Trois conditions ci-dessous sont **défensives et redondantes**, et il faut le savoir plutôt
+    # que les prendre pour des preuves : `_TOC_NUMBER_RE` sur l'intitulé (tout chemin qui mène ici
+    # passe déjà par `_has_toc_entries` ou par un groupe numéroté), `fragment.bbox[0] <=
+    # line.bbox[0]` et le `>= line.bbox[2]` de `_renvoi_de_page_a_droite` (toutes deux subsumées par
+    # `ferme`, qui exige que le renvoi soit le fragment le plus à droite). Leur mutation ne fait
+    # rougir aucun témoin : elles sont gardées en défense de profondeur, pas annoncées comme
+    # propriétés prouvées.
     return any(_TOC_NUMBER_RE.match(fragment.text.strip())
                # Le fragment qui porte la preuve doit **ouvrir** la ligne : l'intitulé d'une entrée
                # est toujours son fragment le plus à gauche. Sans cette borne, un fragment voisin
                # dont le centre tombe dans la boîte assemblée — une ligne de tableau, une note en
                # marge — prêtait sa preuve à un titre d'article et le faisait rentrer au sommaire.
                and _center_inside(fragment.bbox, line.bbox) and fragment.bbox[0] <= line.bbox[0]
-               and _renvoi_de_page_a_droite(fragment, reference, tolerance)
+               and _renvoi_de_page_a_droite(fragment, reference, tolerance, ferme=ferme)
                for fragment in reference)
 
 
@@ -961,6 +974,28 @@ def _has_toc_entries(page: PageText) -> bool:
                for line in page.lines)
 
 
+def _hors_sommaire(page: PageText) -> bool:
+    """Vrai si la page porte une ligne qu'un sommaire ne peut pas revendiquer.
+
+    Un sommaire n'est fait que de quatre choses : ses entrées prouvées, son intitulé autonome, les
+    renvois isolés que l'assemblage n'a pas encore fusionnés, et les entrées de forme imprimée que
+    la géométrie ne prouve pas mais que `_has_toc_entries` reconnaît. Tout le reste — de la prose,
+    une clause, la légende d'un tableau — dit que la page est du corps.
+
+    C'est cette formulation qui compte. La précédente exigeait un **article**, c'est-à-dire une ligne
+    numérotée : une page de corps entièrement non numérotée n'avait alors aucun moyen de sortir du
+    sommaire, et une seule ligne tarifaire à points de conduite suffisait à l'y publier en entier.
+    """
+    for ligne in page.lines:
+        texte = ligne.text.strip()
+        if (_est_entree_de_sommaire(ligne, page) or _is_toc_title(texte)
+                or _PAGE_NUMBER_RE.fullmatch(texte) or _PRINTED_TOC_RE.match(texte)
+                or _TOC_LEADER_RE.match(texte)):
+            continue
+        return True
+    return False
+
+
 def _preuve_forte_de_sommaire(page: PageText) -> bool:
     """Preuve qu'un sommaire vit sur cette page : intitulé autonome, ou une entrée prouvée.
 
@@ -993,14 +1028,10 @@ def _mark_toc_pages(pages: list[PageText]) -> None:
         if not in_toc and (structural or visible_title):
             in_toc = True
         if in_toc and (structural or visible_title):
-            # Une page de **continuation** qui porte un article et n'apporte aucune preuve forte de
-            # sommaire est du corps : le sommaire s'était terminé à la page précédente. Sans cette
-            # borne, la seule forme imprimée d'une clause — banale en prose contractuelle, et le
-            # seul signal que cette page apporte — prolongeait la TdM d'une page entière et rendait
-            # la clause non citable. La page d'**ouverture** garde sa permissivité : c'est elle qui
-            # décide qu'un sommaire commence, et une TdM d'une seule page en forme imprimée n'a que
-            # ce signal-là.
-            if continuation and has_article and not _preuve_forte_de_sommaire(page):
+            # Une page de **continuation** qui porte du contenu hors sommaire est du corps : le
+            # sommaire s'était terminé à la page précédente. La page d'**ouverture** garde sa
+            # permissivité : c'est elle qui décide qu'un sommaire commence.
+            if continuation and _hors_sommaire(page):
                 page.is_toc = False
                 page.after_toc = True
                 in_toc = False
