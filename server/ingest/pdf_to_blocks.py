@@ -3,8 +3,11 @@
     uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017 [--data data] [--edition "juin 2017"]
 
 Extraction : `page.get_text("dict", sort=True)` ; une `Line` par ligne visuelle (un numéro d'article et le texte
-qui le suit sur la même ligne de base sont fusionnés) ; en-têtes/pieds répétés retirés (bande haute/basse, texte
-récurrent ou numéro de page). Segmentation : un numéro d'article ouvre un nœud `{doc_id}:a{numero}` (parent = préfixe
+qui le suit sur la même ligne de base sont fusionnés ; un glyphe sans alphanumérique — puce, point-virgule —
+détaché de sa ligne lui est rendu par la géométrie, devant s'il est à sa gauche, derrière s'il est à sa droite) ;
+titres courants retirés — en bande haute/basse quand le texte est récurrent ou un numéro de page, **et partout
+ailleurs** quand la ligne est tournée et que son texte, ses nombres masqués, revient de page en page.
+Segmentation : un numéro d'article ouvre un nœud `{doc_id}:a{numero}` (parent = préfixe
 le plus long existant, sinon la racine) ; une ligne à puce ouvre un item de `list` ; un écart vertical supérieur à
 `para_gap_ratio` hauteurs de ligne ouvre un `para` ; un paragraphe qui continue sur la page suivante est scindé,
 le second bloc porte `continues`. Un intitulé autonome de table des matières, dans une ligne ou une table, ouvre
@@ -64,12 +67,18 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "19-un-intitule-qui-passe-a-la-ligne-reste-du-sommaire"
+PARSER_VERSION = "20-la-porte-de-lecture-rend-le-glyphe-le-titre-tourne-et-la-vraie-gouttiere"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
                       "gap>para_gap_ratio*h=>para;"
-                      "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
+                      "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt)"
+                      "|titre_courant(ligne_tournee&texte_sans_ses_nombres"
+                      "_vu_sur>=header_min_pages_ratio_pages)=>retire_hors_bande;"
+                      "glyphe:ligne_sans_alphanumerique&recouvrement_de_bande_avec_une_ligne_de_texte"
+                      "&disjointe_en_x&sans_gouttiere_entre=>fusionnee_a_sa_place"
+                      "(devant_si_a_gauche,derriere_si_a_droite;plus_grand_recouvrement,puis_plus_proche)"
+                      ";isolee=>reste_une_ligne;"
                       "table:find_tables=>frontieres_cellules_meme_vides&spans_source=>texte_fidele"
                       "&bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois"
                       "&ligne_hors_cellule=>retour_flux_texte&sans_source_ni_texte=>sans_bloc"
@@ -105,21 +114,30 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "colonnes:gouttiere>=column_gutter_min_pt"
                       "&cotes>=column_min_lines(lignes+rangees_de_table)"
                       "&hauteur>=column_min_span_ratio=>lecture(bande,colonne,y0,x0);"
-                      "colonnes_serrees:blocs_source_disjoints>=column_min_lines_par_cote"
+                      "colonnes_serrees:blocs_source_disjoints_de_chaque_cote(sans_compte)"
                       "&departs_separes>=column_gutter_min_pt&remplissage>=column_min_fill_ratio"
                       "=>gouttiere;bloc_source_partage=>gouttiere_ecartee;"
                       "rangee(lignes_seules):appariement>column_row_pairing_max_ratio"
                       "&remplissage<column_min_fill_ratio=>gouttiere_ecartee;"
-                      "sans_gouttiere=>ordre_lecture=ordre_source;traversante=>colonne0+bande;"
+                      "frontiere_retenue=min(boites_traversees),puis_max(gouttiere),puis_min(x);"
+                      "sans_gouttiere=>ordre_lecture=ordre_source;"
+                      "traverse_toutes_les_gouttieres=>colonne0+bande,sinon=>colonne_de_depart;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
                       "structure:proposition_verifiee(line_uid)&couverture_totale"
                       "=>noeuds positionnels+titres du registre;"
                       "refus=>quarantaine")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
-         "lstrip_lines_sans_puce": True, "merge_number_sep": " ",
+         "lstrip_lines_sans_puce": True, "merge_number_sep": " ", "merge_glyph_sep": " ",
          "ligatures": "decomposees (TEXT_PRESERVE_LIGATURES absent)", "dehyphenate": False}
 
 _NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\s*$")
+# Un titre courant porte le numéro de la page qu'il coiffe : c'est sa *seule* variation admise d'une
+# page à l'autre. On compare donc les textes une fois leurs suites de chiffres masquées — jamais un
+# libellé, jamais un gabarit écrit à la main.
+_SUITE_DE_CHIFFRES_RE = re.compile(r"\d+")
+# Un « glyphe » est une ligne qui ne porte aucun caractère alphanumérique : une puce, un point-virgule,
+# un tiret détachés de la ligne qu'ils ponctuent. `\w` moins `_` couvre lettres accentuées et chiffres.
+_ALPHANUM_RE = re.compile(r"[^\W_]", re.UNICODE)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _PAGE_NUMBER_RE = re.compile(r"^\d{1,3}$")
 _TOC_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
@@ -494,8 +512,17 @@ class PageLayout:
         return bool(self.boundaries)
 
     def colonne(self, bbox: list[float] | tuple[float, ...]) -> int:
-        """0 = pleine largeur (la boîte traverse une gouttière) ; sinon le rang de la colonne, 1-indexé."""
-        if any(bbox[0] < boundary < bbox[2] for boundary in self.boundaries):
+        """0 = pleine largeur ; sinon le rang de la colonne où la boîte **commence**, 1-indexé.
+
+        Pleine largeur veut dire d'un bord à l'autre de la zone écrite : la boîte traverse **toutes**
+        les gouttières, de la première colonne à la dernière. Une boîte qui n'en traverse qu'une
+        partie — sur trois colonnes, un intertitre posé sur les deux de droite — n'est pleine largeur
+        que de son propre morceau de page : elle ne coiffe pas la colonne de gauche et n'a donc pas à
+        se lire avant elle. Elle prend le rang de la colonne où elle commence et s'y lit à son rang
+        vertical. Avec une seule gouttière — deux colonnes — « toutes » et « une » se confondent :
+        le comportement y est inchangé à l'octet.
+        """
+        if self.boundaries and all(bbox[0] < boundary < bbox[2] for boundary in self.boundaries):
             return 0
         return 1 + sum(1 for boundary in self.boundaries if bbox[0] >= boundary)
 
@@ -522,6 +549,11 @@ class PageLine:
     # lignes. Ils ne sortent jamais dans `document.json` : ils servent uniquement à départager une
     # vraie colonne serrée d'un retrait ou d'une puce appartenant au même paragraphe source.
     source_blocks: list[str] = field(default_factory=list)
+    # Direction d'écriture de la ligne, telle que l'extracteur la publie : `True` quand elle est plus
+    # verticale qu'horizontale. Une ligne tournée n'appartient pas au flux de lecture de la page —
+    # elle ne peut pas être du corps composé dans le même sens que lui — et c'est cette orientation,
+    # jamais une position ni un texte, qui la rend candidate au titre courant.
+    tournee: bool = False
     colonne: int = 1
     bande: int = 0
     ordre_lecture: int = 0
@@ -752,8 +784,10 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
                 continue
             size = max(sizes, key=lambda k: sizes[k]) if sizes else 0.0
             bbox = _round(line["bbox"])
+            direction = line.get("dir", (1.0, 0.0))
             source = registry.add(page=page_no, text=text, bbox=bbox) if registry is not None else None
             page_line = PageLine(text=text, bbox=bbox, size=size, bullet=bullet,
+                                 tournee=abs(direction[1]) > abs(direction[0]),
                                  source_uids=[source.uid] if source is not None else [],
                                  source_blocks=[f"p{page_no}:b{block_index}"],
                                  ordre_lecture=(source.ordre if source is not None else
@@ -1243,6 +1277,87 @@ def _ocr_error_category(exc: Exception) -> str:
     return "echec_moteur"
 
 
+def _sans_numeros(text: str) -> str:
+    """Texte comparé d'un titre courant : ses suites de chiffres masquées, tout le reste intact."""
+    return _SUITE_DE_CHIFFRES_RE.sub("#", text)
+
+
+def _est_un_glyphe(line: PageLine) -> bool:
+    """Une ligne sans le moindre caractère alphanumérique : elle ne dit rien seule."""
+    return not _ALPHANUM_RE.search(line.text)
+
+
+def _fusionner_glyphes(lines: list[PageLine], tables: Sequence[PageTable] = ()) -> list[PageLine]:
+    """Rend à sa ligne le glyphe que l'extracteur en a détaché — par la géométrie seule.
+
+    Une puce, un point-virgule ou un tiret composés dans un span séparé sortent de `get_text(sort=True)`
+    comme une ligne à part entière, ordonnée sur le haut de sa propre boîte : la puce d'un item se
+    retrouve *après* le texte qu'elle annonce dès qu'elle est posée un point plus bas. Elle devient
+    alors une ligne de contenu qui ne dit rien, ouvre un bloc à elle seule et décale tout ce que la
+    segmentation compte ensuite — un titre, un item, un ancrage de structure.
+
+    La règle ne connaît ni puce ni ponctuation : **une ligne sans aucun caractère alphanumérique qui
+    partage la bande d'une ligne de texte voisine, et qui en est disjointe en x, appartient à cette
+    ligne**, à la place que sa géométrie lui donne — devant si elle est à sa gauche, derrière si elle
+    est à sa droite. Sa partenaire est celle dont elle recouvre le plus la hauteur, la plus proche en
+    x à recouvrement égal, et jamais au-delà d'une gouttière : un glyphe en bas d'une colonne ne
+    s'accroche pas au texte de la colonne voisine. Un glyphe qui ne partage la bande d'aucune ligne
+    reste une ligne — il n'y a alors rien à réparer, et l'inventer serait une supposition.
+
+    La ligne d'accueil garde sa place dans le flux et absorbe les `source_uids` du glyphe : le
+    registre ne perd aucune ligne source, exactement comme à la fusion des numéros.
+    """
+    boites = _boites(lines, tables)
+    written_height = (max(b.bbox[3] for b in boites) - min(b.bbox[1] for b in boites)) if boites else 0.0
+    boundaries = _column_boundaries(boites, written_height) if boites else []
+    hotes = [line for line in lines if not _est_un_glyphe(line)]
+    absorbes: set[int] = set()
+    prefixes: dict[int, list[PageLine]] = {}
+    suffixes: dict[int, list[PageLine]] = {}
+    for glyphe in lines:
+        if not _est_un_glyphe(glyphe):
+            continue
+        meilleur: tuple[float, float, int, PageLine] | None = None
+        for hote in hotes:
+            recouvrement = min(glyphe.bbox[3], hote.bbox[3]) - max(glyphe.bbox[1], hote.bbox[1])
+            if recouvrement <= 0:
+                continue
+            devant = glyphe.bbox[2] <= hote.bbox[0]
+            derriere = glyphe.bbox[0] >= hote.bbox[2]
+            if not (devant or derriere):
+                continue
+            gauche, droite = (glyphe, hote) if devant else (hote, glyphe)
+            if any(gauche.bbox[2] <= frontiere <= droite.bbox[0] for frontiere in boundaries):
+                continue
+            ecart = droite.bbox[0] - gauche.bbox[2]
+            candidat = (recouvrement, -ecart, 0 if devant else 1, hote)
+            if meilleur is None or candidat[:3] > meilleur[:3]:
+                meilleur = candidat
+        if meilleur is None:
+            continue
+        absorbes.add(id(glyphe))
+        (prefixes if meilleur[2] == 0 else suffixes).setdefault(id(meilleur[3]), []).append(glyphe)
+    if not absorbes:
+        return lines
+    out: list[PageLine] = []
+    for line in lines:
+        if id(line) in absorbes:
+            continue
+        avant = sorted(prefixes.get(id(line), []), key=lambda g: g.bbox[0])
+        apres = sorted(suffixes.get(id(line), []), key=lambda g: g.bbox[0])
+        if avant or apres:
+            joints = [*avant, line, *apres]
+            line.text = FLAGS["merge_glyph_sep"].join(part.text for part in joints)
+            line.bbox = [min(part.bbox[0] for part in joints), min(part.bbox[1] for part in joints),
+                         max(part.bbox[2] for part in joints), max(part.bbox[3] for part in joints)]
+            # Une puce ne se lit qu'en tête : un glyphe rendu derrière son texte ne fait pas un item.
+            line.bullet = line.bullet or any(glyphe.bullet for glyphe in avant)
+            line.source_uids = [uid for part in joints for uid in part.source_uids]
+            line.source_blocks = list(dict.fromkeys(src for part in joints for src in part.source_blocks))
+        out.append(line)
+    return out
+
+
 def _merge_number_lines(lines: list[PageLine], tables: Sequence[PageTable] = ()) -> list[PageLine]:
     """« 1.12 » seul sur sa ligne + « Contenu » sur la même ligne de base ⇒ une seule `Line` « 1.12 Contenu ».
 
@@ -1286,19 +1401,37 @@ def _merge_number_lines(lines: list[PageLine], tables: Sequence[PageTable] = ())
 
 
 def _without_running_bands(page: PageText, lines: list[PageLine], band_texts: dict[str, int],
-                           minimum: int, *, registry: SourceRegistry | None = None) -> list[PageLine]:
-    """Retire les bandes récurrentes d'une couche native ou OCR et conserve leur diagnostic."""
+                           minimum: int, *, registry: SourceRegistry | None = None,
+                           titres_tournes: dict[str, int] | None = None) -> list[PageLine]:
+    """Retire les titres courants d'une couche native ou OCR et conserve leur diagnostic.
+
+    Un titre courant se prouve de deux façons, jamais par son texte. **Dans une bande** haute ou
+    basse, il suffit qu'il soit récurrent, un numéro de page ou des capitales fines : la bande dit
+    déjà qu'on est hors du corps. **Hors des bandes**, il faut une preuve que la position ne donne
+    pas : la ligne est *tournée* — sa direction d'écriture est plus verticale qu'horizontale, donc
+    elle n'appartient pas au flux composé de la page — **et** son texte revient de page en page,
+    à ses nombres près (`_sans_numeros` : « HOME — Conditions générales 25 | 48 » et son voisin de la
+    page 26 sont le même titre). Les deux conjoints sont nécessaires : une ligne tournée unique dans
+    tout un document — une mention d'édition en marge — reste du contenu, et un texte récurrent posé
+    droit au milieu d'une page est du corps répété, pas un titre courant.
+
+    Sa position ne le qualifie donc plus : une marge latérale, un pied de colonne ou n'importe quel
+    point de la page conviennent. C'est ce qui manquait — le titre courant vertical de la marge
+    droite tombait au beau milieu du flux d'une colonne, entre deux moitiés d'une même phrase.
+    """
     s = get_settings()
     reg = page.source if registry is None else registry
+    tournes = titres_tournes or {}
     kept: list[PageLine] = []
     for line in lines:
         in_band = line.bbox[1] < s.header_band_pt or line.bbox[3] > page.height - s.footer_band_pt
         running = band_texts.get(line.text, 0) >= minimum or _PAGE_NUMBER_RE.match(line.text) is not None \
             or (line.size <= s.header_caps_max_size_pt and line.text == line.text.upper())
-        if in_band and running:
+        courant_tourne = line.tournee and tournes.get(_sans_numeros(line.text), 0) >= minimum
+        if (in_band and running) or courant_tourne:
             if line.text not in page.removed:
                 page.removed.append(line.text)
-            reg.retirer(line.source_uids, "bande_recurrente")
+            reg.retirer(line.source_uids, "bande_recurrente" if in_band and running else "titre_courant_tourne")
             continue
         kept.append(line)
     return kept
@@ -1394,6 +1527,26 @@ def _remplissage_minimal(lines: list[PageLine], left: list[PageLine], right: lis
     return min(parts)
 
 
+def _merite_de_frontiere(traversees: int, gutter: float, candidate: float) -> tuple[float, float, float]:
+    """Ordre **total** des frontières candidates admissibles, du meilleur au moins bon.
+
+    Trois clés, dans cet ordre : le moins de boîtes traversées, puis le plus de blanc, puis la
+    frontière la plus à gauche. La dernière rend le résultat indépendant de l'ordre d'itération.
+
+    Ne classer que sur la largeur du blanc mesurait la moitié de la géométrie : le blanc retenu entre
+    les boîtes **écartées**, jamais les boîtes **coupées** pour l'obtenir. Deux fausses gouttières
+    gagnaient ainsi contre la vraie. Un retrait à l'intérieur d'une colonne ouvre un blanc plus large
+    que la gouttière de page, en déclarant pleine largeur les dizaines de lignes de la colonne qu'il
+    traverse — la colonne entière devenait « pleine largeur », ouvrait une bande par ligne et se
+    relisait entrelacée avec sa voisine. Et deux départs de colonne distants d'un centième de point
+    suffisaient : le second gagnait pour un centième de blanc de plus, en coupant toutes les lignes
+    qui commençaient au premier. Une gouttière est un couloir de blanc ; le contenu qui la franchit
+    est l'exception pleine largeur qu'elle coiffe, et une candidate qui doit en couper quarante n'est
+    pas un couloir.
+    """
+    return (-traversees, gutter, -candidate)
+
+
 def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
     """Meilleure gouttière d'un ensemble de boîtes, ou `None` — géométrie seule, aucun cas particulier.
 
@@ -1427,7 +1580,7 @@ def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
     if len(boites) < 2 * s.column_min_lines:
         return None
     lignes = [b.ligne for b in boites if b.ligne is not None]
-    best: tuple[float, float] | None = None  # (largeur de gouttière, frontière)
+    best: tuple[tuple[float, float, float], float] | None = None  # (mérite, frontière)
     for candidate in sorted({b.bbox[0] for b in boites}):
         left = [b for b in boites if b.bbox[2] <= candidate]
         right = [b for b in boites if b.bbox[0] >= candidate]
@@ -1458,12 +1611,20 @@ def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
                 continue
         if gutter < s.column_gutter_min_pt:
             # Une gouttière visuellement serrée n'abaisse pas le seuil de blanc. Elle emprunte une
-            # seconde preuve : assez de blocs source indépendants de chaque côté, aucun de ces blocs
-            # dans une boîte traversante, des départs de colonnes séparés par le seuil publié et deux
-            # côtés réellement remplis. Sans provenance source (PageText synthétique historique,
-            # table seule), le chemin reste strictement celui du blanc physique.
-            if (len(sources_left) < s.column_min_lines
-                    or len(sources_right) < s.column_min_lines
+            # seconde preuve : **aucun flux natif ne franchit le blanc** — chaque côté est fait de
+            # blocs source qui lui appartiennent, aucun d'eux n'est dans une boîte traversante —,
+            # des départs de colonnes séparés par le seuil publié et deux côtés réellement remplis.
+            # Sans provenance source (PageText synthétique historique, table seule), le chemin reste
+            # strictement celui du blanc physique.
+            #
+            # Ce qui est exigé, c'est que les flux soient **disjoints**, pas qu'ils soient
+            # **nombreux**. Compter les blocs source de chaque côté et en réclamer `column_min_lines`
+            # mesurait le morcellement de l'extracteur, jamais la séparation : une colonne que
+            # PyMuPDF rend d'un seul tenant — le cas le plus favorable, où l'extracteur a lui-même
+            # reconnu un flux unique s'arrêtant à la gouttière — était rejetée pour n'être pas assez
+            # morcelée, et la page repartait sur une fausse frontière intérieure à sa colonne. Le
+            # morcellement n'est pas une preuve ; la disjonction en est une.
+            if (not sources_left or not sources_right
                     or bool(sources_left & sources_right)
                     or sources_crossing & (sources_left | sources_right)
                     or not lignes_gauche or not lignes_droite):
@@ -1484,10 +1645,9 @@ def _best_boundary(boites: list[_Boite], written_height: float) -> float | None:
                 > s.column_row_pairing_max_ratio \
                 and _remplissage_minimal(lignes, lignes_gauche, lignes_droite) < s.column_min_fill_ratio:
             continue
-        # À partition égale, la gouttière la plus large gagne ; à largeur égale, la frontière la plus
-        # à gauche — deux règles totales, donc un résultat indépendant de l'ordre d'itération.
-        if best is None or (gutter, -candidate) > (best[0], -best[1]):
-            best = (gutter, candidate)
+        merite = _merite_de_frontiere(len(crossing), gutter, candidate)
+        if best is None or merite > best[0]:
+            best = (merite, candidate)
     return None if best is None else best[1]
 
 
@@ -1570,6 +1730,10 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     doc = pymupdf.open(str(pdf))
     pages: list[PageText] = []
     band_texts: dict[str, int] = {}
+    # Recensement des lignes tournées, par texte démuni de ses nombres → pages où il apparaît. Le
+    # comptage est fait en **pages** et non en occurrences : « répété de page en page » est ce que
+    # `header_min_pages_ratio` mesure déjà pour les bandes.
+    pages_tournees: dict[str, set[int]] = {}
     try:
         toc = doc.get_toc()
         for pno, page in enumerate(doc, start=1):
@@ -1585,12 +1749,16 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
             for line in lines:
                 if line.bbox[1] < s.header_band_pt or line.bbox[3] > pt.height - s.footer_band_pt:
                     band_texts[line.text] = band_texts.get(line.text, 0) + 1
+                if line.tournee:
+                    pages_tournees.setdefault(_sans_numeros(line.text), set()).add(pno)
             pages.append(pt)
         # `ceil` évite qu'une occurrence sous le ratio configuré soit promue par troncature.
         min_pages = max(2, ceil(len(pages) * s.header_min_pages_ratio))
+        titres_tournes = {texte: len(vues) for texte, vues in pages_tournees.items()}
         for index, pt in enumerate(pages):
             page = doc[index]
-            native_kept = _without_running_bands(pt, pt.lines, band_texts, min_pages)
+            native_kept = _without_running_bands(pt, pt.lines, band_texts, min_pages,
+                                                 titres_tournes=titres_tournes)
             pt.native_text = bool(native_kept or pt.tables)
             if not pt.native_text and pt.visual:
                 pt.ocr_attempted = True
@@ -1600,8 +1768,9 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                     ocr_lines, _ = _raw_lines(page, page_no=pt.page, textpage=textpage,
                                               tables=pt.tables, registry=ocr_registry)
                     retained_ocr = _without_running_bands(pt, ocr_lines, band_texts, min_pages,
-                                                          registry=ocr_registry)
-                    pt.lines = _merge_number_lines(retained_ocr, pt.tables)
+                                                          registry=ocr_registry,
+                                                          titres_tournes=titres_tournes)
+                    pt.lines = _merge_number_lines(_fusionner_glyphes(retained_ocr, pt.tables), pt.tables)
                     # Le registre servi est celui de la couche réellement retenue : la couche native
                     # de cette page n'a rien laissé passer, ses lignes n'ancreraient donc aucun bloc.
                     pt.source = ocr_registry
@@ -1614,7 +1783,7 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
                     pt.ocr_error = f"ocr_exception:{type(exc).__name__}:{category}"
                     logger.exception("Échec OCR page %s (%s)", pt.page, category)
             else:
-                pt.lines = _merge_number_lines(native_kept, pt.tables)
+                pt.lines = _merge_number_lines(_fusionner_glyphes(native_kept, pt.tables), pt.tables)
     finally:
         doc.close()
     _mark_toc_pages(pages)
