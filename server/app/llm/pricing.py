@@ -156,6 +156,22 @@ def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, setti
     l'`usage` renvoyé) ; le cache reste alors chaud (deadline 55 s, TTL ≥ 5 min) et l'estimation reste
     un majorant. Le passer sur un préfixe que le fournisseur n'a pas caché — sous sa taille minimale
     cacheable — ferait sous-estimer l'appel : c'est ce que le client refuse de faire."""
+    return _round4(estimate_cost_unrounded(
+        model, system, messages, max_tokens, settings, tools=tools,
+        output_schema=output_schema, prefix_cached=prefix_cached, prompt_cache=prompt_cache,
+    ))
+
+
+def estimate_cost_unrounded(
+        model: str, system: Any, messages: Any, max_tokens: int, settings: Settings, *,
+        tools: Any = None, output_schema: Any = None, prefix_cached: bool = False,
+        prompt_cache: bool = True) -> float:
+    """Même majorant qu'`estimate_cost`, avant tout arrondi monétaire.
+
+    Les plans multi-appels additionnent ces valeurs, puis arrondissent le total vers le haut. Une
+    addition de valeurs déjà arrondies au plus proche pourrait perdre jusqu'à 0,00005 EUR par appel
+    et n'est donc pas un préflight sûr.
+    """
     if model not in PRICES:
         raise ValueError(f"modèle absent de PRICES : {model!r}")
     p = PRICES[model]
@@ -176,4 +192,29 @@ def estimate_cost(model: str, system: Any, messages: Any, max_tokens: int, setti
     usd = (prefix_chars * tokens_per_char * write_rate
            + suffix_chars * tokens_per_char * p["input"]
            + max_tokens * p["output"]) / _MTOK
-    return _round4(usd * settings.usd_eur)
+    return usd * settings.usd_eur
+
+
+def estimate_cost_from_token_bounds(
+        model: str, *, prefix_tokens: int, message_tokens: int, max_tokens: int,
+        settings: Settings) -> float:
+    """Coût EUR non arrondi depuis des bornes de tokens déjà prouvées par l'appelant.
+
+    Cette variante sert aux enveloppes Unicode dont une borne contextuelle byte-level est plus
+    conservatrice que l'estimation calibrée en caractères. Préfixe et messages restent tarifés aux
+    mêmes postes défavorables que `estimate_cost`; aucune remise Batch ni cache supposé n'entre ici.
+    """
+    if model not in PRICES:
+        raise ValueError(f"modèle absent de PRICES : {model!r}")
+    if min(prefix_tokens, message_tokens, max_tokens) < 0:
+        raise ValueError("les bornes de tokens doivent être positives")
+    prices = PRICES[model]
+    write_rate = (prices["cache_write_1h"]
+                  if MODEL_CAPS[model]["cache_ttl"] == "1h"
+                  else prices["cache_write"])
+    usd = (
+        prefix_tokens * write_rate
+        + message_tokens * prices["input"]
+        + max_tokens * prices["output"]
+    ) / _MTOK
+    return usd * settings.usd_eur

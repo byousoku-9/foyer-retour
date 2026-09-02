@@ -573,14 +573,14 @@ class Settings(BaseSettings):
     # la desserrer : l'abaisser ne rouvre aucun trou, chaque ligne non couverte reste un refus
     # `ligne_omise` (prouvé par `test_abaisser_la_borne_de_couverture_ne_rouvre_pas_la_ligne_omise`).
     structure_min_coverage: float = Field(1.0, ge=0, le=1)
-    # Bornes de la seule requête : la charge utile est le registre de lignes du document entier,
-    # et la réponse ne porte que des uid et des liens — jamais du texte.
-    # **Mesuré, et non supposé** (revue 4.2c) : les deux contrats déjà ingérés rendent 4 214 lignes
-    # pour 710 081 caractères et 4 802 lignes pour 655 999. La première valeur écrite ici, 300 000,
-    # fermait donc la CLI sur les deux — `demande()` levait « aucun appel soumis » et il n'existe
-    # aucun découpage possible, la proposition portant sur le document entier. La borne est réglée
-    # au-dessus du maximum mesuré avec ~25 % de marge ; au-delà, c'est le plafond de coût qui
-    # arrête le run, avant toute construction de client.
+    # Bornes de structure hors ligne. `structure_max_input_chars` borne chaque charge utile
+    # segmentée **et** l'artefact global relu. Le planificateur mesure en plus l'enveloppe sérialisée
+    # complète (prompt, message, ancres de frontière bornées et schéma) contre
+    # `MODEL_CAPS.context_window`, via une borne supérieure en octets UTF-8 et sortie maximale
+    # comprise. Il choisit des segments contigus aux frontières d'unités de portage avant le premier
+    # appel, puis le préflight additionne leurs majorants non arrondis. Cette valeur n'est donc jamais
+    # relevée pour faire tenir artificiellement un monolithe fournisseur. La réponse ne porte que des
+    # uid et des liens, jamais du texte, et la couture globale reste fail-closed.
     structure_max_input_chars: int = Field(900000, ge=1)
     structure_max_output_tokens: int = Field(16000, ge=1)
     # Majorant vérifié **avant** toute construction de client (idiome `type_clauses`).

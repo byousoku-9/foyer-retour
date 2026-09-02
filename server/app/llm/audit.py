@@ -58,6 +58,7 @@ class ExactLlmAuditEvent(BaseModel):
     request: dict[str, Any]
     response: dict[str, Any] | None = None
     error_class: str | None = None
+    usage_cumule: dict[str, int | float | bool] | None = None
 
     def public_projection(self) -> dict[str, Any]:
         request = _canonical(self.request)
@@ -76,6 +77,7 @@ class ExactLlmAuditEvent(BaseModel):
             "response_sha256": hashlib.sha256(response).hexdigest(),
             "response_bytes": len(response),
             "error_class": self.error_class,
+            "usage_cumule": self.usage_cumule,
         }
 
 
@@ -181,6 +183,7 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
                         trusted_line_uids: tuple[str, ...] = (),
                         artifact_uid: str = "",
                         error_class: str | None = None,
+                        usage_cumule: dict[str, int | float | bool] | None = None,
                         max_bytes: int = 16 * 1024 * 1024,
                         retention_files: int = 4) -> dict[str, Any]:
     """Couture commune aux clients d'ingestion synchrones (Opus/T1/T2/arbitre)."""
@@ -192,6 +195,7 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
         step=step, tier="ingest",
         model=model, request=request, response=serialized_response,
         trusted_line_uids=trusted_line_uids, error_class=error_class,
+        usage_cumule=usage_cumule,
     )
     return JsonlAuditSink(
         path, max_bytes=max_bytes, retention_files=retention_files,

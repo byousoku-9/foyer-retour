@@ -51,9 +51,10 @@ from server.app.corpus.racine import racine_couvrant
 from server.app.domain.artifact import document_artifact_uid
 from server.app.domain.document import (DOC_ID_MAX, DOC_ID_RE, NodeRelation,
                                         NodeRelationKind, SurfaceClass)
-from server.app.llm.models import EFFORT, TIERS
+from server.app.domain.trace import Usage
+from server.app.llm.models import EFFORT, MODEL_CAPS, TIERS
 from server.app.llm.audit import append_ingest_audit
-from server.app.llm.pricing import cost_from_usage, estimate_cost
+from server.app.llm.pricing import cost_from_usage, estimate_cost_from_token_bounds
 from server.ingest.artifacts import exiger_espace_installe, write_atomic
 from server.ingest.line_identity import line_uid
 
@@ -76,6 +77,10 @@ MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "li
 # `line-v1:` + SHA-256 hexadécimal. La borne empêche toujours un artefact de concentrer son poids
 # dans un seul identifiant, mais elle décrit désormais la même identité que `Document.Line`.
 LINE_UID_MAX = len("line-v1:") + 64
+# Les ancres sont un voisinage de frontière, jamais une copie du registre. La moitié regarde en
+# arrière (parents/continuations), l'autre en avant (relations). Cette constante structurelle borne
+# à la fois payload et enum sans ouvrir un levier corpus dans la configuration produit.
+MAX_BOUNDARY_ANCHORS = 32
 
 _ARTICLE_TITLE_RE = re.compile(
     r"^\s*(?:article|art\.?|artikel|articulo|artigo|articolo)\s+"
@@ -127,12 +132,63 @@ def oracle_article_uid(title: str) -> str | None:
     return f"article:{match.group('number')}" if match else None
 
 
+def _candidates_ancres(registre: dict[str, Entree]) -> tuple[AncreStructure, ...]:
+    """Catalogue générique interne des lignes pouvant raisonnablement intituler un nœud.
+
+    Le catalogue est dérivé avant API, uniquement de la forme locale d'une ligne : article ou
+    surface technique reconnue, ou intitulé bref qui ne ressemble pas à une phrase de corps
+    terminée. Une erreur par excès ne publie rien d'elle-même : la cible devra encore être un vrai
+    ``titre_line_uid`` de la proposition globale. Une erreur par défaut interdit seulement l'arête
+    transfrontalière et reste donc fail-closed.
+    """
+    anchors: list[AncreStructure] = []
+    for entry in sorted(registre.values(), key=lambda item: item.ordre):
+        title = entry.titre.strip()
+        normalized = _oracle_text(title)
+        technical = any(pattern.search(normalized) for pattern, _surface in _TECHNICAL_SURFACES)
+        looks_like_heading = (
+            bool(title)
+            and len(title) <= 160
+            and not title.endswith((".", ";", "?", "!"))
+        )
+        if oracle_article_uid(title) is not None or technical or looks_like_heading:
+            anchors.append(AncreStructure(line_uid=entry.uid, ordre=entry.ordre, titre=entry.titre))
+    return tuple(anchors)
+
+
+def _ancres_frontiere(registre: dict[str, Entree], line_uids: Sequence[str], *,
+                      candidates: Sequence[AncreStructure] | None = None,
+                      ) -> tuple[AncreStructure, ...]:
+    """Voisinage externe borné d'un segment, sans dupliquer ses lignes locales.
+
+    Les candidates sont dérivées du registre entier mais seules les plus proches de chaque côté de
+    la frontière sont sérialisées. La taille reste donc O(1) par segment, même si chaque ligne d'un
+    document dense ressemble à un titre.
+    """
+    owned = set(line_uids)
+    orders = [registre[uid].ordre for uid in line_uids]
+    first, last = min(orders), max(orders)
+    candidates = _candidates_ancres(registre) if candidates is None else candidates
+    half = MAX_BOUNDARY_ANCHORS // 2
+    before = [anchor for anchor in candidates if anchor.ordre < first and anchor.line_uid not in owned]
+    after = [anchor for anchor in candidates if anchor.ordre > last and anchor.line_uid not in owned]
+    return tuple((*before[-half:], *after[:MAX_BOUNDARY_ANCHORS - half]))
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
 class RelationProposee(StrictModel):
     kind: NodeRelationKind
+    target_line_uid: str = Field(max_length=LINE_UID_MAX)
+
+
+class ContinuationFrontiereProposee(StrictModel):
+    """Préfixe local qui prolonge un titre d'un segment antérieur sans en inventer un nouveau."""
+
+    premiere_line_uid: str = Field(max_length=LINE_UID_MAX)
+    derniere_line_uid: str = Field(max_length=LINE_UID_MAX)
     target_line_uid: str = Field(max_length=LINE_UID_MAX)
 
 
@@ -223,6 +279,10 @@ class StructureProposee(StrictModel):
     schema_version: Literal["1", "2"] = "2"
     doc_id: str = Field(max_length=DOC_ID_MAX)
     noeuds: list[NoeudPropose] = Field(default_factory=list)
+    # Transport segmentaire uniquement. La couture doit les consommer toutes ; elles ne sont jamais
+    # sérialisées dans l'artefact public final.
+    continuations_frontiere: list[ContinuationFrontiereProposee] = Field(
+        default_factory=list, exclude=True)
 
     @field_validator("noeuds")
     @classmethod
@@ -255,7 +315,7 @@ class StructureProposee(StrictModel):
 
 
 class PropositionFilaire(StrictModel):
-    """Forme **filaire** exacte de la réponse : un objet `{noeuds: [...]}`, et rien d'autre.
+    """Forme filaire exacte d'une réponse segmentaire, nœuds et continuations seulement.
 
     Le modèle n'écrit ni `schema_version`, ni `doc_id` : les deux sont posés par le code. Ce modèle
     dédié est la validation locale qu'impose la convention LLM du spine — celle que `output_format`
@@ -263,6 +323,8 @@ class PropositionFilaire(StrictModel):
     """
 
     noeuds: list[NoeudPropose]
+    continuations_frontiere: list[ContinuationFrontiereProposee] = Field(
+        default_factory=list, max_length=1)
 
 
 _FILAIRE: TypeAdapter[PropositionFilaire] = TypeAdapter(PropositionFilaire)
@@ -307,6 +369,49 @@ class Verdict:
     accepte: bool
     motif: str | None = None
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class AncreStructure:
+    """Titre source candidat exposé uniquement pour une couture parent/relation."""
+
+    line_uid: str
+    ordre: int
+    titre: str
+
+
+@dataclass(frozen=True)
+class SegmentStructure:
+    """Un appel du plan, figé avant la première soumission fournisseur."""
+
+    index: int
+    segment_uid: str
+    line_uids: tuple[str, ...]
+    anchors: tuple[AncreStructure, ...]
+    request: dict[str, Any]
+    request_chars: int
+    input_tokens_majorant: int
+    majorant_eur_brut: float
+    majorant_eur: float
+
+
+@dataclass(frozen=True)
+class PlanStructure:
+    """Partition bijective du registre et enveloppes exactes déjà chiffrées."""
+
+    plan_uid: str
+    registry_hash: str
+    segments: tuple[SegmentStructure, ...]
+    majorant_eur: float
+
+
+@dataclass(frozen=True)
+class ExecutionStructure:
+    """Proposition globale et compteurs cumulés de tous les appels du run."""
+
+    proposition: StructureProposee
+    plan: PlanStructure
+    usage: Usage
 
 
 @dataclass(frozen=True)
@@ -426,18 +531,25 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
     return out
 
 
-def demande(registre: dict[str, Entree], settings: Settings) -> str:
-    """Charge utile : uid, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie.
+def _lignes_payload(registre: dict[str, Entree]) -> list[dict[str, Any]]:
+    return [{"uid": entree.uid, "page": entree.page, "colonne": entree.colonne,
+             "ordre": entree.ordre, "bbox": list(entree.bbox), "texte": entree.titre}
+            for entree in sorted(registre.values(), key=lambda e: e.ordre)]
 
-    Le `texte` publié est celui de la ligne **portée** — c'est-à-dire ce qu'un lecteur voit à cette
-    position, numéro d'article fusionné compris. Les deux uid d'une ligne fusionnée montrent donc la
-    même chaîne : ils désignent la même ligne visuelle, et désigner l'un ou l'autre comme titre rend
-    le même intitulé.
-    """
-    lignes = [{"uid": entree.uid, "page": entree.page, "colonne": entree.colonne,
-               "ordre": entree.ordre, "bbox": list(entree.bbox), "texte": entree.titre}
-              for entree in sorted(registre.values(), key=lambda e: e.ordre)]
-    payload = json.dumps({"lignes": lignes}, ensure_ascii=False, separators=(",", ":"))
+
+def _encoder_demande(registre: dict[str, Entree], settings: Settings, *,
+                     anchors: Sequence[AncreStructure] = ()) -> str:
+    duplicated = sorted(set(registre) & {anchor.line_uid for anchor in anchors})
+    if duplicated:
+        raise ValueError(
+            f"ancres_frontiere duplique des lignes locales {duplicated[:5]}; aucun appel soumis")
+    payload_value: dict[str, Any] = {"lignes": _lignes_payload(registre)}
+    if anchors:
+        payload_value["ancres_frontiere"] = [
+            {"uid": anchor.line_uid, "ordre": anchor.ordre, "titre": anchor.titre}
+            for anchor in anchors
+        ]
+    payload = json.dumps(payload_value, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > settings.structure_max_input_chars:
         raise ValueError(
             f"charge utile de {len(payload)} caractères > borne "
@@ -446,11 +558,23 @@ def demande(registre: dict[str, Entree], settings: Settings) -> str:
     return payload
 
 
+def demande(registre: dict[str, Entree], settings: Settings) -> str:
+    """Charge utile : uid, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie.
+
+    Le `texte` publié est celui de la ligne **portée** — c'est-à-dire ce qu'un lecteur voit à cette
+    position, numéro d'article fusionné compris. Les deux uid d'une ligne fusionnée montrent donc la
+    même chaîne : ils désignent la même ligne visuelle, et désigner l'un ou l'autre comme titre rend
+    le même intitulé.
+    """
+    return _encoder_demande(registre, settings)
+
+
 def _prompt() -> str:
     return (PROMPTS_DIR / "structure.md").read_text("utf-8")
 
 
-def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
+def _schema(uids: tuple[str, ...], settings: Settings, *,
+            reference_uids: tuple[str, ...] = ()) -> dict[str, Any]:
     """Le schéma fournisseur énumère les `uid` autorisés : rien d'autre ne peut être écrit.
 
     `maxItems` y borne la largeur dès la surface d'écriture. Le nombre d'enfants d'un parent n'est
@@ -458,13 +582,18 @@ def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
     plus de nœuds que l'arbre entier —, et `parse_proposition` le revérifie exactement.
     """
     uid_schema = {"type": "string", "enum": list(uids)}
+    reference_schema = {
+        "type": "string",
+        "enum": list(dict.fromkeys((*uids, *reference_uids))),
+    }
+    external_reference_schema = {"type": "string", "enum": list(reference_uids)}
     noeud = {
         "type": "object",
         "properties": {
             "titre_line_uid": uid_schema,
             "premiere_line_uid": uid_schema,
             "derniere_line_uid": uid_schema,
-            "parent_line_uid": {"anyOf": [uid_schema, {"type": "null"}]},
+            "parent_line_uid": {"anyOf": [reference_schema, {"type": "null"}]},
             "title_line_uids": {"type": "array", "items": uid_schema, "minItems": 1},
             "article_uid": {"anyOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
             "surface_class": {"type": "string", "enum": [
@@ -478,7 +607,7 @@ def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
                         "kind": {"type": "string", "enum": [
                             "same_clause_continuation", "explicit_dependency",
                             "definition_override"]},
-                        "target_line_uid": uid_schema,
+                        "target_line_uid": reference_schema,
                     },
                     "required": ["kind", "target_line_uid"],
                     "additionalProperties": False,
@@ -490,38 +619,321 @@ def _schema(uids: tuple[str, ...], settings: Settings) -> dict[str, Any]:
                      "continuation_line_uids", "relations"],
         "additionalProperties": False,
     }
+    continuation = {
+        "type": "object",
+        "properties": {
+            "premiere_line_uid": uid_schema,
+            "derniere_line_uid": uid_schema,
+            "target_line_uid": external_reference_schema,
+        },
+        "required": ["premiere_line_uid", "derniere_line_uid", "target_line_uid"],
+        "additionalProperties": False,
+    }
     schema = {
         "type": "object",
-        "properties": {"noeuds": {"type": "array", "items": noeud,
-                                  "maxItems": settings.structure_max_nodes}},
-        "required": ["noeuds"],
+        "properties": {
+            "noeuds": {"type": "array", "items": noeud,
+                        "maxItems": settings.structure_max_nodes},
+            "continuations_frontiere": {
+                "type": "array", "items": continuation, "maxItems": 1,
+            },
+        },
+        "required": ["noeuds", "continuations_frontiere"],
         "additionalProperties": False,
     }
     return {"type": "json_schema", "schema": schema}
 
 
-def requete(registre: dict[str, Entree], doc_id: str, settings: Settings) -> dict[str, Any]:
-    """Paramètres de l'unique appel structuré du tier `ingest`. Aucun client n'est construit ici."""
+def requete(registre: dict[str, Entree], doc_id: str, settings: Settings, *,
+            anchors: Sequence[AncreStructure] = ()) -> dict[str, Any]:
+    """Paramètres d'un appel segmentaire du tier `ingest`. Aucun client n'est construit ici."""
     return {
         "model": MODEL,
         "max_tokens": settings.structure_max_output_tokens,
         "system": [{"type": "text", "text": _prompt()}],
-        "messages": [{"role": "user", "content": demande(registre, settings)}],
+        "messages": [{"role": "user", "content": _encoder_demande(
+            registre, settings, anchors=anchors)}],
         "output_config": {"format": _schema(tuple(sorted(registre, key=lambda u: registre[u].ordre)),
-                                            settings),
+                                            settings,
+                                            reference_uids=tuple(anchor.line_uid
+                                                                 for anchor in anchors)),
                           "effort": EFFORT[TIER]},
     }
 
 
 def majorant_eur(params: dict[str, Any], settings: Settings) -> float:
-    """Majorant Messages standard de l'unique appel, sans remise Batch."""
-    return round(estimate_cost(params["model"], params["system"], params["messages"],
-                               params["max_tokens"], settings,
-                               output_schema=params["output_config"]["format"]), 4)
+    """Majorant Messages standard d'un appel, arrondi monétairement vers le haut."""
+    return _arrondir_eur_superieur(_majorant_eur_brut(params, settings))
+
+
+def _majorant_eur_brut(params: dict[str, Any], settings: Settings) -> float:
+    prefix = _json_canonique({
+        "system": params["system"],
+        "output_config": params["output_config"],
+    })
+    messages = _json_canonique(params["messages"])
+    return estimate_cost_from_token_bounds(
+        params["model"],
+        prefix_tokens=len(prefix.encode("utf-8")),
+        message_tokens=len(messages.encode("utf-8")),
+        max_tokens=params["max_tokens"],
+        settings=settings,
+    )
+
+
+def _arrondir_eur_superieur(value: float) -> float:
+    return math.ceil(value * 10_000 - 1e-12) / 10_000
+
+
+def _json_canonique(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                      default=str)
+
+
+def _empreinte_registre(registre: dict[str, Entree]) -> str:
+    """Empreinte de toutes les données source, texte compris, avant tout appel.
+
+    Le fournisseur ne peut nommer que des ``line_uid``. Cette empreinte prouve en plus que le
+    dictionnaire fourni par l'appelant n'a pas été remplacé ou muté entre la planification et la
+    couture finale.
+    """
+    lignes = [
+        {
+            "uid": entree.uid,
+            "page": entree.page,
+            "colonne": entree.colonne,
+            "ordre": entree.ordre,
+            "bbox": list(entree.bbox),
+            "texte": entree.texte,
+            "texte_porte": entree.texte_porte,
+            "unite": entree.unite,
+            "source_uids": list(entree.source_uids),
+        }
+        for entree in sorted(registre.values(), key=lambda item: item.ordre)
+    ]
+    return hashlib.sha256(_json_canonique(lignes).encode("utf-8")).hexdigest()
+
+
+def _taille_entree_majorante(params: dict[str, Any], settings: Settings) -> tuple[int, int]:
+    """Taille caractères et borne prouvable de tokens de l'enveloppe complète.
+
+    Le schéma répète volontairement l'enum des ``line_uid`` pour plusieurs propriétés. Mesurer
+    seulement ``messages[0].content`` reproduirait précisément le faux préflight monolithique que
+    cette segmentation corrige. La sérialisation comprend donc système, messages et schéma. La
+    fenêtre n'utilise pas l'heuristique financière en caractères : le nombre d'octets UTF-8 est une
+    borne supérieure du nombre de tokens d'un tokenizer byte-level, y compris sur Unicode dense.
+    """
+    envelope = _json_canonique({
+        "model": params["model"],
+        "system": params["system"],
+        "messages": params["messages"],
+        "output_config": params["output_config"],
+    })
+    return len(envelope), len(envelope.encode("utf-8"))
+
+
+def _segment_admissible(params: dict[str, Any], settings: Settings) -> tuple[bool, int, int]:
+    request_chars, input_tokens = _taille_entree_majorante(params, settings)
+    context_window = int(MODEL_CAPS[params["model"]]["context_window"])
+    admissible = input_tokens + int(params["max_tokens"]) <= context_window
+    return admissible, request_chars, input_tokens
+
+
+def _groupes_portage(registre: dict[str, Entree]) -> list[tuple[str, ...]]:
+    """Unités contiguës indivisibles ; une même unité disjointe rend le registre inplanifiable."""
+    ordered = sorted(registre.values(), key=lambda entree: entree.ordre)
+    ordres = [entry.ordre for entry in ordered]
+    if len(ordres) != len(set(ordres)):
+        raise ValueError("registre non ordonnable : ordres de lecture dupliqués")
+    groups: list[list[str]] = []
+    ports: list[str] = []
+    for entry in ordered:
+        if not groups or ports[-1] != entry.portage:
+            groups.append([])
+            ports.append(entry.portage)
+        groups[-1].append(entry.uid)
+    if len(ports) != len(set(ports)):
+        raise ValueError("registre non ordonnable : unité de portage non contiguë")
+    return [tuple(group) for group in groups]
+
+
+def _construire_plan(partitions: Sequence[tuple[str, ...]], registre: dict[str, Entree], *,
+                     doc_id: str, settings: Settings) -> PlanStructure:
+    """Fige, chiffre et adresse une partition déjà choisie."""
+    expected = tuple(
+        entry.uid for entry in sorted(registre.values(), key=lambda item: item.ordre))
+    flattened = tuple(uid for line_uids in partitions for uid in line_uids)
+    if flattened != expected or len(flattened) != len(set(flattened)):
+        raise ValueError("plan de segments non bijectif avec le registre; aucun appel soumis")
+    owners: dict[str, int] = {}
+    for index, line_uids in enumerate(partitions, 1):
+        for portage in {registre[uid].portage for uid in line_uids}:
+            previous = owners.setdefault(portage, index)
+            if previous != index:
+                raise ValueError(
+                    f"plan scinde l'unité de portage {portage!r}; aucun appel soumis")
+    provisional: list[tuple[
+        tuple[str, ...], tuple[AncreStructure, ...], dict[str, Any], int, int, float,
+    ]] = []
+    candidates = _candidates_ancres(registre)
+    for line_uids in partitions:
+        subset = {uid: registre[uid] for uid in line_uids}
+        anchors = _ancres_frontiere(registre, line_uids, candidates=candidates)
+        params = requete(subset, doc_id, settings, anchors=anchors)
+        admissible, request_chars, input_tokens = _segment_admissible(params, settings)
+        if not admissible:
+            raise ValueError(
+                f"segment impossible : {len(line_uids)} ligne(s) ne tiennent pas dans la fenêtre "
+                f"effective de {MODEL_CAPS[MODEL]['context_window']} tokens avec "
+                f"STRUCTURE_MAX_OUTPUT_TOKENS={settings.structure_max_output_tokens}; "
+                "aucun appel soumis")
+        provisional.append((line_uids, anchors, params, request_chars, input_tokens,
+                            _majorant_eur_brut(params, settings)))
+
+    registry_hash = _empreinte_registre(registre)
+    segment_hashes = [
+        hashlib.sha256(_json_canonique({
+            "line_uids": line_uids,
+            "request": params,
+        }).encode("utf-8")).hexdigest()
+        for line_uids, _anchors, params, *_ in provisional
+    ]
+    plan_uid = "structure-plan-v2:" + hashlib.sha256(_json_canonique({
+        "doc_id": doc_id,
+        "registry_hash": registry_hash,
+        "segments": segment_hashes,
+    }).encode("utf-8")).hexdigest()
+    segments = tuple(
+        SegmentStructure(
+            index=index,
+            segment_uid=f"structure-segment-v2:{segment_hashes[index - 1]}",
+            line_uids=line_uids,
+            anchors=anchors,
+            request=params,
+            request_chars=request_chars,
+            input_tokens_majorant=input_tokens,
+            majorant_eur_brut=raw_estimate,
+            majorant_eur=_arrondir_eur_superieur(raw_estimate),
+        )
+        for index, (line_uids, anchors, params, request_chars, input_tokens, raw_estimate)
+        in enumerate(provisional, 1)
+    )
+    return PlanStructure(
+        plan_uid=plan_uid,
+        registry_hash=registry_hash,
+        segments=segments,
+        majorant_eur=_arrondir_eur_superieur(
+            sum(segment.majorant_eur_brut for segment in segments)),
+    )
+
+
+def planifier_segments(registre: dict[str, Entree], *, doc_id: str,
+                       settings: Settings) -> PlanStructure:
+    """Partitionne le registre en enveloppes contiguës toutes admissibles avant API.
+
+    La recherche dichotomique choisit, à chaque frontière, le plus long préfixe qui tient dans la
+    fenêtre effective du modèle (entrée sérialisée complète + sortie maximale). Le résultat est
+    déterministe pour un registre et des settings donnés. Les segments sont disjoints, contigus et
+    leur concaténation est contrôlée contre le registre avant de rendre le plan.
+    """
+    if not registre:
+        raise ValueError("registre vide : aucune ligne source à proposer")
+    groups = _groupes_portage(registre)
+    candidates = _candidates_ancres(registre)
+    partitions: list[tuple[str, ...]] = []
+    start = 0
+    while start < len(groups):
+        low, high = start + 1, len(groups)
+        best: int | None = None
+        while low <= high:
+            end = (low + high) // 2
+            line_uids = tuple(uid for group in groups[start:end] for uid in group)
+            subset = {uid: registre[uid] for uid in line_uids}
+            anchors = _ancres_frontiere(registre, line_uids, candidates=candidates)
+            try:
+                params = requete(subset, doc_id, settings, anchors=anchors)
+            except ValueError:
+                admissible, request_chars, input_tokens = False, 0, 0
+            else:
+                admissible, request_chars, input_tokens = _segment_admissible(params, settings)
+            if admissible:
+                best = end
+                low = end + 1
+            else:
+                high = end - 1
+        if best is None:
+            group = groups[start]
+            raise ValueError(
+                f"segment impossible : l'unité de portage {registre[group[0]].portage!r} "
+                f"({len(group)} ligne(s)) ne tient pas dans la fenêtre "
+                f"effective de {MODEL_CAPS[MODEL]['context_window']} tokens avec "
+                f"STRUCTURE_MAX_OUTPUT_TOKENS={settings.structure_max_output_tokens}; "
+                "aucun appel soumis"
+            )
+        partitions.append(tuple(uid for group in groups[start:best] for uid in group))
+        start = best
+    return _construire_plan(partitions, registre, doc_id=doc_id, settings=settings)
+
+
+def _valider_plan(plan: PlanStructure, registre: dict[str, Entree], *, doc_id: str,
+                   settings: Settings) -> None:
+    """Rejoue les invariants content-addressés du plan avant la première soumission."""
+    if _empreinte_registre(registre) != plan.registry_hash:
+        raise ValueError("registre source différent du plan; aucun appel soumis")
+    expected_uids = tuple(
+        entry.uid for entry in sorted(registre.values(), key=lambda item: item.ordre))
+    planned_uids = tuple(uid for segment in plan.segments for uid in segment.line_uids)
+    if planned_uids != expected_uids or len(planned_uids) != len(set(planned_uids)):
+        raise ValueError("plan de segments non bijectif avec le registre; aucun appel soumis")
+    if [segment.index for segment in plan.segments] != list(range(1, len(plan.segments) + 1)):
+        raise ValueError("indices de segments incohérents; aucun appel soumis")
+
+    segment_hashes: list[str] = []
+    owners: dict[str, int] = {}
+    candidates = _candidates_ancres(registre)
+    for segment in plan.segments:
+        subset = {uid: registre[uid] for uid in segment.line_uids}
+        expected_anchors = _ancres_frontiere(
+            registre, segment.line_uids, candidates=candidates)
+        expected_request = requete(subset, doc_id, settings, anchors=expected_anchors)
+        admissible, request_chars, input_tokens = _segment_admissible(expected_request, settings)
+        expected_raw = _majorant_eur_brut(expected_request, settings)
+        expected_majorant = majorant_eur(expected_request, settings)
+        digest = hashlib.sha256(_json_canonique({
+            "line_uids": segment.line_uids,
+            "request": expected_request,
+        }).encode("utf-8")).hexdigest()
+        segment_hashes.append(digest)
+        for portage in {registre[uid].portage for uid in segment.line_uids}:
+            previous = owners.setdefault(portage, segment.index)
+            if previous != segment.index:
+                raise ValueError(
+                    f"plan scinde l'unité de portage {portage!r}; aucun appel soumis")
+        if (not admissible
+                or segment.anchors != expected_anchors
+                or segment.request != expected_request
+                or segment.request_chars != request_chars
+                or segment.input_tokens_majorant != input_tokens
+                or segment.majorant_eur_brut != expected_raw
+                or segment.majorant_eur != expected_majorant
+                or segment.segment_uid != f"structure-segment-v2:{digest}"):
+            raise ValueError(
+                f"segment {segment.index} incohérent avec son enveloppe chiffrée; "
+                "aucun appel soumis")
+    expected_total = _arrondir_eur_superieur(
+        sum(segment.majorant_eur_brut for segment in plan.segments))
+    expected_plan_uid = "structure-plan-v2:" + hashlib.sha256(_json_canonique({
+        "doc_id": doc_id,
+        "registry_hash": plan.registry_hash,
+        "segments": segment_hashes,
+    }).encode("utf-8")).hexdigest()
+    if plan.majorant_eur != expected_total or plan.plan_uid != expected_plan_uid:
+        raise ValueError("identité ou majorant cumulé du plan incohérent; aucun appel soumis")
 
 
 def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
-                      settings: Settings | None = None) -> StructureProposee:
+                      settings: Settings | None = None,
+                      reference_uids: Sequence[str] = ()) -> StructureProposee:
     """Défense locale, **même si le schéma l'impose** : tout `uid` étranger est refusé avant usage.
 
     Deux temps, dans cet ordre. D'abord la **forme filaire**, validée localement par
@@ -531,7 +943,8 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
     de ce document — elle les précède.
     """
     try:
-        noeuds = _FILAIRE.validate_json(raw).noeuds
+        filaire = _FILAIRE.validate_json(raw)
+        noeuds = filaire.noeuds
     except (ValidationError, ValueError, TypeError) as exc:
         raise ValueError(f"proposition hors schéma strict ({type(exc).__name__})") from exc
     # La largeur d'abord : elle borne le travail de tout ce qui suit, ici comme dans `verifier`.
@@ -539,13 +952,36 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
     if detail is not None:
         raise ValueError(f"largeur_excessive : {detail}")
     vus: set[str] = set()
+    references = set(reference_uids)
+    for continuation in filaire.continuations_frontiere:
+        for champ, uid in (
+            ("continuations_frontiere.premiere_line_uid", continuation.premiere_line_uid),
+            ("continuations_frontiere.derniere_line_uid", continuation.derniere_line_uid),
+        ):
+            if uid not in registre:
+                raise ValueError(f"{champ}: line_uid inconnu du registre {uid!r}")
+        if (continuation.target_line_uid not in references
+                or continuation.target_line_uid in registre):
+            raise ValueError(
+                "continuations_frontiere.target_line_uid doit être une ancre externe "
+                f"{continuation.target_line_uid!r}")
     for noeud in noeuds:
         for champ, uid in (("titre_line_uid", noeud.titre_line_uid),
                            ("premiere_line_uid", noeud.premiere_line_uid),
-                           ("derniere_line_uid", noeud.derniere_line_uid),
-                           ("parent_line_uid", noeud.parent_line_uid)):
-            if uid is not None and uid not in registre:
+                           ("derniere_line_uid", noeud.derniere_line_uid)):
+            if uid not in registre:
                 raise ValueError(f"{champ}: line_uid inconnu du registre {uid!r}")
+        if (noeud.parent_line_uid is not None and noeud.parent_line_uid not in registre
+                and noeud.parent_line_uid not in references):
+            raise ValueError(
+                f"parent_line_uid: line_uid inconnu du registre et des ancres "
+                f"{noeud.parent_line_uid!r}")
+        for relation in noeud.relations:
+            if (relation.target_line_uid not in registre
+                    and relation.target_line_uid not in references):
+                raise ValueError(
+                    f"relations.target_line_uid: line_uid inconnu du registre et des ancres "
+                    f"{relation.target_line_uid!r}")
         if noeud.titre_line_uid in vus:
             raise ValueError(f"titre_line_uid dupliqué {noeud.titre_line_uid!r}")
         vus.add(noeud.titre_line_uid)
@@ -566,7 +1002,12 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
     version = "2" if all({"title_line_uids", "article_uid", "surface_class",
                            "continuation_line_uids", "relations"} <= node.model_fields_set
                          for node in noeuds) else "1"
-    return StructureProposee(schema_version=version, doc_id=doc_id, noeuds=migrated)
+    return StructureProposee(
+        schema_version=version,
+        doc_id=doc_id,
+        noeuds=migrated,
+        continuations_frontiere=filaire.continuations_frontiere,
+    )
 
 
 def _refus(motif: str, detail: str) -> Verdict:
@@ -619,6 +1060,11 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     """
     if proposition.doc_id != doc_id:
         return _refus("document_different", f"proposition pour {proposition.doc_id!r}, document {doc_id!r}")
+    if proposition.continuations_frontiere:
+        return _refus(
+            "affectation_non_prouvee",
+            "continuation de transport non consommée dans la proposition globale",
+        )
     # La largeur est jugée **avant toute boucle** : celle des intervalles est en O(n²), et le modèle
     # Pydantic ne suffit pas — `model_construct` et tout appel programmatique direct le contournent.
     # Une proposition trop large est refusée en O(n), sans être parcourue une seule fois de plus.
@@ -1079,28 +1525,418 @@ def charger_octets(path: Path, *, settings: Settings | None = None
     if detail is not None:
         raise StructureRefusee("largeur_excessive", f"{path.name} : {detail}")
     try:
-        return StructureProposee.model_validate(charge), brut
+        proposition = StructureProposee.model_validate(charge)
+        if proposition.continuations_frontiere:
+            raise ValueError("continuation de transport interdite dans l'artefact final")
+        return proposition, brut
     except (ValidationError, ValueError, TypeError) as exc:
         raise StructureRefusee("proposition_illisible",
                                f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
 
 
-def _texte(message: Any, settings: Settings) -> tuple[str, float]:
+def _texte(message: Any, settings: Settings) -> tuple[str, Usage]:
     usage = getattr(message, "usage", None)
     if not usage:  # absente **ou vide** : sans usage, aucun coût réel ne peut être certifié
         raise ValueError("réponse sans usage facturable; aucun artefact écrit")
-    cost = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False).cost_eur
+    measured = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False)
     stop_reason = getattr(message, "stop_reason", None)
     if stop_reason is not None and stop_reason not in NORMAL_STOPS:
-        raise ValueError(f"réponse interrompue (stop_reason={stop_reason!r}, coût réel {cost:.4f} €)")
+        raise ValueError(
+            f"réponse interrompue (stop_reason={stop_reason!r}, "
+            f"coût réel {measured.cost_eur:.4f} €)")
     text = "".join(str(getattr(part, "text", "")) for part in (getattr(message, "content", None) or [])
                    if getattr(part, "type", None) == "text")
-    return text, cost
+    return text, measured
+
+
+def _usage_cumule(usages: Sequence[Usage]) -> Usage:
+    return Usage(
+        input=sum(usage.input for usage in usages),
+        cached=sum(usage.cached for usage in usages),
+        output=sum(usage.output for usage in usages),
+        cost_eur=round(sum(usage.cost_eur for usage in usages), 4),
+        cached_response=bool(usages) and all(usage.cached_response for usage in usages),
+        cost_eur_original=round(sum(usage.cost_eur_original for usage in usages), 4),
+    )
+
+
+def _proposition_locale(proposition: StructureProposee,
+                        line_uids: Sequence[str]) -> StructureProposee:
+    """Retire seulement les arêtes transfrontières pour prouver le segment en isolation.
+
+    Les nœuds, bornes, titres, continuations, classes et identités restent byte-for-byte ceux de
+    la réponse. Parents et relations locaux restent eux aussi présents. Les arêtes externes seront
+    rétablies sans modification par la validation globale, où leur cible devra être un vrai titre.
+    """
+    local = set(line_uids)
+    nodes = [node.model_copy(update={
+        "parent_line_uid": (node.parent_line_uid
+                            if node.parent_line_uid in local else None),
+        "relations": [relation for relation in node.relations
+                      if relation.target_line_uid in local],
+    }) for node in proposition.noeuds]
+    return StructureProposee(
+        schema_version=proposition.schema_version, doc_id=proposition.doc_id, noeuds=nodes,
+        continuations_frontiere=[],
+    )
+
+
+def _verifier_segment(proposition: StructureProposee, registre: dict[str, Entree], *,
+                      doc_id: str, settings: Settings) -> Verdict:
+    """Prouve la couverture locale, continuation de préfixe comprise, sans faux nœud.
+
+    Une continuation est au plus unique par schéma. Elle doit couvrir exactement un préfixe local
+    contigu ; le reliquat est validé par le vérificateur complet après retrait des seules arêtes
+    externes. Un segment composé uniquement de corps continué est donc valide sans titre inventé.
+    """
+    local = _proposition_locale(proposition, tuple(registre))
+    continuations = proposition.continuations_frontiere
+    if not continuations:
+        return verifier(local, registre, doc_id=doc_id, settings=settings)
+    continuation = continuations[0]
+    ordered = sorted(registre.values(), key=lambda entry: entry.ordre)
+    first = registre[continuation.premiere_line_uid].ordre
+    last = registre[continuation.derniere_line_uid].ordre
+    if first != ordered[0].ordre or last < first:
+        return _refus(
+            "ordre_impossible",
+            "continuation de frontière non préfixe ou bornes inversées",
+        )
+    continued = {entry.uid for entry in ordered if first <= entry.ordre <= last}
+    expected_prefix = {entry.uid for entry in ordered[:len(continued)]}
+    if continued != expected_prefix:
+        return _refus("ligne_omise", "continuation de frontière non contiguë")
+    for node in local.noeuds:
+        node_first = registre[node.premiere_line_uid].ordre
+        if node_first <= last:
+            return _refus(
+                "intervalles_croises",
+                f"nœud {node.titre_line_uid!r} chevauche la continuation de frontière",
+            )
+    remaining = {uid: entry for uid, entry in registre.items() if uid not in continued}
+    continued_ports = {registre[uid].portage for uid in continued}
+    remaining_ports = {entry.portage for entry in remaining.values()}
+    split_ports = sorted(continued_ports & remaining_ports)
+    if split_ports:
+        return _refus(
+            "affectation_non_prouvee",
+            f"continuation scinde l'unité de portage {split_ports[0]!r}",
+        )
+    if not remaining:
+        if local.noeuds:
+            return _refus("ligne_inconnue", "nœud local sans ligne hors continuation")
+        return Verdict(accepte=True, detail=f"continuation de {len(continued)} ligne(s)")
+    if not local.noeuds:
+        return _refus("ligne_omise", "lignes après continuation sans nœud local")
+    return verifier(local, remaining, doc_id=doc_id, settings=settings)
+
+
+def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
+               registre: dict[str, Entree], *, doc_id: str,
+               settings: Settings) -> StructureProposee:
+    """Recoud les sorties sans créer de ligne et revalide la hiérarchie globale.
+
+    Chaque sortie a déjà été validée contre son sous-registre exact. La couture conserve chaque
+    nœud et relation, puis étend uniquement la dernière borne d'un parent explicitement désigné
+    lorsque son enfant traverse une frontière. Elle ne crée ni ne réécrit aucune ligne. Toute cible
+    absente, parent postérieur, collision, cycle ou croisement est refusé avant publication.
+    """
+    if len(propositions) != len(plan.segments):
+        raise ValueError("couture incomplète : une réponse de segment manque")
+    try:
+        _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
+    except ValueError as exc:
+        raise ValueError(f"couture refusée : {exc}") from exc
+    ordered_uids = tuple(entry.uid for entry in sorted(registre.values(), key=lambda item: item.ordre))
+    planned_uids = tuple(uid for segment in plan.segments for uid in segment.line_uids)
+    if planned_uids != ordered_uids or len(planned_uids) != len(set(planned_uids)):
+        raise ValueError("couture refusée : couverture des segments non bijective")
+
+    nodes: list[NoeudPropose] = []
+    continuations: list[ContinuationFrontiereProposee] = []
+    title_owners: dict[str, int] = {}
+    for segment, proposition in zip(plan.segments, propositions, strict=True):
+        if proposition.doc_id != doc_id:
+            raise ValueError(
+                f"couture refusée : segment {segment.index} pour {proposition.doc_id!r}")
+        allowed = set(segment.line_uids)
+        anchor_uids = {anchor.line_uid for anchor in segment.anchors}
+        for continuation in proposition.continuations_frontiere:
+            bounds = {continuation.premiere_line_uid, continuation.derniere_line_uid}
+            if not bounds <= allowed:
+                raise ValueError(
+                    f"couture refusée : continuation du segment {segment.index} hors frontière")
+            if continuation.target_line_uid not in anchor_uids:
+                raise ValueError(
+                    f"couture refusée : continuation du segment {segment.index} vise une "
+                    f"ancre inconnue {continuation.target_line_uid!r}")
+            continuations.append(continuation)
+        for node in proposition.noeuds:
+            owned_references = {
+                node.titre_line_uid,
+                node.premiere_line_uid,
+                node.derniere_line_uid,
+                *node.title_line_uids,
+                *node.continuation_line_uids,
+            }
+            foreign = sorted(owned_references - allowed)
+            if foreign:
+                raise ValueError(
+                    f"couture refusée : segment {segment.index} place un titre, une borne ou "
+                    f"une continuation hors frontière "
+                    f"{foreign[:5]}")
+            edge_targets = {
+                *(relation.target_line_uid for relation in node.relations),
+                *(() if node.parent_line_uid is None else (node.parent_line_uid,)),
+            }
+            unknown_edges = sorted(edge_targets - allowed - anchor_uids)
+            if unknown_edges:
+                raise ValueError(
+                    f"couture refusée : segment {segment.index} vise des ancres inconnues "
+                    f"{unknown_edges[:5]}")
+            previous = title_owners.get(node.titre_line_uid)
+            if previous is not None:
+                raise ValueError(
+                    f"couture refusée : titre {node.titre_line_uid!r} dupliqué entre "
+                    f"segments {previous} et {segment.index}")
+            title_owners[node.titre_line_uid] = segment.index
+            nodes.append(node)
+
+    by_title = {node.titre_line_uid: node for node in nodes}
+    missing_continuations = sorted({continuation.target_line_uid for continuation in continuations}
+                                   - set(by_title))
+    if missing_continuations:
+        raise ValueError(
+            f"couture refusée : continuation vise une ancre non proposée "
+            f"{missing_continuations[:5]}")
+    for node in nodes:
+        targets = [*(relation.target_line_uid for relation in node.relations)]
+        if node.parent_line_uid is not None:
+            targets.append(node.parent_line_uid)
+        missing = sorted(target for target in targets if target not in by_title)
+        if missing:
+            raise ValueError(
+                f"couture refusée : {node.titre_line_uid!r} vise une ancre non proposée "
+                f"{missing[:5]}")
+
+    # Calcule la fermeture transitive des bornes parentales. Un parent doit commencer avant son
+    # enfant ; seule sa dernière borne peut alors être étendue. Le DFS détecte aussi les cycles
+    # avant toute mutation de la proposition globale.
+    order_of = {uid: entry.ordre for uid, entry in registre.items()}
+    uid_at_order = {entry.ordre: uid for uid, entry in registre.items()}
+    children: dict[str, list[str]] = {uid: [] for uid in by_title}
+    for node in nodes:
+        if node.parent_line_uid is not None:
+            children[node.parent_line_uid].append(node.titre_line_uid)
+    colors: dict[str, int] = {uid: 0 for uid in by_title}
+    final_last: dict[str, int] = {}
+    continuation_last: dict[str, int] = {}
+    for continuation in continuations:
+        target = continuation.target_line_uid
+        continuation_last[target] = max(
+            continuation_last.get(target, 0),
+            order_of[continuation.derniere_line_uid],
+        )
+
+    def close_interval(uid: str) -> int:
+        if colors[uid] == 1:
+            raise ValueError("couture refusée : cycle de parenté transfrontière")
+        if colors[uid] == 2:
+            return final_last[uid]
+        colors[uid] = 1
+        node = by_title[uid]
+        first = order_of[node.premiere_line_uid]
+        last = max(order_of[node.derniere_line_uid], continuation_last.get(uid, 0))
+        for child_uid in children[uid]:
+            child = by_title[child_uid]
+            child_first = order_of[child.premiere_line_uid]
+            if child_first <= first:
+                raise ValueError(
+                    f"couture refusée : parent {uid!r} postérieur ou confondu avec "
+                    f"l'enfant {child_uid!r}")
+            last = max(last, close_interval(child_uid))
+        colors[uid] = 2
+        final_last[uid] = last
+        return last
+
+    for title_uid in by_title:
+        close_interval(title_uid)
+    reconciled = [node.model_copy(update={
+        "derniere_line_uid": uid_at_order[final_last[node.titre_line_uid]],
+    }) for node in nodes]
+
+    schema_version = "2" if all(proposition.schema_version == "2"
+                                  for proposition in propositions) else "1"
+    stitched = StructureProposee(
+        schema_version=schema_version, doc_id=doc_id, noeuds=reconciled)
+    verdict = verifier(stitched, registre, doc_id=doc_id, settings=settings)
+    if not verdict.accepte:
+        raise ValueError(
+            f"couture globale refusée ({verdict.motif}) : {verdict.detail}; rien n'a été écrit")
+    return stitched
+
+
+def _usage_audit(usages: Sequence[Usage], *, current_known: bool = True) -> dict[str, Any]:
+    value = _usage_cumule(usages).model_dump()
+    value["current_known"] = current_known
+    return value
+
+
+def _erreur_contexte_fournisseur(exc: BaseException) -> bool:
+    """Reconnaît uniquement un refus de contexte structuré, jamais un fragment de message."""
+    if getattr(exc, "status_code", None) != 400:
+        return False
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return False
+    error = body.get("error", body)
+    if not isinstance(error, dict) or error.get("type") != "invalid_request_error":
+        return False
+    if error.get("code") in {"context_length_exceeded", "request_too_large"}:
+        return True
+    # Messages standard ne publie pas toujours `code`; dans ce cas seulement, le type 400 fermé
+    # ci-dessus autorise le vocabulaire générique du protocole. Aucun document, modèle ou taille
+    # observée n'entre dans cette reconnaissance.
+    message = str(error.get("message", "")).casefold()
+    return any(marker in message for marker in (
+        "context window", "context length", "prompt is too long", "request too large",
+    ))
+
+
+def _raffiner_plan(plan: PlanStructure, position: int, registre: dict[str, Entree], *,
+                   doc_id: str, settings: Settings) -> PlanStructure | None:
+    """Scinde en deux aux frontières de portage le segment refusé, ou rend `None`."""
+    segment = plan.segments[position]
+    subset = {uid: registre[uid] for uid in segment.line_uids}
+    groups = _groupes_portage(subset)
+    if len(groups) < 2:
+        return None
+    middle = len(groups) // 2
+    left = tuple(uid for group in groups[:middle] for uid in group)
+    right = tuple(uid for group in groups[middle:] for uid in group)
+    partitions = [item.line_uids for item in plan.segments]
+    partitions[position:position + 1] = [left, right]
+    return _construire_plan(partitions, registre, doc_id=doc_id, settings=settings)
+
+
+def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree], *,
+                  doc_id: str, settings: Settings, source_hash: str | None = None,
+                  max_cost_eur: float | None = None) -> ExecutionStructure:
+    """Soumet, raffine les seuls refus de contexte typés, puis recoud atomiquement."""
+    _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
+    ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
+    if plan.majorant_eur > ceiling:
+        raise ValueError(
+            f"majorant cumulé {plan.majorant_eur:.4f} € > plafond {ceiling:.4f} €; "
+            "aucun appel soumis")
+    artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
+    run_uid = f"structure:{doc_id}:{plan.plan_uid}"
+    propositions: list[StructureProposee] = []
+    usages: list[Usage] = []
+    working_plan = plan
+    position = 0
+    while position < len(working_plan.segments):
+        segment = working_plan.segments[position]
+        anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
+        subset = {uid: registre[uid] for uid in segment.line_uids}
+        trusted_uids = tuple(sorted({*segment.line_uids, *anchor_uids}))
+        try:
+            message = client.messages.parse(**segment.request)
+        except Exception as exc:  # noqa: BLE001 - panne fournisseur = refus contrôlé
+            append_ingest_audit(
+                settings.llm_audit_path, run_uid=run_uid, step="structure",
+                model=MODEL, request=segment.request, response=None,
+                trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+                error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
+                retention_files=settings.llm_audit_retention_files,
+                usage_cumule=_usage_audit(usages, current_known=False))
+            refined = (_raffiner_plan(
+                working_plan, position, registre, doc_id=doc_id, settings=settings)
+                if _erreur_contexte_fournisseur(exc) else None)
+            if refined is not None:
+                remaining_raw = sum(
+                    item.majorant_eur_brut for item in refined.segments[position:])
+                # Un BadRequest de contexte ne rend généralement aucun usage. L'absence de mesure
+                # ne prouve pas l'absence de facturation : avant tout retry, la tentative refusée
+                # réserve donc son propre majorant, en plus du plan raffiné restant.
+                refused_reserve = segment.majorant_eur_brut
+                retry_bound = _arrondir_eur_superieur(
+                    sum(usage.cost_eur for usage in usages)
+                    + refused_reserve
+                    + remaining_raw)
+                if retry_bound > ceiling:
+                    raise ValueError(
+                        f"raffinement du segment {segment.index} refusé avant retry : majorant "
+                        f"cumulé {retry_bound:.4f} € > plafond {ceiling:.4f} €; "
+                        "rien n'a été écrit") from exc
+                working_plan = refined
+                continue
+            accumulated_cost = _usage_cumule(usages).cost_eur
+            raise ValueError(
+                f"segment {segment.index}/{len(working_plan.segments)} refusé "
+                f"({type(exc).__name__}); coût réel cumulé {accumulated_cost:.4f} €; "
+                "rien n'a été écrit") from exc
+        raw = ""
+        usage: Usage | None = None
+        api_usage = getattr(message, "usage", None)
+        measured_before_validation = (
+            cost_from_usage(MODEL, api_usage, settings.usd_eur, batch=False)
+            if api_usage else None
+        )
+        audited_usages = [*usages]
+        if measured_before_validation is not None:
+            audited_usages.append(measured_before_validation)
+        append_ingest_audit(
+            settings.llm_audit_path, run_uid=run_uid, step="structure",
+            model=MODEL, request=segment.request, response=message,
+            trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+            max_bytes=settings.llm_audit_max_bytes,
+            retention_files=settings.llm_audit_retention_files,
+            usage_cumule=_usage_audit(
+                audited_usages, current_known=measured_before_validation is not None),
+        )
+        try:
+            raw, usage = _texte(message, settings)
+            proposition = parse_proposition(
+                raw, subset, doc_id, settings=settings, reference_uids=anchor_uids)
+            verdict = _verifier_segment(
+                proposition, subset, doc_id=doc_id, settings=settings)
+            if not verdict.accepte:
+                raise ValueError(f"{verdict.motif} : {verdict.detail}")
+        except ValueError as exc:
+            stop_reason = getattr(message, "stop_reason", None)
+            measured = usage or measured_before_validation
+            accumulated = [*usages, *((measured,) if measured is not None else ())]
+            accumulated_cost = _usage_cumule(accumulated).cost_eur
+            segment_cost = (f"{measured.cost_eur:.4f} €"
+                            if measured is not None else "inconnu (usage absent)")
+            raise ValueError(
+                f"segment {segment.index}/{len(working_plan.segments)} invalide : {exc} "
+                f"(coût réel du segment {segment_cost}, "
+                f"coût réel cumulé acquis {accumulated_cost:.4f} €, "
+                f"stop_reason={stop_reason!r}, "
+                f"{len(raw)} caractère(s) reçus); rien n'a été écrit") from exc
+        assert usage is not None  # `_texte` ne rend jamais sans usage facturable.
+        usages.append(usage)
+        propositions.append(proposition)
+        position += 1
+
+    cumulative = _usage_cumule(usages)
+    try:
+        stitched = _recoller(
+            working_plan, propositions, registre, doc_id=doc_id, settings=settings)
+    except ValueError as exc:
+        raise ValueError(
+            f"{exc} (usage cumulé acquis input={cumulative.input}, cache={cumulative.cached}, "
+            f"output={cumulative.output}; coût réel cumulé {cumulative.cost_eur:.4f} €; "
+            "rien n'a été écrit") from exc
+    return ExecutionStructure(proposition=stitched, plan=working_plan, usage=cumulative)
 
 
 def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
-             settings: Settings, source_hash: str | None = None) -> tuple[StructureProposee, float]:
-    """Un seul appel structuré du tier `ingest`, client **injecté** : ce module n'en construit pas.
+             settings: Settings, source_hash: str | None = None,
+             plan: PlanStructure | None = None) -> tuple[StructureProposee, float]:
+    """Appels structurés du tier `ingest`, client **injecté** : aucun n'est construit ici.
 
     Convention LLM du spine : `messages.parse(..., output_config={"format": …})` **sans**
     `output_format`, puis validation locale par `TypeAdapter` (`parse_proposition`). Avec
@@ -1108,38 +1944,27 @@ def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
     `ValidationError` : `usage`, `stop_reason` et le texte reçu seraient perdus — donc le coût réel
     d'un appel pourtant facturé, et le motif exact du refus. Ils sont ici tous portés par le refus.
     """
-    params = requete(registre, doc_id, settings)
-    artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
-    try:
-        message = client.messages.parse(**params)
-    except Exception as exc:  # noqa: BLE001 - toute panne fournisseur est un refus, pas une trace
-        # Réseau coupé, 429, 5xx, authentification : l'appelant reçoit un refus contrôlé et la
-        # promesse « rien n'a été écrit », jamais un traceback brut sorti du SDK.
-        append_ingest_audit(
-            settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
-            model=MODEL, request=params, response=None,
-            trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid,
-            error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
-            retention_files=settings.llm_audit_retention_files)
-        raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
-    append_ingest_audit(
-        settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
-        model=MODEL, request=params, response=message,
-        trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid,
-        max_bytes=settings.llm_audit_max_bytes,
-        retention_files=settings.llm_audit_retention_files)
-    raw, cost = _texte(message, settings)
-    try:
-        return parse_proposition(raw, registre, doc_id, settings=settings), cost
-    except ValueError as exc:
-        stop_reason = getattr(message, "stop_reason", None)
-        raise ValueError(f"{exc} (coût réel {cost:.4f} €, stop_reason={stop_reason!r}, "
-                         f"{len(raw)} caractère(s) reçus); rien n'a été écrit") from exc
+    execution = executer_plan(
+        client, plan or planifier_segments(registre, doc_id=doc_id, settings=settings), registre,
+        doc_id=doc_id, settings=settings, source_hash=source_hash,
+    )
+    return execution.proposition, execution.usage.cost_eur
 
 
 def _bornes_publiees(settings: Settings) -> dict[str, Any]:
     return {name: value for name, value in settings.thresholds().items()
             if name.startswith(("structure_", "column_"))}
+
+
+def _serialiser_artefact(proposition: StructureProposee, settings: Settings) -> str:
+    """Sérialise les octets exacts que `charger_octets` devra pouvoir relire."""
+    payload = json.dumps(proposition.model_dump(), indent=2, ensure_ascii=False) + "\n"
+    size = len(payload.encode("utf-8"))
+    if size > settings.structure_max_input_chars:
+        raise ValueError(
+            f"artefact final de {size} octets > borne STRUCTURE_MAX_INPUT_CHARS="
+            f"{settings.structure_max_input_chars}; rien n'a été écrit")
+    return payload
 
 
 def main(argv: list[str] | None = None, *, client: Any = None, settings: Settings | None = None,
@@ -1182,7 +2007,7 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         return 2
     doc_dir = args.data / args.doc_id
     # **Un entrypoint de production exige une racine installée** (story 4.5, N3) : le refus tombe
-    # avant l'extraction et avant le seul appel payant de ce module, jamais après. Le lot n'a qu'une
+    # avant l'extraction et avant tout appel payant de ce module, jamais après. Le lot n'a qu'une
     # cible — c'est précisément le cas pour lequel le refus « lot mixte » était inatteignable.
     try:
         exiger_espace_installe([doc_dir / "structure.json"])
@@ -1198,12 +2023,28 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         registre = registre_lignes(pages, document_uid=args.doc_id)
         if not registre:
             raise ValueError("registre vide : aucune ligne source à proposer")
-        params = requete(registre, args.doc_id, settings)
-        estimate = majorant_eur(params, settings)
-        print(f"{len(registre)} ligne(s) source, {len(params['messages'][0]['content'])} caractère(s) ; "
-              f"majorant Messages standard {estimate:.4f} € / plafond {ceiling:.4f} €", file=output)
+        plan = planifier_segments(registre, doc_id=args.doc_id, settings=settings)
+        estimate = plan.majorant_eur
+        payload_chars = sum(
+            len(segment.request["messages"][0]["content"]) for segment in plan.segments)
+        print(
+            f"{len(registre)} ligne(s) source, {payload_chars} caractère(s), "
+            f"{len(plan.segments)} segment(s) ; majorant Messages standard cumulé "
+            f"{estimate:.4f} € / plafond {ceiling:.4f} € ; plan {plan.plan_uid}",
+            file=output,
+        )
+        for segment in plan.segments:
+            print(
+                f"segment {segment.index}/{len(plan.segments)} {segment.segment_uid} : "
+                f"{len(segment.line_uids)} ligne(s), {segment.request_chars} caractère(s) "
+                f"d'enveloppe, {segment.input_tokens_majorant} tokens d'entrée majorés, "
+                f"{segment.majorant_eur:.4f} €",
+                file=output,
+            )
         if estimate > ceiling:
-            raise ValueError(f"majorant {estimate:.4f} € > plafond {ceiling:.4f} €; aucun appel soumis")
+            raise ValueError(
+                f"majorant cumulé {estimate:.4f} € > plafond {ceiling:.4f} €; "
+                "aucun appel soumis")
         if args.dry_run:
             print("dry-run : aucune soumission, aucune écriture", file=output)
             return 0
@@ -1213,15 +2054,19 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                 return 2
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=0)
         source_hash = hashlib.sha256((doc_dir / "source.pdf").read_bytes()).hexdigest()
-        proposition, cost = proposer(
-            client, registre, doc_id=args.doc_id, settings=settings, source_hash=source_hash)
+        execution = executer_plan(
+            client, plan, registre, doc_id=args.doc_id, settings=settings,
+            source_hash=source_hash, max_cost_eur=ceiling)
+        proposition = execution.proposition
         verdict = verifier(proposition, registre, doc_id=args.doc_id, settings=settings)
-        print(f"coût réel {cost:.4f} € ; verdict {'accepté' if verdict.accepte else verdict.motif} : "
+        usage = execution.usage
+        print(f"usage cumulé input={usage.input}, cache={usage.cached}, output={usage.output}; "
+              f"coût réel cumulé {usage.cost_eur:.4f} € ; "
+              f"verdict {'accepté' if verdict.accepte else verdict.motif} : "
               f"{verdict.detail}", file=output)
         if not verdict.accepte:
             return 4
-        write_atomic(doc_dir / "structure.json",
-                     json.dumps(proposition.model_dump(), indent=2, ensure_ascii=False) + "\n")
+        write_atomic(doc_dir / "structure.json", _serialiser_artefact(proposition, settings))
     except (OSError, UnicodeDecodeError, ValueError, ValidationError) as exc:
         print(f"proposition refusée, rien n'a été écrit : {exc}", file=sys.stderr)
         return 3

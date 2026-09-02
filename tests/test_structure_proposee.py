@@ -21,6 +21,7 @@ import io
 import json
 import math
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -551,6 +552,180 @@ class FauxClient:
         self.messages = FauxMessages(**kwargs)
 
 
+class FauxMessagesAvecSeuil(FauxMessages):
+    """Reproduit hermétiquement le refus fournisseur d'une charge monolithique."""
+
+    def __init__(self, max_payload_chars: int,
+                 usages: list[dict[str, Any]] | None = None) -> None:
+        super().__init__()
+        self.max_payload_chars = max_payload_chars
+        self.refused_payloads: list[int] = []
+        self.usages = usages
+
+    def parse(self, **params: Any) -> Any:
+        size = len(params["messages"][0]["content"])
+        if size > self.max_payload_chars:
+            self.refused_payloads.append(size)
+            raise RuntimeError("payload fournisseur trop grand")
+        if self.usages is not None:
+            self.usage = self.usages[len(self.calls)]
+        return super().parse(**params)
+
+
+class FauxClientAvecSeuil:
+    def __init__(self, max_payload_chars: int,
+                 usages: list[dict[str, Any]] | None = None) -> None:
+        self.messages = FauxMessagesAvecSeuil(max_payload_chars, usages)
+
+
+class FauxMessagesFrontiereIncoherente(FauxMessages):
+    """Le second segment tente de réutiliser une borne appartenant au premier."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_uid: str | None = None
+
+    def parse(self, **params: Any) -> Any:
+        lignes = json.loads(params["messages"][0]["content"])["lignes"]
+        if self.first_uid is None:
+            self.first_uid = lignes[0]["uid"]
+            return super().parse(**params)
+        self.calls.append(params)
+        node = {
+            "titre_line_uid": lignes[0]["uid"],
+            "premiere_line_uid": lignes[0]["uid"],
+            "derniere_line_uid": self.first_uid,
+            "parent_line_uid": None,
+        }
+        return SimpleNamespace(
+            usage=self.usage,
+            stop_reason=self.stop_reason,
+            content=[SimpleNamespace(type="text", text=json.dumps({"noeuds": [node]}))],
+        )
+
+
+class FauxClientFrontiereIncoherente:
+    def __init__(self) -> None:
+        self.messages = FauxMessagesFrontiereIncoherente()
+
+
+class FauxMessagesTraverseFrontiere(FauxMessages):
+    """Propose un enfant et une dépendance vers le titre du segment précédent."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parent_uid: str | None = None
+
+    def parse(self, **params: Any) -> Any:
+        self.calls.append(params)
+        lignes = json.loads(params["messages"][0]["content"])["lignes"]
+        titre_uid, derniere_uid = lignes[0]["uid"], lignes[-1]["uid"]
+        if self.parent_uid is None:
+            self.parent_uid = titre_uid
+            article_uid = "article:1"
+            parent_uid = None
+            relations: list[dict[str, str]] = []
+        else:
+            article_uid = "article:1.1"
+            parent_uid = self.parent_uid
+            relations = [{
+                "kind": "explicit_dependency",
+                "target_line_uid": self.parent_uid,
+            }]
+        node = {
+            "titre_line_uid": titre_uid,
+            "premiere_line_uid": titre_uid,
+            "derniere_line_uid": derniere_uid,
+            "parent_line_uid": parent_uid,
+            "title_line_uids": [titre_uid],
+            "article_uid": article_uid,
+            "surface_class": "substantiel",
+            "continuation_line_uids": [],
+            "relations": relations,
+        }
+        return SimpleNamespace(
+            usage=self.usage,
+            stop_reason=self.stop_reason,
+            content=[SimpleNamespace(type="text", text=json.dumps({"noeuds": [node]}))],
+        )
+
+
+class FauxClientTraverseFrontiere:
+    def __init__(self) -> None:
+        self.messages = FauxMessagesTraverseFrontiere()
+
+
+class FauxMessagesAncreNonProposee(FauxMessagesTraverseFrontiere):
+    """Vise une candidate reçue comme ancre mais jamais proposée comme titre global."""
+
+    def parse(self, **params: Any) -> Any:
+        first_call = self.parent_uid is None
+        message = super().parse(**params)
+        if first_call:
+            payload = json.loads(params["messages"][0]["content"])
+            self.parent_uid = payload["lignes"][1]["uid"]
+        return message
+
+
+class FauxMessagesContinuation(FauxMessages):
+    """Ne fabrique aucun titre quand un segment ne contient que le corps d'un article."""
+
+    def parse(self, **params: Any) -> Any:
+        self.calls.append(params)
+        payload = json.loads(params["messages"][0]["content"])
+        lignes = payload["lignes"]
+        if lignes[0]["texte"].startswith("Article "):
+            node = {
+                "titre_line_uid": lignes[0]["uid"],
+                "premiere_line_uid": lignes[0]["uid"],
+                "derniere_line_uid": lignes[-1]["uid"],
+                "parent_line_uid": None,
+                "title_line_uids": [lignes[0]["uid"]],
+                "article_uid": "article:1",
+                "surface_class": "substantiel",
+                "continuation_line_uids": [],
+                "relations": [],
+            }
+            value = {"noeuds": [node], "continuations_frontiere": []}
+        else:
+            target = next(
+                anchor["uid"] for anchor in payload["ancres_frontiere"]
+                if anchor["titre"].startswith("Article "))
+            value = {
+                "noeuds": [],
+                "continuations_frontiere": [{
+                    "premiere_line_uid": lignes[0]["uid"],
+                    "derniere_line_uid": lignes[-1]["uid"],
+                    "target_line_uid": target,
+                }],
+            }
+        return SimpleNamespace(
+            usage=self.usage,
+            stop_reason=self.stop_reason,
+            content=[SimpleNamespace(type="text", text=json.dumps(value))],
+        )
+
+
+class RefusContexteType(Exception):
+    status_code = 400
+    body = {"error": {"type": "invalid_request_error", "message": "prompt is too long"}}
+
+
+class FauxMessagesRaffinement(FauxMessages):
+    """Le premier appel planifié est refusé par un code fournisseur structuré de contexte."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.refused_request: dict[str, Any] | None = None
+
+    def parse(self, **params: Any) -> Any:
+        if self.refused_request is None:
+            self.calls.append(params)
+            self.refused_request = params
+            raise RefusContexteType("contexte refusé")
+        return super().parse(**params)
+
+
 def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acceptee() -> None:
     pages = _corpus()
     registre = _registre(pages)
@@ -562,6 +737,333 @@ def test_le_faux_client_repond_a_partir_des_uid_recus_et_la_proposition_est_acce
     assert cout > 0 and proposition.doc_id == DOC
     assert proposition.noeuds[0].titre_line_uid == "p1:l1"
     assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+
+
+def test_plan_segmentaire_est_deterministe_bijectif_et_admissible_dans_la_fenetre(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    registre = _registre(_corpus())
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    anchors = s._ancres_frontiere(registre, tuple(registre))
+    full_tokens = s._taille_entree_majorante(
+        s.requete(registre, DOC, settings, anchors=anchors), settings)[1]
+    context_window = full_tokens + settings.structure_max_output_tokens - 1
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL, {**caps, "context_window": context_window})
+
+    first = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    second = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+
+    assert first == second and len(first.segments) > 1
+    assert tuple(uid for segment in first.segments for uid in segment.line_uids) == tuple(registre)
+    assert len({uid for segment in first.segments for uid in segment.line_uids}) == len(registre)
+    assert first.majorant_eur == s._arrondir_eur_superieur(
+        sum(segment.majorant_eur_brut for segment in first.segments))
+    assert first.majorant_eur <= sum(segment.majorant_eur for segment in first.segments)
+    assert all(segment.input_tokens_majorant + settings.structure_max_output_tokens
+               <= context_window
+               for segment in first.segments)
+    assert all(segment.request_chars == len(s._json_canonique({
+        "model": segment.request["model"],
+        "system": segment.request["system"],
+        "messages": segment.request["messages"],
+        "output_config": segment.request["output_config"],
+    })) for segment in first.segments)
+
+    forged_segment = replace(
+        first.segments[0], majorant_eur=first.segments[0].majorant_eur + 0.0001)
+    forged = replace(first, segments=(forged_segment, *first.segments[1:]))
+    client = FauxClient()
+    with pytest.raises(ValueError, match="enveloppe chiffrée"):
+        s.executer_plan(client, forged, registre, doc_id=DOC, settings=settings)
+    assert client.messages.calls == []
+
+
+def test_plan_dense_4185_lignes_unicode_garde_ancres_et_fenetre_bornees() -> None:
+    from server.app.llm.pricing import estimate_tokens
+
+    registre: dict[str, s.Entree] = {}
+    for index in range(4_185):
+        uid = f"dense:{index:04d}"
+        text = f"Titre dense {index:04d} " + "漢🙂" * 24
+        registre[uid] = s.Entree(
+            uid=uid, page=index // 50 + 1, colonne=1, ordre=index + 1,
+            bbox=(1.0, 2.0, 3.0, 4.0), texte=text, texte_porte=text,
+            unite=uid, source_uids=(uid,),
+        )
+    settings = Settings(_env_file=None, structure_max_cost_eur=10)
+
+    plan = s.planifier_segments(registre, doc_id="dense", settings=settings)
+
+    assert len(plan.segments) > 1
+    assert sum(len(segment.line_uids) for segment in plan.segments) == 4_185
+    assert len({uid for segment in plan.segments for uid in segment.line_uids}) == 4_185
+    for segment in plan.segments:
+        assert len(segment.anchors) <= s.MAX_BOUNDARY_ANCHORS
+        assert set(segment.line_uids).isdisjoint(anchor.line_uid for anchor in segment.anchors)
+        envelope = s._json_canonique({
+            "model": segment.request["model"],
+            "system": segment.request["system"],
+            "messages": segment.request["messages"],
+            "output_config": segment.request["output_config"],
+        })
+        assert segment.input_tokens_majorant == len(envelope.encode("utf-8"))
+        assert estimate_tokens(envelope, settings) < segment.input_tokens_majorant
+        payload = json.loads(segment.request["messages"][0]["content"])
+        assert len(payload.get("ancres_frontiere", [])) <= s.MAX_BOUNDARY_ANCHORS
+
+
+def test_portage_indivisible_et_section_longue_utilisent_des_continuations_bornees(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    registre = _registre([_page(1, [
+        "Article 1 Dispositions",
+        "Corps 1.",
+        "Corps 2.",
+        "Corps 3.",
+        "Corps 4.",
+        "Corps 5.",
+        "Corps 6.",
+        "Corps 7.",
+    ])])
+    uids = tuple(registre)
+    registre[uids[2]] = replace(registre[uids[2]], unite="portage-double")
+    registre[uids[3]] = replace(registre[uids[3]], unite="portage-double")
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    candidates = s._candidates_ancres(registre)
+    desired = (uids[:2], uids[2:4], uids[4:6], uids[6:])
+    pair_bounds = [
+        s._taille_entree_majorante(s.requete(
+            {uid: registre[uid] for uid in part}, DOC, settings,
+            anchors=s._ancres_frontiere(registre, part, candidates=candidates),
+        ), settings)[1]
+        for part in desired
+    ]
+    first_three = uids[:4]  # inclut l'unité double : prochaine frontière légale après 4 lignes
+    four_bound = s._taille_entree_majorante(s.requete(
+        {uid: registre[uid] for uid in first_three}, DOC, settings,
+        anchors=s._ancres_frontiere(registre, first_three, candidates=candidates),
+    ), settings)[1]
+    assert max(pair_bounds) < four_bound
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(s.MODEL_CAPS, s.MODEL, {
+        **caps,
+        "context_window": max(pair_bounds) + settings.structure_max_output_tokens,
+    })
+
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    owners = {
+        index for index, segment in enumerate(plan.segments)
+        if {uids[2], uids[3]} & set(segment.line_uids)
+    }
+    assert len(plan.segments) >= 3 and len(owners) == 1
+    assert {uids[2], uids[3]} <= set(plan.segments[owners.pop()].line_uids)
+    with pytest.raises(ValueError, match="scinde l'unité de portage"):
+        s._construire_plan(
+            [(uids[0], uids[1], uids[2]), uids[3:]], registre,
+            doc_id=DOC, settings=settings,
+        )
+
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+    execution = s.executer_plan(
+        SimpleNamespace(messages=FauxMessagesContinuation()), plan, registre,
+        doc_id=DOC, settings=settings,
+    )
+
+    assert len(execution.proposition.noeuds) == 1
+    assert execution.proposition.noeuds[0].titre_line_uid == uids[0]
+    assert execution.proposition.noeuds[0].derniere_line_uid == uids[-1]
+    assert execution.proposition.continuations_frontiere == []
+    assert s.verifier(
+        execution.proposition, registre, doc_id=DOC, settings=settings).accepte
+    assert len(audits) == len(plan.segments)
+
+
+def test_execution_du_plan_segmentaire_cumule_exactement_usage_et_audit(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    registre = _registre(_corpus())
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    anchors = s._ancres_frontiere(registre, tuple(registre))
+    full_params = s.requete(registre, DOC, settings, anchors=anchors)
+    full_tokens = s._taille_entree_majorante(full_params, settings)[1]
+    context_window = full_tokens + settings.structure_max_output_tokens - 1
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL, {**caps, "context_window": context_window})
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    max_payload = max(len(segment.request["messages"][0]["content"])
+                      for segment in plan.segments)
+    assert len(full_params["messages"][0]["content"]) > max_payload
+
+    audits: list[dict[str, Any]] = []
+
+    def capturer_audit(_path: Path, **event: Any) -> dict[str, Any]:
+        audits.append(event)
+        return {}
+
+    monkeypatch.setattr(s, "append_ingest_audit", capturer_audit)
+    api_usages = [{
+        "input_tokens": 101 + index,
+        "cache_read_input_tokens": 11 + index,
+        "cache_creation": {"ephemeral_5m_input_tokens": 7 + index},
+        "output_tokens": 31 + index,
+    } for index in range(len(plan.segments))]
+    client = FauxClientAvecSeuil(max_payload, api_usages)
+    execution = s.executer_plan(
+        client, plan, registre, doc_id=DOC, settings=settings, source_hash="1" * 64,
+    )
+
+    assert len(client.messages.calls) == len(plan.segments)
+    assert not client.messages.refused_payloads
+    assert s.verifier(execution.proposition, registre, doc_id=DOC, settings=settings).accepte
+    expected = s._usage_cumule([
+        s.cost_from_usage(s.MODEL, usage, settings.usd_eur, batch=False)
+        for usage in api_usages
+    ])
+    assert (
+        execution.usage.input,
+        execution.usage.cached,
+        execution.usage.output,
+        execution.usage.cost_eur,
+        execution.usage.cost_eur_original,
+        execution.usage.cached_response,
+    ) == (
+        expected.input,
+        expected.cached,
+        expected.output,
+        expected.cost_eur,
+        expected.cost_eur_original,
+        expected.cached_response,
+    )
+    assert len(audits) == len(plan.segments)
+    assert len({event["run_uid"] for event in audits}) == 1
+    assert plan.plan_uid in audits[0]["run_uid"]
+    assert [event["request"] for event in audits] == [segment.request for segment in plan.segments]
+    assert {uid for event in audits for uid in event["trusted_line_uids"]} == set(registre)
+    assert audits[-1]["usage_cumule"] == {**expected.model_dump(), "current_known": True}
+
+
+def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontiere(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    registre = _registre([_page(1, [
+        "Article 1 Dispositions",
+        "Corps du parent.",
+        "Article 1.1 Details",
+        "Corps de l'enfant.",
+    ])])
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    ordered = list(registre.items())
+    first_pair = dict(ordered[:2])
+    second_pair = dict(ordered[2:])
+    first_three = dict(ordered[:3])
+    pair_tokens = max(
+        s._taille_entree_majorante(
+            s.requete(
+                subset, DOC, settings,
+                anchors=s._ancres_frontiere(registre, tuple(subset))), settings)[1]
+        for subset in (first_pair, second_pair)
+    )
+    three_tokens = s._taille_entree_majorante(
+        s.requete(
+            first_three, DOC, settings,
+            anchors=s._ancres_frontiere(registre, tuple(first_three))), settings)[1]
+    assert pair_tokens < three_tokens
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": pair_tokens + settings.structure_max_output_tokens},
+    )
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert [segment.line_uids for segment in plan.segments] == [
+        tuple(first_pair), tuple(second_pair),
+    ]
+    assert tuple(uid for segment in plan.segments for uid in segment.line_uids) == tuple(registre)
+    assert len({uid for segment in plan.segments for uid in segment.line_uids}) == len(registre)
+
+    before = s._empreinte_registre(registre)
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit",
+        lambda _path, **event: audits.append(event) or {},
+    )
+    client = FauxClientTraverseFrontiere()
+    execution = s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    parent_uid = ordered[0][0]
+    child_uid = ordered[2][0]
+    final_uid = ordered[3][0]
+    second_request = client.messages.calls[1]
+    second_payload = json.loads(second_request["messages"][0]["content"])
+    assert second_payload["ancres_frontiere"] == [
+        {"uid": anchor.line_uid, "ordre": anchor.ordre, "titre": anchor.titre}
+        for anchor in plan.segments[1].anchors
+    ]
+    properties = second_request["output_config"]["format"]["schema"]["properties"][
+        "noeuds"]["items"]["properties"]
+    assert parent_uid in properties["parent_line_uid"]["anyOf"][0]["enum"]
+    assert parent_uid in properties["relations"]["items"]["properties"][
+        "target_line_uid"]["enum"]
+    assert parent_uid not in properties["premiere_line_uid"]["enum"]
+
+    by_title = {node.titre_line_uid: node for node in execution.proposition.noeuds}
+    assert by_title[child_uid].parent_line_uid == parent_uid
+    assert by_title[child_uid].relations[0].target_line_uid == parent_uid
+    assert by_title[parent_uid].derniere_line_uid == final_uid
+    assert s.verifier(
+        execution.proposition, registre, doc_id=DOC, settings=settings).accepte
+    tree, _node_of_uid = s.arbre(
+        execution.proposition, registre, DOC, settings=settings)
+    parent_id = next(node_id for node_id, node in tree.items() if node.parent_id is None)
+    child_id = next(node_id for node_id, node in tree.items() if node.parent_id == parent_id)
+    assert tree[child_id].relations[0].target_node_id == parent_id
+    assert s._empreinte_registre(registre) == before
+    assert len(audits) == 2
+    assert all(parent_uid in event["trusted_line_uids"] for event in audits)
+
+
+def test_ancre_candidate_jamais_proposee_comme_titre_reste_fail_closed(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    registre = _registre([_page(1, [
+        "Article 1 Dispositions",
+        "Titre candidat mais non propose",
+        "Article 1.1 Details",
+    ])])
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    ordered = list(registre.items())
+    pairs = (dict(ordered[:2]), dict(ordered[2:]))
+    pair_tokens = max(
+        s._taille_entree_majorante(
+            s.requete(
+                subset, DOC, settings,
+                anchors=s._ancres_frontiere(registre, tuple(subset))), settings)[1]
+        for subset in pairs
+    )
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": pair_tokens + settings.structure_max_output_tokens},
+    )
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert [segment.line_uids for segment in plan.segments] == [
+        tuple(pairs[0]), tuple(pairs[1]),
+    ]
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+    client = SimpleNamespace(messages=FauxMessagesAncreNonProposee())
+
+    with pytest.raises(ValueError, match="ancre non proposée") as leve:
+        s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert len(client.messages.calls) == 2
+    expected = s._usage_cumule([
+        s.cost_from_usage(s.MODEL, client.messages.usage, settings.usd_eur, batch=False),
+        s.cost_from_usage(s.MODEL, client.messages.usage, settings.usd_eur, batch=False),
+    ])
+    assert f"input={expected.input}" in str(leve.value)
+    assert f"coût réel cumulé {expected.cost_eur:.4f} €" in str(leve.value)
+    assert audits[-1]["usage_cumule"] == {**expected.model_dump(), "current_known": True}
 
 
 def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
@@ -891,8 +1393,10 @@ def test_une_reponse_tronquee_ou_sans_usage_ne_produit_aucune_proposition() -> N
     registre = _registre(_corpus())
     with pytest.raises(ValueError, match="interrompue"):
         s.proposer(FauxClient(stop_reason="max_tokens"), registre, doc_id=DOC, settings=get_settings())
-    with pytest.raises(ValueError, match="usage facturable"):
+    with pytest.raises(ValueError, match="usage facturable") as leve:
         s.proposer(FauxClient(usage={}), registre, doc_id=DOC, settings=get_settings())
+    assert "coût réel du segment inconnu (usage absent)" in str(leve.value)
+    assert "coût réel du segment 0.0000" not in str(leve.value)
 
 
 def test_la_cli_hors_ligne_ne_construit_aucun_client_et_publie_ses_bornes() -> None:
@@ -1024,6 +1528,134 @@ def test_la_cli_ecrit_structure_json_atomiquement_avec_un_client_injecte(
     # `write_atomic` : le fichier de travail est renommé, jamais laissé à côté de l'artefact.
     assert [chemin.name for chemin in dossier.glob("*.tmp")] == []
     assert (dossier / "structure.json").read_text("utf-8").endswith("\n")
+
+
+def test_preflight_cumule_tous_les_segments_avant_le_premier_appel(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    pages, _ = p.extract_pages(dossier / "source.pdf")
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    anchors = s._ancres_frontiere(registre, tuple(registre))
+    full_params = s.requete(registre, DOC, settings, anchors=anchors)
+    _, full_tokens = s._taille_entree_majorante(full_params, settings)
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": full_tokens + settings.structure_max_output_tokens - 1},
+    )
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) > 1
+    assert plan.majorant_eur > max(segment.majorant_eur for segment in plan.segments)
+    ceiling = (plan.majorant_eur + max(segment.majorant_eur
+                                        for segment in plan.segments)) / 2
+
+    client = FauxClient()
+    output = io.StringIO()
+    code = s.main(
+        [DOC, "--data", str(dossier.parent), f"--max-cost={ceiling}"],
+        client=client, settings=settings, output=output,
+    )
+
+    assert code == 3 and client.messages.calls == []
+    assert f"{len(plan.segments)} segment(s)" in output.getvalue()
+    assert "majorant cumulé" in capsys.readouterr().err
+    assert not (dossier / "structure.json").exists()
+
+
+def test_bad_request_contexte_passe_par_main_puis_raffine_et_repreflight_le_budget(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    pages, _ = p.extract_pages(dossier / "source.pdf")
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    initial = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(initial.segments) == 1
+    assert (initial.segments[0].input_tokens_majorant + settings.structure_max_output_tokens
+            <= s.MODEL_CAPS[s.MODEL]["context_window"])
+    refined = s._raffiner_plan(initial, 0, registre, doc_id=DOC, settings=settings)
+    assert refined is not None and len(refined.segments) == 2
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+    client = SimpleNamespace(messages=FauxMessagesRaffinement())
+
+    code = s.main(
+        [DOC, "--data", str(dossier.parent), "--max-cost=5"],
+        client=client, settings=settings, output=io.StringIO(),
+    )
+
+    assert code == 0
+    assert [event["request"] for event in audits] == [
+        initial.segments[0].request,
+        *(segment.request for segment in refined.segments),
+    ]
+    assert audits[0]["error_class"] == "RefusContexteType"
+    assert len({event["run_uid"] for event in audits}) == 1
+    assert (dossier / "structure.json").is_file()
+    assert list(dossier.glob("*.tmp")) == []
+
+    # L'ancien calcul ne comptait que le plan raffiné : ce plafond l'aurait donc laissé repartir.
+    # La tentative sans usage peut pourtant être facturée ; son majorant réservé ferme le retry.
+    second_client = SimpleNamespace(messages=FauxMessagesRaffinement())
+    second_audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: second_audits.append(event) or {})
+    refined_only = s._arrondir_eur_superieur(sum(
+        segment.majorant_eur_brut for segment in refined.segments))
+    with_unknown_attempt = s._arrondir_eur_superieur(
+        initial.segments[0].majorant_eur_brut
+        + sum(segment.majorant_eur_brut for segment in refined.segments))
+    ceiling = (refined_only + with_unknown_attempt) / 2
+    assert initial.majorant_eur < refined_only < ceiling < with_unknown_attempt
+    with pytest.raises(ValueError, match="refusé avant retry"):
+        s.executer_plan(
+            second_client, initial, registre, doc_id=DOC, settings=settings,
+            max_cost_eur=ceiling,
+        )
+    assert len(second_client.messages.calls) == 1
+    assert [event["request"] for event in second_audits] == [initial.segments[0].request]
+
+
+def test_reponse_de_segment_hors_frontiere_refuse_atomiquement_la_publication(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    settings = Settings(_env_file=None, structure_max_output_tokens=64)
+    pages, _ = p.extract_pages(dossier / "source.pdf")
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    one_tokens = max(
+        s._taille_entree_majorante(
+            s.requete(
+                {uid: entry}, DOC, settings,
+                anchors=s._ancres_frontiere(registre, (uid,))), settings)[1]
+        for uid, entry in registre.items()
+    )
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": one_tokens + settings.structure_max_output_tokens},
+    )
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit",
+        lambda _path, **event: audits.append(event) or {},
+    )
+    client = FauxClientFrontiereIncoherente()
+
+    code = s.main(
+        [DOC, "--data", str(dossier.parent)], client=client, settings=settings,
+        output=io.StringIO(),
+    )
+
+    assert code == 3 and len(client.messages.calls) == 2 and len(audits) == 2
+    assert not (dossier / "structure.json").exists()
+    assert list(dossier.glob("*.tmp")) == []
 
 
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
@@ -1424,6 +2056,37 @@ def test_charger_refuse_un_artefact_plus_lourd_que_la_charge_utile_sans_le_lire(
         with pytest.raises(s.StructureRefusee) as tolere:
             s.charger(chemin)
     assert tolere.value.motif == "proposition_illisible"
+
+
+def test_artefact_final_de_2000_noeuds_est_mesure_exactement_et_relisible(
+        tmp_path: Path) -> None:
+    nodes: list[s.NoeudPropose] = []
+    for group in range(8):
+        root = f"n{group:02d}-000"
+        nodes.append(s.NoeudPropose(
+            titre_line_uid=root, premiere_line_uid=root, derniere_line_uid=root,
+            parent_line_uid=None,
+        ))
+        for child in range(1, 250):
+            uid = f"n{group:02d}-{child:03d}"
+            nodes.append(s.NoeudPropose(
+                titre_line_uid=uid, premiere_line_uid=uid, derniere_line_uid=uid,
+                parent_line_uid=root,
+            ))
+    proposition = s.StructureProposee(schema_version="1", doc_id=DOC, noeuds=nodes)
+    settings = Settings(_env_file=None)
+
+    payload = s._serialiser_artefact(proposition, settings)
+    encoded = payload.encode("utf-8")
+    assert len(nodes) == 2_000 and len(encoded) <= settings.structure_max_input_chars
+    path = tmp_path / "structure.json"
+    path.write_bytes(encoded)
+    loaded, exact = s.charger_octets(path, settings=settings)
+    assert len(loaded.noeuds) == 2_000 and exact == encoded
+
+    too_small = Settings(_env_file=None, structure_max_input_chars=len(encoded) - 1)
+    with pytest.raises(ValueError, match="artefact final.*octets"):
+        s._serialiser_artefact(proposition, too_small)
 
 
 def test_charger_ne_croit_pas_la_taille_annoncee_par_le_systeme_de_fichiers(
