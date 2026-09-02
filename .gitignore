@@ -53,6 +53,7 @@ data/*/.type-clauses.lock
 # Artefacts locaux/CI du harness d'évals (cache et rapports reproductibles, jamais committés)
 .cache/evals/
 .evals/
+.audit/
 eval-results.json
 eval-results.md
 

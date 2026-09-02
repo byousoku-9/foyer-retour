@@ -121,6 +121,13 @@ verdict sur les variantes ni une validation experte. Le dernier produit servi re
 
 ## Limites honnêtes
 
+Le parseur V2 change l'identité et la structure publiées. Les PDF réels étant hors dépôt et leur
+réingestion interdite au builder, les deux artefacts committés sont explicitement périmés jusqu'à la
+réingestion standard orchestrée :
+
+- `empreinte-committee-perimee: axa-lu-optihome-2017`
+- `empreinte-committee-perimee: baloise-lu-home-2-2024`
+
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
   réseau forgée empêchent d'en faire un quota global.
 - Les corpus, dictionnaires et rapports sont des fichiers versionnés chargés en mémoire. C'est

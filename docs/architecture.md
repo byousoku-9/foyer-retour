@@ -114,12 +114,10 @@ modèle ne produit jamais la valeur finale et n’effectue aucun calcul de couve
 
 ## Intelligence payée à l’ingestion, lecture au service
 
-L’**intelligence payée à l’ingestion** transforme les sources une fois en artefacts versionnés :
-`document.json`, sommaire, rapport, dictionnaire et manifest. Pour la structure PDF, le modèle
-propose hors ligne seulement des ancres `line_uid` et des liens parent/enfant, jamais du texte. Le
-code vérifie UID, ordre, couverture et bornes, relit les titres, calcule les `node_id`, puis applique
-`structure.json`. Sans cet artefact, l’heuristique reste nominale ; présent mais refusé, il place le
-document en quarantaine sans repli silencieux (AD-2, AD-7, AD-16).
+L’**intelligence payée à l’ingestion** transforme les sources en artefacts versionnés. Pour la
+structure PDF, le modèle propose seulement ancres `line_uid` et liens ; le code vérifie UID, ordre,
+couverture et bornes avant d’appliquer `structure.json`. Un artefact refusé met le document en
+quarantaine sans repli silencieux (AD-2, AD-7, AD-16).
 
 Séparément, pour les clauses des PDF, le modèle d’ingestion étiquette les `block_id` avec un type et
 une confiance, sans renvoyer leur texte ; le code résout l’arbre, les portées et les renvois. Les
@@ -128,11 +126,20 @@ corpus servi (AD-7, AD-8). Au démarrage, le serveur charge les JSON et leurs in
 les consulte sans les modifier.
 
 Trois tiers configurés rendent le compromis explicite : `ingest` pour le travail hors ligne,
-`reason` pour la rédaction, et `micro` pour comprendre, naviguer par défaut et vérifier. Leurs IDs de
+`reason` pour la rédaction et toute navigation retrieval, et `micro` pour comprendre et vérifier. Leurs IDs de
 modèles sont centralisés plutôt que promis par la documentation. Le préfixe stable du tier `reason`
 utilise le cache fournisseur d’une heure ; séparément, le harness d’évals possède un cache persistant
 indexé par le modèle, les paramètres, les schémas, le pipeline, le corpus, la variante et l’entrée
 (AD-14). Une seule table de prix calcule le coût depuis l’usage réellement rendu par l’API (AD-9).
+
+**Amendement R-11 — contrat de recherche v2.**
+
+`Index.chercher` rend des `ScoredHit` immuables portant identités, titre complet, extrait borné et
+score rationnel exact. Le tri finit par document, clause, résultat ; l’identité question ignore
+l’ordre des groupes. `outils`, `deterministe` et `full_context` transportent le record sans recalcul
+jusqu’à l’admission et la suffisance. Les `ContextUnit` voisins gardent leur rôle sans hériter de la
+pertinence ; snapshots et admission partagent union dédupliquée et estimateur de tokens. Toute
+nouvelle version exige tests des trois consommateurs et revue d’architecture.
 
 ## Un service, une origine, une promotion conditionnelle
 
