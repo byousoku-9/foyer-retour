@@ -64,7 +64,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "16-entree-de-sommaire-prouvee-par-la-geometrie"
+PARSER_VERSION = "17-preuve-locale-sans-lecture-arriere"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -80,11 +80,12 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "&continuation+article&sans_preuve_forte(geometrie|points_de_conduite|intitule)"
                       "=>corps;fragments_meme_bas_geometrique_et_colonne"
                       "=>gauche_droite;"
-                      "entree:preuve_geometrique_seule(renvoi_a_droite_meme_ligne_de_base"
-                      "|points_de_conduite),cherchee_sur_les_fragments_natifs;"
+                      "entree:preuve_geometrique_seule(renvoi_apres_la_fin_de_la_ligne"
+                      "&fragment_qui_ouvre_la_ligne|points_de_conduite)"
+                      ",cherchee_sur_les_fragments_natifs;"
                       "jamais_le_texte_seul,jamais_la_taille_du_document;"
                       "fin_tdm:premier_groupe_numerote_non_entree(prefixe_contigu"
-                      ";reprise_si_entree_prouvee_ensuite)&meme_predicat_aux_deux_frontieres;"
+                      ";sans_aucune_lecture_arriere)&meme_predicat_aux_deux_frontieres;"
                       "sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
@@ -631,11 +632,17 @@ def _font_family_candidates(font: str) -> list[str]:
     entier = _FONT_ALNUM_RE.sub("", "".join(sections))
     sans_style_separe = _FONT_ALNUM_RE.sub(
         "", "".join(section for section in sections if section not in _FONT_STYLE_TOKENS)) or entier
-    sans_style_accole = next(
-        (sans_style_separe[: -len(token)]
-         for token in sorted(_FONT_STYLE_TOKENS | set(_FONT_FOUNDRY_TOKENS), key=len, reverse=True)
-         if len(sans_style_separe) > len(token) and sans_style_separe.endswith(token)),
-        sans_style_separe)
+    # Les marques s'empilent dans le monde réel : `TimesNewRomanPSMT`, `EuroMonoPS-BoldMT`. Le
+    # retrait boucle donc tant qu'un jeton termine le nom, au lieu d'en retirer un seul.
+    sans_style_accole = sans_style_separe
+    jetons = sorted(_FONT_STYLE_TOKENS | set(_FONT_FOUNDRY_TOKENS), key=len, reverse=True)
+    while True:
+        reduit = next((sans_style_accole[: -len(token)] for token in jetons
+                       if len(sans_style_accole) > len(token)
+                       and sans_style_accole.endswith(token)), None)
+        if reduit is None:
+            break
+        sans_style_accole = reduit
     premiere_section = _FONT_ALNUM_RE.sub("", sections[0])
     return [candidate for candidate in dict.fromkeys(
         (entier, sans_style_separe, sans_style_accole, premiere_section)) if candidate]
@@ -852,9 +859,13 @@ def _has_toc_title(page: PageText) -> bool:
 
 
 def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], tolerance: float) -> bool:
-    """Une ligne réduite à un numéro de page, à droite de celle-ci et sur la même ligne de base."""
+    """Une ligne réduite à un numéro de page, après la **fin** de celle-ci et sur sa ligne de base.
+
+    « À droite du début » ne suffisait pas : un nombre posé au milieu de l'empan horizontal de la
+    ligne comptait comme un renvoi, alors qu'un renvoi de sommaire suit toujours l'intitulé.
+    """
     return any(_PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
-               and candidate.bbox[0] > line.bbox[0]
+               and candidate.bbox[0] >= line.bbox[2]
                and abs(candidate.bbox[1] - line.bbox[1]) <= tolerance
                for candidate in lines)
 
@@ -889,8 +900,16 @@ def _est_entree_de_sommaire(line: PageLine, page: PageText) -> bool:
         return True
     reference = page.toc_fragments or page.lines
     tolerance = get_settings().toc_page_number_baseline_pt
+    # `_TOC_NUMBER_RE` est une garde **défensive et redondante** : tout chemin qui mène ici passe
+    # déjà par `_has_toc_entries` ou par un groupe dont la première ligne porte un numéro. Sa
+    # mutation ne fait donc rougir aucun témoin, et elle n'est pas annoncée comme une propriété
+    # gardée — elle est déclarée telle, pour qu'on ne la prenne pas pour une preuve.
     return any(_TOC_NUMBER_RE.match(fragment.text.strip())
-               and _center_inside(fragment.bbox, line.bbox)
+               # Le fragment qui porte la preuve doit **ouvrir** la ligne : l'intitulé d'une entrée
+               # est toujours son fragment le plus à gauche. Sans cette borne, un fragment voisin
+               # dont le centre tombe dans la boîte assemblée — une ligne de tableau, une note en
+               # marge — prêtait sa preuve à un titre d'article et le faisait rentrer au sommaire.
+               and _center_inside(fragment.bbox, line.bbox) and fragment.bbox[0] <= line.bbox[0]
                and _renvoi_de_page_a_droite(fragment, reference, tolerance)
                for fragment in reference)
 
@@ -903,17 +922,15 @@ def _premier_groupe_de_corps(groups: list[tuple[str, list[PageLine]]],
     prouvée, et il ne se referme plus : une clause dont le texte ressemble à un renvoi ne peut pas
     retomber dans le sommaire.
 
-    Une seule exception, et elle est bornée par la **preuve** : si une entrée prouvée suit encore sur
-    la page, le sommaire n'était pas fini. Sans elle, une entrée dont le renvoi manque — un accident
-    d'extraction au milieu d'un sommaire — libérait toute la queue du sommaire d'un coup. Elle ne
-    peut pas se retourner contre une clause : ce qui suit doit porter un renvoi géométrique ou des
-    points de conduite, que la prose d'un contrat ne fabrique pas.
+    **Aucune lecture arrière**, et c'est une décision, pas un oubli. Deux tentatives successives ont
+    fait dépendre le sort de ce qui précède d'une ligne située plus bas ; les deux se sont retournées
+    contre des clauses juridiques, la seconde parce qu'un tableau de garanties fabrique exactement
+    les marques qu'on croyait réservées aux sommaires. Le prix est nommé : une entrée dont le renvoi
+    manque au milieu d'un sommaire libère la suite de ce sommaire, qui sort en articles citables.
+    C'est du bruit dans le rappel, jamais une preuve perdue — le sens sûr.
     """
     for index, (_kind, lines) in enumerate(groups):
         if lines[0].number is None or _est_entree_de_sommaire(lines[0], page):
-            continue
-        if any(_est_entree_de_sommaire(ligne, page)
-               for _suivant, suivantes in groups[index + 1:] for ligne in suivantes):
             continue
         return index
     return None
