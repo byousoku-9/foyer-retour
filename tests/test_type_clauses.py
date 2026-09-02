@@ -21,7 +21,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import cost_from_usage
 from server.evals.espace import EspaceNonInstalle, EspacePublie
 from server.ingest.artifacts import TYPING_REUSED_IDS_STAT, document_json
-from server.ingest.report import enrich_typing_report
+from server.ingest.report import canoniser_transition_apres_typage, enrich_typing_report
 from server.ingest import type_clauses as tc
 
 
@@ -864,6 +864,10 @@ def test_standard_initial_execute_t1_t2_sans_endpoint_batch_et_publie_atomiqueme
     tmp_path: Path,
 ) -> None:
     doc_dir, _doc = write_data(tmp_path)
+    # La transition canonique (compteurs de delta d'identité) est structurelle : elle précède le
+    # typage dans la voie payante comme dans une régénération.
+    stats_avant = set(canoniser_transition_apres_typage(
+        Report.model_validate_json((doc_dir / "report.json").read_bytes())).stats)
     kinds = {"contrat:p1:1": "garantie", "contrat:p2:1": "definition"}
     batches = FakeBatches(kinds)
     client = FakeStandardClient(batches, kinds)
@@ -880,6 +884,20 @@ def test_standard_initial_execute_t1_t2_sans_endpoint_batch_et_publie_atomiqueme
     assert batches.created == []
     report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
     assert report.stats["typage_transport"] == "standard"
+    # Tout ce que la campagne ajoute au rapport est déclaré comme possédé par le typage : c'est
+    # la clôture que les certificats « PDF réel » ferment sur un artefact typé. Le rapport de la
+    # fixture n'est pas une projection structurelle complète (`enrich_typing_report` y recompte
+    # `tables`), d'où la sélection par famille de clés.
+    ajoutees = set(report.stats) - stats_avant
+    familles = ("typage_", "t1_", "t2_", "arbitration_", "blocs_typage", "ids_typage",
+                "blocs_juridiques", "blocs_types_modele", "references_non_resolues")
+    typage = {key for key in ajoutees if key.startswith(familles)}
+    assert typage and typage <= tc.TYPING_STATS_KEYS, sorted(typage - tc.TYPING_STATS_KEYS)
+    assert {"t2_terminal_decisions", "typage_transport", "blocs_typage_reutilises"} <= typage
+    assert set(tc.decision_stats(
+        {}, (), [], [], model_run_uid="typing:test", consumed_plan_ids=set(),
+        failed_t2=set(), timeout_t2=set(), failed_t3=set(), timeout_t3=set(),
+    )) <= tc.TYPING_STATS_KEYS
     proof = next(check for check in report.checks if check.name == "typage_transport")
     assert "aucune API Batch" in proof.detail
 
@@ -1317,6 +1335,7 @@ def test_standard_resume_reutilise_lot_complete_manquants_et_ne_cree_aucun_batch
     assert saved_report.stats["typage_resume_batch_id"] == "partial-first"
     assert saved_report.stats["typage_reused_requests"] == 1
     assert saved_report.stats["typage_standard_requests"] == 2
+    assert {key for key in saved_report.stats if key.startswith("typage_")} <= tc.TYPING_STATS_KEYS
     proof = next(check for check in saved_report.checks if check.name == "typage_transport")
     assert "aucune" not in proof.detail and campaign in proof.detail
 

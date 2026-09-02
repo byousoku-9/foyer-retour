@@ -344,6 +344,36 @@ def decision_stats(
     }
 
 
+# Les statistiques de `report.stats` que le **typage** possède, et lui seul : celles qu'ajoutent
+# `decision_stats`, le bilan de transport du typage payant, la réutilisation d'un typage par
+# `pdf_to_blocks` et le bilan sémantique d'`enrich_typing_report`. Une régénération depuis le PDF
+# recalcule la projection structurelle mais ne peut pas produire une campagne : les certificats
+# « PDF réel » ferment donc la clôture `structurel ∪ TYPING_STATS_KEYS` sur cette liste, au lieu
+# d'épingler la forme de l'artefact qu'ils avaient sous les yeux le jour de leur écriture.
+TYPING_STATS_KEYS: frozenset[str] = frozenset({
+    # bilan sémantique (`enrich_typing_report`) et réutilisation (`pdf_to_blocks`)
+    "blocs_types_modele", "blocs_juridiques", "blocs_juridiques_confirmes",
+    "references_non_resolues", TYPING_REUSED_IDS_STAT, "blocs_typage_reutilises",
+    "blocs_typage_a_rejouer", "blocs_typage_rejoues",
+    # registre des décisions terminales (`decision_stats`)
+    "t2_eligibility_mode", "t1_registry", "t1_registry_hash", "t2_terminal_decisions",
+    "t2_renvoi_terminal_decisions", "t2_renvoi_terminal_ids_equal_registry",
+    "t2_planned_surface", "t2_consumed_surface", "t2_planned_plan_hash", "t2_consumed_plan_hash",
+    "t2_planned_order", "t2_consumed_order", "t2_plan_ids", "t2_plan_count",
+    "t2_terminal_count", "t2_failed_plan_ids", "t2_timeout_plan_ids",
+    "arbitration_request_count", "arbitration_failed_plan_ids", "arbitration_timeout_plan_ids",
+    # bilan de transport et de coût de la campagne
+    "typage_transport", "typage_current_campaign", "typage_current_payload_sha256",
+    "typage_replayed_payload_requests", "typage_changed_payload_requests",
+    "typage_changed_payload_custom_ids", "typage_reused_requests", "typage_standard_requests",
+    "typage_batch_cost_eur", "typage_standard_cost_eur", "typage_total_cost_eur",
+    "typage_prior_cost_eur", "typage_cumulative_cost_eur", "typage_cost_ceiling_eur",
+    # reprise explicite d'un lot (`standard-resume`)
+    "typage_resume_batch_id", "typage_resume_campaign", "typage_resume_payload_sha256",
+    "typage_resume_justification",
+})
+
+
 def _same_critical_payload(first: ClauseLabel, second: ClauseLabel) -> bool:
     """Compare les deux lectures **sur la seule surface que leurs prompts contractent**.
 

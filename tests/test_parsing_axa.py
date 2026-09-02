@@ -31,6 +31,9 @@ TYPING_CHECKS = {
     "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
     "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes", "typage_clauses",
     "typage_transport",
+    # Provenance d'un typage recalculé hors réseau depuis l'audit : une régénération depuis le PDF
+    # réutilise ces décisions sans les rejouer, elle ne peut donc pas produire ce contrôle.
+    "typage_rejeu_audit",
 }
 TERMINAL_TYPING_STATS = {
     "blocs_juridiques", "blocs_juridiques_confirmes", "blocs_typage_a_rejouer",
@@ -119,7 +122,9 @@ def test_document_shape(doc: Document) -> None:
     printed_toc = next(c for c in report.checks if c.name == "tdm_imprimee")
     assert printed_toc.level == "info" and "4 titre(s)" in printed_toc.detail
     by_check = {check.name: check for check in report.checks}
-    assert "14 bloc(s) sur 4 page(s)" in by_check["blocs_non_citables"].detail
+    # 15 blocs : couverture, sommaire (pages 1-4) et quatrième de couverture (page 109, coordonnées
+    # de l'agent), tous hors rappel.
+    assert "15 bloc(s) sur 5 page(s)" in by_check["blocs_non_citables"].detail
     assert by_check["pages_mixtes"].detail.endswith(": 1")
     assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
     assert report.stats["tables"] == sum(

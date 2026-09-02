@@ -127,10 +127,10 @@ relance ; le plafond par requête passe à 0,45 €. Les deux tiers (0,128 €) 
 ## Limites honnêtes
 
 Le parseur V2 change l'identité et la structure publiées. Les PDF réels étant hors dépôt et leur
-réingestion interdite au builder, les deux artefacts committés sont explicitement périmés jusqu'à la
-réingestion standard orchestrée :
+réingestion interdite au builder, un artefact committé non réingéré est explicitement périmé jusqu'à
+la réingestion standard orchestrée (AXA réingéré et retypé le 2026-09-02 ; Baloise en attente de sa
+structure) :
 
-- `empreinte-committee-perimee: axa-lu-optihome-2017`
 - `empreinte-committee-perimee: baloise-lu-home-2-2024`
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
@@ -563,7 +563,6 @@ La divergence est **déclarée ici, document par document**, et une garde toujou
 confronte à l'empreinte du parseur courant (`assert_empreinte_committee_declaree`, jouée par
 `tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`) :
 
-- `empreinte-committee-perimee: axa-lu-optihome-2017`
 - `empreinte-committee-perimee: baloise-lu-home-2-2024`
 
 Une empreinte committée qui divergerait **sans** figurer dans cette liste fait rougir la garde ; et

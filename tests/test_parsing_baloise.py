@@ -26,6 +26,9 @@ TYPING_CHECKS = {
     "corruption_decisionnelle", "unresolved_refs", "definition_introuvable",
     "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes",
     "typage_clauses", "typage_transport",
+    # Provenance d'un typage recalculé hors réseau depuis l'audit : une régénération depuis le PDF
+    # réutilise ces décisions sans les rejouer, elle ne peut donc pas produire ce contrôle.
+    "typage_rejeu_audit",
 }
 TERMINAL_TYPING_STATS = {
     "blocs_juridiques", "blocs_juridiques_confirmes", "blocs_typage_a_rejouer",
