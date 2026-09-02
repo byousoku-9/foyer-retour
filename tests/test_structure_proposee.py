@@ -1371,6 +1371,69 @@ def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
     assert set(noeud.blocks) == {block.block_id for block in document.blocks}
 
 
+def _page_titre_et_corps() -> p.PageText:
+    """Un nœud dont le titre est un bloc à lui seul, un autre dont le titre ouvre son alinéa.
+
+    Les deux cas de la règle, sur la même page et sans vocabulaire : le second nœud colle son
+    intitulé à sa première phrase — interligne serré —, si bien que le bloc porte, en plus du titre,
+    l'information qui suit.
+    """
+    registre = p.SourceRegistry()
+    lignes: list[p.PageLine] = []
+    # (texte, y, hauteur d'interligne avant la ligne suivante)
+    poses = [("Vetuste", 100.0), ("La vetuste est la depreciation subie par un bien.", 130.0),
+             ("Franchise Somme qui reste a votre charge apres sinistre.", 190.0),
+             ("Elle est indiquee aux conditions particulieres.", 202.0)]
+    for text, y in poses:
+        bbox = [56.0, y, 356.0, y + 12.0]
+        source = registre.add(page=1, text=text, bbox=bbox)
+        lignes.append(p.PageLine(text, bbox, 10.0, source_uids=[source.uid]))
+    return p.PageText(page=1, width=595, height=842, lines=lignes, source=registre)
+
+
+def test_un_bloc_qui_ne_porte_que_le_titre_de_son_noeud_recoit_le_kind_heading() -> None:
+    """AD-2 : « `heading` n'est pas citable seul » — y compris quand le titre vient d'une proposition.
+
+    Sans cette projection, le corpus Baloise servi ne portait **aucun** bloc `heading` : le refus du
+    vérificateur, `Index.unite_de_renvoi` et `retrouver._unite_primaire` testent tous `kind ==
+    "heading"` et ne voyaient plus un seul titre du document. Une question de définition se voyait
+    alors servir le mot seul (« Vetuste ») comme la clause qui répond.
+    """
+    pages = [_page_titre_et_corps()]
+    p.ordonner_pages(pages)
+    uids = tuple(s.registre_lignes(pages, document_uid=DOC))
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[1],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[2], premiere_line_uid=uids[2], derniere_line_uid=uids[3],
+            parent_line_uid=None, title_line_uids=[uids[2]], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+    assert s.verifier(proposition, s.registre_lignes(pages, document_uid=DOC),
+                      doc_id=DOC, settings=get_settings()).accepte
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+        title="Contrat", structure=proposition,
+    )
+    par_texte = {block.text: block for block in document.blocks}
+    # Le bloc qui **est** le titre, et rien d'autre : il structure l'arbre, il ne se cite pas seul.
+    titre = par_texte["Vetuste"]
+    assert (titre.kind, titre.structural_kind) == ("heading", "heading")
+    # Son corps, lui, reste un paragraphe citable : la règle ne déborde pas sur le contenu du nœud.
+    corps = par_texte["La vetuste est la depreciation subie par un bien."]
+    assert (corps.kind, corps.structural_kind) == ("para", "para")
+    # Et le nœud dont l'intitulé ouvre son propre alinéa porte de l'information au-delà du titre :
+    # le bloc n'est pas *que* le titre, il reste donc citable.
+    mixte = next(block for block in document.blocks if block.text.startswith("Franchise Somme"))
+    assert len(mixte.lines) == 2 and mixte.kind == "para"
+    assert p.is_citable(titre) and p.is_citable(corps) and p.is_citable(mixte)
+
+
 def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_singleton() -> None:
     pages = [_page(1, [
         "Chapitre Parent", "Article 1 Cible singleton", "Article 2 Clause liée",

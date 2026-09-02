@@ -2480,7 +2480,9 @@ def test_ids_disparus_is_reported_when_text_moves(data: Path) -> None:
 def test_un_typage_precedent_ne_se_reutilise_que_sur_identite_forte(data: Path) -> None:
     _run(data)
     raw = Document.model_validate_json((data / "document.json").read_bytes())
-    target = next(block for block in raw.blocks if block.kind != "autre")
+    # Jamais un `heading` : un titre n'a pas de typage juridique à transporter (AD-2), et la
+    # réutilisation lui rend sa nature structurelle — ce que prouve le témoin dédié ci-dessus.
+    target = next(block for block in raw.blocks if block.kind not in ("autre", "heading"))
     old_target = target.model_copy(update={
         "kind": "condition", "kind_source": "model_verified", "kind_confidence": 0.93,
         "structural_kind": target.kind,
@@ -2639,6 +2641,36 @@ def test_reutilisation_metaphorique_remappe_ids_et_dependances_sans_leur_donner_
     assert garantie.relation.specialise == f"{DOC}:p1:1"
     assert garantie.scope_node_id == f"{DOC}:a1"
     assert next(node for node in typed.nodes if node.node_id == f"{DOC}:a1").scope.kind == "special"
+
+
+def test_un_titre_reconnu_par_la_lecture_courante_ne_reprend_pas_le_typage_du_paragraphe() -> None:
+    """AD-2 : un titre structure l'arbre et n'est jamais citable seul — même à la republication.
+
+    `type_clauses` écarte déjà toute étiquette juridique posée sur un `structural_kind == "heading"`.
+    La réutilisation le doit aussi : quand la lecture courante reconnaît un titre là où la
+    précédente lisait un paragraphe, recopier `old.kind` rendait le titre citable dès la
+    republication et effaçait la lecture qui venait de le reconnaître. Aucun appel n'est nécessaire
+    pour savoir qu'un titre est un titre : le bloc reste donc **réutilisé**, sans rien à rejouer.
+    """
+    previous = _document_metaphorique()
+    current = _document_metaphorique(inverse=True)
+    current = Document.model_validate(current.model_copy(update={
+        "blocks": [
+            block.model_copy(update={"kind": "heading", "structural_kind": "heading"}, deep=True)
+            if block.block_id == f"{DOC}:p1:2" else block
+            for block in current.blocks
+        ],
+    }, deep=True).model_dump())
+
+    typed, reused = p.reutiliser_typage_identique(current, previous, _preuve_typage_complet(previous))
+
+    assert reused == {f"{DOC}:p1:1": 1, f"{DOC}:p1:2": 1}
+    titre = typed.block(f"{DOC}:p1:2")
+    assert (titre.kind, titre.structural_kind) == ("heading", "heading")
+    assert (titre.kind_source, titre.kind_confidence, titre.scope_node_id) == (None, None, None)
+    assert titre.refs == [] and titre.relation.specialise is None
+    # Le bloc resté paragraphe, lui, reprend bien le typage prouvé de la génération précédente.
+    assert typed.block(f"{DOC}:p1:1").kind == "condition"
 
 
 def test_portee_ne_sappuie_que_sur_les_blocs_effectivement_reutilises() -> None:

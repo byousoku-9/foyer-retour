@@ -42,7 +42,7 @@ from pydantic import ValidationError
 from server.app.config import Settings, get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
-from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, SurfaceClass
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Relation, SurfaceClass
 from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE,
                                      TYPING_REUSED_IDS_STAT, LectureDuLot, document_json,
                                      exiger_espace_installe, merge_manifest, read_manifest,
@@ -52,9 +52,9 @@ from server.ingest.line_identity import line_uid
 from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   canoniser_transition_apres_typage, enrich_typing_report,
                                   numero_de_noeud, report_from_validation_error, structure_check)
-from server.ingest.structure import (STRUCTURE_RULES_VERSION, NoeudVerifie, StructureProposee,
-                                     StructureRefusee, arbre, charger_octets, empreinte_proposition,
-                                     presente, registre_lignes, verifier)
+from server.ingest.structure import (STRUCTURE_RULES_VERSION, Entree, NoeudVerifie,
+                                     StructureProposee, StructureRefusee, arbre, charger_octets,
+                                     empreinte_proposition, presente, registre_lignes, verifier)
 
 DOC_ID = "axa-lu-optihome-2017"
 TITLE = "Conditions d’assurances OptiHome (multirisques habitation)"
@@ -68,7 +68,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "21-le-cartouche-qui-clot-le-document-nest-pas-du-corps"
+PARSER_VERSION = "22-le-titre-propose-est-un-heading-lisible-et-la-mise-en-page-porte-continues"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -125,7 +125,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "traverse_toutes_les_gouttieres=>colonne0+bande,sinon=>colonne_de_depart;"
                       "continuation_et_tri_rompus_au_changement_de_colonne_ou_de_bande;"
                       "structure:proposition_verifiee(line_uid)&couverture_totale"
-                      "=>noeuds positionnels+titres du registre;"
+                      "=>noeuds positionnels+titres du registre"
+                      "&bloc_dont_les_uids<=title_line_uids_de_son_noeud=>heading;"
                       "refus=>quarantaine")
 FLAGS = {"sort": True, "wingdings_bullet": "•", "drop_tab_glyph": True, "rstrip_lines": True,
          "lstrip_lines_sans_puce": True, "merge_number_sep": " ", "merge_glyph_sep": " ",
@@ -422,6 +423,22 @@ def reutiliser_typage_identique(
         old = previous.block(old_id) if old_id is not None else None
         if old is None or old_id not in proven or not is_citable(block):
             blocks.append(block)
+            continue
+        # AD-2, le même énoncé que `type_clauses` applique à la sortie du modèle : un titre structure
+        # l'arbre mais n'est jamais citable seul, quelle que soit l'étiquette juridique qu'on lui a
+        # donnée. Quand la lecture courante reconnaît un titre là où la précédente lisait un
+        # paragraphe, c'est cette nature structurelle qui est réutilisée — aucun appel n'est
+        # nécessaire pour savoir qu'un titre est un titre. Recopier `old.kind` aurait au contraire
+        # rendu le titre citable dès la republication, en effaçant la lecture qui vient de le
+        # reconnaître.
+        if block.structural_kind == "heading":
+            blocks.append(block.model_copy(update={
+                "kind": "heading", "structural_kind": "heading",
+                "kind_source": None, "kind_confidence": None, "refs": [], "unresolved_refs": [],
+                "defines": None, "scope_node_id": None, "scope_node_ids": [], "overrides": None,
+                "relation": Relation(),
+            }, deep=True))
+            reused[block.block_id] = 1
             continue
         old_owner = previous.node_of(old.block_id)
         current_owner = doc.node_of(block.block_id)
@@ -2322,6 +2339,34 @@ def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
     return surfaces
 
 
+def projeter_les_titres(spec: NoeudVerifie, direct_blocks: list[str], registre: dict[str, Entree],
+                        block_uids: dict[str, list[str]], blocks_by_id: dict[str, Block]) -> None:
+    """Rend `heading` aux blocs qui ne portent que les lignes de titre de leur nœud.
+
+    AD-2 : « `heading` n'est pas citable seul ». Sans proposition, la géométrie reconnaît le titre
+    (`_is_heading`) et le bloc naît `heading`. Avec une proposition vérifiée, c'est elle qui dit
+    quelles lignes font le titre (`title_line_uids`) — et rien ne le projetait sur les blocs : le
+    bloc qui ne porte que ces lignes restait `para`. Le refus du vérificateur (« un titre ne se cite
+    pas seul »), `Index.unite_de_renvoi` et `retrouver._unite_primaire` testent tous les trois
+    `kind == "heading"` : sur un corpus entièrement structuré par proposition, ils ne voyaient plus
+    un seul titre, et une question de définition se voyait servir le mot seul comme clause.
+
+    Le bloc n'**est** le titre que s'il n'en déborde pas : un bloc qui colle le titre à son premier
+    alinéa porte de l'information au-delà de l'intitulé, et reste donc citable. La comparaison porte
+    sur les lignes source, jamais sur le texte : deux nœuds peuvent s'intituler pareil.
+    """
+    lignes_de_titre = {source_uid for uid in spec.title_line_uids
+                       for source_uid in registre[uid].source_uids}
+    if not lignes_de_titre:
+        return
+    for block_id in direct_blocks:
+        uids = block_uids[block_id]
+        if uids and set(uids) <= lignes_de_titre:
+            block = blocks_by_id[block_id]
+            block.kind = "heading"
+            block.structural_kind = "heading"
+
+
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE, source_url: str | None = None,
                    structure: StructureProposee | None = None) -> tuple[Document, dict[str, Any]]:
@@ -2521,6 +2566,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         blocks_by_id = {block.block_id: block for block in b.blocks}
         for node_id, spec in plan.items():
             direct_blocks = b.nodes[node_id].blocks
+            projeter_les_titres(spec, direct_blocks, registre, b.block_uids, blocks_by_id)
             positions = {block_id: position for position, block_id in enumerate(direct_blocks)}
             continuation_blocks = list(dict.fromkeys(
                 block_by_uid[uid] for uid in spec.continuation_line_uids
