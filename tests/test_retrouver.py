@@ -4756,3 +4756,76 @@ def test_une_variante_de_facette_ne_retient_que_les_mots_rares_du_document() -> 
     seuil = _s().facette_variante_max_part
     assert parts["fumees"] <= seuil and parts["suies"] <= seuil and parts["bris"] <= seuil
     assert parts["lies"] > seuil and parts["dommage"] > seuil and parts["dommages"] > seuil
+
+
+# --- Correctif du tour 3 (R5) : un verdict lisible, et des tours restants annoncés -------------
+
+
+async def test_un_verdict_terminal_en_fence_markdown_est_lu() -> None:
+    """R5 — le navigateur avait rendu la bonne réponse, et le code la jetait.
+
+    Le verdict était lu par `model_validate_json` sur le texte brut du dernier tour. Une phrase de
+    préambule et une clôture ```` ``` ```` suffisaient à faire échouer le parse : sur la troisième
+    réponse A16, un verdict **correct**, qui nommait la clause de la sous-question restée sans
+    réponse, est parti à la poubelle sous l'étiquette « verdict illisible ».
+    """
+    corpus = _corpus()
+    parsed = _parsed(["matricule"])
+    selected = {hit.clause_uid: hit for hit in Index(corpus).chercher(
+        parsed.termes_de_recherche(), question=parsed.question_resolue, limit=20,
+        doc_id="d")}["d:p2:1"]
+    verdict = json.dumps({"sufficient": True, "result_uid": selected.result_uid})
+
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n2", focus_block_id="d:p2:1")),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=f"La facette est couverte par la clause retenue.\n\n```json\n{verdict}\n```"),
+    ], corpus=corpus, parsed=parsed)
+
+    assert result.sufficiency is not None and result.sufficiency.complete
+    assert result.sufficiency.sufficiency_result_uid == selected.result_uid
+    assert not [c for c in step.checks if c.name == "verdict_semantique"]
+
+
+def test_lextraction_du_verdict_ne_repare_rien_et_ne_coupe_pas_sur_une_accolade_citee() -> None:
+    """Elle extrait, elle n'invente pas : sans objet équilibré, le verdict reste illisible."""
+    assert retrouver._premier_objet_json('bla {"a": 1} suite') == '{"a": 1}'
+    assert retrouver._premier_objet_json('```json\n{"a": {"b": 2}}\n```') == '{"a": {"b": 2}}'
+    # Une accolade **dans une chaîne** ne ferme rien, et l'échappement est respecté.
+    assert retrouver._premier_objet_json('{"a": "}"}') == '{"a": "}"}'
+    echappe = r'{"a": "\""} suite'
+    assert retrouver._premier_objet_json(echappe) == r'{"a": "\""}'
+    assert retrouver._premier_objet_json("aucun objet ici") is None
+    assert retrouver._premier_objet_json('{"jamais fermé": 1') is None
+
+
+async def test_le_navigateur_apprend_combien_de_tours_il_lui_reste() -> None:
+    """R5 — le préfixe annonce le plafond du dialogue, jamais où l'on en est.
+
+    Deux runs A16 sur trois ont dépensé leur dernier tour en ouvertures, donc n'ont rendu aucun
+    verdict. Le compte est composé par le code et voyage avec les résultats d'outil : le préfixe
+    système reste byte-identique, donc cacheable.
+    """
+    _result, _step, fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["matricule"])),
+        _tool_message(_tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": False, "result_uid": None})),
+    ], corpus=_corpus(), parsed=_parsed(["matricule"]),
+        budget=_budget(max_llm_turns=3))
+
+    # La dernière requête porte tout l'historique : c'est là que les deux annonces se lisent, dans
+    # l'ordre des tours.
+    annonces = [bloc["text"] for message in fake.requests[-1]["messages"]
+                if isinstance(message.get("content"), list)
+                for bloc in message["content"]
+                if isinstance(bloc, dict) and bloc.get("type") == "text"]
+    assert annonces == ["Il te reste 2 tour(s) de dialogue, dont le dernier est celui de la "
+                        "conclusion et ne doit appeler aucun outil.",
+                        "Il te reste 1 tour(s) de dialogue. Le dernier ne doit appeler aucun "
+                        "outil : il rend uniquement l'objet JSON de conclusion."]
+    # Le préfixe système ne bouge pas d'un octet entre les tours : il reste cacheable (AD-9).
+    prefixes = {requete["system"][0]["text"] for requete in fake.requests}
+    assert len(prefixes) == 1

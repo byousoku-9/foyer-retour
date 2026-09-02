@@ -368,6 +368,46 @@ def _variantes_de_facette(formes: Iterable[str], *, index: Index, doc_id: str,
     return variantes
 
 
+def _premier_objet_json(texte: str) -> str | None:
+    """Le premier objet JSON **équilibré** d'un texte, préambule et clôture Markdown tolérés.
+
+    Correctif du tour 3 (R5). Le verdict terminal était lu par `model_validate_json` sur le texte
+    brut concaténé du dernier tour. Le navigateur avait pourtant rendu la bonne réponse — une phrase
+    en français, puis un bloc ```` ```json ```` valide qui nommait la clause de la sous-question
+    restée sans réponse : le préambule et la clôture Markdown faisaient échouer le parse, et ce
+    verdict correct partait à la poubelle sous l'étiquette « verdict illisible ».
+
+    L'extraction compte les accolades **hors chaîne**, en respectant l'échappement : c'est le seul
+    moyen de ne pas couper sur une accolade citée dans un libellé. Elle ne répare rien et n'invente
+    rien — un texte sans objet équilibré rend `None`, et le verdict reste illisible comme avant.
+    """
+    depart = texte.find("{")
+    if depart < 0:
+        return None
+    profondeur = 0
+    dans_chaine = False
+    echappe = False
+    for position in range(depart, len(texte)):
+        caractere = texte[position]
+        if dans_chaine:
+            if echappe:
+                echappe = False
+            elif caractere == "\\":
+                echappe = True
+            elif caractere == '"':
+                dans_chaine = False
+            continue
+        if caractere == '"':
+            dans_chaine = True
+        elif caractere == "{":
+            profondeur += 1
+        elif caractere == "}":
+            profondeur -= 1
+            if profondeur == 0:
+                return texte[depart:position + 1]
+    return None
+
+
 def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | None,
                        dictionary_ready: bool, index: Index | None = None,
                        doc_id: str | None = None,
@@ -1544,8 +1584,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         for block in result.message.content
                         if getattr(block, "type", None) == "text"
                     ).strip()
+                    objet = _premier_objet_json(raw)
                     try:
-                        semantic_selection = SemanticSufficiencySelection.model_validate_json(raw)
+                        semantic_selection = SemanticSufficiencySelection.model_validate_json(
+                            objet if objet is not None else raw)
                     except ValueError:
                         verdict_illisible = True
                 break
@@ -1563,6 +1605,20 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 tool_results.append(item)
             if result.message.stop_reason in {"max_tokens", "refusal", "pause_turn"}:
                 break
+            # Correctif du tour 3 (R5) : **le navigateur sait combien de tours il lui reste.** Le
+            # préfixe statique annonce le plafond du dialogue, jamais où l'on en est ; deux runs sur
+            # trois ont dépensé leur dernier tour en ouvertures et n'ont donc rendu aucun verdict.
+            # Le compte est composé par le code et voyage dans le message d'outil, avec les
+            # résultats — le préfixe reste byte-identique, donc cacheable (AD-9).
+            restants = budget.max_llm_turns - (turn + 1)
+            tool_results.append({
+                "type": "text",
+                "text": (f"Il te reste {restants} tour(s) de dialogue. Le dernier ne doit appeler "
+                         "aucun outil : il rend uniquement l'objet JSON de conclusion."
+                         if restants == 1 else
+                         f"Il te reste {restants} tour(s) de dialogue, dont le dernier est celui "
+                         "de la conclusion et ne doit appeler aucun outil."),
+            })
             # Sans besoin déclaré, un titre ou une définition éclaire les candidats sans fournir
             # encore la règle utile et tout autre bloc conserve l'arrêt froid historique. Lorsqu'un
             # appelant déclare des kinds suffisants, seuls un kind demandé **et confirmé** satisfait
