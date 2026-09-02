@@ -295,8 +295,43 @@ class Settings(BaseSettings):
     # Revue Codex 1.8 (B3, tour 2) : une qualité établie porte désormais **avec elle** le fragment des
     # faits qui l'établit (`fait_cite`, relu par le code). Un bloc d'applicabilité peut donc rendre
     # jusqu'à `qualites_exigees_max` libellés de plus, chacun borné par `fait_manquant_max_chars` —
-    # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072.
-    verifier_sinistre_max_tokens: int = Field(3072, ge=1)
+    # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072 de **JSON**.
+    #
+    # **Correctif du tour 2 (rapport rédiger C) : ce calcul ne réservait rien pour la réflexion.**
+    # La réflexion étendue de Sonnet 5 est comptée par le fournisseur **dans le même `max_tokens`**
+    # que la sortie — c'est exactement pour cela que `verifier_max_tokens` a été corrigé le matin du
+    # 02/09/2026, sans que la dérivation sinistre soit reprise. Mesuré sur les 20 appels
+    # `verifier_sinistre` audités : la réflexion représente 55 à 91 % de la sortie, **1 904 tokens
+    # au maximum observé**, pour 300 à 1 100 caractères de JSON utile. La borne « tenait » par
+    # accident : `draft_max_claims = 4` rend inatteignables les 8 claims du calcul, et la moitié de
+    # budget ainsi libérée absorbait la réflexion. Elle ne tiendrait plus si `draft_max_claims`
+    # montait, et une sortie tronquée est un `LlmParse` terminal — donc un 503 sur un sinistre
+    # nominal. La borne est donc `contrat JSON + réserve de réflexion`, sur le patron de
+    # `structure_thinking_reserve_tokens`, avec une réflexion **mesurée** et non déduite.
+    #
+    # `max_tokens` ne facture pas : seul le majorant de préflight bouge.
+    #
+    # Le contrat JSON est **redimensionné sur ce que le sinistre peut réellement produire** :
+    # `draft_max_claims` (4), et non `verifier_max_claims` (8) qu'il ne peut pas atteindre — c'est
+    # cette confusion qui donnait 3 072 et qui masquait l'absence de réserve. À quatre claims :
+    # 4 verdicts (~25), 4 phrases soutenues (~15), 4 facettes (~30), et 4 blocs d'applicabilité
+    # portant chacun jusqu'à `qualites_exigees_max` qualités avec leur `fait_cite` borné par
+    # `fait_manquant_max_chars` (~90 tokens la qualité) ≈ 1 880, plus la ponctuation JSON : 2 048.
+    verifier_sinistre_json_tokens: int = Field(2048, ge=1)
+    # 2 048 pour 1 904 mesurés : ~7 % de marge, sur une mesure qui ne couvre qu'un contrat et un
+    # cas-témoin. `[HYPOTHÈSE]`, à resserrer quand d'autres cas décisoires auront été joués.
+    #
+    # La somme vaut **exactement** `llm_max_output_tokens` (4 096), et c'est voulu : le contrôle de
+    # cohérence mord désormais. Toute croissance future de `draft_max_claims`, de
+    # `qualites_exigees_max` ou de la réflexion mesurée exigera de relever d'abord le plafond du
+    # client — au lieu de rogner en silence sur la réflexion, ce qui tronque la sortie et rend un
+    # `LlmParse` terminal sur un sinistre nominal.
+    verifier_thinking_reserve_tokens: int = Field(2048, ge=0)
+
+    @property
+    def verifier_sinistre_max_tokens(self) -> int:
+        """Le plafond réellement envoyé : le contrat JSON **plus** la réflexion qu'il faut payer."""
+        return self.verifier_sinistre_json_tokens + self.verifier_thinking_reserve_tokens
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -1151,6 +1186,8 @@ class Settings(BaseSettings):
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,
+            "verifier_sinistre_json_tokens": self.verifier_sinistre_json_tokens,
+            "verifier_thinking_reserve_tokens": self.verifier_thinking_reserve_tokens,
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
             "conversation_rate_limit_per_minute": self.conversation_rate_limit_per_minute,

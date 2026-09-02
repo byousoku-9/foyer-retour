@@ -55,7 +55,13 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 3072
     # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
-    assert s.verifier_sinistre_max_tokens == 3072
+    # Correctif du tour 2 : la borne est **dérivée**, contrat JSON + réserve de réflexion. Elle
+    # valait 3 072 de JSON sans un token pour la réflexion, alors que celle-ci est comptée dans le
+    # même `max_tokens` et représente 55 à 91 % de la sortie mesurée. La somme atteint exactement
+    # le plafond du client : le contrôle de cohérence mord, et c'est voulu.
+    assert s.verifier_sinistre_json_tokens == 2048
+    assert s.verifier_thinking_reserve_tokens == 2048
+    assert s.verifier_sinistre_max_tokens == 4096 == s.llm_max_output_tokens
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
     assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
@@ -608,3 +614,25 @@ def test_la_revision_publiee_est_une_projection_de_la_revision_complete() -> Non
     assert Settings(_env_file=None).version_publiee == "dev"
     # Une valeur déjà courte n'est pas retronquée en silence : elle n'est pas une révision.
     assert Settings(_env_file=None, git_sha="abc1234").version_publiee == "abc1234"
+
+
+def test_la_borne_du_verificateur_sinistre_reserve_la_reflexion_quelle_paie() -> None:
+    """Rapport rédiger C — la réflexion est comptée dans le même `max_tokens` que la sortie.
+
+    Mesuré sur les 20 appels `verifier_sinistre` audités : 55 à 91 % de la sortie est de la
+    réflexion, **1 904 tokens au maximum observé**, pour 300 à 1 100 caractères de JSON utile. La
+    borne « tenait » par accident — `draft_max_claims = 4` rend inatteignables les 8 claims du
+    calcul, et la moitié de budget ainsi libérée absorbait la réflexion. Une sortie tronquée est un
+    `LlmParse` terminal, donc un 503 sur un sinistre nominal.
+    """
+    from server.app.config import Settings
+
+    s = Settings(_env_file=None, anthropic_api_key="")
+    REFLEXION_MESUREE = 1904  # maximum observé sur les appels audités
+    assert s.verifier_thinking_reserve_tokens >= REFLEXION_MESUREE, (
+        "la réserve doit couvrir la réflexion mesurée, sinon elle rogne sur le JSON")
+    assert (s.verifier_sinistre_max_tokens
+            == s.verifier_sinistre_json_tokens + s.verifier_thinking_reserve_tokens)
+    # Le contrôle de cohérence mord : la somme ne peut plus dépasser le plafond du client en silence.
+    with pytest.raises(ValidationError, match="verifier_sinistre_max_tokens"):
+        Settings(_env_file=None, anthropic_api_key="", verifier_thinking_reserve_tokens=2049)
