@@ -167,7 +167,7 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
 
 
 @pytest.mark.parametrize("drapeau", ["--allow-unauthenticated", "--max-instances=1",
-                                     "--concurrency=2", "--timeout=120", "--min-instances=0"])
+                                     "--concurrency=2", "--timeout=120", "--min-instances=1"])
 def test_les_cinq_drapeaux_de_dimensionnement_dad_13(drapeau: str) -> None:
     """AD-13 : le dimensionnement initial, et le plafond dur de la facture."""
     assert drapeau in deploiement()["flags"]

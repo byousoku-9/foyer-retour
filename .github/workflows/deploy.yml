@@ -190,7 +190,7 @@ jobs:
             --max-instances=1
             --concurrency=2
             --timeout=120
-            --min-instances=0
+            --min-instances=1
             --memory=1Gi
             --service-account=foyer-retour-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
           wait: true
