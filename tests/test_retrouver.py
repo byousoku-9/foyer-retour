@@ -33,6 +33,7 @@ from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines.commun import retrieval_budget
 from server.app.steps import retrouver
 from server.app.steps.retrouver import (
+    _mappings_facettes,
     OUTILS_RECHERCHE,
     _score_positif,
     retrouver_deterministe,
@@ -1002,7 +1003,9 @@ async def test_outils_classe_chaque_source_une_fois_par_fusion(
     appels = {("première facette",): 0, ("seconde facette",): 0}
 
     def compter(self: Index, mapping, *args, **kwargs):
-        cle = tuple(mapping) if isinstance(mapping, list) else None
+        # Une requête de facette est un `dict` canonique → variantes depuis le correctif du tour 3 ;
+        # ses **canoniques** restent l'identité comparée, et `tuple(dict)` les rend.
+        cle = tuple(mapping)
         if cle in appels:
             appels[cle] += 1
         return original(self, mapping, *args, **kwargs)
@@ -4703,3 +4706,53 @@ async def test_un_bloc_a_recouvrement_partiel_ne_couvre_ni_ne_reserve() -> None:
     assert result.facette(0) is not None and not result.facette(0).retrouvee
     couverture = next(c for c in step.checks if c.name == "facettes_retrouvees")
     assert not couverture.ok, couverture.detail
+
+
+# --- Correctif du tour 3 (R2) : le pluriel régulier, côté requête de facette seulement ---------
+
+
+def test_une_facette_au_singulier_retrouve_la_clause_au_pluriel() -> None:
+    """R2 — « …par la fumée » ne rencontrait jamais « Les fumées et les suies ».
+
+    `Index.chercher` est un lexique strictement littéral et un libellé de facette est une phrase :
+    mesuré sur les six libellés des trois runs A16, **aucun** n'atteignait `full_matches > 0`. La
+    requête de facette ajoute donc les formes de nombre régulières de ses mots — au **niveau du
+    mot**, seule granularité qu'un bloc court puisse couvrir entièrement — et seulement pour les
+    mots que le document porte rarement.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    libelle = "dommages liés au noircissement par la fumée"
+    question = "la fumée a noirci le salon, sans incendie : quels dommages regarder ?"
+
+    ((_rang, nu),) = _mappings_facettes([libelle], dictionnaire=None, dictionary_ready=False)
+    ((_rang, enrichi),) = _mappings_facettes(
+        [libelle], dictionnaire=None, dictionary_ready=False, index=index, doc_id=doc_id,
+        variante_max_part=_s().facette_variante_max_part)
+
+    classement = retrouver._classement_par_facette(
+        index=index, doc_id=doc_id, question=question,
+        kinds_confirmes=KINDS_FONDATEURS, limit=20)
+    # Rouge-avant : sans les formes de nombre, la sous-question ne propose **rien** sous la garde
+    # de pleine couverture — le contrat écrit « fumées », la question dit « fumée ».
+    assert classement(nu) == []
+    retenus = [hit.clause_uid for hit in classement(enrichi)]
+    assert retenus == [f"{doc_id}:p34:11"], retenus
+    assert "fumees" in enrichi[libelle]
+    # Et jamais un mot que le document porte partout : ce serait rendre la garde de R1 inerte —
+    # « dommage » vit dans 2,9 % des blocs, il désignerait des dizaines de clauses à la fois.
+    assert "dommage" not in enrichi[libelle]
+    # Un mot que le document ne porte pas du tout est gardé sans dommage : il ne couvre rien.
+    assert index.part_des_blocs("lie", doc_id=doc_id) == 0.0
+
+
+def test_une_variante_de_facette_ne_retient_que_les_mots_rares_du_document() -> None:
+    """La discrimination est la fréquence documentaire, celle-là même qui pondère les partiels."""
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    parts = {mot: index.part_des_blocs(mot, doc_id=doc_id)
+             # Des tokens **normalisés** : c'est la seule forme sur laquelle l'index compte.
+             for mot in ("fumees", "suies", "bris", "lies", "dommage", "dommages")}
+    seuil = _s().facette_variante_max_part
+    assert parts["fumees"] <= seuil and parts["suies"] <= seuil and parts["bris"] <= seuil
+    assert parts["lies"] > seuil and parts["dommage"] > seuil and parts["dommages"] > seuil

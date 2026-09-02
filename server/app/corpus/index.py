@@ -367,6 +367,30 @@ class Index:
                 return [block_id, candidate]
         return [block_id]
 
+    def part_des_blocs(self, mot: str, *, doc_id: str) -> float:
+        """Quelle **part des blocs** du document porte ce mot **normalisé** : 0 s'il n'y est pas.
+
+        L'argument est un token tel que `words(normalize(...))` les produit — c'est la seule forme
+        sur laquelle l'index compte, et la convention Texte du dépôt veut que `normalize()` soit
+        l'unique normalisation admise. Une chaîne accentuée ou capitalisée rendrait donc 0, comme
+        n'importe quel mot absent : c'est à l'appelant de normaliser, une fois, chez lui.
+
+        L'index compte déjà cette fréquence documentaire — c'est elle qui pondère les couvertures
+        partielles (`_hit`, « chaque mot est pondéré par l'inverse du nombre de blocs qui le
+        portent »). Elle n'était simplement lisible de nulle part. Un appelant qui construit une
+        requête peut ainsi savoir si un mot **désigne une clause** ou **nomme le sujet du
+        document** : « fumées » vit dans 1 bloc du contrat servi, « dommages » dans 124.
+
+        Une part, et non un compte : un document deux fois plus long porte deux fois plus de blocs
+        pour le même mot, et un seuil absolu aurait dit le contraire d'un document à l'autre.
+        """
+        if doc_id not in self.corpus.documents:
+            raise KeyError(doc_id)
+        blocs = len(self.corpus.documents[doc_id].blocks)
+        if not blocs:
+            return 0.0
+        return self._block_frequencies.get(doc_id, {}).get(mot, 0) / blocs
+
     def chercher(self, termes: dict[str, list[str]] | Iterable[str], *, limit: int,
                  doc_id: str | None = None,
                  question: str | None = None,

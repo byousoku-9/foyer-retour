@@ -373,6 +373,23 @@ class Settings(BaseSettings):
     # coûtent ~1 000 tokens sur 3 500 (29 %), et une seule ~210 (6 %). `[HYPOTHÈSE]`, à régler aux
     # témoins comme les autres bornes de l'étape.
     facette_reserve_max_part: float = Field(0.5, gt=0, le=1)
+    # Correctif du tour 3 (R2). Un libellé de facette est une **phrase** ; `Index.chercher` est un
+    # lexique strictement littéral. « …par la fumée » ne rencontre donc jamais « Les fumées et les
+    # suies », et aucune phrase de facette n'atteint jamais `full_matches > 0` — mesuré sur les six
+    # libellés des trois runs A16, sur le contrat servi. La requête de facette ajoute donc à son
+    # libellé les **formes de nombre régulières** de ses mots, comme variantes du même canonique.
+    #
+    # Toutes, ce serait pire que rien : `dommages`, `liés`, `salon` sont des mots que le document
+    # porte partout, et une variante d'un mot fréquent est pleinement couverte par des dizaines de
+    # blocs — la garde de R1 redeviendrait inerte, et le rang 0 repartirait au bruit (mesuré :
+    # 8 à 20 blocs pleins par libellé). Seuls les mots que le document porte **rarement** nomment
+    # une clause plutôt que son sujet.
+    #
+    # Une **part** des blocs, jamais un compte : un document deux fois plus long porterait deux fois
+    # plus de blocs pour le même mot. Mesuré sur le contrat servi (1 400 blocs) : `fumées` et
+    # `suies` 0,07 %, `bris` 0,57 % — contre `liés` 1,36 %, `dommage` 2,9 %, `dommages` 8,9 %. 1 %
+    # sépare les deux familles avec de la marge des deux côtés. `[HYPOTHÈSE]`, à régler aux témoins.
+    facette_variante_max_part: float = Field(0.01, gt=0, le=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses
@@ -1174,6 +1191,7 @@ class Settings(BaseSettings):
             "profil_max_opens": self.profil_max_opens,
             "facette_max_opens": self.facette_max_opens,
             "facette_reserve_max_part": self.facette_reserve_max_part,
+            "facette_variante_max_part": self.facette_variante_max_part,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,

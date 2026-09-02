@@ -75,7 +75,8 @@ from typing import Any
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
-from server.app.corpus.index import Index, reading_order
+from server.app.corpus.index import Index, reading_order, words
+from server.app.corpus.text import normalize
 from server.app.corpus.loader import Corpus
 from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FacetteCouverture,
                                FullContextSelection,
@@ -307,8 +308,70 @@ def _ajouter_best_hits_faq(node_ids: Iterable[str], *, index: Index,
     return added
 
 
+def _forme_de_nombre(mot: str) -> str | None:
+    """L'autre nombre d'un mot, par la règle régulière du français : `-s`/`-x` ajouté ou retiré.
+
+    Rien de plus : ni lemmatisation, ni pluriels irréguliers, ni vocabulaire. Une règle qu'on peut
+    écrire en une ligne et vérifier hors ligne, appliquée **à la requête seulement** — `normalize`
+    et `words` ne sont pas touchés, donc ni `question_uid`, ni `result_uid`, ni les digests, ni les
+    fixtures enregistrées. C'est ce qui distingue ce correctif de la lemmatisation d'index, restée
+    différée pour cette raison exacte.
+    """
+    if len(mot) <= 2:
+        return None
+    return mot[:-1] if mot.endswith(("s", "x")) else mot + "s"
+
+
+def _variantes_de_facette(formes: Iterable[str], *, index: Index, doc_id: str,
+                          part_max: float) -> list[str]:
+    """Les formes de nombre du libellé qui **désignent une clause**, jamais celles qui nomment le sujet.
+
+    Correctif du tour 3 (R2). Un libellé de facette est une phrase et l'index est littéral : sur les
+    six libellés des trois runs A16, **aucun** n'atteignait `full_matches > 0`, avec ou sans sa forme
+    plurielle de phrase. La variante utile est donc au niveau du **mot** — mais seulement pour les
+    mots que le document porte rarement : une variante d'un mot fréquent est pleinement couverte par
+    des dizaines de blocs, ce qui rendrait la garde de R1 inerte et renverrait le rang 0 au bruit.
+
+    Deux filtres, tous deux déjà dans le dépôt : les mots-outils du français
+    (`_MOTS_OUTILS_LIMITES`, la liste fermée qu'emploie déjà `_mots_porteurs`) et la part des blocs
+    que le document consacre au mot (`Index.part_des_blocs`, la fréquence documentaire qui pondère
+    déjà les couvertures partielles). Aucun vocabulaire métier, aucune lecture du texte des clauses.
+
+    La forme **de phrase** est conservée en tête : elle ne prouve rien à elle seule (aucun bloc ne
+    couvre une phrase entière) mais elle remonte le bon bloc au score partiel, et c'est elle qui
+    porte l'ordre quand plusieurs mots rares sont en jeu.
+
+    Les formes sont celles du **groupe entier** — le canonique et les variantes que le dictionnaire
+    lui a déjà données —, jamais du seul libellé reçu : deux libellés que le dictionnaire ramène au
+    même groupe doivent rester **une** requête, et le seraient cessé de l'être si chacun dérivait
+    ses variantes de son propre texte.
+    """
+    variantes: list[str] = []
+    for forme_source in dict.fromkeys(formes):
+        mots = words(normalize(forme_source))
+        if not mots:
+            continue
+        phrase = " ".join(_forme_de_nombre(mot) or mot for mot in mots)
+        if phrase != " ".join(mots) and phrase not in variantes:
+            variantes.append(phrase)
+        for mot in mots:
+            if mot in _MOTS_OUTILS_LIMITES:
+                continue
+            autre = _forme_de_nombre(mot)
+            if autre is None or autre in variantes:
+                continue
+            try:
+                if index.part_des_blocs(autre, doc_id=doc_id) <= part_max:
+                    variantes.append(autre)
+            except KeyError:  # pragma: no cover — document servi, garanti par l'appelant
+                continue
+    return variantes
+
+
 def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | None,
-                       dictionary_ready: bool) -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+                       dictionary_ready: bool, index: Index | None = None,
+                       doc_id: str | None = None,
+                       variante_max_part: float = 0.0) -> list[tuple[int, dict[str, list[str]] | list[str]]]:
     """Le libellé de chaque facette rendu en requête d'index, **son rang conservé**.
 
     Les facettes ont été arrêtées par *comprendre*, avant tout retrieval (AD-4). Leur rang — la
@@ -331,6 +394,22 @@ def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | 
         mapping: dict[str, list[str]] | list[str] = [libelle]
         if dictionary_ready and dictionnaire is not None:
             mapping = dictionnaire.expand([libelle])
+        if index is not None and doc_id is not None and variante_max_part > 0:
+            # Les formes de nombre **s'ajoutent** aux variantes que le dictionnaire a déjà données,
+            # canonique par canonique : le canonique reste ce qu'il était, et l'on n'éclate jamais
+            # la requête en canoniques séparés — mesuré contre-productif, chaque mot devenant alors
+            # sa propre preuve pleine. Elles sont dérivées du **canonique**, pas du libellé brut :
+            # deux libellés que le dictionnaire ramène au même groupe restent ainsi une seule
+            # requête, comme avant ce correctif.
+            groupes = mapping if isinstance(mapping, dict) else {valeur: [] for valeur in mapping}
+            toutes = [f for canon, variantes in groupes.items() for f in (canon, *variantes)]
+            formes = _variantes_de_facette(toutes, index=index, doc_id=doc_id,
+                                            part_max=variante_max_part)
+            enrichi = {canon: [*variantes,
+                               *(f for f in formes if f not in variantes and f != canon)]
+                       for canon, variantes in groupes.items()}
+            if any(enrichi[canon] != groupes[canon] for canon in groupes):
+                mapping = enrichi
         sorties.append((rang, mapping))
     return sorties
 
@@ -986,7 +1065,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         plutôt que de l'ordre déclaré.
         """
         return _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
-                                  dictionary_ready=dictionary_ready)
+                                  dictionary_ready=dictionary_ready, index=index, doc_id=doc_id,
+                                  variante_max_part=settings.facette_variante_max_part)
 
     def classement_des_facettes() -> Callable[[dict[str, list[str]] | list[str]],
                                               list[ScoredHit]]:
@@ -2601,7 +2681,8 @@ def couvrir_facettes(parsed: ParsedQuestion, *, retrieval: RetrievalResult, corp
     dictionary_ready = (dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
                         and "dictionnaire" in settings.retrieval_mechanisms())
     mappings = _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
-                                  dictionary_ready=dictionary_ready)
+                                  dictionary_ready=dictionary_ready, index=index, doc_id=doc_id,
+                                  variante_max_part=settings.facette_variante_max_part)
     if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
         # Même seuil que la phase `outils`, et le résultat est rendu **intact** : ni bloc, ni
         # couverture, ni check. Une facette unique laisse la chaîne exactement où elle était.
