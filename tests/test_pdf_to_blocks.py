@@ -1509,6 +1509,115 @@ def test_un_tableau_chiffre_ouvrant_le_corps_ne_revendique_pas_sa_page() -> None
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
+def test_un_intitule_de_sommaire_qui_passe_a_la_ligne_ne_libere_pas_la_page() -> None:
+    """La forme la plus banale d'un sommaire de contrat, et elle publiait la TdM en clauses.
+
+    AXA écrit « 2 Conditions générales communes / à toutes les garanties ». La continuation ne porte
+    ni numéro, ni renvoi, ni points de conduite : `_hors_sommaire` la déclarait hors sommaire et
+    basculait **tout le reste** de la table des matières au corps. Sur le PDF réel, les pages 3 et 4
+    passaient de `table_des_matieres` à `substantiel` et publiaient 1 370 et 306 caractères
+    citables — des colonnes de numéros de page données comme preuve.
+    """
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2", [520, 90, 540, 104], 12),
+        ]),
+        # Page de continuation : une entrée prouvée dont l'intitulé tient sur deux lignes.
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("2 Conditions générales communes", [56, 83, 300, 96], 12, number="2"),
+            p.PageLine("17", [520, 83, 540, 96], 12),
+            p.PageLine("à toutes les garanties", [56, 97, 250, 110], 12),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    assert pages[1].is_toc, "la continuation d'un intitulé ne termine pas le sommaire"
+    document = _flux_reel(pages)
+    assert not any(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_un_renvoi_a_gauche_de_lintitule_reste_un_sommaire() -> None:
+    """« 17  Objet » est un sommaire autant que « Objet ……  17 » : le côté n'est pas la preuve.
+
+    `_est_entree_de_sommaire` exige le renvoi **à droite**, et il a raison — il décide où le corps
+    commence. Mais `_hors_sommaire` pose l'autre question : « un sommaire pourrait-il revendiquer
+    cette ligne ? ». AXA imprime ses sous-entrées avec le renvoi dans une colonne à gauche ; exiger
+    le côté y déclarait hors sommaire les 53 sous-entrées de sa page 3.
+    """
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2", [520, 90, 540, 104], 12),
+        ]),
+        # La forme réelle d'AXA : l'entrée de niveau 1 porte son renvoi à droite — c'est elle qui
+        # ouvre la page en sommaire — et ses sous-entrées le portent à gauche, dans leur colonne.
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("2 Conditions générales communes", [56, 83, 300, 96], 12, number="2"),
+            p.PageLine("17", [520, 83, 540, 96], 12),
+            p.PageLine("17", [291, 99, 306, 110], 10),
+            p.PageLine("Objet", [333, 99, 380, 110], 10),
+            p.PageLine("18", [291, 118, 306, 129], 10),
+            p.PageLine("Formation du contrat", [333, 118, 450, 129], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    assert pages[1].is_toc
+    document = _flux_reel(pages)
+    assert not any(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_page_entierement_absorbee_par_un_tableau_peut_sortir_du_sommaire() -> None:
+    """`_has_toc_entries` lit les lignes **et** les tables ; `_hors_sommaire` ne lisait que les lignes.
+
+    Une page dont tout le contenu a été absorbé dans un `PageTable` n'avait donc aucune issue : un
+    tableau de garanties pur — l'une des pages les plus utiles d'un contrat — restait
+    `table_des_matieres`, donc **non citable**, alors qu'il l'est sur la base.
+    """
+    pages = _sommaire_puis([])
+    # La page n'a **aucune ligne** : tout est dans la table. Une de ses rangées porte la forme
+    # imprimée d'une entrée, ce qui suffit à la déclarer structurelle — donc page de continuation,
+    # donc soumise à `_hors_sommaire`. Sans lecture des tables, celle-ci ne voit rien et la page
+    # reste revendiquée par le sommaire.
+    pages[1].tables = [p.PageTable(
+        bbox=[56, 80, 540, 200],
+        rows=[["Sinistres et garanties ......... 12"],
+              ["Incendie", "500 000 EUR"], ["Vol", "25 000 EUR"]],
+    )]
+
+    p._mark_toc_pages(pages)
+    assert p._has_toc_entries(pages[1]), "la rangée en forme imprimée ouvre bien la page"
+    assert not pages[1].is_toc, "un tableau de garanties n'est pas une table des matières"
+    document = _flux_reel(pages)
+    blocs = [block for block in document.blocks if block.page == 2]
+    assert blocs and all(p.is_citable(block) for block in blocs)
+
+
+def test_une_prose_qui_suit_un_renvoi_nu_ne_prolonge_rien() -> None:
+    """Un renvoi nu n'est pas une entrée : il n'a rien à prolonger, et la prose sort.
+
+    C'est l'exclusion qui borne l'élargissement. Sans elle, une page de corps dont la première ligne
+    est un numéro isolé entraînerait dans le sommaire toute la prose serrée qui la suit.
+    """
+    # La ligne à points de conduite rend la page structurelle : c'est bien `_hors_sommaire` qui
+    # décide de la sortie, et non l'absence de forme de sommaire.
+    pages = _sommaire_puis([
+        p.PageLine("Sinistres et garanties ......... 12", [56, 60, 400, 74], 10),
+        p.PageLine("12", [56, 80, 76, 94], 10),
+        p.PageLine("Le preneur déclare le sinistre sans délai.", [56, 95, 400, 109], 10),
+        p.PageLine("La compagnie mandate un expert.", [56, 110, 400, 124], 10),
+    ])
+
+    p._mark_toc_pages(pages)
+    assert p._has_toc_entries(pages[1]), "la ligne à points de conduite ouvre bien la page"
+    assert not pages[1].is_toc
+    document = _flux_reel(pages)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
 def test_un_nombre_au_milieu_dune_ligne_assemblee_nest_pas_un_renvoi() -> None:
     """Le renvoi **ferme** la ligne : aucun fragment couvert ne le suit.
 

@@ -64,7 +64,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "18-le-renvoi-ferme-la-ligne-le-corps-sort"
+PARSER_VERSION = "19-un-intitule-qui-passe-a-la-ligne-reste-du-sommaire"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -86,7 +86,11 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "jamais_le_texte_seul,jamais_la_taille_du_document;"
                       "fin_tdm:premier_groupe_numerote_non_entree(prefixe_contigu"
                       ";sans_aucune_lecture_arriere)&meme_predicat_aux_deux_frontieres"
-                      ";page_de_continuation_portant_du_hors_sommaire=>corps;"
+                      ";page_de_continuation_portant_du_hors_sommaire=>corps"
+                      "(revendicable=entree|intitule|renvoi_nu|forme_imprimee"
+                      "|renvoi_sur_la_ligne_de_base(l_un_ou_l_autre_cote)"
+                      "|prolonge_une_entree(meme_colonne&sans_blanc&jamais_depuis_un_renvoi_nu)"
+                      ";lignes_et_tables);"
                       "sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
@@ -974,25 +978,131 @@ def _has_toc_entries(page: PageText) -> bool:
                for line in page.lines)
 
 
-def _hors_sommaire(page: PageText) -> bool:
-    """Vrai si la page porte une ligne qu'un sommaire ne peut pas revendiquer.
+def _renvoi_sur_la_ligne_de_base(line: PageLine, lines: Sequence[PageLine],
+                                 tolerance: float) -> bool:
+    """Un renvoi isolé partage la ligne de base de cette ligne — **de l'un ou l'autre côté**.
 
-    Un sommaire n'est fait que de quatre choses : ses entrées prouvées, son intitulé autonome, les
-    renvois isolés que l'assemblage n'a pas encore fusionnés, et les entrées de forme imprimée que
-    la géométrie ne prouve pas mais que `_has_toc_entries` reconnaît. Tout le reste — de la prose,
-    une clause, la légende d'un tableau — dit que la page est du corps.
+    `_est_entree_de_sommaire` exige, lui, que le renvoi **ferme** la ligne, et il a raison : il
+    décide où le corps commence, et un montant posé à droite d'un libellé y serait déjà ambigu.
+    Mais la question posée ici est l'autre : « un sommaire pourrait-il revendiquer cette ligne ? ».
+    Pour celle-là le côté n'a aucune importance — « Objet …… 12 » et « 12  Objet » sont deux
+    sommaires. AXA écrit le second : ses renvois sont dans une colonne **à gauche** des intitulés,
+    et exiger le renvoi à droite déclarait hors sommaire les 53 sous-entrées de sa page 3.
+
+    Les deux risques ne sont pas symétriques, et c'est ce qui autorise la différence : se tromper
+    ici en refusant fait sortir une table des matières en clauses citables — des colonnes de numéros
+    de page données comme preuve. Se tromper en acceptant laisse une page de corps dans le sommaire,
+    non citable : du rappel perdu, jamais une fausse preuve. Et cette acceptation ne suffit jamais
+    seule à retenir une page : il suffit d'**une** ligne non revendicable pour qu'elle sorte.
+    """
+    return any(candidate is not line
+               and _PAGE_NUMBER_RE.fullmatch(candidate.text.strip())
+               and abs(candidate.bbox[1] - line.bbox[1]) <= tolerance
+               for candidate in lines)
+
+
+def _est_une_entree(line: PageLine, page: PageText, tolerance: float) -> bool:
+    """La ligne est-elle une **entrée** de sommaire — c'est-à-dire un intitulé et son renvoi ?
+
+    Un renvoi nu en est exclu explicitement : c'est la moitié droite (ou gauche) d'une entrée, pas
+    une entrée, et il n'a donc rien à prolonger. C'est cette exclusion qui empêche une page de corps
+    dont la première ligne serait un numéro isolé d'entraîner la prose qui la suit.
+    """
+    texte = line.text.strip()
+    if _PAGE_NUMBER_RE.fullmatch(texte):
+        return False
+    return bool(_est_entree_de_sommaire(line, page)
+                or _PRINTED_TOC_RE.match(texte) or _TOC_LEADER_RE.match(texte)
+                or _renvoi_sur_la_ligne_de_base(line, page.lines, tolerance))
+
+
+def _prolonge_une_entree(line: PageLine, page: PageText, tolerance: float,
+                         renvoi_tolerance: float) -> bool:
+    """L'intitulé d'une entrée qui passe à la ligne : la forme la plus banale d'un sommaire.
+
+    AXA écrit « 2 Conditions générales communes / à toutes les garanties », « 4 L'assurance des
+    personnes / et de leurs activités », « Option « responsabilités civiles, protection / juridique
+    et risques liés à internet » ». La seconde ligne ne porte ni numéro, ni renvoi, ni points de
+    conduite : prise isolément elle n'est rien qu'un sommaire puisse revendiquer, et **une seule**
+    suffisait à basculer tout le reste du sommaire au corps — les pages 3 et 4 d'AXA, publiées en
+    clauses citables.
+
+    Ce qui la rattache à l'entrée du dessus est **de la géométrie, et rien d'autre** : même colonne
+    d'intitulés (même `x0`), aucun numéro propre, et surtout **aucun blanc** entre les deux —
+    l'écart des lignes de base ne dépasse pas la hauteur de la ligne précédente. Deux lignes
+    séparées par un interligne de paragraphe ne se prolongent pas, et c'est exactement ce qui
+    distingue cette forme de la légende posée plus bas sous un tableau de garanties, qui doit
+    continuer à faire sortir sa page.
+
+    La remontée se poursuit tant que les lignes se suivent sans blanc — un intitulé peut tenir sur
+    trois lignes —, et elle **doit finir sur une entrée** : une chaîne qui remonte jusqu'à une ligne
+    numérotée, un renvoi nu ou un blanc ne prolonge rien. C'est un élargissement assumé, et son sens
+    est celui du module : se tromper en refusant publierait une table des matières comme preuve,
+    se tromper en acceptant ne coûte que du rappel sur une page déjà classée sommaire.
+    """
+    if line.number is not None:
+        return False
+    courante = line
+    vues = {id(line)}
+    while True:
+        precedente = max(
+            (autre for autre in page.lines
+             if id(autre) not in vues
+             and abs(autre.bbox[0] - courante.bbox[0]) <= tolerance
+             and autre.bbox[1] < courante.bbox[1]),
+            key=lambda autre: autre.bbox[1], default=None)
+        if precedente is None:
+            return False
+        if (courante.bbox[1] - precedente.bbox[1]
+                > (precedente.bbox[3] - precedente.bbox[1]) + tolerance):
+            return False
+        if _est_une_entree(precedente, page, renvoi_tolerance):
+            return True
+        if precedente.number is not None:
+            return False
+        vues.add(id(precedente))
+        courante = precedente
+
+
+def _revendicable_par_un_sommaire(texte: str) -> bool:
+    """Les formes qu'un sommaire revendique **par son seul texte**, sans géométrie."""
+    return bool(_is_toc_title(texte) or _PAGE_NUMBER_RE.fullmatch(texte)
+                or _PRINTED_TOC_RE.match(texte) or _TOC_LEADER_RE.match(texte))
+
+
+def _hors_sommaire(page: PageText) -> bool:
+    """Vrai si la page porte **quelque chose** qu'un sommaire ne peut pas revendiquer.
+
+    Un sommaire n'est fait que de ses entrées — prouvées par la géométrie, ou reconnues à leur seule
+    forme imprimée —, de leur intitulé autonome, des renvois isolés que l'assemblage n'a pas encore
+    fusionnés, et des lignes qui prolongent une entrée. Tout le reste — de la prose, une clause, la
+    légende d'un tableau — dit que la page est du corps.
 
     C'est cette formulation qui compte. La précédente exigeait un **article**, c'est-à-dire une ligne
     numérotée : une page de corps entièrement non numérotée n'avait alors aucun moyen de sortir du
     sommaire, et une seule ligne tarifaire à points de conduite suffisait à l'y publier en entier.
+
+    **Elle lit la page entière, lignes et tables.** `_has_toc_entries` lit les deux depuis toujours ;
+    n'en lire qu'une ici privait de toute issue la page absorbée en totalité par un `PageTable` — un
+    tableau de garanties pur, l'une des pages les plus utiles d'un contrat, restait `table_des_
+    matieres` et donc non citable, alors qu'il l'était avant. Une page sans aucune ligne ni aucune
+    table ne porte rien : elle ne sort pas, et c'est la propagation normale du sommaire.
     """
+    settings = get_settings()
     for ligne in page.lines:
         texte = ligne.text.strip()
-        if (_est_entree_de_sommaire(ligne, page) or _is_toc_title(texte)
-                or _PAGE_NUMBER_RE.fullmatch(texte) or _PRINTED_TOC_RE.match(texte)
-                or _TOC_LEADER_RE.match(texte)):
+        if (_est_entree_de_sommaire(ligne, page) or _revendicable_par_un_sommaire(texte)
+                or _renvoi_sur_la_ligne_de_base(ligne, page.lines,
+                                                settings.toc_page_number_baseline_pt)
+                or _prolonge_une_entree(ligne, page, settings.baseline_tolerance_pt,
+                                        settings.toc_page_number_baseline_pt)):
             continue
         return True
+    for table in page.tables:
+        for row in table.rows:
+            texte = " ".join(cell.strip() for cell in row if cell.strip()).strip()
+            if texte and not _revendicable_par_un_sommaire(texte):
+                return True
     return False
 
 def _mark_toc_pages(pages: list[PageText]) -> None:
