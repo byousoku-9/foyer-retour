@@ -2573,12 +2573,19 @@ class DiagnosticStructure:
     verdicts: tuple[VerdictSegment, ...]
     usage: Usage
     arret: str | None = None
+    # Verdict de la **couture globale**, tentée seulement quand tous les segments sont acceptés.
+    # `None` : non tentée. Sans elle, un lot dont chaque segment passe pouvait être annoncé bon et
+    # se faire refuser à la publication, sur une contrainte qu'aucun segment ne porte seul.
+    couture_acceptee: bool | None = None
+    couture_detail: str = ""
 
     def charge(self) -> dict[str, Any]:
         return {
             "doc_id": self.doc_id,
             "plan_uid": self.plan_uid,
             "arret": self.arret,
+            "couture_acceptee": self.couture_acceptee,
+            "couture_detail": self.couture_detail,
             "cout_eur": round(self.usage.cost_eur, 4),
             "segments": [
                 {
@@ -2610,6 +2617,11 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     Un refus d'**oracle** est un résultat : il est consigné et le segment suivant part. Un refus
     **fournisseur** — panne, 400, réponse interrompue non récupérable — arrête tout : ce qui suit ne
     serait pas plus soumissible, et continuer ne ferait que dépenser.
+
+    Quand tous les segments sont acceptés, la **couture globale** est jouée à son tour, sans rien
+    publier. Un lot dont chaque segment passe peut échouer à la couture — les arêtes transfrontières
+    ne sont vérifiables que là —, et l'annoncer bon aurait envoyé à la publication un lot qu'elle
+    refuse.
     """
     _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
     ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
@@ -2620,6 +2632,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     run_uid = f"structure-diagnostic:{doc_id}:{plan.plan_uid}"
     verdicts: list[VerdictSegment] = []
+    propositions: list[StructureProposee] = []
     usages: list[Usage] = []
     arret: str | None = None
     for segment in plan.segments:
@@ -2671,6 +2684,8 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
             verdict = _verifier_segment(proposition, subset, doc_id=doc_id, settings=settings)
             motif, detail = (None, verdict.detail) if verdict.accepte else (
                 verdict.motif, verdict.detail)
+            if motif is None:
+                propositions.append(proposition)
         except StructureRefusee as exc:
             motif, detail = exc.motif, exc.detail
         except ValueError as exc:
@@ -2679,8 +2694,19 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
             index=segment.index, segment_uid=segment.segment_uid,
             lignes=len(segment.line_uids), accepte=motif is None, motif=motif, detail=detail,
             servi_du_cache=du_cache, cout_eur=mesure.cost_eur if mesure else 0.0, noeuds=noeuds))
+    couture_acceptee: bool | None = None
+    couture_detail = ""
+    if arret is None and len(propositions) == len(plan.segments):
+        try:
+            cousue = _recoller(plan, propositions, registre, doc_id=doc_id, settings=settings)
+        except ValueError as exc:
+            couture_acceptee, couture_detail = False, str(exc)
+        else:
+            couture_acceptee = True
+            couture_detail = f"{len(cousue.noeuds)} nœud(s) cousus, rien n'est publié"
     return DiagnosticStructure(doc_id=doc_id, plan_uid=plan.plan_uid,
-                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret)
+                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret,
+                               couture_acceptee=couture_acceptee, couture_detail=couture_detail)
 
 
 def _servi(client: Any, requete_: dict[str, Any]) -> bool:
@@ -2843,6 +2869,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                     file=output)
             if diagnostic.arret is not None:
                 print(f"arrêt : {diagnostic.arret}", file=output)
+            if diagnostic.couture_acceptee is not None:
+                print(f"couture globale : "
+                      f"{'acceptée' if diagnostic.couture_acceptee else 'refusée'} — "
+                      f"{diagnostic.couture_detail[:500]}", file=output)
             chemin_diagnostic = (Path(args.diagnostic) if args.diagnostic
                                  else doc_dir / "structure-diagnostic.json")
             write_atomic(chemin_diagnostic, json.dumps(
@@ -2851,7 +2881,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             print(f"diagnostic : {acceptes}/{len(diagnostic.verdicts)} segment(s) jugé(s) "
                   f"accepté(s), coût réel {diagnostic.usage.cost_eur:.4f} € ; "
                   f"{chemin_diagnostic} écrit ; aucune proposition publiée", file=output)
-            return 0 if acceptes == len(plan.segments) else 4
+            # Un lot n'est bon que si la couture l'est aussi : la publication ne demande rien de
+            # moins, et l'annoncer vert sur les seuls segments serait une promesse qu'elle refuse.
+            return 0 if (acceptes == len(plan.segments)
+                         and diagnostic.couture_acceptee) else 4
         execution = executer_plan(
             client, plan, registre, doc_id=args.doc_id, settings=settings,
             source_hash=source_hash, max_cost_eur=ceiling)
