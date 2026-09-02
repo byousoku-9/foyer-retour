@@ -16,6 +16,18 @@ avant ses voisins selon la même règle que dans le déterministe. Cette priorit
 quelles unités tiennent dans le budget : les primaires transmis retrouvent ensuite l'ordre
 documentaire de la fenêtre, avec leurs compagnons et leurs dépendances admises, sans double comptage.
 
+En dernier, et seulement quand l'appelant a déclaré des kinds suffisants, la **couverture par
+facette** ferme l'écart que la suffisance globale laissait ouvert : un seul bloc décisionnel
+confirmé atteignait la suffisance, quelle que soit la sous-question à laquelle il répondait. Chaque
+facette de `ParsedQuestion` doit désormais porter au moins un bloc décisionnel **confirmé et
+transmis** que son propre classement (`Index.chercher(kinds_confirmes=…)`) a proposé, ou être
+**déclarée non retrouvée** dans `RetrievalResult.facettes`. La passe ouvre au tour de rôle, au plus
+`facette_max_opens` essais par facette, par le même outil et sous les mêmes quotas — elle ne crée
+aucune capacité. Une facette abandonnée alors qu'un candidat restait lisible est une borne de
+lecture (`truncated`) ; une facette dont le classement est vide ou épuisé est une absence, et la
+couverture vide la dit. `couvrir_facettes()` expose la même règle sur un état déjà ouvert, en code
+pur, pour le second cycle du pipeline.
+
 Un candidat de `chercher` que le navigateur choisit de ne pas ouvrir reste dans
 `discarded_block_ids` mais ne rend pas `truncated=True` : il n'a jamais été lu, sauf si la complétion
 ci-dessus le transmet finalement. Un check `candidats_non_ouverts` en publie le compte afin que les
@@ -58,14 +70,15 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index, reading_order
 from server.app.corpus.loader import Corpus
-from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FullContextSelection,
+from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FacetteCouverture,
+                               FullContextSelection,
                                RetrievalBudget, RetrievalResult, ScoredHit,
                                SemanticSufficiencySelection, SufficiencyDecision,
                                QuestionClauseScore, is_citable)
@@ -73,6 +86,7 @@ from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import BudgetExceeded, LlmParse, PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
+from server.app.domain.verdict import KINDS_FONDATEURS
 from server.app.llm.client import structured_input_envelope
 from server.app.llm.models import MODEL_CAPS, STEP_TIERS, model_for
 from server.app.llm.pricing import estimate_tokens
@@ -293,6 +307,123 @@ def _ajouter_best_hits_faq(node_ids: Iterable[str], *, index: Index,
     return added
 
 
+def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | None,
+                       dictionary_ready: bool) -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+    """Le libellé de chaque facette rendu en requête d'index, **son rang conservé**.
+
+    Les facettes ont été arrêtées par *comprendre*, avant tout retrieval (AD-4). Leur rang — la
+    position dans `ParsedQuestion.facettes` — est la clé que *vérifier* emploie déjà pour la
+    couverture ; c'est aussi la seule qui n'expose pas un texte du modèle dans une trace (AD-10).
+    Le libellé, lui, ne sort d'ici que vers `Index.chercher`, exactement comme les termes de la
+    question.
+
+    Une facette dont il ne reste aucun mot après normalisation n'a pas de requête : elle n'entre
+    pas dans la liste, et n'est donc ni couverte ni déclarée absente — faute de mesure, jamais par
+    un jugement. L'expansion par le dictionnaire suit l'état **effectif** du mécanisme, comme la
+    recherche du navigateur : deux règles auraient fait diverger le rappel d'un même libellé selon
+    l'endroit d'où il part.
+    """
+    sorties: list[tuple[int, dict[str, list[str]] | list[str]]] = []
+    for rang, facette in enumerate(facettes):
+        libelle = facette.strip()
+        if not forme(libelle):
+            continue
+        mapping: dict[str, list[str]] | list[str] = [libelle]
+        if dictionary_ready and dictionnaire is not None:
+            mapping = dictionnaire.expand([libelle])
+        sorties.append((rang, mapping))
+    return sorties
+
+
+def _signature_mapping(mapping: dict[str, list[str]] | list[str]) -> frozenset[str]:
+    """Ce que deux requêtes de facette ont en commun : leurs formes, jamais leur ordre."""
+    groupes = ((canon, *variantes) for canon, variantes in mapping.items()) \
+        if isinstance(mapping, dict) else (mapping,)
+    return frozenset(forme(valeur) for groupe in groupes for valeur in groupe if forme(valeur))
+
+
+# Une facette **unique** est la question elle-même. La couverture décisionnelle de la question est
+# déjà ce que mesure la suffisance déclarée par l'appelant — et elle la mesure sur la question
+# résolue, pas sur une paraphrase. Superposer à cela le classement d'un libellé qui reformule la
+# question entière ferait entrer des blocs choisis par une requête plus vague que celle qui a servi
+# à lire, sans rien garantir de plus. C'est exactement la ligne que l'étape trace déjà pour le
+# rappel après suffisance (« une facette unique conserve son arrêt historique ») : elle vaut ici
+# pour la même raison, et elle est nommée une fois.
+FACETTES_MIN_POUR_COUVERTURE = 2
+
+
+def _mappings_dedupes(
+        mappings: list[tuple[int, dict[str, list[str]] | list[str]]],
+) -> list[dict[str, list[str]] | list[str]]:
+    """Les requêtes de facette distinctes, dans l'ordre : deux libellés synonymes ne classent qu'une fois."""
+    vues: set[frozenset[str]] = set()
+    sorties: list[dict[str, list[str]] | list[str]] = []
+    for _rang, mapping in mappings:
+        signature = _signature_mapping(mapping)
+        if signature and signature not in vues:
+            vues.add(signature)
+            sorties.append(mapping)
+    return sorties
+
+
+def _classement_par_facette(*, index: Index, doc_id: str, question: str,
+                            kinds_confirmes: frozenset[str],
+                            limit: int) -> Callable[[dict[str, list[str]] | list[str]],
+                                                    list[ScoredHit]]:
+    """Ce que l'index propose **pour une facette**, restreint aux kinds décisionnels confirmés.
+
+    AD-1 : le modèle propose, le code vérifie. Ici, ni l'un ni l'autre n'invente : le libellé vient
+    de *comprendre*, le classement et sa restriction (`kinds_confirmes`) viennent du corpus typé.
+    Aucun mot du vocabulaire des clauses n'entre dans la décision — c'est le même appel, avec les
+    mêmes bornes, que celui qui sert déjà le rappel après suffisance.
+
+    Le classement est **mémoïsé par signature de requête**, et c'est la mémoïsation qui porte une
+    propriété, pas seulement une économie : deux libellés que le dictionnaire ramène au même groupe
+    sont une seule requête, classée une seule fois, et la passe d'ouverture puis la mesure finale
+    lisent exactement le même ordre. Deux classements du même libellé auraient pu diverger si l'un
+    d'eux était calculé après une admission.
+    """
+    memo: dict[frozenset[str], list[ScoredHit]] = {}
+
+    def classement(mapping: dict[str, list[str]] | list[str]) -> list[ScoredHit]:
+        signature = _signature_mapping(mapping)
+        if signature not in memo:
+            memo[signature] = index.chercher(mapping, limit=limit, doc_id=doc_id,
+                                             question=question, kinds_confirmes=kinds_confirmes)
+        return memo[signature]
+
+    return classement
+
+
+def _couverture_facettes(mappings: list[tuple[int, dict[str, list[str]] | list[str]]], *,
+                         classement: Callable[[dict[str, list[str]] | list[str]],
+                                              list[ScoredHit]],
+                         admis: set[str]) -> list[FacetteCouverture]:
+    """Pour chaque facette : les blocs décisionnels confirmés **transmis** que son classement propose.
+
+    L'attribution est structurelle, et c'est ce qui la rend démontrable : un bloc couvre une facette
+    parce que le classement de cette facette l'a proposé et que la lecture l'a réellement transmis
+    — la même provenance que celle qui a servi à aller le chercher. Aucune heuristique sur le
+    vocabulaire des clauses n'intervient ; le kind vient de l'ingestion et sa confirmation aussi.
+
+    Une facette dont aucun bloc proposé n'a été transmis rend une couverture **vide**, et cette
+    couverture vide est une affirmation : « rien de décisionnel n'a été retrouvé pour cette
+    sous-question ». C'est la déclaration d'absence que la chaîne aval exige pour ne pas rendre une
+    réponse muette sur une moitié de la question.
+    """
+    couverture: list[FacetteCouverture] = []
+    for rang, mapping in mappings:
+        hits = classement(mapping)
+        couverture.append(FacetteCouverture(
+            rang=rang,
+            block_ids=tuple(dict.fromkeys(hit.clause_uid for hit in hits
+                                          if hit.clause_uid in admis)),
+            # Le classement entier, admis ou non : c'est lui qui distingue « le contrat n'en parle
+            # pas » de « je n'ai pas eu la place de le lire » (NFR2).
+            candidats=len({hit.clause_uid for hit in hits})))
+    return couverture
+
+
 async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                             budget: RetrievalBudget, settings: Settings, client: Any,
                             request_budget: Any, doc_id: str,
@@ -368,6 +499,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     truncated = False
     pagination_expected: dict[str, int] = {}
     canonical_question = parsed.question_resolue.strip() or " ".join(parsed.termes_de_recherche())
+    classement_facettes: Callable[[dict[str, list[str]] | list[str]],
+                                  list[ScoredHit]] | None = None
+    # Les requêtes de facette **telles que la passe de couverture les a vues**. La mesure finale les
+    # relit plutôt que de les recalculer : les mécanismes sont des phases, et le dictionnaire peut
+    # s'armer après la phase `outils`. Mesurer avec une expansion que la passe n'avait pas aurait
+    # publié « des candidats sont restés fermés » sur des candidats qui n'existaient pas encore
+    # quand elle a ouvert — une borne inventée après coup.
+    mappings_figes: list[tuple[int, dict[str, list[str]] | list[str]]] | None = None
 
     def block(block_id: str) -> Block:
         if index.doc_of(block_id) != doc_id:
@@ -711,6 +850,28 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
                 execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
 
+    def mappings_par_rang() -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+        """Les requêtes de facette, avec leur rang, dans l'état **effectif** du dictionnaire.
+
+        Relues à chaque usage plutôt que figées au démarrage : `dictionary_ready` n'est vrai
+        qu'après le mécanisme `dictionnaire`, et l'ordre des mécanismes est une configuration
+        (AD-1, amendement). Une liste figée aurait fait dépendre l'expansion d'un ordre de calcul
+        plutôt que de l'ordre déclaré.
+        """
+        return _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
+                                  dictionary_ready=dictionary_ready)
+
+    def classement_des_facettes() -> Callable[[dict[str, list[str]] | list[str]],
+                                              list[ScoredHit]]:
+        """Un seul classement par requête de facette pour toute l'étape, ouverture et mesure comprises."""
+        nonlocal classement_facettes
+        if classement_facettes is None:
+            classement_facettes = _classement_par_facette(
+                index=index, doc_id=doc_id, question=canonical_question,
+                kinds_confirmes=kinds_suffisants or frozenset(),
+                limit=budget.search_limit)
+        return classement_facettes
+
     def suffisance_atteinte() -> bool:
         return any(
             block_id in hit_by_block
@@ -735,34 +896,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # les réservations et via l'outil commun, afin de conserver fenêtres, dépendances,
         # atomicité et budgets sans capacité cachée. Sans besoin déclaré, le comportement
         # historique reste strictement limité à une lecture exclusivement contextuelle.
-        facettes_effectives: list[str] = []
-        formes_facettes: set[str] = set()
-        for facette in parsed.facettes:
-            facette_effective = facette.strip()
-            cle = forme(facette_effective)
-            if cle and cle not in formes_facettes:
-                formes_facettes.add(cle)
-                facettes_effectives.append(facette_effective)
-
-        mappings_facettes_effectifs: list[dict[str, list[str]] | list[str]] = []
-        signatures_facettes: set[frozenset[str]] = set()
-        for facette in facettes_effectives:
-            mapping_facette: dict[str, list[str]] | list[str] = [facette]
-            if dictionary_ready and dictionnaire is not None:
-                mapping_facette = dictionnaire.expand([facette])
-            formes_mapping = (
-                (canon, *variantes)
-                for canon, variantes in mapping_facette.items()
-            ) if isinstance(mapping_facette, dict) else (mapping_facette,)
-            signature = frozenset(
-                forme(valeur)
-                for groupe in formes_mapping
-                for valeur in groupe
-                if forme(valeur)
-            )
-            if signature and signature not in signatures_facettes:
-                signatures_facettes.add(signature)
-                mappings_facettes_effectifs.append(mapping_facette)
+        mappings_facettes_effectifs = _mappings_dedupes(mappings_par_rang())
 
         suffisance_initiale = suffisance_atteinte()
         # Sans facette, le replay décisionnel acquis sur la baseline reste disponible depuis la
@@ -1011,6 +1145,76 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 return
             cohorte_precedente = cohorte[1:]
 
+    def couvrir_les_facettes() -> None:
+        """Chaque facette rapporte au moins une règle décisionnelle, ou elle est dite non retrouvée.
+
+        La suffisance déclarée par l'appelant est **globale** : un seul bloc décisionnel confirmé
+        l'atteint, quelle que soit la sous-question auquel il répond. Une question à deux facettes
+        pouvait donc s'arrêter sur la première, et rien — ni ici, ni en aval — ne distinguait cette
+        lecture d'une lecture complète. Cette passe ferme l'écart par le seul moyen borné qui ne
+        demande rien au modèle : pour chaque facette encore sans bloc, le **classement de sa propre
+        requête**, restreint par le corpus aux kinds décisionnels confirmés, propose son meilleur
+        candidat, et l'ouverture passe par le même outil, les mêmes fenêtres, les mêmes unités
+        atomiques et les mêmes quotas que tout le reste de l'étape.
+
+        Trois bornes, aucune nouvelle capacité : le tour de rôle entre facettes (une facette
+        muette n'épuise pas le quota des autres), `facette_max_opens` essais par facette, et les
+        budgets de l'étape — `max_opens`, blocs, tokens — qui arrêtent la passe où qu'elle en soit.
+        Une facette abandonnée alors qu'un candidat restait à lire est une **borne de lecture** et
+        se dit comme telle (`truncated`) ; une facette dont le classement est vide ou épuisé n'en
+        est pas une : c'est le contrat qui ne dit rien, et c'est la couverture vide qui le dira.
+        """
+        if kinds_suffisants is None or not admitted:
+            # Aucun bloc transmis : ce n'est pas une facette qui manque, c'est la lecture entière
+            # qui a échoué. Le repli déterministe de l'appelant — une passe complète sur les termes
+            # de la question — est la bonne réponse ; l'occuper d'abord avec une ouverture ciblée
+            # par facette le rendrait inatteignable et remplacerait une lecture large par une
+            # lecture étroite. Même garde que `complete_reservations` : la passe suppose une
+            # navigation commencée.
+            return
+        nonlocal mappings_figes
+        mappings = mappings_par_rang()
+        if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
+            return
+        mappings_figes = mappings
+        classement = classement_des_facettes()
+        essais: dict[int, int] = {}
+        for _tour in range(settings.facette_max_opens):
+            progression = False
+            for rang, mapping in mappings:
+                hits = classement(mapping)
+                if any(hit.clause_uid in admitted_set for hit in hits):
+                    continue
+                if essais.get(rang, 0) >= settings.facette_max_opens:
+                    continue
+                candidat = next((hit for hit in hits
+                                 if hit.clause_uid not in admitted_set
+                                 and hit.clause_uid not in focused_windows_attempted), None)
+                if candidat is None:
+                    continue
+                if (opens >= budget.max_opens
+                        or (budget.max_blocks is not None and blocks_used >= budget.max_blocks)):
+                    # Un candidat restait lisible et le budget de l'étape l'a arrêté. La borne se
+                    # dit une seule fois, sur la mesure finale (`facettes_bornees`) : deux endroits
+                    # où poser `truncated` auraient fini par diverger.
+                    return
+                essais[rang] = essais.get(rang, 0) + 1
+                progression = True
+                # Le hit est enregistré avant l'ouverture : c'est lui qui rend le focus recevable
+                # par l'outil commun, et c'est lui que la décision d'admission publiera.
+                hit_by_block.setdefault(candidat.clause_uid, candidat)
+                best_hit_by_node.setdefault(candidat.node_uid, candidat.clause_uid)
+                if candidat.clause_uid not in search_candidates:
+                    search_candidates.append(candidat.clause_uid)
+                _payload, is_error = execute(
+                    "ouvrir_noeud",
+                    {"node_id": candidat.node_uid, "focus_block_id": candidat.clause_uid},
+                    prioritize_focus=True)
+                if is_error:
+                    return
+            if not progression:
+                break
+
     used_tools = False
     semantic_selection: SemanticSufficiencySelection | None = None
     # Deux échecs distincts du verdict terminal, et **aucun des deux n'est une borne de lecture**
@@ -1128,6 +1332,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # un sommaire placé après ne peut donc jamais ouvrir rétroactivement un candidat caché.
             complete_reservations()
             complete_search_candidates_for_sufficiency()
+            # En dernier, et seulement sur ce qui reste : la complétion ci-dessus a pu couvrir
+            # plusieurs facettes d'un coup, et ouvrir avant elle aurait dépensé le quota sur des
+            # candidats qu'elle rapportait déjà.
+            couvrir_les_facettes()
     expected_search = canonical_forms(terms)
     covered_search = canonical_forms(searched_terms)
     # Un refus `zero_hit` n'est honnête que si au moins un terme canonique existait et si les
@@ -1190,10 +1398,25 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
         considered_result_uids=considered,
     )
+    # Ce que la lecture rapporte **par facette**, mesuré une fois sur l'état final des blocs admis.
+    # Vide sans besoin déclaré : la variante guide ne pose pas de facette au barème de *retrouver*,
+    # et un résultat qui ne mesure rien vaut mieux qu'un résultat qui affirme une couverture.
+    # Mesurée seulement là où la passe a pu agir : mêmes requêtes qu'elle, même seuil. Publier une
+    # couverture qu'aucune passe n'a eu le droit de compléter aurait fait porter à `RetrievalResult`
+    # une absence ou une borne que l'étape n'a jamais cherché à lever.
+    facettes_couverture = (
+        _couverture_facettes(mappings_figes, classement=classement_des_facettes(),
+                             admis=set(admitted))
+        if kinds_suffisants is not None and admitted and mappings_figes else [])
+    if any(facette.bornee for facette in facettes_couverture):
+        # NFR2 : des candidats décisionnels d'une sous-question sont restés fermés. La lecture est
+        # bornée, et c'est `truncated` — jamais une absence — qui le dit.
+        truncated = True
     result = RetrievalResult(
         blocs=[block(b).model_copy(
             update={"context_role": context_role_by_block.get(b)}, deep=True,
         ) for b in admitted], opened_block_ids=list(admitted),
+        facettes=facettes_couverture,
         # Story 4.2f : les nœuds d'où viennent les blocs **transmis**, tous, y compris ceux entrés
         # par `definitions` ou comme dépendance directe — `primary_node_by_block` n'en connaît que
         # les blocs de fenêtre, et s'y limiter laissait la variante servie annoncer « 0 section lue,
@@ -1221,6 +1444,22 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             detail += f" ; sans bloc retenu : {', '.join(absents)}"
         step.checks.append(CheckResult(
             name="noeuds_du_profil", ok=bool(contributeurs), detail=detail))
+    if facettes_couverture:
+        # AD-10 : des rangs et des comptes, jamais un libellé de facette — il vient du modèle.
+        absentes = [f.rang for f in facettes_couverture if f.absente]
+        bornees = [f.rang for f in facettes_couverture if f.bornee]
+        detail = (f"{sum(1 for f in facettes_couverture if f.retrouvee)} facette(s) sur "
+                  f"{len(facettes_couverture)} mesurée(s) portent au moins un bloc décisionnel "
+                  f"confirmé transmis")
+        if absentes:
+            detail += (f" ; le contrat lu n'en porte aucun pour le(s) rang(s) "
+                       f"{', '.join(str(rang) for rang in absentes)}, déclaré(s) absent(s)")
+        if bornees:
+            detail += (f" ; des candidats sont restés fermés sous le budget pour le(s) rang(s) "
+                       f"{', '.join(str(rang) for rang in bornees)} : lecture bornée, "
+                       "aucune absence affirmée")
+        step.checks.append(CheckResult(
+            name="facettes_retrouvees", ok=not (absentes or bornees), detail=detail))
     if discarded:
         step.checks.append(CheckResult(
             name="candidats_non_ouverts", ok=False,
@@ -2077,4 +2316,171 @@ def satisfaire_demande(demande: DemandeContexte, *, retrieval: RetrievalResult, 
         detail=f"demande de contexte de catégorie `{demande.kind}` : {len(candidats)} bloc(s) "
                f"candidat(s), {len(retenus)} rouvert(s), {len(ecartes)} écarté(s) par le budget "
                "de l'étape — aucun appel modèle"))
+    return resultat, step
+
+
+def couvrir_facettes(parsed: ParsedQuestion, *, retrieval: RetrievalResult, corpus: Corpus,
+                     index: Index, budget: RetrievalBudget, settings: Settings, doc_id: str,
+                     kinds_suffisants: frozenset[str],
+                     dictionnaire: Dictionnaire | None = None,
+                     rangs: Iterable[int] | None = None) -> tuple[RetrievalResult, StepTrace]:
+    """Reprend, en code pur, les facettes qu'un premier tour a laissées sans règle décisionnelle.
+
+    **Pourquoi ici et pas dans le pipeline.** Même raison que `satisfaire_demande` : AD-1 fait de
+    *retrouver* le seul propriétaire des outils, et un pipeline qui appellerait `Index.chercher`
+    lui-même déplacerait la recherche hors de son étape. Ce n'est pas un mécanisme neuf : c'est le
+    classement par facette de la phase `outils` — même requête, mêmes kinds confirmés, même
+    fermeture d'un niveau — exposé sur un état déjà ouvert.
+
+    **Aucun tour modèle.** Le manque a déjà été constaté ; aller chercher la règle est une
+    résolution du corpus, pas une navigation. `StepTrace.calls == []` le dit, comme pour la
+    variante déterministe.
+
+    **Le budget est celui de l'étape, pas celui de la passe** (AD-1). Les compteurs sont amorcés
+    avec ce que la passe initiale a déjà fait lire ; sans cela, un second tour pourrait admettre
+    `max_blocks` blocs de plus, c'est-à-dire ne plus être borné. Le budget lui-même n'est jamais
+    muté, et `facette_max_opens` borne l'acharnement sur une facette. Cette passe-ci ne consomme
+    **pas** `max_opens` : elle n'ouvre aucune fenêtre, elle admet le bloc proposé et son unité
+    atomique — c'est ce qui lui permet de servir encore quand le quota d'ouvertures est épuisé.
+
+    **Une passe, jamais une boucle.** L'appelant en fait une seule ; ce qui reste sans bloc après
+    elle est déclaré absent dans `RetrievalResult.facettes`, et la chaîne cesse là.
+
+    `rangs` restreint la reprise aux facettes que l'appelant a vues non couvertes ; la couverture
+    rendue, elle, porte sur **toutes** les facettes mesurables — un résultat partiel ferait croire
+    à l'aval que les autres n'ont jamais été mesurées.
+    """
+    t0 = time.monotonic()
+    step = StepTrace(name="retrouver", tier=STEP_TIERS["retrouver"])
+    if doc_id not in corpus.documents:
+        raise KeyError(doc_id)
+
+    def bloc(block_id: str) -> Block:
+        if index.doc_of(block_id) != doc_id:
+            raise KeyError(block_id)
+        return corpus.documents[doc_id].block(block_id)
+
+    # L'état effectif du dictionnaire est celui de la configuration des mécanismes, pas celui de
+    # l'objet reçu : une expansion active ici et inerte dans la phase `outils` aurait fait varier
+    # le classement d'un même libellé selon l'endroit d'où il part.
+    dictionary_ready = (dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
+                        and "dictionnaire" in settings.retrieval_mechanisms())
+    mappings = _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
+                                  dictionary_ready=dictionary_ready)
+    if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
+        # Même seuil que la phase `outils`, et le résultat est rendu **intact** : ni bloc, ni
+        # couverture, ni check. Une facette unique laisse la chaîne exactement où elle était.
+        step.ms = int((time.monotonic() - t0) * 1000)
+        return retrieval, step
+    question = parsed.question_resolue.strip() or " ".join(parsed.termes_de_recherche())
+    terms = parsed.termes_de_recherche()
+    vises = set(rangs) if rangs is not None else {rang for rang, _mapping in mappings}
+
+    admis = [b.block_id for b in retrieval.blocs]
+    admis_set = set(admis)
+    blocs_utilises = len(retrieval.blocs)
+    tokens_utilises = sum(estimate_tokens(f"{b.block_id}\n{b.text}", settings)
+                          for b in retrieval.blocs)
+    classement = _classement_par_facette(index=index, doc_id=doc_id, question=question,
+                                         kinds_confirmes=kinds_suffisants,
+                                         limit=budget.search_limit)
+    related_cache: dict[str, list[str]] = {}
+    retenus: list[str] = []
+    ecartes: list[str] = []
+    tentes: set[str] = set()
+    dependances_decisionnelles: list[str] = []
+    tronque = False
+    essais: dict[int, int] = {}
+    for _tour in range(settings.facette_max_opens):
+        progression = False
+        for rang, mapping in mappings:
+            if rang not in vises:
+                continue
+            hits = classement(mapping)
+            if any(hit.clause_uid in admis_set for hit in hits):
+                continue
+            if essais.get(rang, 0) >= settings.facette_max_opens:
+                continue
+            candidat = next((hit.clause_uid for hit in hits
+                             if hit.clause_uid not in admis_set and hit.clause_uid not in tentes),
+                            None)
+            if candidat is None:
+                continue
+            essais[rang] = essais.get(rang, 0) + 1
+            tentes.add(candidat)
+            progression = True
+            # La même fermeture d'un niveau que la navigation : un renvoi voyage avec le passage
+            # qui le cite, une définition applicable avec la clause qu'elle éclaire.
+            dependances = _dependances_directes(
+                candidat, block=bloc, index=index, terms=terms, doc_id=doc_id,
+                search_candidates=[hit.clause_uid for hit in hits],
+                related_limit=budget.search_limit, related_max=settings.limite_liee_max,
+                proximity_min=settings.limite_liee_proximite_min,
+                related_cache=related_cache, search_related=True)
+            unite = _unite_primaire(candidat, kind=bloc(candidat).kind, index=index,
+                                    dependances=dependances)
+            if unite is None:  # pragma: no cover — un kind décisionnel n'est jamais un titre seul
+                ecartes.append(candidat)
+                tronque = True
+                continue
+            neufs = [b for b in dict.fromkeys(unite) if b not in admis_set]
+            cout = sum(estimate_tokens(f"{b}\n{bloc(b).text}", settings) for b in neufs)
+            if ((budget.max_blocks is not None
+                 and blocs_utilises + len(neufs) > budget.max_blocks)
+                    or (budget.max_tokens is not None
+                        and tokens_utilises + cout > budget.max_tokens)):
+                # Un candidat que le budget écarte est un candidat non lu, pas une absence du
+                # corpus : il rejoint `discarded_block_ids` et marque la lecture comme tronquée.
+                ecartes.append(candidat)
+                tronque = True
+                continue
+            blocs_utilises += len(neufs)
+            tokens_utilises += cout
+            for block_id in neufs:
+                admis_set.add(block_id)
+                admis.append(block_id)
+                retenus.append(block_id)
+            if bloc(candidat).kind in KINDS_FONDATEURS:
+                dependances_decisionnelles.extend(
+                    b for b in dependances
+                    if b in admis_set and b not in dependances_decisionnelles)
+        if not progression:
+            break
+
+    blocs = [*retrieval.blocs, *(bloc(b) for b in retenus)]
+    facettes = _couverture_facettes(mappings, classement=classement,
+                                    admis={b.block_id for b in blocs})
+    if any(f.rang in vises and f.bornee for f in facettes):
+        # Comme dans la phase `outils` : des candidats décisionnels sont restés fermés, la lecture
+        # est bornée, et aucune absence n'est affirmée sur eux (NFR2).
+        tronque = True
+    resultat = retrieval.model_copy(update={
+        "blocs": blocs,
+        "opened_block_ids": list(dict.fromkeys([*retrieval.opened_block_ids, *retenus])),
+        "opened_node_ids": _noeuds_des_blocs([b.block_id for b in blocs], corpus=corpus,
+                                             index=index),
+        "decision_dependency_block_ids": list(dict.fromkeys([
+            *retrieval.decision_dependency_block_ids, *dependances_decisionnelles])),
+        "discarded_block_ids": list(dict.fromkeys([*retrieval.discarded_block_ids, *ecartes])),
+        "facettes": facettes,
+        "truncated": retrieval.truncated or tronque,
+    })
+    step.ms = int((time.monotonic() - t0) * 1000)
+    step.opened_block_ids = list(retenus)
+    step.discarded_block_ids = list(ecartes)
+    # AD-10 : des rangs et des comptes, jamais le libellé d'une facette (il vient du modèle).
+    absentes = [f.rang for f in facettes if f.rang in vises and f.absente]
+    bornees = [f.rang for f in facettes if f.rang in vises and f.bornee]
+    detail = (f"{len(vises)} facette(s) sans règle décisionnelle reprise(s) : {len(retenus)} "
+              f"bloc(s) rouvert(s), {len(ecartes)} écarté(s) par le budget de l'étape — aucun "
+              f"appel modèle")
+    if absentes:
+        detail += (f" ; le contrat lu ne porte aucune clause décisionnelle confirmée pour le(s) "
+                   f"rang(s) {', '.join(str(rang) for rang in absentes)}, déclaré(s) absent(s)")
+    if bornees:
+        detail += (f" ; des candidats sont restés fermés sous le budget pour le(s) rang(s) "
+                   f"{', '.join(str(rang) for rang in bornees)} : lecture bornée, aucune absence "
+                   "affirmée")
+    step.checks.append(CheckResult(name="couverture_facettes",
+                                   ok=not (absentes or bornees), detail=detail))
     return resultat, step

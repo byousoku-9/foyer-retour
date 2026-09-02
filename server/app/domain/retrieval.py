@@ -173,6 +173,69 @@ class SemanticSufficiencySelection(DomainModel):
         return self
 
 
+class FacetteCouverture(DomainModel):
+    """Ce que *retrouver* rapporte pour **une** facette de `ParsedQuestion` : ses blocs, ou rien.
+
+    Les facettes sont arrêtées par *comprendre*, avant tout retrieval (AD-4). Jusqu'ici elles ne
+    liaient que *vérifier*, qui **mesure** après coup si une affirmation affichée y répond : rien,
+    entre les deux, n'obligeait la lecture à rapporter au moins une règle par sous-question, ni ne
+    permettait de dire qu'elle n'en avait rapporté aucune. Une question à deux facettes dont une
+    seule était lue rendait donc exactement la même chose qu'une question à une facette — sans que
+    la différence soit dite nulle part.
+
+    `rang` est la position de la facette dans `ParsedQuestion.facettes`, la même clé que
+    `Verification.facettes_couvertes` : c'est un entier, jamais le libellé, qui vient du modèle et
+    n'a rien à faire dans un résultat d'étape ni dans une trace (AD-10/AD-15).
+
+    `block_ids` sont les blocs **transmis** que le classement de cette facette a proposés et dont le
+    corpus confirme le kind décisionnel. `candidats` est la taille de ce classement, et c'est lui
+    qui empêche la confusion que NFR2 interdit : **une lecture bornée ne prouve aucune absence**.
+
+    Trois états, donc, et pas deux :
+
+    - `retrouvee` — au moins un bloc décisionnel confirmé est parti à la rédaction ;
+    - `absente` — le classement de la facette est **vide** : le contrat lu ne porte aucune clause
+      décisionnelle confirmée pour cette sous-question. C'est une affirmation, et elle est
+      légitime : rien n'est resté fermé ;
+    - `bornee` — le classement proposait des candidats et aucun n'a été lu. Ce n'est **pas** une
+      absence, c'est une borne de lecture : le quota d'ouvertures, le budget de blocs ou celui de
+      tokens l'a arrêtée, et le résultat le dit par `truncated` plutôt que par un « rien trouvé »
+      que la lecture ne peut pas soutenir.
+
+    L'absence de **mesure**, enfin, se dit par une liste `RetrievalResult.facettes` vide — un
+    résultat qui ne prétend rien plutôt qu'un résultat qui affirme le contraire de ce qu'il sait.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rang: int = Field(ge=0)
+    block_ids: tuple[str, ...] = ()
+    candidats: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _blocs_uniques(self) -> FacetteCouverture:
+        if len(self.block_ids) != len(set(self.block_ids)):
+            raise ValueError("une facette ne cite pas deux fois le même bloc")
+        if len(self.block_ids) > self.candidats:
+            raise ValueError("une facette ne retient pas plus de blocs que son classement n'en a "
+                             "proposés")
+        return self
+
+    @property
+    def retrouvee(self) -> bool:
+        return bool(self.block_ids)
+
+    @property
+    def absente(self) -> bool:
+        """Rien retrouvé **et** rien à lire : la seule forme d'absence qu'une lecture peut affirmer."""
+        return not self.block_ids and not self.candidats
+
+    @property
+    def bornee(self) -> bool:
+        """Rien retrouvé, mais des candidats restés fermés : une borne, jamais une absence (NFR2)."""
+        return not self.block_ids and bool(self.candidats)
+
+
 class RetrievalBudget(DomainModel):
     """Borne toute l'étape : appels modèle, nœuds, blocs, tokens, définitions et renvois inclus."""
 
@@ -226,7 +289,41 @@ class RetrievalResult(DomainModel):
     scored_hits: list[ScoredHit] = Field(default_factory=list)
     admission_decisions: list[AdmissionDecision] = Field(default_factory=list)
     sufficiency: SufficiencyDecision | None = None
+    # Couverture par facette, une entrée par facette de `ParsedQuestion` quand l'appelant en a
+    # déclaré une (le sinistre : c'est lui qui passe `kinds_suffisants`). Liste vide = non mesurée.
+    facettes: list[FacetteCouverture] = Field(default_factory=list)
     truncated: bool = False
+
+    def facette(self, rang: int) -> FacetteCouverture | None:
+        return next((f for f in self.facettes if f.rang == rang), None)
+
+    @property
+    def facettes_absentes(self) -> list[int]:
+        """Les rangs dont le contrat lu ne porte **aucune** clause décisionnelle confirmée.
+
+        Les facettes seulement **bornées** en sont exclues : leur classement avait des candidats
+        que le budget n'a pas laissé lire, et une lecture bornée ne prouve aucune absence (NFR2).
+        Elles se disent par `truncated`, comme toute autre borne de l'étape.
+        """
+        return [f.rang for f in self.facettes if f.absente]
+
+    @property
+    def facettes_bornees(self) -> list[int]:
+        """Les rangs dont des candidats décisionnels sont restés fermés sous le budget de l'étape."""
+        return [f.rang for f in self.facettes if f.bornee]
+
+    @model_validator(mode="after")
+    def _facettes_uniques(self) -> RetrievalResult:
+        rangs = [f.rang for f in self.facettes]
+        if len(rangs) != len(set(rangs)):
+            raise ValueError("une facette possède plusieurs couvertures")
+        inconnus = [b for f in self.facettes for b in f.block_ids
+                    if b not in {bloc.block_id for bloc in self.blocs}]
+        if inconnus:
+            # Une couverture qui nomme un bloc non transmis promettrait une lecture qui n'a pas eu
+            # lieu : la rédaction ne verra jamais ce bloc, et l'aval croirait la facette couverte.
+            raise ValueError(f"une facette cite des blocs non transmis : {sorted(set(inconnus))}")
+        return self
 
     @model_validator(mode="after")
     def _decisions_uniques(self) -> RetrievalResult:

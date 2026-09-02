@@ -711,9 +711,13 @@ def test_question_and_retrieval() -> None:
     # `opened_node_ids` (story 4.2f) : les nœuds ayant réellement contribué aux blocs transmis. La
     # donnée existait dans les deux variantes de *retrouver* sans être publiée, si bien qu'une
     # réponse ne pouvait pas dire combien elle avait lu.
+    # `facettes` (correctif du 2026-09-02) : la couverture par facette, une entrée par
+    # sous-question mesurée. Sans elle, une lecture qui n'avait rapporté aucune clause pour l'une
+    # des facettes de la question rendait exactement le même objet qu'une lecture complète.
     assert fields(retrieval.RetrievalResult) == {
         "blocs", "opened_block_ids", "opened_node_ids", "decision_dependency_block_ids",
-        "discarded_block_ids", "scored_hits", "admission_decisions", "sufficiency", "truncated",
+        "discarded_block_ids", "scored_hits", "admission_decisions", "sufficiency", "facettes",
+        "truncated",
     }
     assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
     with pytest.raises(ValidationError):

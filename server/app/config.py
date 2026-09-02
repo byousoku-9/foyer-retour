@@ -309,6 +309,21 @@ class Settings(BaseSettings):
     # pas la priorité de lecture — et c'est une valeur `[HYPOTHÈSE]`, à régler avec les
     # questions-témoins (4.2) comme `max_opens` lui-même.
     profil_max_opens: int = Field(2, ge=0)
+    # Combien d'ouvertures **ciblées** la couverture par facette s'autorise pour *une* facette qui
+    # n'a encore aucun bloc décisionnel confirmé — dans *retrouver* comme au second cycle du
+    # pipeline. Ce n'est pas une réserve prise sur `max_opens` (contrairement à `profil_max_opens`) :
+    # les ouvertures ciblées passent par le **même** quota `max_opens` et les mêmes budgets de blocs
+    # et de tokens, et s'arrêtent avec eux. Ce nombre borne seulement l'acharnement sur une facette,
+    # pour qu'une sous-question dont le contrat ne parle pas ne consomme pas le quota des autres.
+    #
+    # Dérivation : le classement de la facette est déjà restreint aux kinds décisionnels **confirmés
+    # par le corpus** (`Index.chercher(kinds_confirmes=…)`), donc son premier candidat est la
+    # meilleure règle que l'index connaisse pour cette sous-question ; un second essai ne sert qu'au
+    # cas où l'unité atomique du premier n'a pas tenu sous le budget de blocs. Au-delà de deux, ce
+    # n'est plus le classement qui est mal ordonné, c'est la facette qui n'est pas dans le contrat —
+    # et la dire absente est alors la réponse honnête. `[HYPOTHÈSE]`, à régler aux témoins comme
+    # `max_opens` lui-même.
+    facette_max_opens: int = Field(2, ge=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses
@@ -1068,6 +1083,7 @@ class Settings(BaseSettings):
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,
             "profil_max_opens": self.profil_max_opens,
+            "facette_max_opens": self.facette_max_opens,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,
