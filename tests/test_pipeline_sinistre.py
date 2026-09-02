@@ -3085,3 +3085,54 @@ def test_un_bloc_a_correspondance_partielle_nentre_pas_dans_les_fondatrices_omis
         FacetteCouverture(rang=0, block_ids=(par_facette.bloc("regle_inventaire"),), candidats=1),
         FacetteCouverture(rang=1, block_ids=(), candidats=0)]})
     assert sinistre._fondatrices_omises(verification, partielle, reglages, parsed) == []
+
+
+# --- Correctif du tour 4 (C1) : une remise ne se refuse pas pour la deadline -------------------
+
+
+class _BudgetQuiExpire(RequestBudget):
+    """Budget dont la deadline s'épuise juste après le n-ième appel facturé (horloge factice).
+
+    Compter les appels plutôt que les secondes rend le témoin déterministe : l'instant d'expiration
+    est exactement l'entre-deux-étapes que l'on veut éprouver.
+    """
+
+    def __init__(self, apres_appels: int) -> None:
+        super().__init__(deadline_s=30.0, max_attempts=8, max_cost_eur=0.30)
+        self._restants = apres_appels
+
+    def note_call(self, usage) -> None:
+        super().note_call(usage)
+        self._restants -= 1
+
+    def remaining(self) -> float:
+        return 30.0 if self._restants > 0 else -0.011
+
+
+async def test_une_reponse_verifiee_nest_pas_jetee_pour_onze_millisecondes(index: Index) -> None:
+    """C1 — mesuré sur A16 : une réponse conforme, vérifiée et servable, rendue en 503.
+
+    Le pipeline avait la réponse en main à 56,7 s ; `echeance("restituer")` a levé `Timeout` à
+    `remaining = -0,011 s` et l'API a rendu 503, après 0,24 € dépensés. *restituer* n'appelle
+    pourtant aucun modèle et coûte 0 ms mesuré : la deadline protège le budget d'appels, pas la
+    remise d'un travail déjà payé.
+    """
+    answer, trace, fake = await _run(
+        index, [_comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
+        budget=_BudgetQuiExpire(3))
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and answer.verdict is not None
+    assert [q.block_id for c in answer.claims for q in c.quotes] == [f"{DOC_ID}:p1:2"]
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    (depassement,) = [c for c in restituer.checks if c.name == "deadline_depassee"]
+    assert not depassement.ok and "n'appelle aucun modèle" in depassement.detail
+
+
+async def test_la_deadline_ferme_toujours_la_porte_devant_une_etape_qui_depense(
+        index: Index) -> None:
+    """La borne du correctif : devant un appel, la porte se ferme comme avant."""
+    with pytest.raises(Timeout, match="verifier"):
+        await _run(index, [_comprendre(), _rediger(GAR),
+                           _verifier(("c1", True, True, False, False, None))],
+                   budget=_BudgetQuiExpire(2))

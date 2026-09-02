@@ -1026,21 +1026,45 @@ class _BudgetQuiExpire(RequestBudget):
         return 30.0 if self._restants > 0 else -1.0
 
 
-@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier"), (3, "restituer")])
-async def test_the_deadline_is_checked_before_every_step_including_restituer(index: Index, appels: int,
-                                                                             etape: str) -> None:
-    """Contrat du pipeline : « deadline vérifiée **avant chaque étape** ». *restituer* en est une —
-    elle ne l'était pas, et une requête dont le temps venait d'expirer rendait une réponse normale
-    (revue Codex 1.5, I3). AD-16 : « la deadline globale (AD-9) produit `timeout` »."""
+@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier")])
+async def test_the_deadline_is_checked_before_every_paying_step(index: Index, appels: int,
+                                                                 etape: str) -> None:
+    """Contrat du pipeline : « deadline vérifiée **avant chaque étape** » — celles qui dépensent.
+
+    AD-16 : « la deadline globale (AD-9) produit `timeout` ». Elle protège le budget d'appels du
+    fournisseur, et c'est devant un appel qu'elle ferme la porte.
+    """
     with pytest.raises(Timeout, match=etape):
         await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
                    budget=_BudgetQuiExpire(appels))
 
 
-async def test_the_deadline_is_checked_before_a_refusal_too(index: Index) -> None:
-    """Les chemins courts appellent *restituer* comme les autres : `refuser()` contrôle aussi."""
-    with pytest.raises(Timeout, match="restituer"):
-        await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
+async def test_une_deadline_expiree_devant_restituer_sert_la_reponse_et_le_dit(
+        index: Index) -> None:
+    """Correctif du tour 4 (C1) — *restituer* est une **remise**, pas une dépense.
+
+    Elle n'appelle aucun modèle (`STEP_TIERS["restituer"] is None`, 0 ms mesuré) et ne fait que
+    composer l'`Answer` d'un travail déjà payé. La refuser rendait un 503 sur une réponse vérifiée
+    et servable : mesuré sur A16, une réponse conforme jetée pour `remaining = -0,011 s` après
+    0,24 € dépensés. Le dépassement se dit désormais dans la trace.
+    """
+    answer, trace, _fake = await _run(
+        index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
+        budget=_BudgetQuiExpire(3))
+
+    assert answer.found is True
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    (depassement,) = [c for c in restituer.checks if c.name == "deadline_depassee"]
+    assert not depassement.ok and "n'appelle aucun modèle" in depassement.detail
+
+
+async def test_un_refus_dont_la_deadline_expire_est_servi_aussi(index: Index) -> None:
+    """Les chemins courts passent par *restituer* comme les autres : eux non plus ne dépensent rien."""
+    answer, trace, _fake = await _run(index, [_comprendre("meteo")], budget=_BudgetQuiExpire(1))
+
+    assert answer.found is False and answer.reason is not None
+    restituer = next(s for s in trace.steps if s.name == "restituer")
+    assert [c.name for c in restituer.checks if c.name == "deadline_depassee"]
 
 
 async def test_a_provider_failure_during_the_second_verification_is_terminal_too(index: Index) -> None:

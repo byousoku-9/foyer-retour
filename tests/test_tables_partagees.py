@@ -344,3 +344,17 @@ def test_le_chiffre_de_la_lecture_bornee_est_le_meme_des_deux_cotes(cas: dict[st
     for entree in cas["lectures"]:
         for mot in ("guide", "contrat", "conditions générales"):
             assert mot not in entree["chat"], (mot, entree)
+
+
+def test_les_etapes_sans_appel_sont_celles_dont_le_tier_est_absent() -> None:
+    """Le même fait, énoncé dans deux couches qui ne peuvent pas se lire : il ne doit pas diverger.
+
+    `pipelines` n'a pas le droit de voir `llm` (table des couches), et la deadline a besoin de
+    savoir quelle étape dépense. `ETAPES_SANS_APPEL` vit donc dans `domain`, et cette égalité est
+    le seul lien qui empêche les deux tables de se contredire — le jour où une étape sans appel
+    s'ajoute, elle rougit ici plutôt que de rendre un 503 sur une remise.
+    """
+    from server.app.domain.trace import ETAPES_SANS_APPEL
+    from server.app.llm.models import STEP_TIERS
+
+    assert {nom for nom, tier in STEP_TIERS.items() if tier is None} == ETAPES_SANS_APPEL

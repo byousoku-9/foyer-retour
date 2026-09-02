@@ -54,7 +54,8 @@ from server.app.domain.errors import (
 )
 from server.app.domain.profil import Profil
 from server.app.domain.question import ClarificationRequise, Faits, ParsedQuestion, QuestionScope
-from server.app.domain.trace import CheckResult, StepTrace, Trace
+from server.app.domain.trace import (ETAPES_SANS_APPEL, CheckResult, StepTrace,
+                                     Trace)
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
     KINDS_FONDATEURS,
@@ -501,6 +502,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         ingest_fingerprint=document.ingest_fingerprint)
 
     steps: list[StepTrace] = []
+    # Les étapes sans tier dont la deadline était déjà dépassée : elles ne dépensent rien,
+    # elles sont servies, et le fait est publié plutôt que payé d'un 503 (correctif C1).
+    depassements: list[str] = []
     relances = 0
     truncated = False
     intent: str | None = None
@@ -509,9 +513,38 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     question_comprise: ParsedQuestion | None = None
 
     def echeance(avant: str) -> None:
-        """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
-        if budget.remaining() <= 0:
+        """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup.
+
+        **Correctif du tour 4 (C1) : une étape qui ne dépense rien est une remise, pas une
+        dépense.** La deadline protège le budget d'appels du fournisseur — c'est son unique objet.
+        Elle refusait pourtant *restituer* comme les autres, alors que cette étape n'appelle aucun
+        modèle (`STEP_TIERS["restituer"] is None`, `calls=[]`, **0 ms mesuré**) et ne fait que
+        composer l'`Answer` à partir d'un travail déjà payé. Mesuré sur A16 : une réponse conforme,
+        vérifiée et servable à 56,7 s a été jetée en 503 pour `remaining = -0,011 s`, après
+        0,24 € dépensés. Un dépassement sur une remise se **dit** — la trace publie déjà
+        `deadline_remaining_s`, et le check le nomme —, il ne se **paie** pas d'une erreur.
+
+        Le fait employé est celui de la table des étapes (`ETAPES_SANS_APPEL`, jumelle de
+        `STEP_TIERS` dont le tier y vaut `None`) : aucun nom n'est décidé ici. Un court-circuit
+        de code pur, absent de la table des tiers, y est traité comme ce qu'il est — quelque
+        chose qui ne dépense rien.
+
+        La latence réelle reste bornée ailleurs, et rien n'y touche : `client_abort_margin_s`
+        côté navigateur (AD-11) et le délai d'infrastructure au déploiement.
+        """
+        if budget.remaining() > 0:
+            return
+        if avant not in ETAPES_SANS_APPEL:
             raise Timeout(f"deadline épuisée avant l'étape {avant} ({budget.remaining():.1f} s restantes)")
+        depassements.append(f"{avant} ({budget.remaining():.1f} s)")
+
+    def noter_depassement(step: StepTrace) -> None:
+        """AD-10 : le dépassement d'une étape sans appel est nommé dans la trace, jamais tu."""
+        if depassements:
+            step.checks.append(CheckResult(
+                name="deadline_depassee", ok=False,
+                detail=f"deadline dépassée avant {', '.join(depassements)} : l'étape n'appelle "
+                       "aucun modèle, la réponse déjà payée est servie plutôt que refusée"))
 
     def tracer() -> Trace:
         digest_pipeline, digest_prompts = (pipeline_digest_hex, prompts_digest_hex)
@@ -584,7 +617,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 lang_fallback: bool = False,
                 scope: QuestionScope | None = None,
                 clarification: str | None = None) -> tuple[Answer, Trace]:
-        echeance("restituer")  # *restituer* est une étape : la deadline se vérifie avant elle aussi
+        # *restituer* ne dépense rien : un dépassement y est nommé, pas payé (correctif C1).
+        echeance("restituer")
         compris, ignores = faits_compris(scope)
         answer, step = restituer(language=language, lang_fallback=lang_fallback,
                                  reason=absence(kind, parsed),
@@ -593,6 +627,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                  faits_compris=compris,
                                  registre=REGISTRE_SINISTRE)
         noter_hors_borne(step, ignores)
+        noter_depassement(step)
         steps.append(step)
         return answer, tracer()
 
@@ -1179,6 +1214,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 lecture_partielle=lecture_partielle_de(retrieval, doc_id=doc_id),
                 faits_compris=compris, registre=REGISTRE_SINISTRE)
             noter_hors_borne(step_restituer, ignores)
+            noter_depassement(step_restituer)
             steps.append(step_restituer)
             return answer, tracer()
         if not verification.found:
@@ -1199,6 +1235,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                faits_compris=compris,
                                                registre=REGISTRE_SINISTRE)
         noter_hors_borne(step_restituer, ignores)
+        noter_depassement(step_restituer)
         steps.append(step_restituer)
         return answer, tracer()
 
