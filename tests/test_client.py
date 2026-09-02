@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import anthropic
 import pytest
 from pydantic import BaseModel
@@ -460,10 +462,38 @@ async def test_provider_errors_map_to_llm_unavailable(cls: type[Exception]) -> N
     assert len(step.calls) == 1 and step.calls[0].usage.cost_eur == 0.0  # revue Codex B3 : échec tracé
 
 
+async def test_un_400_de_compte_est_une_indisponibilite_et_son_diagnostic_est_journalise(
+        caplog: pytest.LogCaptureFixture) -> None:
+    """Correctif du tour 2 (rapport citations, C1) — tous les 400 ne disent pas la même chose.
+
+    « credit balance is too low » est un 400. Classé `internal`, il faisait lire « le serveur n'a pas
+    pu traiter cette demande » à l'utilisateur et ne laissait à l'exploitant qu'un nom de classe : la
+    phrase du fournisseur n'existait **nulle part** — ni en réponse, ni en log, ni en audit. C'est le
+    défaut qui a déjà coûté une démonstration. Un compte qui ne peut pas servir est une
+    indisponibilité du fournisseur, exactement comme un 429, et les deux fronts servent déjà la
+    bonne phrase pour ce cas-là.
+    """
+    corps = {"type": "error",
+             "error": {"type": "invalid_request_error",
+                       "message": "Your credit balance is too low to access the Anthropic API."}}
+    client, _ = _client([provider_exception(anthropic.BadRequestError, body=corps)])
+    with caplog.at_level(logging.WARNING, logger="foyer.llm"):
+        with pytest.raises(LlmUnavailable) as exc_info:
+            await _call(client, step=StepTrace(name="comprendre"))
+
+    assert exc_info.value.code is ErrorCode.llm_unavailable
+    # Publié : la classe et le request_id, jamais la phrase du fournisseur (AD-15).
+    assert "credit balance" not in exc_info.value.message
+    # Conservé : l'exploitant lit enfin ce qui s'est passé.
+    assert any("credit balance" in enregistrement.getMessage() for enregistrement in caplog.records)
+
+
 @pytest.mark.parametrize("cls", [anthropic.BadRequestError, anthropic.NotFoundError,
                                  anthropic.UnprocessableEntityError, anthropic.RequestTooLargeError,
                                  anthropic.ConflictError])
 async def test_our_bad_requests_map_to_internal(cls: type[Exception]) -> None:
+    """Un 400 que la liste fermée des marqueurs de compte ne reconnaît pas reste `internal` :
+    fail-closed vers le comportement d'avant le correctif."""
     client, _ = _client([provider_exception(cls)])
     step = StepTrace(name="comprendre")
     with pytest.raises(LlmUnavailable) as exc_info:
