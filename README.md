@@ -4,9 +4,41 @@ Un retour à trois problématiques partagées par l'équipe IA de Foyer — un c
 
 Le fil rouge : **on ne gagne pas sur « comment on retrouve », on gagne sur « comment on prouve ».** Chaque affirmation montrée à l'utilisateur a survécu à une vérification par du code ; ce que le système ne sait pas est dit, avec la preuve.
 
-## État
+## État — ce que le produit fait aujourd'hui
 
-Dépôt en construction (août 2026). Story 1.0 livrée : contrats typés du domaine, configuration, `normalize()`, outillage de tests sans réseau, copie du site, infrastructure GCP amorcée. Story 1.1 : le guide est ingéré en arbre de blocs (`data/lux-guide/`), chargé en lecture seule et indexé (`sommaire`, `ouvrir_noeud`, `chercher`) ; son sommaire compact est versionné. Story 1.2 : le contrat AXA OptiHome 2017 est téléchargé (hash vérifié), découpé en blocs par page avec lignes et boîtes (`data/axa-lu-optihome-2017/`), et ses quatre clauses du cas « bougie » sont typées par overlay manuel. Story 1.3 : le client Claude unique (`server/app/llm/`) — tiers, prix, budget par requête, prompts versionnés, erreurs typées. Story 1.4 : les trois premières étapes (`server/app/steps/`) — *comprendre*, *retrouver* (déterministe, sans modèle) et *rédiger* — produisent une ébauche dont chaque affirmation cite un bloc du corpus. Story 1.5 : *vérifier* confronte chaque citation au corpus (code pur) puis juge la pertinence en un seul appel groupé, *restituer* rend la réponse depuis les seules affirmations qui ont survécu, et `server/app/pipelines/guide.py` enchaîne les cinq étapes — court-circuits, relance unique, trace complète. Story 1.6 : le serveur répond sur HTTP (`server/app/api/`) — `POST /api/v1/chat`, `GET /api/v1/sante`, les alias historiques `/chat` et `/sante`, la copie du site sous `/guide/`, un accueil provisoire sur `/` et une page d'attente sur `/sinistre/`, le tout sur **une seule origine** (donc pas de CORS), avec identifiant de requête, journal JSON sans texte, limiteur best-effort et bornes d'entrée. Story 1.7 : l'onglet Assistant de la copie du site parle au serveur qui la sert, affiche ses citations sous chaque phrase et n'a plus aucun repli silencieux. Story 1.8 : un sinistre décrit obtient un verdict conservateur « au regard des conditions générales seules » — la table d'AD-6 est du code pur (`server/app/domain/verdict.py`), *vérifier* dérive l'applicabilité de chaque clause depuis des valeurs typées demandées dans le **même** appel groupé, et `server/app/pipelines/sinistre.py` rejoue la chaîne des cinq étapes sur le contrat AXA. Story 1.9 : ce pipeline est **servi** — `GET /api/v1/documents`, `GET /api/v1/documents/{doc_id}/report`, `POST /api/v1/sinistre` — et `/sinistre/` n'est plus une page d'attente : on y décrit un sinistre et on y lit le verdict, sa portée, les faits compris, le paquet manquant, les questions à poser et les clauses citées avec leur type, leur page et leurs statuts. Story 1.10 : le système **se mesure** — `server/evals/run.py` exécute les questions-témoins par le pipeline réel et écrit `manifest.gate` (`--gate {doc_id} --profile vertical`), les deux documents portent un gate `vertical` adossé à un cas témoin chacun (relu par la boucle ; la contresignature humaine reste due, et `/` le dit), `ALLOW_UNGATED` quitte l'image de production, et l'accueil sur `/` annonce le niveau de validation **lu sur `/api/v1/sante`** — avec la réponse écrite au sujet 3. Story 1.11 : le dépôt se déploie tout seul — un push sur `main` construit l'image par Cloud Build, met la révision en ligne **sans trafic** sous un tag, joue quatre smoke tests sur elle (`sante`, les trois pages, et les deux cas témoins du gate rejoués par HTTP), et ne promeut le trafic que s'ils passent tous ; les pull requests, elles, passent par le lint et la suite hors ligne sans rien déployer. Les stories 2.1 à 2.3 ont ensuite ajouté le dictionnaire enrichi, la continuité conversationnelle et l'exploitation bornée du profil. Story 2.4 : le guide répond désormais en français, anglais, allemand ou portugais ; la langue est décidée une fois, les phrases composées par le code sont traduites, les citations restent en français mot pour mot, et le front rend visibles traduction et repli de détection. Story 2.5 ajoute « Pourquoi cette réponse » et le mode dégradé honnête. La story 2.6 ajoute la variante `outils`, autre implémentation de la seule étape *retrouver* : la chaîne, le préfixe et les schémas de *rédiger* restent communs ; seul son plafond de sortie passe à 1 792 tokens sur le chemin outils afin de tenir sous 0,10 €. Voir « Déploiement » et `docs/tests-live.md` pour les preuves détaillées de chaque livraison.
+**Les deux prototypes sont livrés et déployés ; le troisième sujet a sa réponse d'architecture.**
+
+- **L'assistant du guide** (`/guide/`) répond aux questions d'un nouvel arrivant au Luxembourg à
+  partir des 36 fiches et 41 questions fréquentes de « S'installer au Luxembourg ». Chaque phrase
+  affichée cite le passage qui la soutient ; ce qui n'est pas soutenu n'est pas montré. Il répond en
+  **français, anglais, allemand et portugais** — les citations, elles, restent en français mot pour
+  mot. Il tient une conversation, exploite le profil déclaré, et dit « je ne sais pas » avec la
+  preuve de ce qu'il a cherché.
+- **L'outil sinistre** (`/sinistre/`) confronte un sinistre décrit en clair aux **conditions
+  générales réelles** de deux contrats habitation luxembourgeois (AXA OptiHome 2017, Baloise Home
+  2024). Il rend un verdict conservateur « au regard des conditions générales seules », les clauses
+  qui le portent avec leur type et leur page, ce qui manque pour trancher, et les questions à poser.
+  Cliquer sur une clause ouvre la page du PDF, surlignée. Le verdict est calculé par du **code pur**
+  (`server/app/domain/verdict.py`) : le modèle extrait, le code décide.
+- **Le sujet 3 — le « RAG » sur cent mille lignes d'Excel** — n'est pas implémenté, et la page
+  d'accueil ne prétend pas le contraire : il reçoit une réponse d'architecture écrite, pas une
+  démonstration.
+
+**Trois documents sont servis** — le guide et les deux contrats —, chacun avec son gate de
+questions-témoins, son rapport d'ingestion consultable et ses alertes publiées sur
+`GET /api/v1/sante`. Le niveau de validation affiché sur l'accueil est **lu sur l'API**, jamais
+écrit en dur : `vertical`, et la contresignature humaine des cas reste due — la page le dit.
+
+**Épics livrées :** 1 (les cinq étapes, le serveur, le déploiement automatique), 2 (dictionnaire,
+conversation, profil, multilingue, « Pourquoi cette réponse », navigation par outils), 3 (ingestion
+PDF générique, typage des clauses, renvois et définitions par portée, pages surlignées, second
+contrat, sinistre conversationnel), 4 (harness de questions-témoins, holdout scellé, baselines
+publiées, gate `full`), 5.1 à 5.3 (accueil, `docs/architecture.md`, `docs/choix-et-limites.md`).
+Le détail story par story, avec ses preuves, est dans `docs/tests-live.md` et
+`_bmad-output/` — hors de ce dépôt public.
+
+**Ce qui reste ouvert est écrit, pas tu :** `docs/choix-et-limites.md` porte les limites assumées et
+les dettes mesurées, et l'accueil publie l'état de validation réel plutôt qu'un état souhaité.
 
 Le correctif Story 4.5 remplace ce dernier arbitrage historique : `rediger_max_tokens=2048` est
 maintenant l'unique plafond de rédaction du guide, pour `outils` comme pour `deterministe`, sous le
@@ -128,7 +160,7 @@ uv run python -m server.ingest.enrich_dictionary --valider "Nom"  # la signature
 - **`--valider "Nom"` écrit trois champs et ne touche à aucun autre** (`validated`, `validated_by`, `validated_at` en UTC ISO 8601), et refuse (exit 5) si le fichier ne décrit plus le corpus livré. C'est un commit `data` dédié. Rien dans l'ingestion n'écrit jamais `validated: true`.
 - Un dictionnaire absent, illisible, non conforme ou d'un autre corpus **désactive une optimisation, il n'empêche jamais de servir** et ne lève jamais au démarrage (AD-7) ; il est **dit** — alertes `dictionnaire_non_valide` / `dictionnaire_corpus_perime` sur `/api/v1/sante`, ligne « dictionnaire des variantes » sur l'accueil, `CheckResult(dictionnaire)` dans la trace de *retrouver* (AD-16 : aucun dégradé silencieux).
 - **`intents` et `candidate_questions` sont produits, versionnés — et lus par personne**, délibérément (`target_story: 2.5`). AD-5 est explicite : « les déclencheurs d'intention sont distincts des mots du corpus — la présence d'un mot n'est jamais une preuve de pertinence » ; refuser une question parce qu'elle contient « météo » ferait exactement ce que cette phrase interdit, et le refus par `intent`, décidé par *comprendre* qui a lu la question entière, est déjà en place et suffit. Les deux champs existent pour servir de **mesure** en 2.5 (« pourquoi cette réponse ») : confronter l'`intent` rendu aux déclencheurs pour dire quand les deux divergent, sans jamais laisser les seconds trancher ; et proposer des questions candidates, qui est une décision d'interface.
-- Les consignes d'ingestion vivent sous `server/ingest/prompts/` et **non** sous `server/app/llm/prompts/` : y entrer les mettrait dans `prompts_digest`, et modifier une consigne d'ingestion rendrait les deux gates `gate_perime` pour un prompt que le serveur n'exécute jamais.
+- Les consignes d'ingestion vivent sous `server/ingest/prompts/` et **non** sous `server/app/llm/prompts/` : y entrer les mettrait dans `prompts_digest`, et modifier une consigne d'ingestion rendrait les gates `gate_perime` pour un prompt que le serveur n'exécute jamais.
 - Le périmètre annoncé à *comprendre* (`Corpus.perimetres`) est une projection des titres du corpus, calculée au chargement et bornée par `perimetre_max_chars` : une fiche ajoutée entre dans le périmètre sans qu'on réécrive une phrase de prompt.
 
 ## Ajouter un contrat PDF
@@ -170,7 +202,7 @@ uv run python -m server.evals.run --gate <doc-id> --profile vertical
 - Les `custom_id` lient cryptographiquement chaque nouveau lot à la projection structurelle et textuelle complète, aux prompts, au modèle, aux schémas exacts, aux seuils et à l'implémentation. Le dry-run affiche cette empreinte. Les lots historiques antérieurs à ce lien ne sont repris qu'avec leurs deux IDs **et** `--legacy-resume <empreinte-campagne>` ; cette voie ne soumet rien et refuse toute empreinte différente. Un verrou OS exclusif empêche deux typages d'écrire le même document en concurrence.
 - Tous les seuils d'ingestion vivent dans `server/app/config.py`, sont publiés par `thresholds()` et entrent dans `ingest_fingerprint` lorsqu'ils changent extraction ou segmentation.
 - `tests/test_parsing_axa.py` compare les pages 9, 11, 34 et 46 à des extraits relus (`tests/data/axa/`) contre le `document.json` committé ; si `source.pdf` est présent, l'ingestion PDF doit regénérer à l'identique le texte, les lignes, les coordonnées, l'ordre et les IDs. Le typage Batch enrichit ensuite les kinds, relations et portées sans toucher à cette identité.
-- Les artefacts de tous les documents sont écrits sans valeurs par défaut ni `text_norm` (`SCHEMA_VERSION=3`, `server/ingest/artifacts.py`). La version du schéma entre dans **chaque** `ingest_fingerprint` : l'incrémenter ré-ingère les deux documents et périme les deux gates. `"3"` ajoute `Document.parcours` — les conditions de profil que la `timeline` du guide attache à ses fiches (story 2.3), vide pour un contrat. `Block.structural_kind` est un enrichissement optionnel du typage : il est omis des documents non typés et ne change donc pas leur format sérialisé.
+- Les artefacts de tous les documents sont écrits sans valeurs par défaut ni `text_norm` (`SCHEMA_VERSION=4`, `server/ingest/artifacts.py`). La version du schéma entre dans **chaque** `ingest_fingerprint` : l'incrémenter ré-ingère les **trois** documents et périme leurs gates. `"3"` ajoutait `Document.parcours` — les conditions de profil que la `timeline` du guide attache à ses fiches (story 2.3), vide pour un contrat. `Block.structural_kind` est un enrichissement optionnel du typage : il est omis des documents non typés et ne change donc pas leur format sérialisé.
 
 ## Client LLM
 
@@ -318,7 +350,36 @@ gcloud run services update-traffic foyer-retour --to-revisions=<révision-préc�
 
 **Ce que le déploiement automatique ne fait pas** (NFR13, et c'est écrit plutôt que sous-entendu) : ni Cloud Armor, ni load balancer, ni domaine personnalisé, ni SLO, ni supervision, ni test de charge, ni évals en intégration continue (le sous-ensemble rapide vient en 4.1). Le limiteur reste best-effort par instance.
 
-## Ce que contiendra ce dépôt
+## `data/` — pourquoi des liens symboliques pendants dès le clone
+
+`data/` n'est pas un répertoire ordinaire : c'est la **projection d'un espace de publication A/B**
+(`server/evals/espace.py`, `server/app/corpus/racine.py`). Chaque artefact et chaque source y est un
+lien vers `data/.publie/courant/…`, et le pointeur `courant` bascule d'une génération à l'autre en
+une seule opération — c'est ce qui rend une ingestion ou un run d'évals tout-ou-rien.
+
+**Un lien pendant y est un état voulu, pas une casse.** La disposition déclare pour *chaque*
+document les six artefacts et les quatre sources possibles ; celles qui n'existent pas pour ce
+document-là restent des liens sans cible, et le code les lit comme telles — `racine.py` :
+`except FileNotFoundError: continue  # lien pendant exact : absence métier publiée`. C'est délibéré,
+et c'est aussi ce qui **interdit** de les supprimer : le même code refuse de publier
+(`EspaceNonInstalle`) dès qu'un des dix noms manque pour un document.
+
+Sur un clone, treize liens sont donc pendants, et chacun dit une absence exacte :
+
+| Lien pendant | Ce qu'il dit |
+|---|---|
+| `data/lux-guide/source.pdf` | le guide vient d'un `source.js`, il n'a pas de PDF |
+| `data/{axa,baloise}/source.js` | les contrats viennent d'un PDF, ils n'ont pas de source JS |
+| `data/lux-guide/{source.sha256,dictionary.json,typing.manual.json,structure.json}` | sans objet pour un guide, ou pas encore publié dans cette image |
+| `data/{axa,baloise}/{typing.manual.json,structure.json}` | aucun typage manuel ni proposition de structure publiés dans cette image |
+| `data/evals-latest.json` | aucun run d'évals publié dans cette image — `/api/v1/evals/latest` répond `{"publie": false, "raison": "absent"}`, et l'accueil l'affiche comme une absence, pas comme un trou |
+| `docs/evals/campagnes` | aucune archive de campagne publiée dans cette image |
+
+**Les deux PDF des contrats ne sont pas committés** (droits de diffusion) : `fetch_source` les
+télécharge au build, empreinte vérifiée contre `data/<doc>/source.sha256`, avec repli sur
+`gs://foyer-retour-sources/`.
+
+## Ce que contient ce dépôt
 
 | Dossier | Rôle |
 |---|---|
