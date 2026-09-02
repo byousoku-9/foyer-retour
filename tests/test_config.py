@@ -36,7 +36,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.max_cost_eur_per_request == 0.75 and s.cost_alert_eur == 0.25
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
-    assert s.evals_max_cost_eur == 7.0
+    assert s.evals_max_cost_eur == 12.0
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
     assert s.mixed_page_image_density == 0.2 and s.ocr_dpi == 300

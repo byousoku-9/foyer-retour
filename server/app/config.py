@@ -444,7 +444,13 @@ class Settings(BaseSettings):
     # à `--repeat` 5 (11,25 €) et le profil `full` (56 cas, 25,2 €). Cette dernière borne est
     # voulue — c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener le coût du golden set,
     # pas ce plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
-    evals_max_cost_eur: float = Field(7.0, ge=0)
+    # **12,0 €, et non 7,0 (02/09/2026, 16 h 50).** Même mesure, même règle, plafond par requête
+    # passé à 0,75 € (sommaire entier dans le préfixe, voir `max_cost_eur_per_request`) : le gate
+    # vertical à `--repeat 3` majore désormais 15 × 0,75 = **11,25 €**. 12,0 € le laisse partir avec
+    # 6,7 % de marge, pour un coût réel attendu d'environ 3 à 6 € (0,09 à 0,42 € par exécution selon
+    # que le préfixe est chaud ou froid). `--repeat 5` (18,75 €) et `full` restent refusés sans
+    # `--max-cost` explicite.
+    evals_max_cost_eur: float = Field(12.0, ge=0)
     # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
     #
     # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
@@ -489,7 +495,8 @@ class Settings(BaseSettings):
     # 15 exécutions, majorant 6,75 €). Ce que ce relèvement ne change pas : l'orchestrateur reste
     # tenu de passer `LIVE_BUDGET_EUR` explicitement (CLAUDE.md, `automation/epreuves-agent.md`) —
     # ce défaut est le filet de celui qui l'oublie, pas l'autorisation de s'en passer.
-    live_budget_eur: float = Field(7.00, gt=0)
+    # 12,00 € depuis le 02/09/2026 16 h 50, avec `evals_max_cost_eur` : 15 exécutions × 0,75 €.
+    live_budget_eur: float = Field(12.00, gt=0)
     live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse

@@ -2430,7 +2430,9 @@ def test_execution_full_mixte_hors_ligne_et_digest_references_reel(
         _COURANT["guide"] = DoublePipeline([guide])
         _COURANT["sinistre"] = DoublePipeline([sinistre])
         assert runner.main([
-            "--profile", "full", "--max-cost", "1", "--cases-dir", str(cases),
+            # Deux exécutions payantes : le plafond de run suit le majorant par requête du produit.
+            "--profile", "full", "--max-cost", f"{2 * _settings().max_cost_eur_per_request + 0.1:.2f}",
+            "--cases-dir", str(cases),
             "--data-dir", str(data), "--output-json", str(tmp_path / "mixte.json"),
             "--output-markdown", str(tmp_path / "mixte.md"),
         ]) == 0
