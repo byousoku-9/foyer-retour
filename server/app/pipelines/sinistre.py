@@ -155,7 +155,49 @@ def _contexte_non_relu(verification: Verification, *, lecture_bornee: bool) -> V
     return verification.model_copy(update={"complete": False, "lacunes": lacunes})
 
 
-def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) -> bool:
+def _cite_une_fondatrice_confirmee(claim: Any, *, corpus: Any, index: Any) -> bool:
+    """Cette affirmation s'appuie-t-elle sur une garantie ou une exclusion que l'ingestion confirme ?
+
+    Le `kind` et sa confirmation sont relus dans le corpus : ni le texte de la claim, ni son
+    identifiant, ni le document ne décident.
+    """
+    for quote in claim.quotes:
+        try:
+            document = corpus.documents[index.doc_of(quote.block_id)]
+            bloc = document.block(quote.block_id)
+        except KeyError:
+            continue
+        if bloc.kind in KINDS_FONDATEURS and bloc.kind_confirmed:
+            return True
+    return False
+
+
+def _base_decisionnelle_par_facette(verification: Verification, parsed: ParsedQuestion, *,
+                                    corpus: Any, index: Any) -> bool:
+    """Chaque sous-question porte-t-elle déjà une affirmation retenue citant une fondatrice confirmée ?
+
+    Correctif du tour 4 (C3). C'est la question que `_fondatrice_rejetee` prétend défendre — « sans
+    relance, `found=True` ne signifie pas qu'AD-6 dispose encore d'une base décisionnelle » — et
+    qu'elle ne posait jamais. Sa jumelle `_fondatrices_omises` a été raffinée par sous-question au
+    tour 2 sur exactement ce raisonnement ; les deux se disent complémentaires, et l'une n'avait pas
+    suivi.
+
+    Sans découpage rendu, il n'y a rien à mesurer : la fonction ne prétend rien, et la règle
+    historique s'applique telle quelle.
+    """
+    if not parsed.facettes:
+        return False
+    retenues = {claim.claim_id: claim for claim in verification.claims}
+    for rang in range(len(parsed.facettes)):
+        identifiants = verification.facettes_claims.get(rang, [])
+        if not any(_cite_une_fondatrice_confirmee(retenues[cid], corpus=corpus, index=index)
+                   for cid in identifiants if cid in retenues):
+            return False
+    return True
+
+
+def _fondatrice_rejetee(verification: Verification, parsed: ParsedQuestion, *,
+                        corpus: Any, index: Any) -> bool:
     """Une claim fondatrice rejetée exige la relance sinistre, même si une auxiliaire survit.
 
     Revue 3.3 post-suite : le budget de rédaction peut réserver une place à une définition ou une
@@ -163,7 +205,18 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     sur sa pertinence, `found=True` ne signifie pas qu'AD-6 dispose encore d'une base décisionnelle :
     sans relance, les qualités contractuelles de la fondatrice disparaissent aussi des questions au
     client. Le `kind` est relu dans le corpus ; ni le texte de la claim ni le document ne décident.
+
+    **Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question.** Le
+    déclencheur s'armait dès qu'une claim rejetée pour une raison corrigeable citait une fondatrice,
+    sans regarder si la base qu'il prétend défendre existe déjà. Mesuré sur A16 : une claim
+    auxiliaire rejetée `non_soutenue` sur une exclusion hors périmètre a déclenché un cycle complet
+    — 43,3 s, 0,052 €, deux appels — alors que **les deux** sous-questions portaient déjà chacune
+    une affirmation retenue citant une fondatrice confirmée. Ce cycle n'a rien produit et a fini en
+    503. La propriété historique reste entière : une sous-question qui perd sa seule fondatrice sur
+    un rejet corrigeable relance toujours.
     """
+    if _base_decisionnelle_par_facette(verification, parsed, corpus=corpus, index=index):
+        return False
     for claim in verification.rejected_claims:
         if claim.rejection_kind != "non_pertinente":
             continue
@@ -188,6 +241,7 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
             if kind in KINDS_FONDATEURS:
                 return True
     return False
+
 
 
 def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Settings,
@@ -884,7 +938,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             consigne_facette = None
         relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
-            or _fondatrice_rejetee(verification, corpus=corpus, index=index)
+            or _fondatrice_rejetee(verification, parsed, corpus=corpus, index=index)
         )) or omises or consigne_facette)
         if relance_due:
             # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.

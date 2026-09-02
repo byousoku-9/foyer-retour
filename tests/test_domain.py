@@ -243,8 +243,13 @@ def test_verified_quote_carries_the_occurrence() -> None:
 
 
 def test_verification_fields() -> None:
+    # `facettes_claims` (correctif du tour 4) : **quelles** affirmations couvrent chaque
+    # sous-question. Le contrôle calculait déjà la table pour en déduire `facettes_couvertes` et la
+    # jetait ensuite — aucun appelant ne pouvait donc demander si la base décisionnelle d'une
+    # sous-question donnée existait.
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
-                                           "unknown", "lacunes", "facettes_couvertes", "verdict",
+                                           "unknown", "lacunes", "facettes_couvertes",
+                                           "facettes_claims", "verdict",
                                            "demande_contexte", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None

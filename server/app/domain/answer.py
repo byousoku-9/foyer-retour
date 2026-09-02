@@ -345,6 +345,12 @@ class Verification(DomainModel):
     # stables entre deux ébauches de la même question, puisque le découpage est arrêté une fois par
     # *comprendre*. C'est une donnée du **code**, jamais un jugement transmis à l'appelant.
     facettes_couvertes: list[int] = Field(default_factory=list)
+    # Correctif du tour 4 (C3) : **quelles** affirmations affichées couvrent chaque sous-question,
+    # et pas seulement lesquelles le sont. Le contrôle calculait déjà cette table pour en déduire
+    # `facettes_couvertes` ; il la jetait ensuite, si bien qu'aucun appelant ne pouvait demander si
+    # la base décisionnelle d'une sous-question donnée existait. Les rangs sont ceux de
+    # `ParsedQuestion.facettes`, les identifiants ceux des claims retenues.
+    facettes_claims: dict[int, list[str]] = Field(default_factory=dict)
     # AD-4/AD-6 (story 1.8) : le verdict du sinistre est **calculé ici**, par la table d'AD-6 appliquée
     # aux claims affichées, et *restituer* ne fait que le recopier dans l'unique `Answer`. `None` en
     # guide — AD-4 : « `Verdict` voyage dans l'unique `Answer` », il n'y a pas de second objet de

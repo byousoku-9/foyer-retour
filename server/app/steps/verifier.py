@@ -1040,7 +1040,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     verification = Verification(
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,
         complete=complete, unknown=unknown, lacunes=lacunes,
-        facettes_couvertes=facettes_couvertes, verdict=verdict,
+        facettes_couvertes=facettes_couvertes,
+        # C3 : la table que le code avait déjà, publiée au lieu d'être jetée.
+        facettes_claims={rang: [cid for cid in ids if cid in affichees]
+                         for rang, ids in couverture.items()},
+        verdict=verdict,
         # Story 4.2e : posée par le code, jamais recopiée du modèle, et seulement quand sa cible a
         # été retrouvée dans l'entrée réellement envoyée. C'est le pipeline — pas cette étape — qui
         # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).

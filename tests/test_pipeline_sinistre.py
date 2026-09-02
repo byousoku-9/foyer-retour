@@ -2886,12 +2886,19 @@ def test_un_hors_objet_narme_plus_la_relance_mais_un_defaut_de_redaction_si(inde
         return Verification.model_construct(
             claims=[], rejected_claims=[_rejetee("c1", fondatrice, raison)], found=True)
 
-    assert not sinistre._fondatrice_rejetee(rejetee("hors_objet"), corpus=index.corpus, index=index)
-    assert sinistre._fondatrice_rejetee(rejetee("non_soutenue"), corpus=index.corpus, index=index)
-    assert sinistre._fondatrice_rejetee(rejetee("conclusion_ajoutee"),
-                                        corpus=index.corpus, index=index)
+    # Sans découpage rendu, la base décisionnelle ne se mesure pas par sous-question : la règle
+    # historique s'applique telle quelle, et c'est elle que ce témoin tient.
+    sans_facette = ParsedQuestion(question_resolue=QUESTION, intent="question")
+
+    def arme(raison: str | None) -> bool:
+        return sinistre._fondatrice_rejetee(rejetee(raison), sans_facette,
+                                            corpus=index.corpus, index=index)
+
+    assert not arme("hors_objet")
+    assert arme("non_soutenue")
+    assert arme("conclusion_ajoutee")
     # Sans raison fermée rendue par le contrôle, le doute profite à la relance, comme avant.
-    assert sinistre._fondatrice_rejetee(rejetee(None), corpus=index.corpus, index=index)
+    assert arme(None)
 
 
 def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index: Index) -> None:
@@ -3160,3 +3167,59 @@ async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Inde
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert "temps insuffisant pour la relance" in abandon.detail
+
+
+# --- Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question -------------
+
+
+def _verification_a_deux_facettes_pourvues(bloc_fondateur: str) -> Verification:
+    """Deux sous-questions, chacune portée par une affirmation retenue citant une fondatrice."""
+    def retenue(rang: int) -> VerifiedClaim:
+        return VerifiedClaim(
+            claim_id=f"k{rang}", text=f"Clause {rang}.",
+            quotes=[VerifiedQuote(block_id=bloc_fondateur, quote=Q_GARANTIE, start=0,
+                                  end=len(Q_GARANTIE), text_start=0, text_end=len(Q_GARANTIE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+
+    return Verification.model_construct(
+        claims=[retenue(0), retenue(1)],
+        rejected_claims=[_rejetee("c9", f"{DOC_ID}:p1:5", "non_soutenue")],
+        found=True, facettes_couvertes=[0, 1], facettes_claims={0: ["k0"], 1: ["k1"]})
+
+
+async def test_une_auxiliaire_rejetee_ne_relance_pas_quand_chaque_facette_a_sa_fondatrice(
+        index: Index) -> None:
+    """C3 — le déclencheur ne posait jamais la question qu'il prétend défendre.
+
+    Mesuré sur A16 : une claim auxiliaire rejetée `non_soutenue` sur une exclusion hors périmètre a
+    déclenché un cycle complet — 43,3 s, 0,052 €, deux appels — alors que les **deux**
+    sous-questions portaient déjà chacune une affirmation retenue citant une fondatrice confirmée.
+    Le cycle n'a rien produit, et il a fini en 503.
+    """
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    pourvue = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:2")
+
+    assert not sinistre._fondatrice_rejetee(pourvue, parsed, corpus=index.corpus, index=index)
+
+
+async def test_une_facette_qui_perd_sa_seule_fondatrice_relance_toujours(index: Index) -> None:
+    """La propriété historique, entière : c'est elle que le correctif ne doit pas emporter."""
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    depourvue = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:2").model_copy(
+        # La seconde sous-question n'a plus d'affirmation retenue : sa base décisionnelle a disparu
+        # avec la claim rejetée.
+        update={"facettes_couvertes": [0], "facettes_claims": {0: ["k0"]}})
+
+    assert sinistre._fondatrice_rejetee(depourvue, parsed, corpus=index.corpus, index=index)
+
+
+async def test_une_facette_couverte_par_une_auxiliaire_seule_relance_toujours(index: Index) -> None:
+    """« Couverte » ne suffit pas : la sous-question doit porter une **fondatrice** confirmée."""
+    parsed = ParsedQuestion(question_resolue=QUESTION, intent="question",
+                            facettes=["première", "seconde"])
+    # `p1:4` est la définition du contrat témoin : citée, elle couvre la facette sans la fonder.
+    auxiliaire = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:4")
+
+    assert sinistre._fondatrice_rejetee(auxiliaire, parsed, corpus=index.corpus, index=index)
