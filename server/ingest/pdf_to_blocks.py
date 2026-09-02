@@ -63,19 +63,25 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # vérifiée. La génération reste `10` : elle nomme la story, dont les artefacts committés sont déjà
 # déclarés périmés dans `docs/choix-et-limites.md`, et c'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact de la règle et change dès qu'elle change.
-PARSER_VERSION = "11-line-uid"
+PARSER_VERSION = "14-visual-baseline-review"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
                       "gap>para_gap_ratio*h=>para;"
                       "entete:bande&(recurrent|numero_page|MAJUSCULES<=header_caps_max_size_pt);"
-                      "table:find_tables=>bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois"
+                      "table:find_tables=>frontieres_cellules_meme_vides&spans_source=>texte_fidele"
+                      "&bloc_atomique(cellules=' | ')&lignes_source_portees_une_fois"
+                      "&ligne_hors_cellule=>retour_flux_texte&sans_source_ni_texte=>sans_bloc"
                       "&geometrie_dans_la_detection(rangees a l'aplomb de la boite,sans_bloc=>ignoree);"
                       "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
                       "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
-                      "=>continuation_si_entrees_structurees;sans_rearmement_apres_corps;"
+                      "=>continuation_si_entrees_structurees;fragments_meme_bas_geometrique_et_colonne"
+                      "=>gauche_droite;"
+                      "sans_rearmement_apres_corps;"
                       "table:reste_atomique&source_field=tdm|preliminaire_si_non_citable;"
                       "preliminaire:avant_tdm_ou_premier_article=>autre;apres_tdm=>contenu_citable;"
+                      "terminal:page_physiquement_blanche&queue_sans_article=>preliminaire_racine;"
+                      "symbole:famille_EuroMono&span_un_glyphe=>euro;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
                       "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
                       "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
@@ -515,6 +521,9 @@ class PageText:
     tables: list[PageTable] = field(default_factory=list)
     is_toc: bool = False
     after_toc: bool = False
+    surface_class: str = "substantiel"
+    # Fragments natifs conservés pour l'audit de la TdM ; ``lines`` porte leur assemblage visuel.
+    toc_fragments: list[PageLine] = field(default_factory=list)
     # `None` garde les PageText synthétiques rétrocompatibles ; l'extracteur pose explicitement
     # si du contenu natif exploitable subsiste après retrait des bandes récurrentes.
     native_text: bool | None = None
@@ -544,7 +553,9 @@ class PageTable:
     bbox: list[float]
     rows: list[list[str]]
     row_bboxes: list[list[float]] = field(default_factory=list)
+    cell_bboxes: list[list[list[float] | None]] = field(default_factory=list)
     source_uids: list[str] = field(default_factory=list)
+    source_lines: list[PageLine] = field(default_factory=list)
 
     @property
     def sert_un_bloc(self) -> bool:
@@ -567,6 +578,62 @@ def _center_inside(bbox: list[float], container: list[float]) -> bool:
     return container[0] <= center_x <= container[2] and container[1] <= center_y <= container[3]
 
 
+_UNICODE_FONT_ROLES = {"euromono": "€"}
+
+
+def _decode_symbol_span(text: str, font: str) -> str:
+    """Décode un glyphe seulement si la famille de police annonce un rôle Unicode univoque.
+
+    Une famille monofonction explicite comme ``EuroMono`` et un span d'un seul glyphe fournissent
+    ensemble la preuve. Une famille textuelle comme ``Eurostile`` ou un span de plusieurs caractères
+    restent inchangés : leur seule apparence ne permet pas d'inventer un symbole.
+    """
+    family = re.split(r"[-_,+]", font.casefold(), maxsplit=1)[0]
+    font_role = re.sub(r"[^a-z0-9]+", "", family)
+    symbol = _UNICODE_FONT_ROLES.get(font_role)
+    visible = [character for character in text if not character.isspace()]
+    if symbol is None or len(visible) != 1:
+        return text
+    return "".join(character if character.isspace() else symbol for character in text)
+
+
+def _rebuild_table_rows(table: PageTable) -> list[PageLine]:
+    """Reconstruit les cellules et rend les lignes que leur géométrie ne prouve pas tabulaires."""
+    if not table.cell_bboxes:
+        return []
+    rebuilt: list[list[str]] = []
+    used: set[int] = set()
+    for row_index, cells in enumerate(table.cell_bboxes):
+        original = table.rows[row_index] if row_index < len(table.rows) else []
+        rebuilt_row: list[str] = []
+        for cell_index, cell_bbox in enumerate(cells):
+            fallback = original[cell_index] if cell_index < len(original) else ""
+            if cell_bbox is None:
+                rebuilt_row.append(fallback)
+                continue
+            candidates = [
+                (index, line) for index, line in enumerate(table.source_lines)
+                if index not in used and _center_inside(line.bbox, cell_bbox)
+            ]
+            candidates.sort(key=lambda item: (item[1].bbox[1], item[1].bbox[0], item[0]))
+            if candidates:
+                used.update(index for index, _line in candidates)
+                rebuilt_row.append("\n".join(line.text for _index, line in candidates))
+            else:
+                # Le moteur de table reste un repli structurel lorsqu'aucune ligne source ne tombe
+                # dans la cellule. ``None`` a déjà été canonisé en chaîne vide dans ``_tables``.
+                rebuilt_row.append(fallback)
+        rebuilt.append(rebuilt_row)
+    table.rows = rebuilt
+    retained = [line for index, line in enumerate(table.source_lines) if index in used]
+    leftovers = [line for index, line in enumerate(table.source_lines) if index not in used]
+    table.source_lines = retained
+    table.source_uids = [uid for line in retained for uid in line.source_uids]
+    if not retained and not any(cell.strip() for row in rebuilt for cell in row):
+        table.rows = []
+    return leftovers
+
+
 def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = None,
                tables: list[PageTable] | None = None,
                registry: SourceRegistry | None = None) -> tuple[list[PageLine], int]:
@@ -583,6 +650,7 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
     images = 0
     for table in tables or ():
         table.source_uids = []
+        table.source_lines = []
     options: dict[str, Any] = {"sort": FLAGS["sort"]}
     if textpage is not None:
         options["textpage"] = textpage
@@ -595,7 +663,7 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
             sizes: dict[float, float] = {}
             bullet = False
             for s in line["spans"]:
-                t = s["text"]
+                t = _decode_symbol_span(s["text"], s["font"])
                 if any(f in s["font"] for f in _BULLET_FONTS):
                     if not parts and t.strip():
                         bullet = True
@@ -613,6 +681,12 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
             size = max(sizes, key=lambda k: sizes[k]) if sizes else 0.0
             bbox = _round(line["bbox"])
             source = registry.add(page=page_no, text=text, bbox=bbox) if registry is not None else None
+            page_line = PageLine(text=text, bbox=bbox, size=size, bullet=bullet,
+                                 source_uids=[source.uid] if source is not None else [],
+                                 source_blocks=[f"p{page_no}:b{block_index}"],
+                                 ordre_lecture=(source.ordre if source is not None else
+                                                len(out) + sum(len(candidate.source_lines)
+                                                               for candidate in tables or ()) + 1))
             # La **première** table qui contient le centre l'absorbe : deux boîtes qui se recouvrent
             # ne peuvent donc pas porter la même ligne deux fois.
             absorbante = next((table for table in tables or ()
@@ -620,10 +694,12 @@ def _raw_lines(page: pymupdf.Page, *, page_no: int = 1, textpage: Any | None = N
             if absorbante is not None:
                 if source is not None:
                     absorbante.source_uids.append(source.uid)
+                absorbante.source_lines.append(page_line)
                 continue
-            out.append(PageLine(text=text, bbox=bbox, size=size, bullet=bullet,
-                                source_uids=[source.uid] if source is not None else [],
-                                source_blocks=[f"p{page_no}:b{block_index}"]))
+            out.append(page_line)
+    for table in tables or ():
+        out.extend(_rebuild_table_rows(table))
+    out.sort(key=lambda line: line.ordre_lecture)
     return out, images
 
 
@@ -635,13 +711,23 @@ def _tables(page: pymupdf.Page) -> list[PageTable]:
         return []
     tables: list[PageTable] = []
     for table in found.tables:
-        extracted = table.extract() or []
-        rows = [["" if cell is None else str(cell).replace("\x07", "").strip() for cell in row]
-                for row in extracted]
-        if not rows or not any(cell for row in rows for cell in row):
+        native_rows = list(getattr(table, "rows", []))
+        cell_bboxes = [[_round(cell) if cell is not None else None for cell in row.cells]
+                       for row in native_rows]
+        if not cell_bboxes:
             continue
-        row_bboxes = [_round(row.bbox) for row in getattr(table, "rows", [])]
-        tables.append(PageTable(bbox=_round(table.bbox), rows=rows, row_bboxes=row_bboxes))
+        extracted = list(table.extract() or [])
+        rows: list[list[str]] = []
+        for index, cells in enumerate(cell_bboxes):
+            extracted_row = extracted[index] if index < len(extracted) else []
+            rows.append([
+                "" if cell >= len(extracted_row) or extracted_row[cell] is None
+                else str(extracted_row[cell]).replace("\x07", "").strip()
+                for cell in range(len(cells))
+            ])
+        row_bboxes = [_round(row.bbox) for row in native_rows]
+        tables.append(PageTable(bbox=_round(table.bbox), rows=rows, row_bboxes=row_bboxes,
+                                cell_bboxes=cell_bboxes))
     return sorted(tables, key=lambda table: (table.bbox[1], table.bbox[0]))
 
 
@@ -750,6 +836,90 @@ def _mark_toc_pages(pages: list[PageText]) -> None:
                 in_toc = False
                 toc_finished = True
             page.after_toc = toc_finished
+
+
+def _assemble_toc_lines(page: PageText) -> None:
+    """Assemble gauche-droite les fragments d'une TdM qui partagent une ligne de base."""
+    if not page.lines:
+        return
+    if page.toc_fragments:
+        return
+    page.toc_fragments = list(page.lines)
+    # La géométrie des colonnes doit être connue avant toute fusion : deux entrées voisines peuvent
+    # partager exactement la même ligne de base sans appartenir à la même entrée.
+    _assign_reading_order(page)
+    tolerance = get_settings().baseline_tolerance_pt
+    remaining = sorted(enumerate(page.lines), key=lambda item: (
+        item[1].bande, item[1].colonne, item[1].bbox[1], item[1].bbox[0], item[0],
+    ))
+    assembled: list[PageLine] = []
+    while remaining:
+        _anchor_index, anchor = remaining.pop(0)
+        same_baseline = [anchor]
+        keep: list[tuple[int, PageLine]] = []
+        for index, candidate in remaining:
+            # Des tailles différentes décalent le haut des boîtes alors que leur bas reste aligné
+            # sur la même ligne visuelle. La colonne et la bande demeurent des barrières strictes.
+            if ((candidate.bande, candidate.colonne) == (anchor.bande, anchor.colonne)
+                    and abs(candidate.bbox[3] - anchor.bbox[3]) <= tolerance):
+                same_baseline.append(candidate)
+            else:
+                keep.append((index, candidate))
+        remaining = keep
+        same_baseline.sort(key=lambda line: (line.bbox[0], line.bbox[1]))
+        if len(same_baseline) == 1:
+            assembled.append(anchor)
+            continue
+        texts = [" ".join(line.text.strip().split()) for line in same_baseline if line.text.strip()]
+        assembled.append(PageLine(
+            text=" ".join(texts),
+            bbox=[min(line.bbox[0] for line in same_baseline),
+                  min(line.bbox[1] for line in same_baseline),
+                  max(line.bbox[2] for line in same_baseline),
+                  max(line.bbox[3] for line in same_baseline)],
+            size=max(line.size for line in same_baseline),
+            bullet=any(line.bullet for line in same_baseline),
+            number=next((line.number for line in same_baseline if line.number is not None), None),
+            source_uids=[uid for line in same_baseline for uid in line.source_uids],
+            source_blocks=list(dict.fromkeys(
+                block for line in same_baseline for block in line.source_blocks
+            )),
+            colonne=anchor.colonne,
+            bande=anchor.bande,
+            ordre_lecture=min(line.ordre_lecture for line in same_baseline),
+        ))
+    page.lines = assembled
+
+
+def _classify_surfaces(pages: list[PageText]) -> None:
+    """Projette les classes de surface depuis la mise en page et les ancres structurelles."""
+    for page in pages:
+        page.surface_class = "table_des_matieres" if page.is_toc else "substantiel"
+
+    first_anchor = next((index for index, page in enumerate(pages)
+                         if page.is_toc or any(line.number is not None for line in page.lines)), None)
+    if first_anchor is not None:
+        for page in pages[:first_anchor]:
+            page.surface_class = "preliminaire"
+
+    # Une simple rupture de page ne suffit jamais. La queue ne sort du corps que si un blanc
+    # physique la sépare d'un article déjà observé et qu'aucun nouvel article ne s'y ouvre.
+    for index in range(len(pages) - 2, -1, -1):
+        separator = pages[index]
+        physically_blank = (separator.native_text is False and not separator.visual
+                            and not separator.tables and not separator.lines)
+        if not physically_blank:
+            continue
+        before_has_article = any(line.number is not None for page in pages[:index]
+                                 for line in page.lines)
+        tail = pages[index + 1:]
+        tail_has_content = any(page.lines or page.tables or page.visual for page in tail)
+        tail_has_article = any(line.number is not None for page in tail for line in page.lines)
+        if before_has_article and tail_has_content and not tail_has_article:
+            separator.surface_class = "preliminaire"
+            for page in tail:
+                page.surface_class = "preliminaire"
+            break
 
 
 def _ocr_error_category(exc: Exception) -> str:
@@ -1038,7 +1208,10 @@ def _assign_reading_order(pt: PageText) -> None:
     bien un `layout`, sans quoi `_segment_page` trierait ses tables sur un `layout` vide.
     """
     lines = pt.lines
-    boites = _boites(lines, pt.tables)
+    # Après assemblage d'une TdM, les fragments natifs restent l'autorité géométrique : leur
+    # remplacement par les lignes élargies ferait disparaître une gouttière pourtant prouvée.
+    layout_lines = pt.toc_fragments if pt.is_toc and pt.toc_fragments else lines
+    boites = _boites(layout_lines, pt.tables)
     if not boites:
         pt.layout = PageLayout()
         return
@@ -1134,6 +1307,10 @@ def extract_pages(pdf: Path | str) -> tuple[list[PageText], list[Any]]:
     finally:
         doc.close()
     _mark_toc_pages(pages)
+    for page in pages:
+        if page.is_toc:
+            _assemble_toc_lines(page)
+    _classify_surfaces(pages)
     return pages, toc
 
 
@@ -1292,18 +1469,19 @@ class _Builder:
             self.current = parent
 
     def add_block(self, page: int, lines: list[PageLine], kind: str, *, continues: str | None = None,
-                  source_field: str | None = None) -> Block:
+                  source_field: str | None = None, surface_class: str | None = None) -> Block:
         loc = f"p{page}"
         seq = sum(1 for b in self.blocks if b.loc == loc) + 1
         block_id = f"{self.doc_id}:{loc}:{seq}"
         bbox = [min(l.bbox[0] for l in lines), min(l.bbox[1] for l in lines),
                 max(l.bbox[2] for l in lines), max(l.bbox[3] for l in lines)]
-        surface_class = ("preliminaire" if source_field == "preliminaire" else
-                         "table_des_matieres" if source_field == "tdm" else
-                         self.current.surface_class)
+        effective_surface = surface_class or (
+            "preliminaire" if source_field == "preliminaire" else
+            "table_des_matieres" if source_field == "tdm" else self.current.surface_class
+        )
         block = Block(block_id=block_id, text="\n".join(l.text for l in lines), loc=loc, seq=seq, page=page,
                       bbox=bbox, kind=kind, structural_kind=kind, continues=continues,
-                      article_uid=self.current.article_uid, surface_class=surface_class,
+                      article_uid=self.current.article_uid, surface_class=effective_surface,
                       source_field=source_field,  # type: ignore[arg-type]
                       lines=[Line(line_id=f"{block_id}:l{i}", line_uid=self._line_uid(page, l),
                                   text=l.text, bbox=l.bbox, page=page,
@@ -1507,6 +1685,7 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     """
     # L'ordre de lecture est arrêté **avant** toute lecture des pages : la numérotation à venir,
     # les continuations et la segmentation le supposent tous déjà fixé (story 4.2c).
+    _classify_surfaces(pages)
     ordonner_pages(pages)
     plan: dict[str, NoeudVerifie] = {}
     node_of_uid: dict[str, str] = {}
@@ -1547,8 +1726,9 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         def flush() -> None:
             nonlocal pending_position
             if pending:
+                provenance = "ocr" if page.ocr_succeeded else table_source
                 b.add_block(page.page, list(pending), "autre",
-                            source_field="ocr" if page.ocr_succeeded else None)
+                            source_field=provenance, surface_class=page.surface_class)
                 pending.clear()
                 pending_position = None
 
@@ -1557,7 +1737,9 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 flush()
                 # Le kind reste fidèle à la source ; la non-citabilité est une provenance explicite
                 # que l'index peut appliquer aux recherches, fréquences et fenêtres.
-                b.add_block(page.page, lines, "table", source_field=table_source)
+                provenance = "ocr" if page.ocr_succeeded else table_source
+                b.add_block(page.page, lines, "table", source_field=provenance,
+                            surface_class=page.surface_class)
             else:
                 # Une page préliminaire ou une TdM peut être multicolonne elle aussi. La fusion
                 # historique de tous ses groupes en un seul bloc recollait les deux côtés après
@@ -1601,7 +1783,8 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             continue
         if pt.is_toc:
             if toc_node is None:
-                toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières")
+                toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières",
+                                surface_class="table_des_matieres")
                 b.nodes[toc_node.node_id] = toc_node
                 b.order.append(toc_node.node_id)
                 b.root.items.append(NodeRef(node_id=toc_node.node_id))
@@ -1618,6 +1801,12 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             # appartiennent au corps citable.
             groups = groups[first_article_group:]
             article_seen = True
+        if pt.surface_class == "preliminaire":
+            saved, b.current = b.current, b.root
+            add_preliminary_groups(pt, groups, table_source="preliminaire")
+            b.current = saved
+            last_text_block = None
+            continue
         first_article_group = next((i for i, (_, lines) in enumerate(groups)
                                     if lines[0].number is not None), None)
         if (document_has_articles or document_has_toc) and not article_seen and not pt.after_toc:
@@ -1741,7 +1930,7 @@ def _printed_toc_entries(pages: list[PageText]) -> list[tuple[str, str]]:
             continue
         first_article_y = min((line.bbox[1] for line in page.lines if line.number is not None),
                               default=page.height)
-        lines = [line for line in page.lines
+        lines = [line for line in (page.toc_fragments or page.lines)
                  if line.bbox[1] < first_article_y and not _is_toc_title(line.text)]
         starts: list[tuple[PageLine, re.Match[str]]] = []
         for line in lines:
