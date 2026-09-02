@@ -10,6 +10,13 @@ suite, juste après le dernier index des lignes à couvrir. Elles servent unique
 `parent_line_uid` ou la cible d'une `relation` qui traverse la frontière. Elles ne font pas partie
 des lignes à couvrir et ne peuvent jamais servir de titre ou de borne au nœud local. Ce voisinage
 est borné : n'infère aucune cible qui n'y figure pas.
+Lorsque le segment précédent laisse des sections ouvertes à la frontière, `noeuds_ouverts` les
+donne de la plus englobante (`profondeur` 0) à la plus profonde, avec l'`index` de leur titre dans
+`ancres_frontiere`. Ce sont les sections dans lesquelles ton segment commence. Si tes premières
+sections en font partie, donne pour `parent_line_uid` l'index de celle qui les contient
+directement — la plus profonde qui convienne. Si ton segment ouvre au contraire une section de même
+rang que la moins profonde d'entre elles, laisse `parent_line_uid` à `null` : une section nouvelle
+ne descend pas de celle qu'elle remplace.
 
 Rends `noeuds` et `continuations_frontiere`. Chaque champ qui désigne une ligne prend l'`index`
 entier de cette ligne tel qu'il figure dans le JSON reçu — jamais son texte, jamais un autre nombre
