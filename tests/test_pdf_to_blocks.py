@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -61,6 +62,30 @@ def assert_empreinte_committee_declaree(doc_id: str, committee: str) -> None:
         assert declaree, (
             f"{doc_id} : l'empreinte committée diverge du parseur courant sans être déclarée. "
             f"Réingérer avec le PDF réel, ou publier la limite dans docs/choix-et-limites.md")
+
+
+def exiger_comparaison_aux_artefacts_committes(doc_id: str, committee: str) -> None:
+    """Garde partagée des certificats de régénération : **trois issues, et seulement trois**.
+
+    Un certificat n'a de valeur que s'il a comparé quelque chose. Tant que les empreintes coïncident,
+    la comparaison est due et cette garde ne fait rien. Quand elles divergent, deux cas seulement :
+    la divergence est **déclarée** dans `docs/choix-et-limites.md` et la moitié « comparaison » est
+    alors `skip`, motif nommé et document nommé ; ou elle ne l'est pas, et le certificat rougit.
+
+    Le `skip` est le point. Un `return` anticipé rendait la moitié non exécutée indiscernable d'un
+    succès : le certificat annonçait « passed » sans avoir lu un seul golden. Un `skip` la laisse
+    lisible dans la sortie de pytest, exactement comme l'absence de PDF réel l'est déjà.
+    """
+    courante = p.ingest_fingerprint()
+    if committee == courante:
+        return
+    if doc_id in empreintes_perimees_declarees():
+        pytest.skip(
+            f"{doc_id} : empreinte committée déclarée périmée dans docs/choix-et-limites.md — "
+            f"comparaison aux artefacts committés non exécutée (réingestion requise)")
+    pytest.fail(
+        f"{doc_id} : l'empreinte committée diverge du parseur courant sans être déclarée. "
+        f"Réingérer avec le PDF réel, ou publier la limite dans docs/choix-et-limites.md")
 
 
 def _page(doc: pymupdf.Document, items: list[tuple[float, float, str, float, str]], page_no: int) -> None:
@@ -500,6 +525,36 @@ def test_font_family_with_unambiguous_currency_role_decodes_its_symbol() -> None
 def test_textual_eurostile_font_and_multichar_span_are_never_decoded_as_currency() -> None:
     assert p._decode_symbol_span("Tarifs", "Eurostile-Regular") == "Tarifs"
     assert p._decode_symbol_span("rr", "EuroMono-Regular") == "rr"
+
+
+@pytest.mark.parametrize("font", [
+    "EuroMono-Regular",          # forme canonique déjà couverte
+    "ABCDEF+EuroMono-Regular",   # préfixe de sous-ensemble, la forme que PyMuPDF rend le plus souvent
+    "EuroMono Regular",          # style séparé par une espace
+    "EuroMonoBold",              # style accolé
+    "EuroMono,Bold",             # séparateur virgule
+    "EuroMono-Bd",               # suffixe de style hors de toute liste close
+    "EuroMono-MT",               # suffixe de fonderie
+    "EUROMONO-REGULAR",          # casse indifférente
+])
+def test_les_noms_postscript_reellement_emis_resolvent_la_meme_famille(font: str) -> None:
+    """La famille se lit du nom entier à la première section séparée, jamais d'une seule forme."""
+    assert p._decode_symbol_span("r", font) == "€"
+
+
+@pytest.mark.parametrize("font", [
+    "Eurostile-Regular",          # famille textuelle voisine
+    "ABCDEF+Eurostile-Regular",
+    "EuroMonospace-Regular",      # « space » n'est pas un jeton de style
+    "EuroMonospaceBold",
+])
+def test_une_famille_voisine_nest_jamais_reduite_a_un_role_de_symbole(font: str) -> None:
+    assert p._decode_symbol_span("r", font) == "r"
+
+
+def test_un_span_de_plusieurs_glyphes_reste_inchange_quel_que_soit_le_nom_de_police() -> None:
+    assert p._decode_symbol_span("rr", "ABCDEF+EuroMono-Regular") == "rr"
+    assert p._decode_symbol_span("rr", "EuroMonoBold") == "rr"
 
 
 def test_empty_table_is_ignored_and_only_line_center_inside_excludes_text() -> None:
@@ -1012,6 +1067,168 @@ def test_toc_and_first_article_on_same_page_are_split_at_article() -> None:
     assert [document.block(block_id).text for block_id in article.blocks] == [
         "1 Garanties", "Le corps citable commence ici.",
     ]
+
+
+def test_une_tdm_dont_les_entrees_portent_un_numero_ne_devient_jamais_des_articles() -> None:
+    """Une entrée de sommaire numérotée reste une entrée : son renvoi de page le prouve.
+
+    Le correctif visuel propage volontairement `number` à travers l'assemblage des fragments, si
+    bien que « la première ligne du groupe porte un numéro » ne distingue plus une entrée d'un
+    article : sans autre signal, toute la TdM sort du nœud `:tdm` et devient citable.
+    """
+    toc_page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2 Exclusions 2", [56, 110, 300, 124], 12, number="2"),
+    ])
+    body = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+    ])
+
+    p._mark_toc_pages([toc_page, body])
+    assert [page.is_toc for page in (toc_page, body)] == [True, False]
+    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    portees = "\n".join(document.block(block_id).text for block_id in toc_node.blocks)
+    assert "1 Garanties 2" in portees and "2 Exclusions 2" in portees
+    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    assert all(block.surface_class == "table_des_matieres" and not p.is_citable(block)
+               for block in document.blocks if block.page == 1)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_tdm_numerotee_sur_deux_pages_ne_publie_ni_article_ni_bloc_citable() -> None:
+    """La fin de la TdM se décide aussi **à la frontière de page**, sur le même prédicat d'entrée."""
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties 3", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2 Exclusions 4", [56, 110, 300, 124], 12, number="2"),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("3 Sinistres 4", [56, 60, 300, 74], 12, number="3"),
+        ]),
+        p.PageText(page=3, width=595, height=842, lines=[
+            p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
+            p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
+        ]),
+        p.PageText(page=4, width=595, height=842, lines=[
+            p.PageLine("La suite du corps reste citable.", [56, 80, 350, 94], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    assert [page.is_toc for page in pages] == [True, True, False, False]
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
+    assert not any(p.is_citable(block) for block in document.blocks if block.page in {1, 2})
+    assert all(block.surface_class == "table_des_matieres"
+               for block in document.blocks if block.page in {1, 2})
+    assert all(p.is_citable(block) for block in document.blocks if block.page in {3, 4})
+
+
+def test_une_clause_en_forme_de_renvoi_reste_citable_apres_la_frontiere_de_la_tdm() -> None:
+    """Second côté de la frontière : la TdM cède au premier article et ne se referme plus.
+
+    « 2 La franchise reste de 250 » a exactement la forme imprimée d'une entrée de sommaire. Le
+    corps d'un article ne peut pas retourner sous `:tdm` parce qu'une de ses clauses ressemble à un
+    renvoi : la frontière est un préfixe contigu, jamais une lecture arrière.
+    """
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties 3", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("1 Garanties", [56, 150, 250, 166], 17, number="1"),
+            p.PageLine("2 La franchise reste de 250", [56, 200, 400, 216], 17, number="2"),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("Le corps citable continue ici.", [56, 80, 350, 94], 10),
+        ]),
+        p.PageText(page=3, width=595, height=842, lines=[
+            p.PageLine("La dernière clause reste citable.", [56, 80, 350, 94], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    assert [document.block(block_id).text for block_id in toc_node.blocks] == [
+        "Table des matières\n1 Garanties 3",
+    ]
+    clause = next(node for node in document.nodes if node.node_id == f"{DOC}:a2")
+    assert document.block(clause.blocks[0]).text == "2 La franchise reste de 250"
+    assert all(p.is_citable(block) for block in document.blocks
+               if block.text != "Table des matières\n1 Garanties 3")
+
+
+def test_une_ligne_de_corps_en_forme_de_renvoi_hors_pagination_ne_prolonge_pas_la_tdm() -> None:
+    """La borne du renvoi est le nombre de pages du document, jamais un montant écrit en dur.
+
+    Sans elle, « 2 La franchise reste de 250 » serait pris pour une entrée de sommaire et la page
+    entière — clause juridique comprise — resterait sous `:tdm`, non citable.
+    """
+    pages = [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties 2", [56, 90, 300, 104], 12, number="1"),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=[
+            p.PageLine("2 La franchise reste de 250", [56, 80, 400, 96], 17, number="2"),
+            p.PageLine("Elle s'applique à chaque sinistre.", [56, 120, 350, 134], 10),
+        ]),
+    ]
+
+    p._mark_toc_pages(pages)
+    # `_has_toc_entries` reste volontairement permissive au niveau **page** : elle y voit la forme
+    # imprimée et marque la page. Ce n'est pas elle qui décide la citabilité — la frontière in-page
+    # s'ouvre au premier groupe numéroté qui n'est pas une entrée, et ce groupe est la clause.
+    assert pages[1].is_toc
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert f"{DOC}:a2" in {node.node_id for node in document.nodes}
+    assert [block.text for block in document.blocks if block.page == 2] == [
+        "2 La franchise reste de 250", "Elle s'applique à chaque sinistre.",
+    ]
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+@pytest.mark.parametrize("ocr", [False, True])
+def test_une_surface_preliminaire_partageant_sa_page_avec_le_premier_article_reste_non_citable(
+    ocr: bool,
+) -> None:
+    """La classe de surface d'un groupe vient de sa provenance, jamais de la classe de sa page.
+
+    Sur une page mixte la page est légitimement `substantiel` — elle porte le premier article. Les
+    groupes situés **avant** lui sont préliminaires, et l'OCR ne doit pas leur retirer cette
+    projection en occupant `source_field`.
+    """
+    table = p.PageTable([50, 60, 350, 120], [["Garantie", "Plafond"], ["Incendie", "100"]])
+    page = p.PageText(page=1, width=595, height=842, tables=[table], ocr_succeeded=ocr, lines=[
+        p.PageLine("Document contractuel remis au souscripteur.", [56, 140, 420, 154], 10),
+        p.PageLine("1 Garanties", [56, 200, 250, 216], 17, number="1"),
+        p.PageLine("Le corps citable commence ici.", [56, 240, 350, 254], 10),
+    ])
+
+    document, _ = p.build_document([page], edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+
+    assert page.surface_class == "substantiel"
+    preliminaires = [block for block in document.blocks
+                     if block.structural_kind == "table" or block.text.startswith("Document")]
+    assert len(preliminaires) == 2
+    assert all(block.surface_class == "preliminaire" and not p.is_citable(block)
+               for block in preliminaires)
+    assert all(block.source_field == ("ocr" if ocr else "preliminaire") for block in preliminaires)
+    article = [block for block in document.blocks if block not in preliminaires]
+    assert article and all(p.is_citable(block) for block in article)
 
 
 def test_non_monotonic_numbering_is_alert_and_served(tmp_path: Path) -> None:
@@ -2142,3 +2359,73 @@ def test_un_structure_json_non_publie_est_une_absence_pas_un_refus(
 
     assert not report.blocking, [c.name for c in report.blocking]
     assert entry.status == "servi" and entry.structure_hash is None
+
+
+# --- La garde partagée des certificats de régénération, et l'interdiction de son asymétrie ---
+
+
+def test_la_garde_compare_quand_lempreinte_committee_vaut_celle_du_parseur() -> None:
+    exiger_comparaison_aux_artefacts_committes("doc-a", p.ingest_fingerprint())
+
+
+def test_la_garde_ignore_explicitement_une_divergence_declaree(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue 2 : `skip` motivé. La moitié non exécutée reste **lisible**, jamais verte en silence."""
+    monkeypatch.setitem(globals(), "empreintes_perimees_declarees", lambda: {"doc-a"})
+    # `Skipped` et `Failed` dérivent de `BaseException` : les attraper par `Exception` ne prouverait
+    # rien, et laisserait passer un `return` silencieux.
+    with pytest.raises(BaseException) as leve:
+        exiger_comparaison_aux_artefacts_committes("doc-a", "0" * 64)
+    assert leve.typename == "Skipped"
+    assert "doc-a" in str(leve.value) and "périmée" in str(leve.value)
+
+
+def test_la_garde_rougit_sur_une_divergence_non_declaree(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "empreintes_perimees_declarees", lambda: set())
+    with pytest.raises(BaseException) as leve:
+        exiger_comparaison_aux_artefacts_committes("doc-a", "0" * 64)
+    assert leve.typename == "Failed" and "doc-a" in str(leve.value)
+
+
+def _fixtures_dartefact_committe(module: ast.Module) -> set[str]:
+    """Fixtures du module qui relisent un artefact committé — découvertes par leur corps."""
+    return {noeud.name for noeud in module.body
+            if isinstance(noeud, ast.FunctionDef)
+            and any("fixture" in ast.unparse(decorateur) for decorateur in noeud.decorator_list)
+            and "document.json" in ast.unparse(noeud)}
+
+
+def _est_un_certificat_de_regeneration(noeud: ast.FunctionDef) -> bool:
+    """Motif du certificat : le `skipif` du PDF réel — jamais le nom du fichier ni celui du test."""
+    return any("source.pdf" in ast.unparse(decorateur)
+               and "REAL_PDF_TESTS_REQUIRED" in ast.unparse(decorateur)
+               for decorateur in noeud.decorator_list)
+
+
+def test_tout_certificat_qui_compare_un_artefact_committe_appelle_la_garde() -> None:
+    """L'asymétrie entre deux certificats est le défaut, pas seulement l'échappatoire d'un seul.
+
+    Le balayage découvre les certificats par leur **motif** — le `skipif` `source.pdf` +
+    `REAL_PDF_TESTS_REQUIRED` — et les artefacts committés par le corps de leur fixture, de sorte
+    qu'un troisième contrat ajouté sous n'importe quel nom de fichier soit couvert d'office. Il
+    exige un **appel** effectif de la garde, pas la mention de son nom quelque part dans le module.
+    """
+    certificats: dict[str, bool] = {}
+    for chemin in sorted((ROOT / "tests").glob("test_*.py")):
+        module = ast.parse(chemin.read_text("utf-8"))
+        committes = _fixtures_dartefact_committe(module)
+        for noeud in module.body:
+            if not isinstance(noeud, ast.FunctionDef) or not _est_un_certificat_de_regeneration(noeud):
+                continue
+            if not {argument.arg for argument in noeud.args.args} & committes:
+                continue  # moitié « invariants du chemin PDF réel » : elle ne compare aucun golden
+            appels = {ast.unparse(appel.func) for appel in ast.walk(noeud)
+                      if isinstance(appel, ast.Call)}
+            certificats[f"{chemin.name}::{noeud.name}"] = any(
+                nom.split(".")[-1] == "exiger_comparaison_aux_artefacts_committes" for nom in appels)
+    assert certificats, "aucun certificat de régénération découvert : le motif du skipif a changé"
+    sans_garde = sorted(nom for nom, garde in certificats.items() if not garde)
+    assert not sans_garde, (
+        "ces certificats comparent des artefacts committés sans appeler "
+        f"exiger_comparaison_aux_artefacts_committes : {sans_garde}")

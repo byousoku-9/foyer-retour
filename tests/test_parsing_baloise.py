@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from server.app.domain import BlockRef, Document, NodeRef, Report
+from server.app.domain import BlockRef, Document, NodeRef, Report, is_citable
+from server.ingest import pdf_structure_gate as structure_gate
 from server.ingest import pdf_to_blocks as p
 from server.ingest.report import (attester_arbre, build_pdf_report,
                                   canoniser_transition_apres_typage)
@@ -132,11 +133,9 @@ def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Docu
     )
 
 
-@pytest.mark.skipif(
-    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
-    reason="source.pdf absent (non committé)",
-)
-def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Document) -> None:
+@pytest.fixture(scope="module")
+def regeneration() -> tuple[Document, dict, list, list]:
+    """Réingestion du PDF réel, faite **une fois** pour les deux moitiés du certificat."""
     pdf = REAL / "source.pdf"
     assert pdf.is_file(), "source.pdf Baloise requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
@@ -146,6 +145,48 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(doc: Doc
         pages, edition=EDITION, source_hash=source_hash, toc=toc, doc_id=DOC, title=TITLE,
         source_url=(REAL / "source.url").read_text("utf-8").strip(),
     )
+    return built, meta, pages, toc
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_baloise_pdf_invariants_de_surface_et_de_registre(
+        regeneration: tuple[Document, dict, list, list]) -> None:
+    """Moitié toujours exécutée : l'asymétrie entre les deux certificats était le défaut.
+
+    Ce contrat n'avait aucune moitié indépendante des artefacts committés — et l'artefact committé
+    ne porte, lui, aucune `surface_class` autre que `substantiel` : une preuve sur ses octets ne
+    discriminerait rien. Ce sont donc les invariants **génériques** du chemin PDF réel qui portent
+    la couverture, exactement les mêmes que pour l'autre contrat.
+    """
+    built, meta, pages, _toc = regeneration
+    assert p.anomalies_registre(pages, meta["source_uids"]) == []
+    toc_node = next(node for node in built.nodes if node.node_id == f"{DOC}:tdm")
+    assert toc_node.surface_class == "table_des_matieres" and toc_node.blocks
+    assert all(built.block(block_id).surface_class == "table_des_matieres"
+               and not is_citable(built.block(block_id)) for block_id in toc_node.blocks)
+    assert structure_gate._semantic_issues(built) == []
+    page_issues = {}
+    for page in pages:
+        issues = structure_gate._page_issues(page, built, meta["source_uids"])
+        if failing := {name: errors for name, errors in issues.items() if errors}:
+            page_issues[page.page] = failing
+    assert page_issues == {}
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_baloise_pdf_regenerates_the_committed_structural_identity(
+        doc: Document, regeneration: tuple[Document, dict, list, list]) -> None:
+    """Moitié « comparaison » : même garde partagée que l'autre contrat, aux mêmes trois issues."""
+    from tests.test_pdf_to_blocks import exiger_comparaison_aux_artefacts_committes
+
+    exiger_comparaison_aux_artefacts_committes(DOC, doc.ingest_fingerprint)
+    built, meta, pages, toc = regeneration
     identity = lambda block: (  # noqa: E731
         block.block_id, block.text, block.lang, block.loc, block.seq, block.page, block.bbox,
         block.structural_kind, block.source_field, block.continues,

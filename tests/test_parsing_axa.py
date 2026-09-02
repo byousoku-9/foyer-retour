@@ -226,22 +226,36 @@ def test_revue_3_1_records_the_measured_id_reassignment() -> None:
     assert "31 identifiants conservés dont le texte a changé" in journal
 
 
-@pytest.mark.skipif(
-    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
-    reason="source.pdf absent (non committé)",
-)
-def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
+@pytest.fixture(scope="module")
+def regeneration() -> tuple[Document, dict, list, list, str]:
+    """Réingestion du PDF réel, faite **une fois** pour les deux moitiés du certificat.
+
+    La moitié « invariants du chemin PDF réel » est toujours exécutée dès que le PDF est là ; la
+    moitié « comparaison aux artefacts committés » passe par la garde partagée. Les deux partagent
+    la même extraction : la scinder ne doit pas la payer deux fois.
+    """
     pdf = REAL / "source.pdf"
     assert pdf.is_file(), "source.pdf AXA requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == (REAL / "source.sha256").read_text("utf-8").strip()
-    artefact_courant = doc.ingest_fingerprint == p.ingest_fingerprint()
-    if not artefact_courant:
-        from tests.test_pdf_to_blocks import empreintes_perimees_declarees
-        assert DOC in empreintes_perimees_declarees()
     pages, toc = p.extract_pages(pdf)
     built, meta = p.build_document(pages, edition=p.DEFAULT_EDITION, source_hash=source_hash, toc=toc,
                                    source_url=(REAL / "source.url").read_text("utf-8").strip())
+    return built, meta, pages, toc, source_hash
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_pdf_invariants_de_surface_et_de_fidelite(
+        regeneration: tuple[Document, dict, list, list, str]) -> None:
+    """Moitié toujours exécutée : ce que le PDF réel prouve sans rien comparer à un golden.
+
+    Ces invariants ne dépendent d'aucun artefact committé — ils ne peuvent donc pas être suspendus
+    par une empreinte périmée, et c'est tout l'intérêt de les séparer de la comparaison.
+    """
+    built, meta, pages, _toc, _source_hash = regeneration
     assert p.anomalies_registre(pages, meta["source_uids"]) == []
     assert all(block.surface_class == "preliminaire" and not is_citable(block)
                for block in built.blocks if block.page == 1)
@@ -269,8 +283,19 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
         if failing := {name: errors for name, errors in issues.items() if errors}:
             page_issues[page.page] = failing
     assert page_issues == {}
-    if not artefact_courant:
-        return
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_pdf_regenerates_committed_artefacts(
+        doc: Document, regeneration: tuple[Document, dict, list, list, str]) -> None:
+    """Moitié « comparaison » : elle ne rend jamais vert sans avoir comparé un golden."""
+    from tests.test_pdf_to_blocks import exiger_comparaison_aux_artefacts_committes
+
+    exiger_comparaison_aux_artefacts_committes(DOC, doc.ingest_fingerprint)
+    built, meta, pages, toc, _source_hash = regeneration
     # `pdf_to_blocks` reconstruit exactement l'identité immuable. Les champs juridiques et les
     # scopes sont ajoutés ensuite par les deux lots Opus et ne doivent donc pas être comparés ici.
     identity = lambda block: (  # noqa: E731 - projection locale lisible dans les deux assertions
