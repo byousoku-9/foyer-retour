@@ -1011,7 +1011,9 @@ def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontie
     assert properties["relations"]["items"]["properties"]["target_line_uid"] == {
         "$ref": "#/$defs/reference"}
     assert parent_uid in schema["$defs"]["reference"]["enum"]
-    assert parent_uid not in properties["premiere_line_uid"]["enum"]
+    # L'ancre d'un autre segment se référence (parent, relation) mais ne s'ouvre pas ici.
+    assert properties["premiere_line_uid"] == {"$ref": "#/$defs/uid"}
+    assert parent_uid not in schema["$defs"]["uid"]["enum"]
 
     by_title = {node.titre_line_uid: node for node in execution.proposition.noeuds}
     assert by_title[child_uid].parent_line_uid == parent_uid
