@@ -537,6 +537,9 @@ def test_textual_eurostile_font_and_multichar_span_are_never_decoded_as_currency
     "EuroMono-MT",               # suffixe de fonderie séparé
     "EuroMonoPS-Regular",        # suffixe de fonderie **accolé**
     "EuroMonoMT",                # même forme, autre fonderie
+    "EuroMonoPSMT",              # fonderies **empilées**, la forme la plus répandue
+    "EuroMonoPS-BoldMT",         # empilées de part et d'autre d'un style
+    "EuroMonoMTStd",
     "ABCDEF+EuroMonoPS-Bold",    # sous-ensemble + fonderie accolée + style
     "EuroMono-Regular-Identity-H",  # suffixe d'encodage
     "EUROMONO-REGULAR",          # casse indifférente
@@ -552,6 +555,7 @@ def test_les_noms_postscript_reellement_emis_resolvent_la_meme_famille(font: str
     "EuroMonospace-Regular",      # « space » n'est pas un jeton de style
     "EuroMonospaceBold",
     "EuroMonospacePS",            # ni « space » ni le retrait de la fonderie n'y mènent
+    "EuroMonospacePSMT",
 ])
 def test_une_famille_voisine_nest_jamais_reduite_a_un_role_de_symbole(font: str) -> None:
     assert p._decode_symbol_span("r", font) == "r"
@@ -1345,38 +1349,156 @@ def test_la_frontiere_in_page_lit_la_geometrie_du_renvoi_assemble_ou_non(
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
-def test_une_entree_sans_renvoi_ne_libere_pas_la_queue_du_sommaire() -> None:
-    """Un accident d'extraction au milieu d'un sommaire n'en libère pas toute la suite.
+def _sommaire_puis(corps: list) -> list:
+    """Sommaire fragmenté prouvé en page 1, puis la page de corps à éprouver."""
+    return [
+        p.PageText(page=1, width=595, height=842, lines=[
+            p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+            p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+            p.PageLine("2", [520, 90, 540, 104], 12),
+            p.PageLine("2 Exclusions", [56, 110, 300, 124], 12, number="2"),
+            p.PageLine("3", [520, 110, 540, 124], 12),
+        ]),
+        p.PageText(page=2, width=595, height=842, lines=corps),
+    ]
 
-    « 2 Exclusions » a perdu son renvoi : elle n'est pas prouvable. Mais une entrée prouvée la suit
-    sur la page, donc le sommaire n'était pas fini. La reprise est bornée par la **preuve** : ce qui
-    suit doit porter un renvoi géométrique ou des points de conduite, que la prose d'un contrat ne
-    fabrique pas — elle ne peut donc pas se retourner contre une clause.
+
+def _flux_reel(pages: list) -> Document:
+    """L'ordre d'`extract_pages` : marquage, assemblage des seules pages TdM, classes, construction."""
+    p._mark_toc_pages(pages)
+    for page in pages:
+        if page.is_toc:
+            p._assemble_toc_lines(page)
+    p._classify_surfaces(pages)
+    document, _ = p.build_document(pages, edition="2026", source_hash="0" * 64, toc=[],
+                                   doc_id=DOC, title="Contrat")
+    return document
+
+
+def test_un_tableau_de_garanties_ne_transforme_pas_sa_page_en_sommaire() -> None:
+    """Un montant à droite d'un libellé numéroté n'est pas un renvoi de page.
+
+    `_PAGE_NUMBER_RE` ne sépare pas « 250 » d'un numéro de page : un tableau de garanties fabrique
+    donc la marque qu'on croyait réservée aux sommaires. Ce qui doit tenir malgré cela, c'est la
+    **citabilité** — la clause et son article existent — et c'est la disparition de toute lecture
+    arrière qui l'assure : une fausse entrée n'emporte plus que sa propre ligne.
+    """
+    document = _flux_reel(_sommaire_puis([
+        p.PageLine("1 Garanties couvertes", [56, 80, 300, 96], 17, number="1"),
+        p.PageLine("La garantie joue par sinistre.", [56, 110, 350, 124], 10),
+        p.PageLine("2 Incendie", [56, 140, 200, 154], 12, number="2"),
+        p.PageLine("500", [500, 140, 540, 154], 12),
+        p.PageLine("3 Vol", [56, 160, 200, 174], 12, number="3"),
+        p.PageLine("250", [500, 160, 540, 174], 12),
+    ]))
+
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    corps = [block for block in document.blocks if block.page == 2]
+    assert corps and all(block.surface_class == "substantiel" and p.is_citable(block)
+                         for block in corps)
+
+
+def test_une_ligne_tarifaire_a_points_de_conduite_ne_rend_pas_sa_page_non_citable() -> None:
+    """« Vol et vandalisme ......... 250 » porte des points de conduite sans être une entrée.
+
+    La marque typographique est réelle ; ce qu'elle ne prouve pas, c'est que la page soit un
+    sommaire. La clause qui la précède garde son article et sa citabilité.
+    """
+    document = _flux_reel(_sommaire_puis([
+        p.PageLine("1 Garanties couvertes", [56, 80, 300, 96], 17, number="1"),
+        p.PageLine("Vol et vandalisme ......... 250", [56, 120, 350, 134], 10),
+    ]))
+
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_un_fragment_voisin_ne_prete_jamais_sa_preuve_a_un_titre_darticle() -> None:
+    """La preuve doit venir du fragment qui **ouvre** la ligne, jamais d'un voisin.
+
+    Après assemblage, la boîte d'une ligne est l'union de ses fragments et couvre facilement une
+    ligne de tableau posée dans la même bande. Sans cette borne, « 3 Vol » et son montant prêtaient
+    leur géométrie au titre d'article « 1 Garanties » et le faisaient rentrer au sommaire.
+    """
+    document = _flux_reel(_sommaire_puis([
+        p.PageLine("1 Garanties", [56, 150, 250, 172], 17, number="1"),
+        p.PageLine("3 Vol", [300, 158, 340, 168], 10, number="3"),
+        p.PageLine("250", [500, 159, 534, 169], 10),
+        p.PageLine("Le corps continue.", [56, 200, 300, 214], 10),
+    ]))
+
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_un_nombre_pose_au_milieu_dune_ligne_nest_pas_un_renvoi() -> None:
+    """Un renvoi de sommaire suit l'intitulé ; il ne se pose pas au milieu de son empan.
+
+    « À droite du **début** de la ligne » laissait un nombre intérieur — une note en marge, la
+    colonne d'un corps sur deux colonnes — compter comme renvoi. La borne est la **fin** de la ligne.
+    """
+    document = _flux_reel(_sommaire_puis([
+        p.PageLine("1 Garanties couvertes par le contrat", [56, 80, 400, 96], 17, number="1"),
+        p.PageLine("250", [200, 80, 230, 96], 10),
+        p.PageLine("Le corps continue.", [56, 120, 300, 134], 10),
+    ]))
+
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_colonne_de_montants_sans_libelle_numerote_ne_prolonge_pas_le_sommaire() -> None:
+    """Une page de corps portant un nombre isolé à droite d'une ligne non numérotée reste du corps.
+
+    C'est `_has_toc_entries` qui le décide, en exigeant un libellé numéroté : la page n'est pas
+    structurellement un sommaire, la borne de continuation s'applique. La garde homonyme de
+    `_est_entree_de_sommaire` est, elle, redondante sur tout chemin atteignable — elle est déclarée
+    défensive dans le code plutôt qu'annoncée comme gardée.
+    """
+    pages = _sommaire_puis([
+        p.PageLine("1 Garanties couvertes", [56, 80, 300, 96], 17, number="1"),
+        p.PageLine("Le plafond est fixé", [56, 140, 200, 154], 10),
+        p.PageLine("250", [500, 140, 540, 154], 10),
+    ])
+
+    p._mark_toc_pages(pages)
+
+    assert pages[0].is_toc and not pages[1].is_toc
+    document = _flux_reel(pages)
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_une_entree_sans_renvoi_libere_la_suite_du_sommaire_et_cest_le_sens_sur() -> None:
+    """Conséquence assumée : **aucune lecture arrière**, et le prix en est nommé ici.
+
+    Une entrée dont le renvoi manque au milieu d'un sommaire n'est prouvable par rien ; la suite du
+    sommaire sort donc en articles citables. Deux tentatives de refermer cela par une lecture
+    arrière — « le sommaire reprend si une entrée le suit » — se sont retournées contre des clauses
+    juridiques, la seconde parce qu'un tableau de garanties fabrique la marque qu'on croyait
+    réservée aux sommaires. Le bruit dans le rappel est préférable à une preuve perdue : ce témoin
+    écrit ce choix au lieu de le taire, et il rougira si quelqu'un réintroduit la lecture arrière.
     """
     toc_page = p.PageText(page=1, width=595, height=842, lines=[
         p.PageLine("Table des matières", [56, 60, 250, 74], 14),
         p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
-        p.PageLine("2", [520, 90, 534, 104], 12),
+        p.PageLine("2", [520, 90, 540, 104], 12),
         p.PageLine("2 Exclusions", [56, 110, 300, 124], 12, number="2"),
         p.PageLine("3 Sinistres", [56, 130, 300, 144], 12, number="3"),
-        p.PageLine("3", [520, 130, 534, 144], 12),
+        p.PageLine("3", [520, 130, 540, 144], 12),
     ])
     body = p.PageText(page=2, width=595, height=842, lines=[
         p.PageLine("1 Garanties", [56, 80, 250, 96], 17, number="1"),
         p.PageLine("Le corps citable commence ici.", [56, 120, 350, 134], 10),
     ])
 
-    p._mark_toc_pages([toc_page, body])
-    p._assemble_toc_lines(toc_page)
-    document, _ = p.build_document([toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
-                                   doc_id=DOC, title="Contrat")
+    document = _flux_reel([toc_page, body])
 
-    assert {node.node_id for node in document.nodes} == {DOC, f"{DOC}:tdm", f"{DOC}:a1"}
-    portees = "\n".join(document.block(block_id).text for block_id in
-                        next(node for node in document.nodes
-                             if node.node_id == f"{DOC}:tdm").blocks)
-    assert "2 Exclusions" in portees and "3 Sinistres 3" in portees
-    assert not any(p.is_citable(block) for block in document.blocks if block.page == 1)
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    portees = "\n".join(document.block(block_id).text for block_id in toc_node.blocks)
+    assert "1 Garanties 2" in portees          # l'entrée prouvée reste dans le sommaire
+    assert "2 Exclusions" not in portees       # la suite en sort, faute de preuve
+    assert f"{DOC}:a2" in {node.node_id for node in document.nodes}
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
