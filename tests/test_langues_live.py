@@ -73,26 +73,48 @@ def vocabulaire_francais(index: Index) -> frozenset[str]:
     )
 
 
-def _mots_non_traduits(termes: Sequence[str], question: str,
-                       vocabulaire: frozenset[str]) -> list[str]:
-    """Les mots des `termes` **repris de la question source** que le français ne connaît pas.
+def _mots_non_traduits(termes: Sequence[str], question: str, vocabulaire: frozenset[str],
+                       mot_ancre_min: int) -> list[str]:
+    """Les mots cherchés que le corpus français n'atteste pas et que rien n'excuse.
 
-    AD-5 exige `terms[]` toujours en français, et la régression que l'AC vise est un terme resté
-    dans la langue de la question. C'est donc le **report** qui se mesure — un mot du terme qui est
-    déjà un mot de la question —, recoupé par le vocabulaire français du corpus servi pour ne pas
-    condamner ce que les deux langues partagent légitimement (`ADEM`, `Luxembourg`, `commune`).
+    AD-5 exige `terms[]` **toujours en français**. L'autorité de français est le vocabulaire du
+    corpus servi (`vocabulaire_francais`) : c'est du français écrit, disponible hors ligne, et
+    aucune liste n'y est rédigée pour ce test. Un mot qu'il n'atteste pas est donc suspect — et le
+    contrôle mesure **chaque** mot de **chaque** terme, jamais un échantillon (revue Codex 2.4,
+    tour 2, I2).
 
-    Ce que la règle abandonne, dit franchement : un mot étranger **inventé**, absent de la question,
-    passe désormais ce contrôle lexical. Il reste jugé par la seconde moitié du test — le juge de
-    retraduction (`JugementRetraduction.fidele` / `ecarts`) et l'assertion sur `answer.lang`. Ce
-    qu'elle gagne : elle ne rejette plus une formulation française qu'on n'avait pas prévue, et
-    c'est ce que la liste blanche faisait sur `scolariser`, `ses`, `chercher`, `scolarisation`.
+    Deux excuses, et deux seulement, l'une et l'autre dérivées des entrées du cas :
 
-    Juge **chaque** terme de la liste, pas un échantillon : la propriété du tour 2 (I2) est gardée.
+    - **Le terme est ancré dans le corpus.** Un terme dont tous les mots sont attestés, ou qui
+      porte un mot attesté d'au moins `mot_ancre_min` caractères, est du français que le corpus
+      reconnaît ; le mot qu'il n'atteste pas y est une forme dérivée ou composée
+      (« scolarisation des enfants » est ancré par *enfants*), pas un reste de la langue de départ.
+      La borne n'est pas inventée ici : c'est `Settings.qualite_mot_min_chars`, le seuil que le
+      produit s'est déjà donné pour la même raison — « en dessous, *été*, *une*, *feu* recouperaient
+      n'importe quoi ». Elle est ce qui empêche une préposition partagée entre deux langues
+      d'adouber un syntagme entier : « registo **de** residência » n'est pas ancré par *de*.
+    - **Sauf report littéral.** Un mot repris tel quel de la question source n'est jamais excusé,
+      même dans un terme par ailleurs ancré : c'est le contre-exemple de la revue 2.4
+      (« inscription à l'escola »).
+
+    **Le résidu, mesuré et assumé.** Un mot français que le corpus servi n'atteste pas et qui se
+    tient **seul** dans son terme est signalé — le contrôle ne peut pas le distinguer d'un mot
+    étranger seul dans son terme, puisque `["scolarité"]` et `["escolas"]` ont exactement la même
+    forme pour qui n'a que le corpus. Les sondes de la revue exigent que cette classe-là soit
+    attrapée ; c'est donc ce côté de l'arbitrage qui est pris, et le témoin
+    `test_le_residu_du_controle_est_nomme_et_mesure` le rend visible plutôt que tacite.
     """
     de_la_question = frozenset(_mots(question))
-    return [mot for terme in termes for mot in _mots(terme)
-            if mot in de_la_question and mot not in vocabulaire]
+    fautifs: list[str] = []
+    for terme in termes:
+        mots_du_terme = _mots(terme)
+        if not mots_du_terme:
+            continue
+        inconnus = [m for m in mots_du_terme if m not in vocabulaire]
+        ancre = not inconnus or any(
+            m in vocabulaire and len(m) >= mot_ancre_min for m in mots_du_terme)
+        fautifs += [m for m in inconnus if m in de_la_question or not ancre]
+    return fautifs
 
 
 class JugementRetraduction(BaseModel):
@@ -139,41 +161,80 @@ def _prefix() -> str:
     )
 
 
-# Le contrôle de langue des termes se prouve **hors ligne**, chaque mot fautif accompagné de la
-# question qui le porte — c'est le report qui est jugé, il n'a aucun sens hors de sa source. Le
-# contre-exemple que la revue Codex 2.4 (tour 2, I2) opposait à la première rédaction est conservé,
-# réancré sur une question allemande qui emploie réellement le mot. Sans ce témoin, la seule preuve
-# que le contrôle mord serait une mutation faite à la main sur six fixtures — donc aucune preuve
-# rejouée par la CI.
+# Le contrôle des termes se prouve **hors ligne**, chaque cas accompagné de la question qui lui
+# donne son sens. Le jeu de témoins d'avant était aveugle au trou qu'il devait sonder : ses neuf cas
+# n'employaient que des mots **verbatim** dans leur question, si bien qu'une seule lettre de flexion
+# (`escola` → `escolas`) désarmait le contrôle sans qu'aucun témoin ne rougisse. Les sondes de la
+# revue sont donc reprises telles quelles, sur trois langues et trois formes : mot étranger fléchi,
+# mot étranger dérivé, syntagme étranger de bout en bout — y compris celui qu'une préposition
+# partagée entre les deux langues suffisait à faire passer.
 DE_SCHULBESUCH = "Wo kann ich den Schulbesuch meiner Kinder anmelden?"
 EN_INSCRIPTION = "Where do I complete my school registration in Luxembourg?"
 
 
+def _question(cas: str) -> str:
+    return next(c[2] for c in CAS if c[0] == cas)
+
+
 @pytest.mark.parametrize(("termes", "question", "fautifs"), [
-    # le contre-exemple de la revue : un seul terme resté dans la langue de départ
+    # --- ce que la conjonction « repris de la question » laissait passer (sondes de la revue) ---
+    # un simple pluriel du mot de la question : une lettre suffisait à désarmer le contrôle
+    (["escolas"], _question("pt-ecole"), ["escolas"]),
+    # deux dérivés des mots de la question (`matricular`, `escola`), jamais verbatim : c'est
+    # exactement la forme que le report littéral laissait passer
+    (["matrícula escolar"], _question("pt-ecole"), ["matricula", "escolar"]),
+    # un syntagme portugais entier, qu'une préposition partagée avec le français ancrait à tort
+    (["registo de residência"], _question("pt-arrivee"), ["registo", "residencia"]),
+    # un composé allemand entier, aucun mot verbatim dans la question
+    (["Wohnsitzanmeldung Frist"], _question("de-arrivee"), ["wohnsitzanmeldung", "frist"]),
+    # deux dérivés allemands du même radical que la question n'emploie pas
+    (["Arbeitslosigkeit", "Arbeitssuche"], _question("de-adem"),
+     ["arbeitslosigkeit", "arbeitssuche"]),
+    # un syntagme anglais entier
+    (["registration deadline"], _question("en-arrivee"), ["registration", "deadline"]),
+    # --- les témoins d'origine : le report littéral reste attrapé ---
+    # le contre-exemple de la revue 2.4 : un seul terme resté dans la langue de départ
     (["école", "Schulbesuch"], DE_SCHULBESUCH, ["schulbesuch"]),
-    # aucun mot traduit : les deux sont repris de la question et inconnus du français
+    # aucun mot traduit
     (["school registration"], EN_INSCRIPTION, ["school", "registration"]),
-    # un mot portugais glissé dans un terme par ailleurs français
-    (["inscription à l'escola"], next(c[2] for c in CAS if c[0] == "pt-ecole"), ["escola"]),
-    # les termes que Sonnet rend réellement, avec **leur** question : du français fidèle que la
-    # liste blanche rejetait (`scolariser`, `ses`, `chercher`, `scolarisation`)
-    (["inscription scolaire", "scolariser ses enfants"],
-     next(c[2] for c in CAS if c[0] == "en-ecole"), []),
-    (["chercher un emploi", "ADEM", "inscription demandeur d'emploi"],
-     next(c[2] for c in CAS if c[0] == "de-adem"), []),
-    (["inscription scolaire", "scolarisation des enfants", "école"],
-     next(c[2] for c in CAS if c[0] == "pt-ecole"), []),
-    # le recoupement au corpus n'est pas décoratif : ces deux mots-là, la question étrangère les
-    # partage légitimement avec le français, et les condamner serait le faux rejet d'hier
-    (["ADEM"], next(c[2] for c in CAS if c[0] == "de-adem"), []),
-    (["déclaration à la commune"], next(c[2] for c in CAS if c[0] == "en-arrivee"), []),
+    # un mot portugais glissé dans un terme **par ailleurs ancré** : l'ancrage n'excuse pas le report
+    (["inscription à l'escola"], _question("pt-ecole"), ["escola"]),
+    # --- le français fidèle que la liste blanche rejetait, et que l'ancrage sauve ---
+    (["inscription scolaire", "scolariser ses enfants"], _question("en-ecole"), []),
+    (["chercher un emploi", "ADEM", "inscription demandeur d'emploi"], _question("de-adem"), []),
+    # `scolarisation` n'est pas dans le corpus : c'est *enfants* qui ancre le terme
+    (["inscription scolaire", "scolarisation des enfants", "école"], _question("pt-ecole"), []),
+    # un acronyme court, attesté par le corpus **et** présent dans la question
+    (["ADEM"], _question("de-adem"), []),
+    # ce que les deux langues partagent légitimement
+    (["déclaration à la commune"], _question("en-arrivee"), []),
+    (["déclaration d'arrivée", "commune", "délai"], _question("en-arrivee"), []),
     # un terme vide n'invente pas de faute
-    (["inscription scolaire", ""], next(c[2] for c in CAS if c[0] == "en-ecole"), []),
+    (["inscription scolaire", ""], _question("en-ecole"), []),
 ])
 def test_le_controle_des_termes_juge_chaque_terme(termes: list[str], question: str,
                                                   fautifs: list[str], index: Index) -> None:
-    assert _mots_non_traduits(termes, question, vocabulaire_francais(index)) == fautifs
+    settings = _settings()
+    assert _mots_non_traduits(termes, question, vocabulaire_francais(index),
+                              settings.qualite_mot_min_chars) == fautifs
+
+
+def test_le_residu_du_controle_est_nomme_et_mesure(index: Index) -> None:
+    """Ce que l'ancrage au corpus ne peut pas trancher, dit ici plutôt que découvert plus tard.
+
+    `["scolarité"]` et `["escolas"]` sont **la même forme** pour un contrôle qui n'a que le corpus :
+    un mot que le corpus n'atteste pas, seul dans son terme, sans anchor possible. Les deux sont donc
+    signalés. Attraper le second est ce que les sondes de la revue exigent ; signaler le premier est
+    le prix, et il est borné — le corpus atteste `école`, `scolaire` et `scolariser`, si bien qu'un
+    thème français isolé qu'il ignore est rare, et qu'il reste **vrai** que ce terme-là ne rend aucun
+    résultat sur le corpus servi (`Index.chercher` en donne zéro).
+    """
+    vocabulaire = vocabulaire_francais(index)
+    mini = _settings().qualite_mot_min_chars
+    assert _mots_non_traduits(["escolas"], _question("pt-ecole"), vocabulaire, mini) == ["escolas"]
+    assert _mots_non_traduits(["scolarité"], _question("pt-ecole"), vocabulaire, mini) == ["scolarite"]
+    # et la porte de sortie est la même pour les deux : dès que le terme est ancré, il passe
+    assert _mots_non_traduits(["scolarité des enfants"], _question("pt-ecole"), vocabulaire, mini) == []
 
 
 @pytest.mark.parametrize(("cas", "langue", "question"), CAS, ids=[c[0] for c in CAS])
@@ -208,7 +269,8 @@ async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: st
     # que l'`AbsenceProof` publie (`terms_searched`), donc `terms[]` **et** `scope.themes[]` — le
     # prompt exige le français des deux, et un thème non traduit relèverait de la même régression.
     cherches = parsed.termes_de_recherche()
-    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index)) == [], (
+    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index),
+                              settings.qualite_mot_min_chars) == [], (
         f"termes restés dans la langue de la question : {cherches}")
 
     assert answer.lang == langue and answer.lang_fallback is False
