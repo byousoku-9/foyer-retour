@@ -126,11 +126,11 @@ relance ; le plafond par requête passe à 0,45 €. Les deux tiers (0,128 €) 
 
 ## Limites honnêtes
 
-Le parseur V2 change l'identité et la structure publiées. Les PDF réels étant hors dépôt et leur
-réingestion interdite au builder, un artefact committé non réingéré est explicitement périmé jusqu'à
-la réingestion standard orchestrée (AXA réingéré et retypé le 2026-09-02 ; Baloise en attente de sa
-structure) :
+La porte de lecture change l'identité publiée. Un artefact committé non réingéré est explicitement
+périmé jusqu'à la réingestion orchestrée — les deux contrats le sont depuis la correction du
+02/09/2026 :
 
+- `empreinte-committee-perimee: axa-lu-optihome-2017`
 - `empreinte-committee-perimee: baloise-lu-home-2-2024`
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
@@ -564,6 +564,7 @@ La divergence est **déclarée ici, document par document**, et une garde toujou
 confronte à l'empreinte du parseur courant (`assert_empreinte_committee_declaree`, jouée par
 `tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`) :
 
+- `empreinte-committee-perimee: axa-lu-optihome-2017`
 - `empreinte-committee-perimee: baloise-lu-home-2-2024`
 
 Une empreinte committée qui divergerait **sans** figurer dans cette liste fait rougir la garde ; et
@@ -672,5 +673,74 @@ digests, tous sur le profil `vertical` et sans contresignature :
 Le manifest porte le digest final `7e57eec6…`; ses trois entrées ont `evals_ok=true` et
 `countersigned=false`. Cela certifie l'exécution des cas versionnés, pas une validation assurance :
 la relecture par Lancelot et l'expertise restent dues.
+
+## Correctif du 02/09/2026 — la porte de lecture
+
+Le registre de lignes envoyé au modèle de structure a montré, sur le contrat luxembourgeois à deux
+colonnes, quatre défauts de la **porte de lecture** — l'étage qui décide, avant toute segmentation,
+ce qu'est une ligne, ce qui n'en est pas une et dans quel ordre elles se lisent. Aucun ne tenait à ce
+document : chacun est une règle qui mesurait la mauvaise grandeur.
+
+**Un titre courant n'est pas défini par sa bande.** Le retrait des en-têtes et pieds n'observait que
+les bandes haute et basse. Un titre courant composé **tourné** dans une marge latérale — 47 pages sur
+48 — n'y tombait jamais et ressortait au milieu du flux d'une colonne, entre deux moitiés d'une même
+phrase. Hors bande, la position ne prouve rien ; deux autres choses le prouvent, et il faut les deux :
+la **direction d'écriture** de la ligne, plus verticale qu'horizontale — elle n'appartient donc pas au
+flux composé de la page —, et la **récurrence** de son texte de page en page, ses suites de chiffres
+masquées, au-delà de `header_min_pages_ratio`. Une ligne tournée unique dans tout un document — une
+mention d'édition en marge, comme en porte l'autre contrat — reste du contenu ; un refrain posé droit
+au milieu d'une page reste du corps. Le motif de retrait est nommé `titre_courant_tourne` : il
+s'ajoute à `bande_recurrente` et `table_sans_bloc`, qui n'étaient que deux plus haut.
+
+**Un glyphe seul n'est pas une ligne.** Une puce, un point-virgule, un tiret composés dans un span
+séparé sortent de l'extraction comme des lignes à part entière, ordonnées sur le haut de leur propre
+boîte : une puce posée un point plus bas que son texte se lisait **après** lui. Elle ouvrait alors un
+bloc muet, décalait tout ce que la segmentation compte ensuite, et le modèle de structure la
+rattachait au titre voisin — d'où des propositions correctes refusées. La règle ne connaît ni puce ni
+ponctuation : une ligne **sans aucun caractère alphanumérique** qui partage la bande d'une ligne de
+texte voisine et en est disjointe en x lui appartient, à la place que sa géométrie lui donne — devant
+si elle est à sa gauche, derrière si elle est à sa droite —, jamais au-delà d'une gouttière. Sa
+partenaire est celle dont elle recouvre le plus la hauteur, la plus proche en x à recouvrement égal.
+Un glyphe qui ne partage la bande d'aucune ligne reste une ligne : il n'y a rien à réparer, et
+l'inventer serait une supposition. La ligne d'accueil absorbe ses `source_uids` — le registre ne perd
+aucune ligne source, exactement comme à la fusion des numéros.
+
+**Une gouttière se classe sur ce qu'elle coupe, pas sur ce qu'elle laisse.** La frontière retenue
+était la plus large, mesurée entre les boîtes qu'elle avait **écartées** ; les boîtes qu'elle
+**traversait** ne pesaient rien. Deux fausses gouttières gagnaient ainsi contre la vraie. Un retrait
+intérieur à une colonne ouvre un blanc plus large que la gouttière de page, en déclarant pleine
+largeur les dizaines de lignes qu'il traverse : la colonne entière ouvrait une bande par ligne et se
+relisait entrelacée avec sa voisine. Et deux départs de colonne distants d'un centième de point
+suffisaient — le second gagnait pour un centième de blanc de plus, en coupant toutes les lignes qui
+commençaient au premier. Le classement devient un ordre total à trois clés : **le moins de boîtes
+traversées**, puis le plus de blanc, puis la frontière la plus à gauche. L'admissibilité, elle, ne
+change pas : l'ensemble des candidates reste exactement le même, seul le choix parmi elles change.
+
+**Pleine largeur veut dire d'un bord à l'autre.** Une boîte était déclarée pleine largeur dès qu'elle
+traversait **une** gouttière. Sur trois colonnes, un intertitre posé sur les deux de droite se lisait
+donc avant la colonne de gauche qu'il ne coiffe pas. Elle ne l'est désormais que si elle les traverse
+**toutes** ; sinon elle prend le rang de la colonne où elle commence. Avec une seule gouttière — deux
+colonnes — les deux formulations se confondent : le comportement y est inchangé à l'octet.
+
+**Une gouttière serrée se prouve par la disjonction, pas par le morcellement.** Sous
+`column_gutter_min_pt`, la seconde preuve empruntée exigeait « assez de blocs source indépendants de
+chaque côté », comptés contre `column_min_lines`. C'est le morcellement de l'extracteur qui était
+mesuré, jamais la séparation : une colonne rendue **d'un seul tenant** — le cas le plus favorable, où
+l'extracteur a lui-même reconnu un flux unique s'arrêtant à la gouttière — était rejetée pour n'être
+pas assez fragmentée, et la page repartait sur une fausse frontière intérieure à sa colonne. Ce qui
+est exigé est que les flux soient **disjoints** : chaque côté fait de blocs source qui lui
+appartiennent, aucun d'eux dans une boîte traversante. Les autres preuves — départs séparés par le
+seuil publié, deux côtés réellement remplis — sont inchangées.
+
+`PARSER_VERSION` passe de `19` à `20` et `SEGMENTATION_RULES` porte les cinq énoncés : l'empreinte
+d'ingestion change, et **les deux** artefacts committés deviennent périmés jusqu'à leur réingestion.
+Mesuré hors ligne sur les deux PDF réels, sans un seul appel facturé. Contrat luxembourgeois : 47
+titres courants retirés (`en_tetes_retires` 47 → 94), 759 lignes-glyphes ramenées à 1 — isolée dans sa
+bande —, 42 pages à gouttière toutes lues colonne par colonne, 0 ligne de colonne déclarée pleine
+largeur (68 avant), 1 039 → 962 blocs. Contrat AXA : son unique ligne tournée est conservée, 0
+ligne-glyphe, ses trois pages de sommaire à deux colonnes retenaient une frontière qui coupait
+jusqu'à 38 boîtes et retiennent désormais celle qui n'en coupe aucune, 1 407 → 1 400 blocs et 751
+nœuds inchangés. Le typage déjà payé se réutilise sur l'identité source des blocs : **966 sur 966**
+pour AXA — aucun bloc à retyper —, 459 sur 737 pour le contrat luxembourgeois, soit 278 à rejouer.
 
 </details>
