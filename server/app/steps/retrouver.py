@@ -509,7 +509,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     tool_search_mappings: list[dict[str, list[str]] | list[str]] = []
     search_runs: list[list[str]] = []
     scored_hits: list[ScoredHit] = []
+    # L'identité **canonique** d'une clause : la première vue, celle qui sert au classement et à la
+    # priorité de focus. `hits_by_block` accumule, lui, **toutes** ses identités : c'est ce qui
+    # permet d'admettre la clause pour chacune d'elles (voir `record_admitted`).
     hit_by_block: dict[str, ScoredHit] = {}
+    hits_by_block: dict[str, list[ScoredHit]] = {}
     admission_by_result: dict[str, AdmissionDecision] = {}
     reserved_candidates: list[tuple[str, str]] = []
     best_hit_by_node: dict[str, str] = {}
@@ -567,16 +571,30 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         )
 
     def record_admitted(block_id: str, reason: str) -> None:
-        hit = hit_by_block.get(block_id)
-        if hit is None or hit.result_uid in admission_by_result:
-            return
-        # Un candidat préparé par un mécanisme devient réellement présenté lorsque son bloc entre
-        # dans le résultat d'ouverture ; c'est cette frontière, et elle seule, qui publie son hit.
-        if hit.result_uid not in {existing.result_uid for existing in scored_hits}:
-            scored_hits.append(hit)
-        admission_by_result[hit.result_uid] = AdmissionDecision(
-            result_uid=hit.result_uid, state="admitted", reason=reason,
-            snapshot=budget_snapshot())
+        """Correctif du tour 2 (rapport citations, B) : une clause admise l'est pour **toutes** ses
+        identités de résultat.
+
+        `result_uid` dérive du `question_uid`, donc des termes de la requête : deux `chercher` aux
+        termes différents produisent **deux identités pour la même clause**. La passe mécanique
+        `sommaire` tourne avant la phase `outils` et amorçait `hit_by_block` avec une identité que le
+        navigateur ne voyait jamais ; seule celle-là était admise, et l'identité que le modèle
+        désignait à la fin recevait `rejected`. `RetrievalResult` valide la suffisance au niveau du
+        `result_uid` et levait alors une `ValidationError` — **hors** de tout `PipelineError`, donc
+        un 500 nu sur le chemin servi, sans trace partielle, après une minute payée.
+
+        « Ce bloc est entré dans le contexte » est un fait de corpus : il ne peut pas être vrai pour
+        une empreinte de requête et faux pour une autre.
+        """
+        for hit in hits_by_block.get(block_id, []):
+            if hit.result_uid in admission_by_result:
+                continue
+            # Un candidat préparé par un mécanisme devient réellement présenté lorsque son bloc entre
+            # dans le résultat d'ouverture ; c'est cette frontière, et elle seule, qui publie son hit.
+            if hit.result_uid not in {existing.result_uid for existing in scored_hits}:
+                scored_hits.append(hit)
+            admission_by_result[hit.result_uid] = AdmissionDecision(
+                result_uid=hit.result_uid, state="admitted", reason=reason,
+                snapshot=budget_snapshot())
 
     def cout_unite(unit: Iterable[str]) -> tuple[int, int]:
         """Ce qu'une unité coûterait **en plus** : blocs et tokens, doublons déjà lus déduits."""
@@ -716,6 +734,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         and hit.result_uid not in {existing.result_uid for existing in scored_hits}):
                     scored_hits.append(hit)
                 hit_by_block.setdefault(hit.clause_uid, hit)
+                identites = hits_by_block.setdefault(hit.clause_uid, [])
+                if all(connue.result_uid != hit.result_uid for connue in identites):
+                    identites.append(hit)
             search_runs.append([block_id for block_id, _node_id in hits])
             return {"candidats": [{
                         "result_uid": hit.result_uid,
@@ -1346,6 +1367,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 # Le hit est enregistré avant l'ouverture : c'est lui qui rend le focus recevable
                 # par l'outil commun, et c'est lui que la décision d'admission publiera.
                 hit_by_block.setdefault(candidat.clause_uid, candidat)
+                identites = hits_by_block.setdefault(candidat.clause_uid, [])
+                if all(connue.result_uid != candidat.result_uid for connue in identites):
+                    identites.append(candidat)
                 best_hit_by_node.setdefault(candidat.node_uid, candidat.clause_uid)
                 if candidat.clause_uid not in search_candidates:
                     search_candidates.append(candidat.clause_uid)
@@ -1505,22 +1529,34 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # Tout hit réellement présenté obtient exactement un état terminal. Les refus sont capturés
     # ici, à l'instant où plus aucun outil ne peut les admettre, avec le snapshot courant.
     for hit in scored_hits:
-        if hit.result_uid not in admission_by_result:
-            admission_by_result[hit.result_uid] = AdmissionDecision(
-                result_uid=hit.result_uid, state="rejected",
-                reason="not_admitted_within_bounded_navigation", snapshot=budget_snapshot())
+        if hit.result_uid in admission_by_result:
+            continue
+        # Une identité dont la **clause** est entrée dans le contexte n'est pas un candidat refusé :
+        # c'est la même clause, vue sous une autre empreinte de requête (correctif du tour 2).
+        admise = hit.clause_uid in admitted_set
+        admission_by_result[hit.result_uid] = AdmissionDecision(
+            result_uid=hit.result_uid, state="admitted" if admise else "rejected",
+            reason=("admitted_by_exact_unit" if admise
+                    else "not_admitted_within_bounded_navigation"),
+            snapshot=budget_snapshot())
     selected_hit = next((
         hit for hit in scored_hits
         if semantic_selection is not None
         and semantic_selection.sufficient
         and hit.result_uid == semantic_selection.result_uid
     ), None)
+    # La suffisance est jugée sur l'identité **canonique** de la clause désignée, la même que celle
+    # que `suffisance_atteinte()` lit : deux identités de la même clause portent deux scores, et les
+    # faire juger par deux mesures différentes revenait à ce que le code et le modèle ne parlent pas
+    # de la même chose (correctif du tour 2, rapport citations B2).
+    canonique = (hit_by_block.get(selected_hit.clause_uid, selected_hit)
+                 if selected_hit is not None else None)
     sufficient_hit = (
         selected_hit
-        if selected_hit is not None
+        if selected_hit is not None and canonique is not None
         and selected_hit.clause_uid in admitted_set
         and _score_positif(
-            selected_hit.score,
+            canonique.score,
             question=canonical_question,
             clause=block(selected_hit.clause_uid).text,
         )

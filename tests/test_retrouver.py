@@ -4603,3 +4603,47 @@ def test_sans_clause_typee_la_reservation_garde_son_critere_historique() -> None
     assert reserve("seconde démarche") == ["d:p2:1"]
     # Libellé en phrase : rien à réserver faute de clause typée — comme avant le correctif.
     assert reserve("seconde démarche utile à connaître") == []
+
+
+# --- Correctif du tour 2 (rapport citations, B) : une clause, plusieurs identités de résultat ---
+
+
+async def test_une_clause_admise_lest_pour_toutes_ses_identites_de_resultat() -> None:
+    """L'incident interne non déterministe, reproduit sans réseau — et c'est un bug de production.
+
+    `result_uid` dérive du `question_uid`, donc des termes de la requête : deux `chercher` aux
+    termes différents produisent **deux identités pour la même clause**. La passe mécanique
+    `sommaire` tourne avant la phase `outils` et amorçait la table avec une identité que le
+    navigateur ne voyait jamais ; seule celle-là était admise, et l'identité que le modèle désignait
+    à la fin recevait `rejected`. `RetrievalResult` valide la suffisance au niveau du `result_uid`
+    et levait une `ValidationError` — hors de tout `PipelineError`, donc un 500 nu sur le chemin
+    servi, sans trace partielle, après une minute payée.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Le repère alpha et la mention beta ouvrent la prise en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]))
+    # `parsed.terms` alimente la recherche **mécanique** du sommaire ; le navigateur, lui, cherche
+    # avec d'autres termes. Deux empreintes de requête, une seule clause.
+    parsed = _parsed(["alpha"])
+    index = Index(corpus)
+    identite_mecanisme = index.chercher(parsed.termes_de_recherche(), limit=5, doc_id="d",
+                                        question=parsed.question_resolue)[0].result_uid
+    identite_navigateur = index.chercher(["beta"], limit=5, doc_id="d",
+                                         question=parsed.question_resolue)[0].result_uid
+    assert identite_mecanisme != identite_navigateur, "le témoin exige deux empreintes distinctes"
+
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="regle", focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": True, "result_uid": identite_navigateur})),
+    ], corpus=corpus, parsed=parsed, budget=_budget(max_opens=2, node_window=2, search_limit=5))
+
+    assert result.sufficiency is not None and result.sufficiency.complete
+    assert result.sufficiency.sufficiency_result_uid == identite_navigateur
+    etats = {d.result_uid: d.state for d in result.admission_decisions}
+    assert etats[identite_navigateur] == "admitted"
+    assert etats[identite_mecanisme] == "admitted", (
+        "la clause est entrée dans le contexte : c'est un fait de corpus, pas une propriété "
+        "de l'empreinte de requête qui l'a désignée")
