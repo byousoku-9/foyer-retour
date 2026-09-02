@@ -14,6 +14,7 @@ import pytest
 from tests.helpers_espace import poser_espace
 from pydantic import ValidationError
 
+from server.app.config import Settings
 from server.app.domain import (Block, BlockRef, Check, Document, Line, Node, NodeRef, Report,
                                is_citable)
 from server.app.domain.document import Relation, Scope
@@ -80,7 +81,13 @@ def exiger_comparaison_aux_artefacts_committes(doc_id: str, committee: str) -> N
     succès : le certificat annonçait « passed » sans avoir lu un seul golden. Un `skip` la laisse
     lisible dans la sortie de pytest, exactement comme l'absence de PDF réel l'est déjà.
     """
-    courante = p.ingest_fingerprint()
+    # L'empreinte d'un document porte aussi la proposition de structure **effectivement appliquée**
+    # (AD-2). La calculer sans elle faisait diverger le certificat de tout document structuré, quoi
+    # qu'on republie : la garde lisait autre chose que ce que l'ingestion écrit. Même lecture ici
+    # que dans `assert_empreinte_committee_declaree`.
+    structure_path = Path(__file__).resolve().parents[1] / "data" / doc_id / "structure.json"
+    structure = p.charger_octets(structure_path)[0] if p.presente(structure_path) else None
+    courante = p.ingest_fingerprint(structure)
     if committee == courante:
         return
     if doc_id in empreintes_perimees_declarees():
@@ -929,6 +936,127 @@ def test_blank_separator_detaches_terminal_non_article_surface_from_last_article
     assert all(block.article_uid is None and not p.is_citable(block) for block in terminal)
     root = next(node for node in document.nodes if node.node_id == DOC)
     assert terminal[0].block_id in root.blocks
+
+
+def _page_de_fin(lignes_finales: list[str]) -> list[p.PageText]:
+    """Un contrat d'une page d'article, puis une dernière page mixte : du corps, puis la queue."""
+    article = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+        p.PageLine("Clause utile.", [56, 130, 250, 144], 10),
+    ], native_text=True)
+    fin = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("2 Acceptation", [56, 100, 250, 114], 17, number="2"),
+        # Plusieurs lignes de corps : la taille dominante de la page est la leur, et c'est à elle
+        # que la queue est comparée.
+        p.PageLine("Vous confirmez avoir pris connaissance du contrat.", [56, 130, 400, 144], 10),
+        p.PageLine("La signature vaut acceptation des termes.", [56, 160, 400, 174], 10),
+        p.PageLine("Le paiement de la prime vaut acceptation.", [56, 190, 400, 204], 10),
+        *(p.PageLine(texte, [56, 400 + index * 30, 540, 414 + index * 30], 8)
+          for index, texte in enumerate(lignes_finales)),
+    ], native_text=True)
+    return [article, fin]
+
+
+def test_le_cartouche_qui_clot_le_document_nest_pas_du_corps_citable() -> None:
+    """Symétrique de la couverture, pris par l'autre bout du document.
+
+    La provenance ne reconnaissait que ce qui **précède** le premier article d'une page mixte. Un
+    contrat dont la dernière page porte, sous son dernier alinéa, la raison sociale et le registre
+    de l'assureur publiait donc ces lignes comme du corps citable — et refusait le modèle qui les
+    classait `preliminaire`, à raison. Un document dont la queue occupe une page entière n'avait pas
+    le problème : c'est la page mixte, et elle seule, qui manquait.
+    """
+    pages = _page_de_fin([
+        "Assureur Anonyme S.A. | Siège social : 8, rue du Château | L-3364 Localite",
+        "Société Anonyme de droit luxembourgeois | R.C.S. B 68 065 | N° TVA LU 18 47",
+    ])
+
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat")
+
+    cartouche = [block for block in document.blocks
+                 if block.text.startswith(("Assureur Anonyme", "Société Anonyme"))]
+    assert cartouche and all(block.surface_class == "preliminaire" for block in cartouche)
+    assert all(not p.is_citable(block) for block in cartouche)
+    # Le corps de la même page reste citable : la page est mixte, pas préliminaire.
+    corps = [block for block in document.blocks
+             if block.page == 2 and block not in cartouche]
+    assert corps and any(p.is_citable(block) for block in corps)
+    assert {ligne.uid for page in pages for ligne in page.source.lines} >= set(
+        p.surfaces_de_provenance(pages))
+
+
+def test_un_dernier_alinea_qui_finit_par_une_phrase_reste_citable() -> None:
+    """La forme, et rien d'autre : une phrase clôt la queue, donc il n'y a pas de cartouche.
+
+    Sans ce garde-fou, la règle mangerait le dernier paragraphe de tout contrat dont il se trouve
+    qu'il tient sous la borne d'étiquette.
+    """
+    pages = _page_de_fin(["Le présent contrat prend fin à la date convenue entre les parties."])
+
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat")
+
+    dernier = next(block for block in document.blocks
+                   if block.text.startswith("Le présent contrat prend fin"))
+    assert dernier.surface_class == "substantiel" and p.is_citable(dernier)
+
+
+def test_une_queue_longue_ou_a_taille_ambigue_reste_du_corps() -> None:
+    """Les deux garde-fous de forme, chacun sur son cas.
+
+    Une ligne qui dépasse la borne d'étiquette **énonce** : c'est du corps, quelle que soit sa
+    police. Et une page dont aucune taille ne domine franchement n'a pas de corps dont un cartouche
+    pourrait s'écarter — la règle s'y tait plutôt que de trancher à pile ou face.
+    """
+    longue = "Le present contrat demeure soumis au droit applicable et " + "x" * 140
+    assert len(longue) > Settings(_env_file=None).etiquette_max_chars
+    document, _ = p.build_document(
+        _page_de_fin([longue]), edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat")
+    trop_longue = next(block for block in document.blocks if block.text.startswith(longue[:30]))
+    assert trop_longue.surface_class == "substantiel" and p.is_citable(trop_longue)
+
+    # Deux tailles à égalité parfaite : aucune ne domine, donc aucun cartouche n'est reconnu.
+    premier = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+        p.PageLine("Clause utile.", [56, 130, 250, 144], 10),
+    ], native_text=True)
+    ambigue = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("2 Fin", [56, 100, 250, 114], 10, number="2"),
+        p.PageLine("Le contrat prend fin.", [56, 130, 300, 144], 10),
+        p.PageLine("Mention une", [56, 400, 300, 412], 8),
+        p.PageLine("Mention deux", [56, 430, 300, 442], 8),
+    ], native_text=True)
+    egalite, _ = p.build_document(
+        [premier, ambigue], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat")
+    mentions = [block for block in egalite.blocks if block.text.startswith("Mention")]
+    assert mentions and all(p.is_citable(block) for block in mentions)
+
+
+def test_un_document_sans_cartouche_garde_toutes_ses_pages_citables() -> None:
+    """Aucune queue d'étiquettes : la règle ne touche à rien, et ne peut pas vider une page."""
+    pages = _page_de_fin([])
+    document_sans, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat")
+    assert all(p.is_citable(block) for block in document_sans.blocks if block.page == 2)
+
+    # Une page dont **tout** le corps serait des étiquettes n'est pas un cartouche : il reste
+    # toujours au moins un groupe de corps, sinon la page relève des règles d'avant.
+    tout_etiquettes = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("Mention une", [56, 100, 250, 114], 10),
+        p.PageLine("Mention deux", [56, 130, 250, 144], 10),
+    ], native_text=True)
+    premier = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+        p.PageLine("Clause utile.", [56, 130, 250, 144], 10),
+    ], native_text=True)
+    document_tout, _ = p.build_document(
+        [premier, tout_etiquettes], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat")
+    restants = [block for block in document_tout.blocks if block.page == 2]
+    assert restants and any(p.is_citable(block) for block in restants)
 
 
 def test_article_after_blank_separator_remains_substantive() -> None:
