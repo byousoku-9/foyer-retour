@@ -52,9 +52,10 @@ def _cas_payants_par_profil() -> tuple[int, int]:
     Deux règles du produit, appliquées telles quelles : un run `vertical` ne retient que les cas de
     ce profil (`evals/run.py`, sélection des cas), un run `full` les retient tous ; et seuls les cas
     dont la suite n'est pas `parsing` sont **payants** (`executions_payantes`, même fichier). Un
-    compte écrit à la main ici périmerait au premier cas ajouté — et il l'était : « 56 » comptait les
-    fichiers du profil `full` au lieu des exécutions payantes d'un run `full`, qui en retient 61 et
-    n'en fait payer que 50.
+    compte écrit à la main ici périmerait au premier cas ajouté — et il l'était : « 56 » ne
+    correspondait à aucun compte réel, ni aux fichiers, ni aux exécutions payantes d'un run `full`,
+    qui sont **52** au moment où cette ligne est écrite. Et cette fonction, écrite pour cela, n'était
+    appelée par personne : le littéral périmé vivait à côté d'elle.
     """
     import re
     from pathlib import Path
@@ -135,16 +136,19 @@ def test_les_deux_plafonds_devals_laissent_partir_un_gate_vertical_repete() -> N
     from server.app.llm.pricing import estimate_run_majorant
 
     settings = Settings(_env_file=None, anthropic_api_key="")
-    CAS_VERTICAUX = 5  # `server/evals/cases/**` : guide 1, sinistre 1, baloise 3
+    # **Les deux comptes sont lus sur `server/evals/cases/**`, jamais recopiés.** `_cas_payants_par_
+    # profil()` existait déjà pour cela et n'était appelée nulle part ; le `CAS_FULL = 56` écrit à
+    # côté était faux — le vrai compte payant d'un run `full` est 52 — et il aurait continué de
+    # dériver à chaque cas ajouté. Un test de budget qui se trompe de volume ne mesure rien.
+    cas_verticaux, cas_full = _cas_payants_par_profil()
     REPETITIONS = 3    # la répétition minimale d'un gate chiffré (AD-14)
-    majorant = estimate_run_majorant(CAS_VERTICAUX * REPETITIONS, settings)
+    majorant = estimate_run_majorant(cas_verticaux * REPETITIONS, settings)
     budget_effectif = min(settings.evals_max_cost_eur, settings.live_budget_eur)
     assert budget_effectif >= majorant, (
         f"un gate vertical à --repeat {REPETITIONS} est refusé avant son premier appel : "
         f"majorant {majorant:.2f} € contre un budget effectif de {budget_effectif:.2f} €")
     # Et il reste un plafond, pas une autorisation : le profil `full` continue d'exiger `--max-cost`.
-    CAS_FULL = 56
-    assert budget_effectif < estimate_run_majorant(CAS_FULL, settings)
+    assert budget_effectif < estimate_run_majorant(cas_full, settings)
 
 
 def test_la_deadline_couvre_la_queue_mesuree_du_chemin_nominal() -> None:

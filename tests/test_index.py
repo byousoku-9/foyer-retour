@@ -771,15 +771,20 @@ def test_la_page_de_sommaire_tient_dans_le_budget_de_contexte_sur_les_deux_forme
     Le contrat AXA a 750 nœuds aux titres longs — il n'y a pas de place pour un aperçu, et la carte
     reste paginée. Le guide en a 87 courts — la place existe, l'aperçu est servi, et tout tient.
     Aucune ligne ne connaît l'un ni l'autre : seule leur forme mesurée décide.
+
+    **Chaque régime est borné par son propre budget**, et non tous les deux par celui de la carte :
+    depuis que la tranche est calibrée sur sa vraie mesure, elle est plus large que la carte. Les
+    confondre ici aurait fait rougir ce témoin pour une raison qui n'est pas la sienne.
     """
     import json
 
     s = Settings(_env_file=None)
     index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
-    for doc_id in ("lux-guide", "axa-lu-optihome-2017"):
+    for doc_id, budget in (("lux-guide", s.summary_page_max_chars),          # régime A
+                           ("axa-lu-optihome-2017", s.summary_slice_max_chars)):  # régime B
         page = index.sommaire_page(doc_id, **_budgets_servis())
         octets = len(json.dumps(page.model_dump(mode="json"), ensure_ascii=False))
-        assert octets <= s.summary_page_max_chars, (doc_id, octets)
+        assert octets <= budget, (doc_id, octets, budget)
     axa = index.sommaire_page("axa-lu-optihome-2017", **_budgets_servis())
     guide = index.sommaire_page("lux-guide", **_budgets_servis())
     assert axa.total_entries == 750 and axa.next_cursor is not None
@@ -820,13 +825,19 @@ def test_une_entree_au_dela_de_la_premiere_page_reste_atteignable_par_le_curseur
 def test_la_tranche_dun_document_vaste_ne_grossit_pas_avec_le_budget_de_la_carte() -> None:
     """Les deux régimes sont **séparés**, et c'est le coût par requête qui l'impose.
 
-    Un seul budget partagé couplait les deux documents : toute valeur assez grande pour que le
-    guide tienne d'un bloc (≈ 16 000 caractères) donnait au contrat AXA une tranche de 124 nœuds au
-    lieu de 40 — trois fois le préfixe de navigation, payé à **chaque** requête, et
-    `max_cost_eur_per_request` franchi (mesuré à ce tour : 0,4502 € estimés contre 0,4500 € de
-    plafond). Une tranche n'achète pas ce qu'achète une carte complète : elle ne remplace pas la
-    pagination, le navigateur devra chercher de toute façon. Elle a donc son propre budget, et
+    Un seul budget partagé couplait les deux documents : toute valeur assez grande pour que le guide
+    tienne d'un bloc faisait grossir d'autant la tranche du contrat, dans un préfixe payé à
+    **chaque** requête. Une tranche n'achète pas ce qu'achète une carte complète : elle ne remplace
+    pas la pagination, le navigateur devra chercher de toute façon. Elle a donc son propre budget, et
     relever celui de la carte ne la fait pas grossir d'un caractère.
+
+    **Ce qui justifiait la séparation était juste ; le chiffre qui l'accompagnait était faux.** Cette
+    docstring a porté « `max_cost_eur_per_request` franchi, 0,4502 € estimés contre 0,4500 € de
+    plafond » : non reproductible, et le raisonnement lui-même était erroné — la carte n'entre que
+    dans le préfixe de l'appel de **navigation**, qui n'est pas le plus cher de la chaîne. Le plus
+    cher est *vérifier*, qui porte les blocs retrouvés et ne contient aucune carte. Le plafond n'est
+    franchi qu'aux environs de 86 000 caractères de tranche ; les deux témoins ci-dessous bornent la
+    valeur servie des deux côtés, et `server/app/config.py` porte la mesure.
     """
     index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
     doubles = _budgets_servis(page_max_chars=2 * Settings(_env_file=None).summary_page_max_chars)
@@ -844,11 +855,67 @@ def test_la_tranche_dun_document_vaste_ne_grossit_pas_avec_le_budget_de_la_carte
     noeuds = [n for n in index.corpus.documents["lux-guide"].nodes if n.node_id != "lux-guide"]
     fixe = sum(len(n.node_id) + len(n.title) for n in noeuds) // len(noeuds) + 48
     seuil = len(noeuds) * (fixe + Settings(_env_file=None).summary_apercu_max_chars)
-    assert index.sommaire_page(
-        "lux-guide", **_budgets_servis(page_max_chars=seuil)).next_cursor is None
-    assert index.sommaire_page(
-        "lux-guide", **_budgets_servis(page_max_chars=seuil - 1)).next_cursor is not None
+    # Ce que la frontière décide est le **régime**, donc l'aperçu — pas la pagination : depuis que la
+    # tranche est large, un document qui manque le régime A d'un caractère tient encore sur une seule
+    # tranche. C'est l'aperçu, et lui seul, qui distingue les deux régimes en toute circonstance.
+    regime_a = index.sommaire_page("lux-guide", **_budgets_servis(page_max_chars=seuil))
+    regime_b = index.sommaire_page("lux-guide", **_budgets_servis(page_max_chars=seuil - 1))
+    assert max(len(e.apercu) for e in regime_a.entries) > 0 and regime_a.next_cursor is None
+    assert not any(e.apercu for e in regime_b.entries)
     assert seuil <= Settings(_env_file=None).summary_page_max_chars  # le budget servi le couvre
+
+
+def test_la_tranche_servie_est_aussi_large_que_la_mesure_lautorise() -> None:
+    """La tranche n'est pas étroite « par prudence » : elle l'était sur un chiffre faux.
+
+    À 6 000 caractères, le navigateur du contrat voyait **44 nœuds sur 750** — un dix-septième du
+    document — au motif que `max_cost_eur_per_request` serait franchi au-delà. Remesuré, l'appel de
+    navigation coûte alors 0,1402 € contre un plafond de 0,45 €, et le plafond n'est atteint qu'aux
+    environs de 86 000 caractères. Ce témoin rougit si la tranche redevient plus étroite que ce que
+    la mesure autorise ; l'autre rougit si elle s'en approche trop.
+    """
+    reglages = Settings(_env_file=None)
+    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
+    page = index.sommaire_page("axa-lu-optihome-2017", **_budgets_servis())
+
+    # Le budget vaut au moins le tiers du point de franchissement mesuré (≈ 86 000 caractères).
+    assert reglages.summary_slice_max_chars >= 86_000 // 3, (
+        "la tranche est plus étroite que la mesure ne l'autorise : "
+        f"{reglages.summary_slice_max_chars} caractères")
+    # …et cela se voit sur le document réel : au moins un quart de ses nœuds par page.
+    assert page.page_size >= page.total_entries // 4, (
+        f"le navigateur ne voit que {page.page_size} nœuds sur {page.total_entries}")
+
+
+def test_la_tranche_servie_laisse_lappel_de_navigation_sous_la_moitie_du_plafond() -> None:
+    """L'autre borne : la tranche ne doit jamais rapprocher un appel du plafond par requête.
+
+    Le majorant est celui que le client oppose **avant** d'envoyer (`estimate_cost`), sur le préfixe
+    de navigation réellement servi — carte comprise. On exige la **moitié** du plafond : l'appel de
+    navigation n'est pas seul dans la requête, et une marge qui se lit en facteur ne se périme pas
+    comme une soustraction.
+    """
+    import json
+
+    from server.app.llm.client import estimate_cost
+    from server.app.llm.models import model_for
+    from server.app.llm.prompting import render_prompt, untrusted
+
+    reglages = Settings(_env_file=None)
+    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
+    page = index.sommaire_page("axa-lu-optihome-2017", **_budgets_servis())
+    prompt = render_prompt(
+        "retrouver", doc_id="axa-lu-optihome-2017", max_llm_turns=reglages.max_llm_turns,
+        max_opens=reglages.max_opens, profil_max_opens=reglages.profil_max_opens,
+        sommaire=untrusted("sommaire", json.dumps(page.model_dump(mode="json"),
+                                                  ensure_ascii=False)))
+    majorant = estimate_cost(
+        model_for(reglages.retrouver_outils_tier), [{"type": "text", "text": prompt}],
+        [{"role": "user", "content": "question"}], reglages.retrouver_outils_max_tokens, reglages)
+
+    assert majorant <= reglages.max_cost_eur_per_request / 2, (
+        f"l'appel de navigation est majoré à {majorant:.4f} € pour un plafond de "
+        f"{reglages.max_cost_eur_per_request:.4f} € : la tranche est trop large")
 
 
 def test_une_page_de_sommaire_sans_budget_est_un_refus_pas_un_arbre_entier() -> None:

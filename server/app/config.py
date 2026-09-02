@@ -178,8 +178,8 @@ class Settings(BaseSettings):
     # Le garde-fou réel reste ailleurs, et il n'est pas touché : la deadline globale (`deadline_s`)
     # que `RequestBudget.timeout_for_call()` impose déjà en `min(llm_timeout_s, restant)`, le plafond
     # de coût par requête (`max_cost_eur_per_request`, appliqué **avant** l'appel), le plafond
-    # d'appels (`max_llm_attempts`) et, au déploiement, `--timeout=60` de Cloud Run. 40 s laisse la
-    # chaîne nominale (comprendre ≈ 3 s + rédiger + vérifier ≈ 4 s) tenir sous les 55 s, et une
+    # d'appels (`max_llm_attempts`) et, au déploiement, `--timeout=120` de Cloud Run. 40 s laisse la
+    # chaîne nominale (comprendre ≈ 3 s + rédiger + vérifier ≈ 4 s) tenir sous les 75 s, et une
     # relance qui déborderait est coupée par la deadline globale — le même 503, mais pour la vraie
     # raison. `[HYPOTHÈSE]` : à re-régler sur la distribution complète que donneront les 15–20
     # sinistres des questions-témoins (4.2), qui diront aussi s'il faut baisser l'effort de *rédiger*
@@ -556,12 +556,34 @@ class Settings(BaseSettings):
     # guide (87 fiches, 16 008 caractères mesurés) entre dedans.
     summary_page_max_chars: int = Field(17000, ge=200)
     # `summary_slice_max_chars` — le budget d'une carte **partielle**, pour un document qui ne tient
-    # pas. Elle ne remplace rien : quelle que soit sa taille, le navigateur devra chercher. Elle est
-    # donc bornée bien plus bas, et le préfixe est payé à **chaque** requête. Calibré sur la seule
-    # contrainte qui le borne réellement : le contrat AXA (750 nœuds) n'a pas de marge sur
-    # `max_cost_eur_per_request` — `tests/test_sinistre_live.py::test_preflight_outils_nominal_passe_
-    # et_un_depassement_reste_refuse` rougit dès 8 000, et c'est lui qui tient cette valeur.
-    summary_slice_max_chars: int = Field(6000, ge=200)
+    # pas. Elle ne remplace rien : quelle que soit sa taille, le navigateur devra chercher, et le
+    # préfixe est payé à **chaque** requête. Elle est donc bornée plus bas que la carte complète.
+    #
+    # **La valeur de 6 000 reposait sur une affirmation fausse**, et elle est corrigée ici. Le
+    # commentaire précédent disait que le contrat AXA « n'a pas de marge » sur
+    # `max_cost_eur_per_request`, et citait 0,4502 € contre 0,4500 € de plafond. Remesuré sur le
+    # corpus servi, le chiffre n'est pas reproductible, et surtout **le raisonnement était faux** :
+    # la carte n'entre que dans le préfixe de l'appel de **navigation**, et cet appel n'est pas le
+    # plus cher de la chaîne. Le plus cher est *vérifier*, qui porte les blocs retrouvés et **ne
+    # contient aucune carte** — sa somme ne bouge pas d'un centime quand la tranche décuple.
+    #
+    # Mesure du 02/09/2026, chaîne sinistre réelle jouée hors ligne, `estimate_cost` relevé à chaque
+    # appel (`engagé + estimé`, le majorant que le client oppose avant d'envoyer) :
+    #
+    #     tranche   nœuds servis   appel de navigation   pire appel de la chaîne
+    #       6 000      44 / 750           0,1402 €              0,4175 €
+    #      16 008     118 / 750           0,1708 €              0,4175 €
+    #      30 000     222 / 750           0,2265 €              0,4175 €
+    #      85 000     629 / 750           0,4459 €              0,4459 €   ← marge +0,0041 €
+    #      88 000     651 / 750           0,4566 €              0,4566 €   ← plafond franchi
+    #
+    # Le plafond n'est donc franchi qu'aux environs de **86 000 caractères**, quand la navigation
+    # dépasse enfin *vérifier*. **30 000 est le tiers de ce point de franchissement** : la marge est
+    # explicite et vaut un facteur 3, l'appel de navigation reste à la moitié du plafond, et le
+    # navigateur du contrat voit 222 nœuds sur 750 au lieu de 44. Deux témoins la tiennent des deux
+    # côtés dans `tests/test_index.py` — l'un rougit si la tranche redevient plus étroite que la
+    # mesure ne l'autorise, l'autre si elle approche le plafond.
+    summary_slice_max_chars: int = Field(30000, ge=200)
     # Longueur maximale de l'aperçu d'une entrée — le texte du premier bloc citable de son nœud,
     # c'est-à-dire le signal de navigation que le document porte lui-même (pour le guide, le résumé
     # de la fiche). Plafond, pas valeur servie : la longueur réelle est dérivée par document.
