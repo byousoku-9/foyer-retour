@@ -1469,6 +1469,70 @@ def test_une_colonne_de_montants_sans_libelle_numerote_ne_prolonge_pas_le_sommai
     assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
 
 
+def test_une_page_de_corps_sans_aucune_ligne_numerotee_sort_du_sommaire() -> None:
+    """Sortir du sommaire ne peut pas exiger un **article** : du corps n'est pas toujours numéroté.
+
+    Une page de prose portant une seule ligne tarifaire à points de conduite n'avait aucune issue :
+    la page de continuation ne pouvait pas s'échapper faute de ligne numérotée, et la frontière
+    in-page ne pouvait pas s'ouvrir pour la même raison. Toute la page partait sous `:tdm`.
+    """
+    pages = _sommaire_puis([
+        p.PageLine("Préambule : le contrat est régi par la loi.", [56, 80, 400, 94], 10),
+        p.PageLine("Vol et vandalisme ......... 250", [56, 110, 350, 124], 10),
+        p.PageLine("Le preneur en supporte la franchise.", [56, 140, 400, 154], 10),
+    ])
+
+    p._mark_toc_pages(pages)
+    assert pages[0].is_toc and not pages[1].is_toc
+    document = _flux_reel(pages)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_un_tableau_chiffre_ouvrant_le_corps_ne_revendique_pas_sa_page() -> None:
+    """Toutes les lignes numérotées de la page portent un nombre à droite : aucune n'ouvre le corps.
+
+    Sans une sortie fondée sur le **contenu hors sommaire** — ici la légende du tableau — la page
+    entière restait revendiquée par le sommaire, sans aucun nœud d'article.
+    """
+    pages = _sommaire_puis([
+        p.PageLine("1 Incendie", [56, 80, 200, 94], 12, number="1"),
+        p.PageLine("500", [500, 80, 540, 94], 12),
+        p.PageLine("2 Vol", [56, 100, 200, 114], 12, number="2"),
+        p.PageLine("250", [500, 100, 540, 114], 12),
+        p.PageLine("La garantie joue par sinistre.", [56, 140, 400, 154], 10),
+    ])
+
+    p._mark_toc_pages(pages)
+    assert not pages[1].is_toc
+    document = _flux_reel(pages)
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 2)
+
+
+def test_un_nombre_au_milieu_dune_ligne_assemblee_nest_pas_un_renvoi() -> None:
+    """Le renvoi **ferme** la ligne : aucun fragment couvert ne le suit.
+
+    « 1 Assistance | 24 | heures sur 24 » s'assemble en une seule ligne dont un fragment intérieur
+    est un nombre nu. Sans cette borne, ce fragment prouvait une entrée et le titre d'article
+    rejoignait le sommaire avec sa clause.
+    """
+    page = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Table des matières", [56, 60, 250, 74], 14),
+        p.PageLine("1 Garanties", [56, 90, 300, 104], 12, number="1"),
+        p.PageLine("2", [520, 90, 540, 104], 12),
+        p.PageLine("1 Assistance", [56, 150, 300, 166], 17, number="1"),
+        p.PageLine("24", [320, 150, 344, 166], 17),
+        p.PageLine("heures sur 24", [360, 150, 500, 166], 17),
+        p.PageLine("L'assisteur intervient sans délai.", [56, 190, 400, 204], 10),
+    ])
+
+    document = _flux_reel([page])
+
+    article = next(node for node in document.nodes if node.node_id == f"{DOC}:a1")
+    assert all(p.is_citable(document.block(block_id)) for block_id in article.blocks)
+    assert any("Assistance" in document.block(block_id).text for block_id in article.blocks)
+
+
 def test_une_entree_sans_renvoi_libere_la_suite_du_sommaire_et_cest_le_sens_sur() -> None:
     """Conséquence assumée : **aucune lecture arrière**, et le prix en est nommé ici.
 
