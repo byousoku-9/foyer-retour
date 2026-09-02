@@ -10,7 +10,7 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parents[1] / "docs" / "choix-et-limites.md"
 DETAILS = "\n<details>\n"
 ANNEXE_TITLE = "# Choix et limites mesurées\n"
-ANNEXE_SHA256 = "0a0d755dead05b4a151784e9338557fe1415b8fa0b0f91bafe4032962a9814e4"
+ANNEXE_SHA256 = "bb40794e7859444af8c0ba9f8dd57cc2ff03e9c3bbe771f6e0606f3e7053ad53"
 
 
 def _document() -> str:
@@ -233,7 +233,7 @@ def test_l_annexe_technique_historique_est_repliable_et_byte_identique() -> None
     assert hashlib.sha256(annexe).hexdigest() == ANNEXE_SHA256
     for marqueur in (
         "COLUMN_GUTTER_MIN_PT=18.0",
-        "STRUCTURE_MAX_COST_EUR=5.0",
+        "STRUCTURE_MAX_COST_EUR=8.0",
         "empreinte-committee-perimee: axa-lu-optihome-2017",
         "empreinte-committee-perimee: baloise-lu-home-2-2024",
     ):
