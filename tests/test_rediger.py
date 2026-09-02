@@ -87,7 +87,10 @@ def _settings(**kw) -> Settings:
 
 
 def _budget(deadline_s: float = 30.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=4, max_cost_eur=0.10)
+    # Le plafond suit celui du produit : ces témoins chargent le corpus réel, dont le sommaire
+    # entier vit dans le préfixe de *rédiger* ; un plafond épinglé à part vieillit avec l'arbre.
+    return RequestBudget(deadline_s=deadline_s, max_attempts=4,
+                         max_cost_eur=_settings().max_cost_eur_per_request)
 
 
 def _retrieval(index: Index, block_ids: list[str]) -> RetrievalResult:
