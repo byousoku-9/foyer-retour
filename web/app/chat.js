@@ -785,6 +785,7 @@ window.CHAT = (function () {
   // s'affiche tel quel — le panneau répond de l'honnêteté du reste, il serait le pire endroit où
   // taire un contrôle parce que le front ne le connaît pas encore.
   var CONTROLES = {
+    acquis_reconduits: "affirmations de la relance qui ne citent rien de neuf : non dupliquées",
     applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
     applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
     applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",

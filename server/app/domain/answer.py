@@ -80,10 +80,41 @@ class Quote(DomainModel):
     quote: str
 
 
+def passage_canonique(texte: str) -> str:
+    """Forme canonique d'un passage cité : ce qui reste quand on retire ce qui n'est pas du contenu.
+
+    Blancs réduits à une espace simple (même règle que `AnswerDraft.digest`), apostrophe
+    typographique ramenée à l'apostrophe simple, casse repliée. Ce n'est **pas** la normalisation du
+    corpus (`corpus.text.normalize`, hors de portée du domaine) et elle n'a pas à l'être : elle ne
+    sert jamais à retrouver une occurrence dans un bloc — seulement à décider si deux citations
+    désignent le même passage.
+    """
+    return " ".join(texte.replace("\u2019", "'").split()).casefold()
+
+
 class Claim(DomainModel):
     claim_id: str
     text: str
     quotes: list[Quote] = Field(min_length=1)  # une quote par bloc
+
+    @property
+    def preuve(self) -> frozenset[tuple[str, str]]:
+        """Ce que cette affirmation **prouve** : ses passages, jamais sa formulation.
+
+        Correctif du tour 2 (rapport citations, A1). La fusion de relance ne dédupliquait que sur
+        l'égalité byte-exacte du couple `(text, quotes)`. Or le prompt de relance demande de
+        **reconduire** les acquis, et une reconduction est naturellement une paraphrase : « le
+        contrat couvre » devient « le contrat garantit ». La comparaison échouait, la branche
+        « correction » se déclenchait, et l'acquis **et** sa paraphrase survivaient tous les deux —
+        sur le même bloc, le même passage. La réponse servie disait alors deux fois la même chose,
+        `sources[]` publiait deux cartes identiques, et la duplication **gagnait** la dominance,
+        puisque seul le compte de claims y est gonflable.
+
+        Deux affirmations qui s'appuient exactement sur les mêmes passages avancent la même preuve.
+        Ce sont donc les `(block_id, passage canonique)` qui les identifient.
+        """
+        return frozenset((quote.block_id, passage_canonique(quote.quote))
+                         for quote in self.quotes)
 
     @field_validator("quotes")
     @classmethod

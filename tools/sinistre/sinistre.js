@@ -349,6 +349,7 @@
   // Les `CheckResult.name` du serveur, en français — **la même table** que `web/app/chat.js`. Un nom
   // inconnu n'est jamais masqué : il s'affiche tel quel.
   var CONTROLES = {
+    acquis_reconduits: "affirmations de la relance qui ne citent rien de neuf : non dupliquées",
     applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
     applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
     applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",

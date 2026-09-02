@@ -1848,10 +1848,15 @@ def _signature_stabilite(r: Resultat) -> dict[str, Any]:
     verdict. Guide : même statut (`reason.kind`), `found`/`complete`, label, ensemble de fiches.
     """
     if r.suite.startswith("sinistre"):
+        # Correctif du tour 2 (rapport citations, A2) : les preuves sont **dédupliquées** avant
+        # comparaison. La liste brute faisait diverger deux répétitions qui prouvaient exactement la
+        # même chose — une preuve contre deux copies de cette preuve —, et l'instabilité mesurée du
+        # cas d'ancrage était un pur artefact de la duplication de la fusion de relance. Une
+        # signature d'identité compare ce qui est prouvé, pas combien de fois c'est répété.
         return {
             "verdict": r.verdict,
-            "proofs": [f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
-                       for p in r.proofs],
+            "proofs": sorted({f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
+                              for p in r.proofs}),
         }
     return {"found": r.found, "complete": r.complete, "label": r.label,
             "reason_kind": r.reason_kind, "fiches": list(r.cited_fiche_ids)}

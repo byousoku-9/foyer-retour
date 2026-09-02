@@ -292,13 +292,23 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
                              settings.draft_max_segments - len(limites_acquises)))
 
     ecartees = 0
+    reconduites = 0
+    # Ce que les acquis prouvent déjà, passage par passage. Une claim de relance n'est retenue que
+    # si elle **apporte un passage nouveau** : c'est ce qui distingue une correction (une citation
+    # mieux recopiée, une autre clause) d'une reconduction reformulée, que la comparaison
+    # byte-exacte laissait passer et qui dédoublait la réponse servie.
+    preuves = set().union(*(claim.preuve for claim in claims)) if claims else set()
     for claim in relance.claims:
+        apport = claim.preuve - preuves
+        if not apport:
+            # Aucun passage que les acquis ne portent déjà : c'est une reconduction, quelle que
+            # soit sa formulation. Une affirmation réellement neuve sur un passage déjà cité est le
+            # prix de cette règle, et il est assumé : la place est comptée (`draft_max_claims`), et
+            # une réponse qui se répète coûte plus cher à qui la lit qu'une nuance perdue.
+            reconduites += 1
+            continue
         if claim.claim_id in utilises:
-            # Même contenu : le modèle a bien reconduit l'acquis, ne le duplique pas. Contenu
-            # différent : sa correction reste contrôlable sous un identifiant non ambigu.
-            ancienne = next(c for c in claims if c.claim_id == claim.claim_id)
-            if ancienne.text == claim.text and ancienne.quotes == claim.quotes:
-                continue
+            # La correction reste contrôlable sous un identifiant non ambigu.
             if len(claims) >= borne_factuels:
                 ecartees += 1
                 continue
@@ -308,6 +318,12 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
             continue
         utilises.add(claim.claim_id)
         claims.append(claim)
+        preuves |= apport
+    if reconduites:
+        step.checks.append(CheckResult(
+            name="acquis_reconduits", ok=True,
+            detail=f"{reconduites} affirmation(s) de la relance n'apportent aucun passage que les "
+                   "acquis ne citent déjà : reconduction, non dupliquée dans la réponse"))
     if ecartees:
         step.checks.append(CheckResult(
             name="corrections_non_retenues", ok=False,
@@ -866,7 +882,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     # peut reculer, ce qui est exactement le vide qu'une lecture tronquée
                     # transformait en 503.
                     relance_trouve_clause = seconde.found and not acquise.found
-                    if relance_trouve_clause or domine(seconde, acquise):
+                    if relance_trouve_clause or domine(seconde, acquise,
+                                                       redaction_nouvelle=True):
                         verification = seconde
                         # La lecture servie est celle que cette vérification-là a réellement vue :
                         # le complément de facettes n'est adopté qu'avec elle.

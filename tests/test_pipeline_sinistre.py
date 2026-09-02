@@ -1191,12 +1191,18 @@ def test_la_fusion_reserve_la_place_des_limites_acquises() -> None:
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]},
                 {"claim_id": "b", "text": "Clause b.",
                  "quotes": [{"block_id": f"{DOC_ID}:p1:3", "quote": Q_CONDITION}]}])
+    # Trois corrections **réelles** : trois passages distincts. Depuis le correctif du tour 2, une
+    # claim de relance qui n'apporte aucun passage neuf est une reconduction, pas une correction —
+    # trois copies du même passage ne mettraient donc plus la borne à l'épreuve.
+    corrections = {"c": (f"{DOC_ID}:p1:4", Q_DEFINITION),
+                   "d": (f"{DOC_ID}:p1:5", Q_EXCLUSION_SOCLE),
+                   "e": (f"{DOC_ID}:p1:2", "action subite de la chaleur")}
     relance = AnswerDraft(
         segments=[{"text": f"Clause {cid}.", "kind": "factuel", "claim_ids": [cid]}
                   for cid in ("c", "d", "e")],
         claims=[{"claim_id": cid, "text": f"Clause {cid}.",
-                 "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
-                for cid in ("c", "d", "e")])
+                 "quotes": [{"block_id": bloc, "quote": quote}]}
+                for cid, (bloc, quote) in corrections.items()])
     # N1 : l'autorité des limites acquises est `Verification.unknown`, pas le draft brut.
     acquise = Verification.model_construct(claims=list(draft.claims), unknown=[limite])
     step = StepTrace(name="rediger")
@@ -1346,8 +1352,18 @@ async def test_une_relance_identique_arrete_sur_la_premiere_verification(index: 
     assert answer.found is False
 
 
-def test_la_fusion_renomme_une_correction_qui_garde_un_identifiant_acquis() -> None:
-    """Un contenu différent sous un identifiant déjà vérifié reste contrôlable sous `rN`."""
+def test_la_fusion_ne_dedouble_plus_une_reconduction_reformulee() -> None:
+    """Correctif du tour 2 (rapport citations, A1) — ce témoin verrouillait le défaut.
+
+    Il affirmait qu'un texte différent sur **le même bloc et la même citation** devait survivre à
+    côté de l'acquis, sous `r1`. C'était l'hypothèse « texte différent ⇒ contenu différent », et la
+    réalité l'a contredite : le prompt de relance demande de reconduire les acquis, une
+    reconduction est une paraphrase, et la réponse servie disait alors deux fois la même chose —
+    avec deux cartes de source identiques, et une dominance gagnée par le seul compte de claims.
+
+    Une correction reste contrôlable sous `rN` : la seconde moitié du témoin le tient, sur une
+    correction qui apporte, elle, un passage neuf.
+    """
     settings = _settings()
     draft = AnswerDraft(
         segments=[{"text": "Clause acquise.", "kind": "factuel", "claim_ids": ["c1"]}],
@@ -1358,11 +1374,23 @@ def test_la_fusion_renomme_une_correction_qui_garde_un_identifiant_acquis() -> N
         claims=[{"claim_id": "c1", "text": "Clause corrigée.",
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}])
     acquise = Verification.model_construct(claims=list(draft.claims))
+    step = StepTrace(name="rediger")
 
-    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=StepTrace(name="rediger"))
+    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=step)
 
-    assert [c.claim_id for c in fusion.claims] == ["c1", "r1"]
+    # Même passage : c'est une reconduction, quelle que soit la formulation.
+    assert [c.claim_id for c in fusion.claims] == ["c1"]
     assert fusion.claims[0].text == "Clause acquise."
+    assert any(c.name == "acquis_reconduits" for c in step.checks)
+
+    # Passage neuf sous un identifiant déjà vérifié : la correction survit, renommée.
+    correction = AnswerDraft(
+        segments=[{"text": "Clause corrigée.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "Clause corrigée.",
+                 "quotes": [{"block_id": f"{DOC_ID}:p1:3", "quote": Q_CONDITION}]}])
+    fusion = sinistre._reconduire_acquis(draft, correction, acquise, settings,
+                                          step=StepTrace(name="rediger"))
+    assert [c.claim_id for c in fusion.claims] == ["c1", "r1"]
     assert fusion.claims[1].text == "Clause corrigée."
 
 
@@ -2769,3 +2797,63 @@ def test_une_fondatrice_citee_pour_une_facette_nen_couvre_pas_une_autre(
     # elle se tait, parce qu'une fondatrice est citée quelque part.
     sans_mesure = retrieval.model_copy(update={"facettes": []})
     assert sinistre._fondatrices_omises(verification, sans_mesure, reglages, parsed) == []
+
+
+def test_une_relance_qui_ne_prouve_rien_de_neuf_ne_domine_pas() -> None:
+    """Correctif du tour 2 — le compte de claims était le seul axe gonflable de la dominance.
+
+    `blocs_cites` et `facettes_couvertes` sont des ensembles ; seul `len(claims)` pouvait croître
+    sans qu'aucune preuve ne s'ajoute. Une paraphrase dupliquée faisait donc « dominer » la relance,
+    qui remplaçait l'acquis par lui-même, dit deux fois (A16 r3, servi en 200).
+    """
+    def verification(nb: int) -> Verification:
+        return Verification.model_construct(
+            claims=[VerifiedClaim(
+                claim_id=f"c{rang}", text=f"Formulation {rang}.",
+                quotes=[VerifiedQuote(block_id=f"{DOC_ID}:p1:2", quote=Q_GARANTIE, start=0,
+                                      end=len(Q_GARANTIE), text_start=0, text_end=len(Q_GARANTIE))],
+                status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+                for rang in range(nb)],
+            found=True, complete=False, unknown=[], lacunes=[], facettes_couvertes=[0])
+
+    from server.app.pipelines.commun import domine
+
+    assert not domine(verification(2), verification(1), redaction_nouvelle=True)
+    assert not domine(verification(1), verification(1), redaction_nouvelle=True)
+    # La reprise après demande de contexte relit **la même** ébauche : ses passages sont identiques
+    # par construction, et la règle ne s'y applique pas.
+    assert domine(verification(1), verification(1))
+
+
+def test_une_sous_question_de_plus_vaut_une_reserve_declaree_de_plus() -> None:
+    """Correctif du tour 2 (correctif 8) — l'axe des manques ne tue plus une couverture meilleure.
+
+    Sur A16 #2, la relance était écartée pour `manques=4 contre 3` : une réserve honnêtement
+    nommée de plus suffisait à faire préférer une réponse qui ne traitait qu'une moitié de la
+    question. L'exception est fermée — couverture **strictement** plus large, et au moins les mêmes
+    passages.
+    """
+    from server.app.domain.answer import Lacune
+    from server.app.pipelines.commun import domine
+
+    def claim(rang: int, bloc: str) -> VerifiedClaim:
+        return VerifiedClaim(
+            claim_id=f"c{rang}", text=f"Clause {rang}.",
+            quotes=[VerifiedQuote(block_id=bloc, quote=Q_GARANTIE, start=0, end=len(Q_GARANTIE),
+                                  text_start=0, text_end=len(Q_GARANTIE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+
+    acquise = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p1:2")], found=True, complete=False, unknown=[],
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1)], facettes_couvertes=[0])
+    seconde = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p1:2"), claim(2, f"{DOC_ID}:p1:3")], found=True,
+        complete=False, unknown=["Une réserve de plus."],
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1)], facettes_couvertes=[0, 1])
+
+    assert seconde.nb_manques > acquise.nb_manques
+    assert domine(seconde, acquise)
+
+    # Fermeture : à couverture **égale**, la règle historique reprend et la relance est écartée.
+    egale = seconde.model_copy(update={"facettes_couvertes": [0]})
+    assert not domine(egale, acquise)
