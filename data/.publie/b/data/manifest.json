@@ -2,8 +2,8 @@
   "axa-lu-optihome-2017": {
     "status": "servi",
     "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-    "ingest_fingerprint": "917c8d63b5abd968fb95a1cd54cedba5573897e2192e2ac3ce59d75160375f2e",
-    "document_hash": "66f23437e27bd920d433099ca40ebbf041db9cfb8e696ca06bbed892ce177368",
+    "ingest_fingerprint": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460",
+    "document_hash": "6014b03c7ae97c09b6dadf9fe1d884870b26c48d45a869162134e27c7980a137",
     "edition": "juin 2017",
     "overlay_hash": null,
     "structure_hash": null,
@@ -12,8 +12,8 @@
   "baloise-lu-home-2-2024": {
     "status": "servi",
     "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
-    "ingest_fingerprint": "4226a32e7cd3126cb21a99dbcbef2640a18402bca07a1b0e0e98ad5dd4d2cc75",
-    "document_hash": "92177e033aa9fff9e57b8066a96241c103e311866cc0bd4f9366097c5ec13036",
+    "ingest_fingerprint": "af06d797dd2d5e8de4247e6da66f800f3a2d8dd366b687a5b599ea09d8220fa5",
+    "document_hash": "4e62a4ac79f885fa47bf414a7629a504aff7950518c308005efe1e24cea7b3c9",
     "edition": "CG-HOME(2)-LUFR-09-24",
     "overlay_hash": null,
     "structure_hash": "572152b1efd8bfe79f8d784fe2dd05a575ed7b22bbdce69292dc02707f002ea7",

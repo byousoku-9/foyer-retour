@@ -4,7 +4,7 @@
     {
       "name": "invariants_arbre",
       "level": "info",
-      "detail": "arbre atteste document_hash=66f23437e27bd920d433099ca40ebbf041db9cfb8e696ca06bbed892ce177368 ingest_fingerprint=917c8d63b5abd968fb95a1cd54cedba5573897e2192e2ac3ce59d75160375f2e ; ok"
+      "detail": "arbre atteste document_hash=6014b03c7ae97c09b6dadf9fe1d884870b26c48d45a869162134e27c7980a137 ingest_fingerprint=0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460 ; ok"
     },
     {
       "name": "blocs_non_citables",
