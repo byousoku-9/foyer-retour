@@ -840,4 +840,57 @@ entière — ce n'est pas une perte, c'est la conséquence voulue du lien restau
   avec la clé (`pytest tests/test_sinistre_live.py`). En amont, faire entrer une empreinte de parseur
   dans un prompt facturé et mis en cache reste un choix à rejuger.
 
+
+## Correctif du 03/09/2026 — le dictionnaire d'un contrat par article
+
+`data/axa-lu-optihome-2017/dictionary.json` n'avait jamais été généré : deux groupes préparés à la
+main, zéro intent. Chaque requête sinistre le disait — « dictionnaire : 0 variante(s) ajoutée(s) à
+0 terme(s) » — et le refus « zéro hit » d'AD-5 restait désarmé (`dictionnaire_non_valide`). C'est la
+cause commune des échecs lexicaux mesurés dans la nuit du 02 au 03/09/2026 : « fumée » ne
+rencontrait pas « fumées et suies », « vitre » pas « vitrages », « insert » pas « foyer ».
+
+**La coupure mesurait la mauvaise grandeur.** Une unité d'enrichissement s'arrêtait à chaque
+frontière de nœud. Le nombre de requêtes suivait donc la finesse de l'arbre et non la taille du
+texte : l'arbre AXA porte **1 392 blocs citables répartis sur 750 nœuds** — une feuille par article
+—, et le dry-run rendait **751 requêtes pour un majorant de 81,53 €** contre un plafond de 8 €. Les
+deux bornes existaient déjà (`dictionary_flat_max_blocks_per_request = 20`,
+`dictionary_flat_max_input_chars = 12000`) et n'étaient jamais atteintes.
+
+Une unité enchaîne maintenant les nœuds consécutifs, dans l'ordre du document, tant qu'aucune des
+deux bornes n'est atteinte. Les mesures, clé neutralisée, en transport standard :
+
+| document | blocs citables | nœuds porteurs | requêtes avant | requêtes après | majorant `ingest` | majorant `reason` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `axa-lu-optihome-2017` | 1 392 | 750 | 751 | **71** | 9,68 € | **6,11 €** |
+| `baloise-lu-home-2-2024` | 964 | 270 | 271 | **50** | 6,73 € | **4,25 €** |
+
+Les 35 unités que ce registre consigne pour Baloise au 27/08/2026 ne sont plus atteignables et ne
+sont pas un objectif : elles datent d'une racine plate, avant que le document ne reçoive sa
+structure. À 964 blocs citables et 20 blocs par requête, 49 unités sont le plancher arithmétique ;
+la mesure ci-dessus s'y tient à une unité près. Ce qui a changé de sens, c'est le nombre **avant** :
+270 unités, une par nœud, pour un majorant de 30,00 €.
+
+**Le payload dit ce que l'unité est devenue.** Une unité pleine couvre plusieurs nœuds ; elle nomme
+donc son `premier_bloc` et son `premier_noeud`, jamais un propriétaire commun, et chaque extrait
+porte déjà son `node_id` et son `node_title`. Le prompt de la voie contrat, qui présentait « le vrai
+nœud propriétaire », dit maintenant que deux extraits de nœuds différents traitent de sujets
+différents et ne se lisent pas comme un seul article. La voie guide — prompt, payload, `max_tokens`
+— n'est pas touchée.
+
+**Le palier de la campagne se lit dans la configuration** (AD-9 : « une table des tiers, une
+affectation étape → tier »). `ingest` codait la sienne en constante de module. `DICTIONARY_TIER` la
+règle, défaut `ingest` (Opus 5) : sans surcharge, rien ne change. `micro` est refusé par le type
+plutôt que laissé au réglage — l'amendement Epic 5 d'AD-9 fait de Sonnet le plancher de tout choix
+sémantique, et nommer les mots par lesquels un bloc se cherche en est un ; un palier sous le
+plancher n'est pas une option de configuration. C'est ce qui rend la campagne AXA finançable : 6,11 €
+de majorant au palier `reason` contre 9,68 € au palier `ingest`.
+
+Le palier retenu est publié là où le coût l'est — le dry-run le nommait déjà, le rapport de fin de
+run le nomme désormais aussi. `dictionary.json` ne peut pas le porter : AD-5 énumère ses huit champs
+et `DictionaryFile` est `extra="forbid"`. Un coût publié sans son palier ne dirait pas à quel tarif
+il a été engagé.
+
+Aucune campagne payante n'a été lancée dans ce tour : les nombres ci-dessus sont des dry-runs à clé
+vide. Le dictionnaire AXA reste à générer, et sa validation humaine reste due.
+
 </details>

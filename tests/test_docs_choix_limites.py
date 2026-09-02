@@ -12,7 +12,13 @@ DETAILS = "\n<details>\n"
 ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # Bougé le 02/09/2026 : le registre gagne la section « un amendement d'AD-16, écrit plutôt que
 # glissé ». L'empreinte est là pour qu'un ajout au registre soit un acte, pas une dérive.
-ANNEXE_SHA256 = "67e9675f61ad286a2b1f2b2ef7c47741e08ae09afc8aa9dde151c468f0daf008"
+# Bougé le 03/09/2026 : le registre gagne « le dictionnaire d'un contrat par article ». La synthèse
+# est bornée à environ deux pages et suit les jalons de la story ; des mesures de campagne
+# d'ingestion — 751 → 71 requêtes, majorants par palier — n'y ont pas leur place, et le registre est
+# précisément l'endroit où elles se consignent. Rien n'a été retiré ni réécrit : la section du
+# 27/08/2026 sur le dictionnaire Baloise reste telle quelle, et la nouvelle dit en quoi ses 35
+# unités ne sont plus atteignables.
+ANNEXE_SHA256 = "72a92243e0d6da53d441a9541d44fad21082775d7be865074de71483b34d4897"
 
 
 def _document() -> str:
