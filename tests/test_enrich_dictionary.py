@@ -403,6 +403,64 @@ def test_le_payload_de_contrat_nomme_le_premier_noeud_et_le_noeud_de_chaque_extr
     assert "plusieurs nœuds" in systeme and "node_title" in systeme
 
 
+def test_le_palier_de_la_campagne_est_celui_de_la_configuration() -> None:
+    """AD-9 : le palier se **lit** dans la configuration, il n'est pas codé dans l'ingestion.
+
+    Le défaut ne bouge pas — `ingest`, Opus 5, l'affectation `ingest/* → ingest` du spine —, et une
+    campagne peut être menée à un autre palier sans toucher au code : c'est ce que la surcharge
+    `DICTIONARY_TIER` rend possible pour un contrat dont le majorant Opus dépasse tout plafond.
+    """
+    from server.app.llm.models import EFFORT, TIERS
+
+    defaut = _settings()
+    assert defaut.dictionary_tier == "ingest"
+    assert ed.palier(defaut) == ("ingest", TIERS["ingest"])
+
+    surcharge = _settings(dictionary_tier="reason")
+    assert ed.palier(surcharge) == ("reason", TIERS["reason"])
+
+    corpus = _corpus_en_memoire()
+    for settings, tier in ((defaut, "ingest"), (surcharge, "reason")):
+        for requete in ed.requetes(corpus, DOC_ID, settings):
+            assert requete["params"]["model"] == TIERS[tier]
+            assert requete["params"]["output_config"]["effort"] == EFFORT[tier]
+
+
+def test_un_palier_sous_le_plancher_semantique_est_refuse_par_la_configuration() -> None:
+    """`micro` n'est pas une option : l'amendement Epic 5 d'AD-9 fait de Sonnet le plancher de tout
+    choix sémantique, et nommer les mots par lesquels un bloc se cherche en est un."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="dictionary_tier"):
+        _settings(dictionary_tier="micro")
+
+
+def test_le_run_publie_le_modele_reellement_employe(tmp_path: Path) -> None:
+    """Le dry-run **et** le rapport de fin de run nomment le modèle qui a travaillé.
+
+    `dictionary.json` ne peut pas le porter : AD-5 énumère ses huit champs et `DictionaryFile` est
+    `extra="forbid"`. Le rapport est donc le seul endroit où le coût publié dit à quel tarif il a
+    été engagé — et un palier surchargé qui ne s'y lirait pas rendrait ce coût inexplicable.
+    """
+    from server.app.llm.models import TIERS
+
+    data = _ecrire_data(tmp_path, kind="contrat")
+    settings = _settings(dictionary_tier="reason")
+
+    plan = io.StringIO()
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard",
+                    "--dry-run"], client=None, settings=settings, sortie=plan)
+    assert code == 0 and f"tier reason ({TIERS['reason']})" in plan.getvalue()
+
+    flux = io.StringIO()
+    messages = FauxMessagesStandard([_message(_sortie_contrat()), _message(SORTIE_INTENTS)])
+    code = ed.main(["--data", str(data), "--doc-id", DOC_ID, "--transport", "standard"],
+                   client=FauxClientStandard(messages), settings=settings, sortie=flux)
+    assert code == 0
+    assert all(requete["model"] == TIERS["reason"] for requete in messages.requetes)
+    assert f"au tier reason ({TIERS['reason']})" in flux.getvalue()
+
+
 def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
     from server.app.config import REPO_ROOT
     from server.app.corpus.loader import load_corpus
@@ -525,8 +583,8 @@ def test_standard_double_ecrit_un_dictionnaire_contractuel_chargeable(tmp_path: 
     from server.app.llm.pricing import cost_from_usage
     usage = {"input_tokens": 2000, "output_tokens": 500, "cache_read_input_tokens": 0,
              "cache_creation_input_tokens": 0}
-    attendu = round(2 * cost_from_usage(ed.MODEL, usage, _settings().usd_eur,
-                                       batch=False).cost_eur, 4)
+    attendu = round(2 * cost_from_usage(ed.palier(_settings())[1], usage,
+                                        _settings().usd_eur, batch=False).cost_eur, 4)
     assert f"coût réel {attendu:.4f} €" in flux.getvalue()
 
 

@@ -68,7 +68,7 @@ from server.app.domain.dictionary import (
 )
 from server.app.domain import ManifestEntry
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, Block, is_citable
-from server.app.llm.models import EFFORT, TIERS
+from server.app.llm.models import EFFORT, TIERS, Tier
 from server.app.llm.pricing import BATCH_DISCOUNT, cost_from_usage, estimate_cost
 
 from .artifacts import LectureDuLot, exiger_espace_installe, republier
@@ -83,14 +83,25 @@ class CorpusDeplace(Exception):
 
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-TIER = "ingest"
-MODEL = TIERS[TIER]
 # `- `lux-guide:farrivee` · Titre · Résumé… · tags : a, b, c` — la ligne de fiche de `summary.md`.
 # Les tags et les résumés ne sont **pas** dans `document.json` (reprise différée `target_story: 2.1`,
 # revue 1.1) : le sommaire est le seul artefact qui les porte, et il est écrit par l'ingestion du
 # guide, donc couvert par `ingest_fingerprint`. Le lire ici évite d'ajouter un champ à `Node` — et
 # donc de rejouer l'ingestion du guide — pour une information qui ne sert qu'à ce prompt.
 _LIGNE_FICHE = re.compile(r"^- `([^`]+)` · (.+)$")
+
+
+def palier(settings: Settings) -> tuple[Tier, str]:
+    """`(tier, modèle)` de la campagne — **lus dans la configuration**, jamais codés ici (AD-9).
+
+    `dictionary_tier` vaut `ingest` par défaut : l'affectation `ingest/* → ingest` du spine tient
+    sans qu'aucun réglage ne soit posé. L'orchestrateur la surcharge par `DICTIONARY_TIER` pour une
+    campagne donnée ; la table des tiers reste l'unique autorité sur l'ID de modèle, et le palier
+    retenu est **publié** — dry-run comme rapport de fin de run —, sans quoi le coût affiché
+    nommerait un modèle qui n'a pas travaillé.
+    """
+    tier = settings.dictionary_tier
+    return tier, TIERS[tier]
 
 
 # --- ce que le modèle rend (schémas de sortie structurée) ------------------
@@ -376,12 +387,13 @@ def _schema(model: type[BaseModel]) -> dict[str, Any]:
 def _params(system: str, contenu: str, schema: dict[str, Any], settings: Settings,
             *, max_tokens: int | None = None) -> dict[str, Any]:
     """Le corps d'un appel `messages`, tel que le batch le rejoue. `effort` explicite (AD-9)."""
+    tier, modele = palier(settings)
     return {
-        "model": MODEL,
+        "model": modele,
         "max_tokens": max_tokens or settings.dictionary_max_output_tokens,
         "system": [{"type": "text", "text": system}],
         "messages": [{"role": "user", "content": contenu}],
-        "output_config": {"format": schema, "effort": EFFORT[TIER]},
+        "output_config": {"format": schema, "effort": EFFORT[tier]},
     }
 
 
@@ -541,7 +553,8 @@ def executer(client: Any, reqs: list[dict[str, Any]], settings: Settings,
         message = _attr(resultat, "message")
         usage = _attr(message, "usage")
         if usage is not None:
-            cout += cost_from_usage(MODEL, usage, settings.usd_eur, batch=True).cost_eur
+            cout += cost_from_usage(palier(settings)[1], usage, settings.usd_eur,
+                                    batch=True).cost_eur
         arret = _attr(message, "stop_reason")
         if arret is not None and arret not in FINS_NORMALES:
             echecs.append(f"{cle} : réponse interrompue (stop_reason={arret!r}) — sortie "
@@ -578,7 +591,8 @@ def executer_standard(client: Any, reqs: list[dict[str, Any]], settings: Setting
         if usage is None:
             echecs.append(f"{cle} : réponse standard sans usage facturable")
             break
-        cout += cost_from_usage(MODEL, usage, settings.usd_eur, batch=False).cost_eur
+        cout += cost_from_usage(palier(settings)[1], usage, settings.usd_eur,
+                                batch=False).cost_eur
         arret = _attr(message, "stop_reason")
         if arret is not None and arret not in FINS_NORMALES:
             echecs.append(f"{cle} : réponse interrompue (stop_reason={arret!r}) — sortie "
@@ -944,7 +958,8 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         print(f"  {r['custom_id']}", file=sortie)
     transport = (f"Batch (remise {BATCH_DISCOUNT})" if batch
                  else "Messages standard (sans remise Batch, sans retry)")
-    print(f"{len(reqs)} requête(s), tier {TIER} ({MODEL}), transport {transport}, "
+    tier, modele = palier(settings)
+    print(f"{len(reqs)} requête(s), tier {tier} ({modele}), transport {transport}, "
           f"majorant {majorant:.4f} € contre un plafond de {plafond:.4f} €", file=sortie)
     if majorant > plafond:
         print(f"majorant {majorant:.4f} € > plafond {plafond:.4f} € : aucun appel n'est soumis, "
@@ -1055,7 +1070,11 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
           f"{sum(len(q) for q in fichier.candidate_questions.values())} question(s) candidate(s), "
           f"{sum(len(d) for d in fichier.intents.values())} déclencheur(s) — validated=false",
           file=sortie)
-    print(f"coût réel : {cout:.4f} € (majorant {majorant:.4f} €)", file=sortie)
+    # Le rapport de fin de run **nomme le modèle qui a réellement travaillé** : `dictionary.json`
+    # ne peut pas le porter — AD-5 énumère ses huit champs et `DictionaryFile` est `extra="forbid"` —,
+    # donc un coût publié sans son palier laisserait deviner à quel tarif il a été engagé.
+    print(f"coût réel : {cout:.4f} € au tier {tier} ({modele}) — majorant {majorant:.4f} €",
+          file=sortie)
     if partiel:
         print(f"--limit {args.limit} : run **partiel**, corpus_source_hashes laissé vide — ce "
               "dictionnaire est inerte (ni variantes, ni court-circuit) et `--valider` le refusera. "

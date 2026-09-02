@@ -237,6 +237,12 @@ def test_les_seuils_du_dictionnaire_sont_ceux_de_la_spec() -> None:
     assert s.dictionary_flat_max_output_tokens == 4096
     assert s.dictionary_max_cost_eur == 3.0
     assert s.dictionary_batch_poll_s == 20.0 and s.dictionary_batch_timeout_s == 3600.0
+    # AD-9 : le palier de la campagne d'enrichissement se lit ici. Le défaut est l'affectation du
+    # spine (`ingest/* → ingest`) — une surcharge est un acte, jamais un changement de comportement.
+    assert s.dictionary_tier == "ingest"
+    assert s.thresholds()["dictionary_tier_reason"] == 0
+    assert Settings(_env_file=None, dictionary_tier="reason").thresholds()[
+        "dictionary_tier_reason"] == 1
     assert s.perimetre_max_chars == 4000
     # Convention Seuils : un nombre nouveau vit ici **et** se publie.
     t = s.thresholds()
@@ -431,7 +437,7 @@ def test_les_seuils_de_la_story_sont_documentes_dans_env_example() -> None:
                 "DICTIONARY_QUESTION_MAX_CHARS", "DICTIONARY_MAX_QUESTIONS_PER_FICHE",
                 "DICTIONARY_MAX_INTENT_TRIGGERS", "DICTIONARY_MAX_OUTPUT_TOKENS",
                 "DICTIONARY_MAX_COST_EUR", "DICTIONARY_BATCH_POLL_S",
-                "DICTIONARY_BATCH_TIMEOUT_S", "PERIMETRE_MAX_CHARS",
+                "DICTIONARY_BATCH_TIMEOUT_S", "DICTIONARY_TIER", "PERIMETRE_MAX_CHARS",
                 "TYPE_CLAUSES_MAX_BLOCKS_PER_REQUEST", "TYPE_CLAUSES_MAX_INPUT_CHARS",
                 "TYPE_CLAUSES_MAX_REQUESTS_PER_BATCH", "TYPE_CLAUSES_MAX_OUTPUT_TOKENS",
                 "TYPE_CLAUSES_MAX_COST_EUR", "TYPE_CLAUSES_BATCH_POLL_S",

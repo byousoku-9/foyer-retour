@@ -1003,6 +1003,26 @@ class Settings(BaseSettings):
     dictionary_max_cost_eur: float = Field(3.0, gt=0)
     dictionary_batch_poll_s: float = Field(20.0, gt=0)
     dictionary_batch_timeout_s: float = Field(3600.0, gt=0)
+    # Palier de la campagne d'enrichissement (AD-9 : « une table des tiers, une affectation étape →
+    # tier », et cette affectation se **lit dans la configuration**, elle n'est pas codée en dur dans
+    # `ingest/enrich_dictionary`). Le défaut reste `ingest` — Opus 5, l'affectation `ingest/* →
+    # ingest` du spine : rien ne change sans surcharge explicite par `DICTIONARY_TIER`.
+    #
+    # **Dérivation de la valeur, et de l'ensemble admissible.** L'enrichissement est une tâche
+    # lexicale : nommer les mots par lesquels un bloc se cherche. C'est un choix sémantique, et
+    # l'amendement Epic 5 d'AD-9 du 02/09/2026 en fixe le plancher — « Sonnet est le plancher de tout
+    # choix sémantique ; Haiku reste un axe d'évaluation non promu ». `micro` est donc exclu du
+    # littéral plutôt que laissé au réglage : un palier sous le plancher n'est pas une option de
+    # configuration, c'est une violation d'AD-9 qu'aucun `.env` ne doit pouvoir écrire. Les deux
+    # paliers restants acceptent tous deux `output_config.effort` (`MODEL_CAPS`), donc `EFFORT` les
+    # couvre l'un et l'autre et le corps d'appel reste le même.
+    #
+    # **Ce que la surcharge rend possible, mesuré le 03/09/2026.** `axa-lu-optihome-2017` porte 1 392
+    # blocs citables : à 20 blocs par requête, 71 appels. Au palier `ingest`, leur majorant vaut
+    # 9,68 € — au-dessus de tout plafond raisonnable pour un dictionnaire de recherche. Le palier est
+    # donc ce qui manque pour que la campagne tienne sous son plafond, et il se règle sans toucher au
+    # code ni au défaut servi.
+    dictionary_tier: Literal["ingest", "reason"] = "ingest"
 
     # Typage des clauses (story 3.2, AD-2 / AD-7 / AD-8). Une première lecture couvre tous les
     # blocs citables, puis une seconde relit seulement les kinds juridiques. Le regroupement est
@@ -1394,6 +1414,9 @@ class Settings(BaseSettings):
             "dictionary_max_cost_eur": self.dictionary_max_cost_eur,
             "dictionary_batch_poll_s": self.dictionary_batch_poll_s,
             "dictionary_batch_timeout_s": self.dictionary_batch_timeout_s,
+            # Même patron que `comprendre_tier_reason` : `Trace.thresholds` est numérique, et un
+            # palier s'y publie par le booléen qui le distingue du défaut. 1 = `reason`, 0 = `ingest`.
+            "dictionary_tier_reason": int(self.dictionary_tier == "reason"),
             "type_clauses_max_blocks_per_request": self.type_clauses_max_blocks_per_request,
             "type_clauses_max_input_chars": self.type_clauses_max_input_chars,
             "type_clauses_max_requests_per_batch": self.type_clauses_max_requests_per_batch,
