@@ -403,9 +403,44 @@ def test_le_readme_cite_les_drapeaux_du_workflow_sans_les_reecrire() -> None:
     # `${{ vars.GCP_PROJECT_ID }}` du `--service-account`, découpée par `split()`.
     dimensionnement = [d for d in deploiement()["flags"].split()
                        if d.startswith("--") and not d.startswith("--service-account")]
-    assert len(dimensionnement) == 5, f"cinq drapeaux de dimensionnement attendus : {dimensionnement}"
+    assert len(dimensionnement) == 6, f"six drapeaux de dimensionnement attendus : {dimensionnement}"
+    # `--memory` en fait partie **nommément** : son absence n'est pas un défaut par omission, c'est
+    # 512 Mio servis en silence pour deux requêtes de pipeline concurrentes avec PyMuPDF chargé.
+    assert "--memory=1Gi" in dimensionnement, (
+        f"le service doit poser sa mémoire, pas hériter des 512 Mio par défaut : {dimensionnement}")
     assert " ".join(dimensionnement) in readme, (
         f"le README ne cite pas les drapeaux tels que `deploy.yml` les décide : {dimensionnement}")
+
+
+def test_le_readme_cite_les_bornes_de_config_sans_les_reecrire() -> None:
+    """Un chiffre de borne cité au présent dans le README **est** celui que `Settings` sert.
+
+    Le README annonçait « le plafond de 0,18 € par requête » à trois endroits, au présent, alors que
+    `max_cost_eur_per_request` vaut 0,45 € depuis la remesure du 02/09/2026. Trois affirmations
+    fausses sur la surface publique la plus lue du dépôt, et rien qui rougisse : le seul test
+    README ↔ source comparait les drapeaux de `deploy.yml`, pas les seuils du processus.
+
+    On compare ce que le README **cite comme borne servie**, pas ses mesures datées ni ses coûts
+    d'ordre de grandeur : une campagne du 27/08 à 2,8518 € est un fait historique, pas un seuil.
+    """
+    from server.app.config import Settings
+
+    readme = (WORKFLOWS.parents[1] / "README.md").read_text("utf-8")
+    reglages = Settings(_env_file=None)
+
+    def euros(valeur: float) -> str:
+        return f"{valeur:.2f}".replace(".", ",") + " €"
+
+    plafond = euros(reglages.max_cost_eur_per_request)
+    assert plafond in readme, f"le README ne cite pas le plafond servi ({plafond})"
+    # …et il ne cite **aucune** autre valeur en euros comme plafond par requête. Le motif attrape
+    # « plafond de 0,18 € par requête », « plafond par requête (0,18 €) » et « sous le plafond
+    # courant de 0,18 € » — les trois formes qui étaient fausses.
+    cites = set(re.findall(r"plafond[^.\n]{0,40}?([0-9]+,[0-9]+ €)", readme))
+    cites |= set(re.findall(r"([0-9]+,[0-9]+ €)\)[^.\n]{0,30}plafond", readme))
+    assert cites <= {plafond}, (
+        f"le README cite comme plafond par requête des valeurs que `config.py` ne sert pas : "
+        f"{sorted(cites - {plafond})} (servi : {plafond})")
 
 
 def test_le_readme_compte_les_smokes_que_le_smoke_joue() -> None:
