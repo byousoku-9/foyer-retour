@@ -739,3 +739,84 @@ nœuds inchangés. Le typage déjà payé se réutilise sur l'identité source d
 pour AXA — aucun bloc à retyper —, 459 sur 737 pour le contrat luxembourgeois, soit 278 à rejouer.
 
 </details>
+
+## Correctif du 02/09/2026 — un titre n'est pas une clause, une phrase coupée reste une phrase
+
+Le premier corpus dont l'arbre vient d'une **proposition vérifiée** — et non de l'heuristique
+numérique — a montré trois défauts de la projection servie. Aucun ne tient à ce document : chacun est
+une règle qui ne s'appliquait qu'à l'autre chemin de construction, ou qui mesurait la mauvaise chose.
+
+**Un titre que la proposition désigne est un titre.** Sur le chemin numérique, la géométrie reconnaît
+l'intitulé et le bloc naît `heading`. Avec une proposition, c'est elle qui dit quelles lignes font le
+titre (`title_line_uids`) — et rien ne le projetait sur les blocs. Résultat mesuré : **0 bloc
+`heading`** dans le contrat luxembourgeois contre 388 dans l'autre, et **267 blocs citables dont le
+texte est exactement le titre de leur propre nœud**, dont 166 de moins de 25 caractères. Le refus du
+vérificateur (« un titre ne se cite pas seul »), `Index.unite_de_renvoi` et `retrouver._unite_primaire`
+testent tous les trois `kind == "heading"` : ils ne voyaient plus un seul titre du document, et une
+question de définition se voyait servir le mot seul — « Bâtiment », « Vétusté », « Déchéance » —
+comme la clause qui répond. Le seuil de longueur ne rattrapait rien : citer le bloc entier satisfait
+toujours la seconde branche de `quote_min_ratio`. Un bloc qui ne porte **que** les lignes de titre de
+son nœud reçoit donc `heading` ; celui qui colle le titre à son premier alinéa porte de l'information
+au-delà de l'intitulé et reste citable. La réutilisation du typage applique la même règle que
+`type_clauses` : un titre ne reprend jamais l'étiquette juridique décidée quand on le lisait comme un
+paragraphe. **0 → 270 blocs `heading`, 267 → 0 blocs citables réduits à leur intitulé.**
+
+**Page, colonne et bande sont la même rupture.** `continues` n'était posé qu'au changement de page,
+alors que la segmentation rompt déjà un groupe au changement de colonne ou de bande : trois formes
+d'un seul fait, « la mise en page s'arrête ici ». Et la règle exigeait l'**égalité des `kind`** : les
+sept coupures à cheval sur une page laissent un item à puce ouvert et reprennent sans puce, donc en
+`para`. Un bloc `list` rouvre un item — sa puce le dit — et ne poursuit que la liste dont il vient ;
+un `para` ne rouvre rien et reprend aussi bien un paragraphe qu'un item. Vingt-trois phrases étaient
+servies en deux clauses, dont `p15:19→p16:1` qui **inverse le sens** d'une exigence : la première
+moitié semble n'en poser aucune, et « ce contrat d'entretien doit être en vigueur » tombe dans la
+seconde. S'y ajoute ce que `continues` veut dire : une clause que la mise en page coupe reste une
+clause, et hors du corps il n'y a pas de phrase à poursuivre — une entrée de sommaire est close par
+son renvoi de page, et la dernière entrée d'une colonne s'accrochait à la première de la suivante.
+**7 → 38 liens posés par l'ingestion sur le contrat luxembourgeois, les 4 de l'autre inchangés.**
+
+**Le titre projeté n'est pas le texte du bloc.** Trente-trois intitulés arrivaient à l'écran avec la
+mise en page de leur source : quatorze ouverts par une puce, dix-neuf portant une tabulation brute
+(« a.<TAB> Vol / Vandalisme »). Deux règles de forme, aucun vocabulaire : un titre projeté n'ouvre pas
+sur un mot de tête sans le moindre caractère alphanumérique — la définition de « glyphe » qu'a déjà
+le parseur —, et une tabulation ou un saut de ligne y vaut une espace. Le `text` des blocs reste
+fidèle à la source : c'est le titre projeté dans `Node.title` et dans le sommaire, et lui seul, qui
+est rendu lisible. L'espace fine française d'un « les cours ; » n'est pas un blanc de mise en page et
+reste — sans quoi 150 intitulés de l'autre contrat auraient été appauvris pour rien.
+
+`PARSER_VERSION` passe de `21` à `22` et `SEGMENTATION_RULES` porte les trois énoncés. Mesuré hors
+ligne sur les deux PDF réels, **sans un seul appel facturé**. Aucun identifiant de bloc ne change :
+`ids_disparus = ids_nouveaux = 0` sur les deux documents, et le contrat AXA est **inchangé à l'octet**
+(1 400 blocs, 751 nœuds, 388 `heading`, 4 `continues`) hors son empreinte d'ingestion. Le typage déjà
+payé se réutilise sur l'identité source des blocs : **1 392 sur 1 392** pour AXA, **942 sur 964** pour
+le contrat luxembourgeois. Les 22 qui restent sont exactement les moitiés que l'ingestion vient de
+relier : leur typage avait été décidé sur un fragment de phrase, il doit être relu avec la phrase
+entière — ce n'est pas une perte, c'est la conséquence voulue du lien restauré.
+
+### Ce que ce tour n'a pas fermé, avec les lignes vues
+
+- **Un fragment de tableau précède son en-tête, page 38.** `p38:6` (`'7 | 82 / 8 | 79 …'`) est servi
+  avant `p38:7`, qui porte l'en-tête « Mois | Limite de garantie ». Les deux tables sont côte à côte
+  et la page ne retient aucune gouttière, donc l'ordre retombe sur `y` : 627 pour celle de droite,
+  631 pour celle de gauche. Deux bornes la refusent, indépendamment : la gouttière mesure **16,3 pt**
+  pour `column_gutter_min_pt = 18,0`, et la colonne de droite couvre **161 pt** de hauteur écrite
+  pour un minimum de `column_min_span_ratio × 660,5 = 231,2 pt`. La page ne porte que **3 lignes de
+  texte** : sa géométrie de colonnes est prouvée par des tables seules, et la seconde preuve des
+  gouttières serrées, qui exige des blocs source de chaque côté, se tait faute de lignes. Descendre
+  l'un des deux seuils rejugerait l'ordre de lecture de **toutes** les pages des deux contrats : ce
+  n'est pas un réglage local, et le faire pour une page serait le calibrer sur elle.
+- **Quatre phrases restent coupées** (trois dans l'autre contrat), pour deux causes distinctes. Deux
+  le sont par un interligne que `para_gap_ratio` juge trop grand : p7 `18,74 pt` pour un seuil de
+  `16,29`, p24 `18,75` pour `16,29` (AXA : p32 `26,20` pour `16,89`, p43 `26,00` pour `16,59`). Deux
+  autres reprennent la phrase **dans un item à puce** (p7, p31 ; AXA p36) : les lier reviendrait à
+  faire poursuivre un paragraphe par une liste, ce qui recollerait toute amorce d'énumération à son
+  premier item.
+- **`Node.scope` est nul sur les 274 nœuds** du contrat luxembourgeois (93 sur 751 pour l'autre) :
+  `ClauseCitee.socle` vaut donc `True` partout et la règle (3) d'AD-6 traite les garanties
+  optionnelles comme du socle. La portée est dérivée par le typage, hors périmètre de ce tour.
+- **Le témoin live `test_sinistre_live` demande une réécriture de sa fixture.** `build_summary` écrit
+  l'`ingest_fingerprint` dans l'en-tête de `summary.md`, et le sommaire part dans le prompt système :
+  une génération de parseur change donc la clé d'une requête enregistrée. Un seul appel sur cinq est
+  concerné, et son texte est identique une fois l'empreinte masquée — mais le mécanisme d'alias du
+  dépôt exige des certificats **égaux** et ne peut pas l'absorber, à raison. La fixture se réenregistre
+  avec la clé (`pytest tests/test_sinistre_live.py`). En amont, faire entrer une empreinte de parseur
+  dans un prompt facturé et mis en cache reste un choix à rejuger.
