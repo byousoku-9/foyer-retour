@@ -370,6 +370,7 @@
     demande_satisfaite: "le contexte demandé a été rouvert dans le contrat, sans appel modèle",
     dictionnaire: "variantes du dictionnaire ajoutées aux termes cherchés",
     faq: "formulation de FAQ reconnue comme candidate",
+    couverture_declaree_sans_candidat: "le contrôle déclare couverte une sous-question dont la lecture n'a rien retrouvé",
     couverture_facettes: "reprise ciblée : sous-questions restées sans clause décisionnelle",
     facettes_retrouvees: "clauses décisionnelles retrouvées, sous-question par sous-question",
     facettes_sans_clause: "des sous-questions restent sans clause décisionnelle dans le contrat lu",

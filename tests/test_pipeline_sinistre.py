@@ -3223,3 +3223,60 @@ async def test_une_facette_couverte_par_une_auxiliaire_seule_relance_toujours(in
     auxiliaire = _verification_a_deux_facettes_pourvues(f"{DOC_ID}:p1:4")
 
     assert sinistre._fondatrice_rejetee(auxiliaire, parsed, corpus=index.corpus, index=index)
+
+
+# --- Correctif du tour 4 (C4) : une absence mesurée ne s'efface pas par déclaration ------------
+
+
+async def test_le_controle_ne_peut_pas_couvrir_une_sous_question_sans_candidat(
+        par_facette: CorpusNeutre) -> None:
+    """C4 — mesuré sur A16 : la facette « fumée » déclarée couverte par une clause de chaleur.
+
+    *retrouver* avait publié `facettes_retrouvees ok=false` (« le contrat lu n'en porte aucun pour
+    le rang 1 ») et `verdict_par_facette : verdict contredit par la mesure du code (qui fait foi) ».
+    Le contrôle a néanmoins attribué le rang 1 à une claim citant la clause de chaleur : plus de
+    rang non couvert, donc pas de reprise, pas de garde, pas de lacune — la réponse servie ne disait
+    pas un mot de la fumée et ne le disait pas non plus.
+
+    La sous-question introuvable de ce corpus n'a **aucun** candidat ; la voie existante reprend la
+    main : reprise ciblée sans rien à rouvrir, absence dite, réponse incomplète.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_INTROUVABLE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_inventaire(par_facette),
+        # Le contrôle attribue **les deux** rangs à l'unique claim affichée.
+        _verifier(("k1", True, True, False, False, None, [], []), facettes=[["k1"], ["k1"]])])
+
+    assert fake.remaining_script == 0
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    (contredit,) = [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
+    assert not contredit.ok and "la mesure du code fait foi" in contredit.detail
+    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["facettes_sans_clause"][0].format(n=1) in answer.unknown
+
+
+async def test_une_attribution_sur_une_sous_question_pourvue_nest_jamais_contredite(
+        par_facette: CorpusNeutre) -> None:
+    """La borne du correctif, et elle est voulue : le code ne corrige jamais une bonne attribution.
+
+    Un classement **non vide** ne dit rien de l'attribution ; seul le vide est une mesure, et il ne
+    fait que refuser d'être effacé.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_les_deux(par_facette),
+        # Les deux rangs sont pourvus par le classement ; l'attribution du contrôle fait foi, même
+        # croisée (la claim du registre est portée au rang 0 et inversement).
+        _verifier(("k1", True, True, False, False, None, [], []),
+                  ("k2", True, True, False, False, None, [], []),
+                  facettes=[["k2"], ["k1"]])])
+
+    assert fake.remaining_script == 0
+    verifier = next(s for s in trace.steps if s.name == "verifier")
+    assert not [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
+    assert not [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
+    assert len(answer.claims) == 2

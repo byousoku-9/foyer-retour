@@ -990,8 +990,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # elle. Aucune facette au barème (question sans découpage rendu) ⇒ aucune preuve ⇒
     # `complete=False` : l'absence de mesure ne vaut jamais complétude.
     affichees = {c.claim_id for c in claims}
+    # **Correctif du tour 4 (C4) : là où le code a mesuré l'absence, la déclaration du modèle ne
+    # peut pas couvrir.** *retrouver* publie, pour chaque sous-question, le classement qu'il a
+    # obtenu du corpus typé ; quand ce classement est **vide**, le contrat lu ne porte aucun
+    # candidat décisionnel confirmé pour cette sous-question. Le contrôle a pourtant déclaré la
+    # facette « fumée » couverte par une clause de chaleur, sur un run où `retrouver` avait publié
+    # `facettes_retrouvees ok=false` et `verdict_par_facette : verdict contredit par la mesure du
+    # code (qui fait foi)` : la réponse servie ne disait pas un mot de la fumée, sans lacune, sans
+    # reprise et sans relance — le code avait mesuré l'absence, la déclaration l'a effacée.
+    #
+    # L'asymétrie est **voulue et bornée** : le code ne peut jamais contredire une bonne
+    # attribution du modèle sur une sous-question où il a trouvé quelque chose. Un classement non
+    # vide ne dit rien de l'attribution ; seul le vide est une mesure, et il ne fait que refuser
+    # d'être effacé. C'est AD-1 appliqué au contrôleur comme il l'est déjà au navigateur.
+    sans_candidat = {facette.rang for facette in retrieval.facettes if not facette.candidats}
     facettes_couvertes = sorted(rang for rang, ids in couverture.items()
-                                if any(cid in affichees for cid in ids))
+                                if rang not in sans_candidat
+                                and any(cid in affichees for cid in ids))
+    if evaluees and sans_candidat & set(couverture):
+        rangs = sorted(sans_candidat & {rang for rang, ids in couverture.items()
+                                        if any(cid in affichees for cid in ids)})
+        if rangs:
+            step.checks.append(CheckResult(
+                name="couverture_declaree_sans_candidat", ok=False,
+                detail=f"le contrôle déclare couvert(s) le(s) rang(s) "
+                       f"{', '.join(str(rang) for rang in rangs)}, pour lesquels la lecture n'a "
+                       "retrouvé aucun candidat décisionnel confirmé : la mesure du code fait foi"))
     couvertes = bool(parsed.facettes) and len(facettes_couvertes) == len(parsed.facettes)
     if evaluees and not couvertes:
         step.checks.append(CheckResult(
