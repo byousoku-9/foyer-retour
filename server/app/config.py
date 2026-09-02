@@ -547,10 +547,21 @@ class Settings(BaseSettings):
     # peut porter. Un document plat et large reçoit donc sa carte entière avec son signal ; un
     # document vaste reçoit une carte compacte paginée.
     #
-    # `summary_page_max_chars` est la part du préfixe **cacheable** de navigation allouée à la
-    # carte : ~4 000 tokens à l'heuristique du dépôt (`estimate_chars_per_token`), loin sous la
-    # fenêtre de tout tier servi, et payée une fois par le cache de prompt.
-    summary_page_max_chars: int = Field(16000, ge=200)
+    # **Deux budgets, parce qu'il y a deux régimes** (`Index._mise_en_page_du_sommaire`).
+    #
+    # `summary_page_max_chars` — le budget d'une carte **complète** : le document entier, avec son
+    # aperçu, dans le préfixe cacheable de navigation. Il est cher (~4 250 tokens à l'heuristique du
+    # dépôt) et il vaut son prix, parce qu'il **remplace la pagination** : le navigateur voit tout
+    # le document en un tour, ce qui compte quand `max_llm_turns` n'en laisse qu'un d'outillé. Le
+    # guide (87 fiches, 16 008 caractères mesurés) entre dedans.
+    summary_page_max_chars: int = Field(17000, ge=200)
+    # `summary_slice_max_chars` — le budget d'une carte **partielle**, pour un document qui ne tient
+    # pas. Elle ne remplace rien : quelle que soit sa taille, le navigateur devra chercher. Elle est
+    # donc bornée bien plus bas, et le préfixe est payé à **chaque** requête. Calibré sur la seule
+    # contrainte qui le borne réellement : le contrat AXA (750 nœuds) n'a pas de marge sur
+    # `max_cost_eur_per_request` — `tests/test_sinistre_live.py::test_preflight_outils_nominal_passe_
+    # et_un_depassement_reste_refuse` rougit dès 8 000, et c'est lui qui tient cette valeur.
+    summary_slice_max_chars: int = Field(6000, ge=200)
     # Longueur maximale de l'aperçu d'une entrée — le texte du premier bloc citable de son nœud,
     # c'est-à-dire le signal de navigation que le document porte lui-même (pour le guide, le résumé
     # de la fiche). Plafond, pas valeur servie : la longueur réelle est dérivée par document.
@@ -1009,6 +1020,7 @@ class Settings(BaseSettings):
             "summary_resume_max_chars": self.summary_resume_max_chars,
             "summary_max_level": self.summary_max_level,
             "summary_page_max_chars": self.summary_page_max_chars,
+            "summary_slice_max_chars": self.summary_slice_max_chars,
             "summary_apercu_max_chars": self.summary_apercu_max_chars,
             "excerpt_max_chars": self.excerpt_max_chars,
             "rate_limit_per_minute": self.rate_limit_per_minute,

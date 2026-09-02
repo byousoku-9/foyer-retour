@@ -3184,9 +3184,7 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     }
     response_cache = PersistentResponseCache(cache_dir) if cache_dir is not None else None
     return Contexte(settings=settings,
-                    index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars,
-                                summary_page_max_chars=settings.summary_page_max_chars,
-                                summary_apercu_max_chars=settings.summary_apercu_max_chars),
+                    index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars),
                     client=LlmClient(settings, cache=response_cache,
                                      audit_sink=JsonlAuditSink(
                                          settings.llm_audit_path,
@@ -3222,9 +3220,7 @@ def construire_contexte_parsing(settings: Settings, data_dir: Path, *,
                          raison_max_chars=settings.raison_publiable_max_chars, lecture=lecture)
     return Contexte(
         settings=settings,
-        index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars,
-                    summary_page_max_chars=settings.summary_page_max_chars,
-                    summary_apercu_max_chars=settings.summary_apercu_max_chars), client=None,
+        index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars), client=None,
         pipeline_digest_hex=contexte_gate.pipeline_digest,
         prompts_digest_hex=contexte_gate.prompts_digest,
     )

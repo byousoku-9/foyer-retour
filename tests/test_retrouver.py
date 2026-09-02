@@ -4310,9 +4310,7 @@ async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> N
     """
     s = _s(max_cost_eur_per_request=1.0)
     corpus = load_corpus(ROOT / "data", allow_ungated=True)
-    index = Index(corpus, excerpt_max_chars=s.excerpt_max_chars,
-                  summary_page_max_chars=s.summary_page_max_chars,
-                  summary_apercu_max_chars=s.summary_apercu_max_chars)
+    index = Index(corpus, excerpt_max_chars=s.excerpt_max_chars)
     fake = FakeAnthropic([
         _tool_message(_tool("chercher", "t1", termes=["déchets"])),
         fake_message(model=TIERS["reason"], stop_reason="end_turn",

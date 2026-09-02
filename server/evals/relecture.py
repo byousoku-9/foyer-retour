@@ -420,9 +420,7 @@ def _main(argv: list[str] | None = None) -> int:
             return 2
         settings = get_settings()
         plan = plan_de_relecture(
-            Index(corpus, excerpt_max_chars=settings.excerpt_max_chars,
-                  summary_page_max_chars=settings.summary_page_max_chars,
-                  summary_apercu_max_chars=settings.summary_apercu_max_chars),
+            Index(corpus, excerpt_max_chars=settings.excerpt_max_chars),
             blocs_cles_du_rapport(rapport),
             candidate_revision=args.candidate_revision)
     except RelectureInvalide as exc:
