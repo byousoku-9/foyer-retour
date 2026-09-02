@@ -165,11 +165,15 @@ def _semantic_issues(doc: Document) -> list[str]:
         if node.surface_class == "inconnu":
             issues.append(f"{node.node_id}: classe de surface inconnue")
         readable_article = _readable_article_uid(node.title, node.article_uid)
-        technical_surface = oracle_surface_class(
-            node.title, [doc.block(block_id).text for block_id in node.blocks
-                         if normalize(doc.block(block_id).text) != normalize(node.title)],
-        )
         blocs = [doc.block(block_id) for block_id in node.blocks]
+        # Même règle qu'au vérificateur : le vocabulaire technique lu est celui de la langue du
+        # nœud — celle de ses blocs, à défaut celle du document. Le lire dans toutes les langues
+        # faisait ici la même faute qu'ailleurs, sur le même titre.
+        technical_surface = oracle_surface_class(
+            node.title, [bloc.text for bloc in blocs
+                         if normalize(bloc.text) != normalize(node.title)],
+            langue=next((bloc.lang for bloc in blocs), doc.lang),
+        )
         if (node.surface_class in ("preliminaire", "table_des_matieres")
                 and blocs and not any(is_citable(bloc) for bloc in blocs)):
             # Même notion que `structure.surface_de_provenance`, vue depuis le document publié : la

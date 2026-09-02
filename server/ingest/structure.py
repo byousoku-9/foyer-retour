@@ -98,16 +98,53 @@ _ARTICLE_TITLE_RE = re.compile(
     r"(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
     re.IGNORECASE,
 )
-_TECHNICAL_SURFACES: tuple[tuple[re.Pattern[str], SurfaceClass], ...] = (
-    (re.compile(
-        r"^(?:table\s+des\s+matieres|sommaire|table\s+of\s+contents|contents|"
-        r"inhaltsverzeichnis|indice(?:\s+general)?|sumario|sommario|inhoudsopgave)\b"),
-     "table_des_matieres"),
-    (re.compile(
-        r"^(?:preambule|preamble|praambule|preambolo|vorwort|foreword|avant-propos|"
-        r"introduction|dispositions?\s+preliminaires?|preliminary\s+provisions?)\b"),
-     "preliminaire"),
-)
+# Vocabulaire technique **par langue**. Un motif n'est consulté que sur une ligne écrite dans sa
+# langue : `indice` est le sommaire d'un contrat espagnol, italien ou portugais, alors que sur un
+# contrat français un titre commençant par « Indice » nomme couramment la clause de revalorisation
+# — du corps parfaitement citable. Appliquer les sept vocabulaires à tout document faisait donc
+# refuser la seule bonne réponse sur celui-là (mesuré sur un premier segment réel, 02/09/2026), et
+# l'inverse serait pire : une clause de corps déclarée table des matières devient non citable, donc
+# absente des preuves servies.
+#
+# Une langue absente de cette table n'a **aucun** motif technique : fail-closed. La provenance de la
+# porte de lecture et les autres preuves de l'oracle décident alors seules, et un intitulé isolé
+# sans indice reste inconnu — exactement le comportement d'aujourd'hui pour ce cas.
+#
+# Les jetons sont **exactement** ceux d'avant, répartis par la langue dont ils sont le mot ; aucun
+# n'est ajouté ni retiré. Leur union est donc inchangée, ce dont `_candidates_ancres` dépend.
+_SURFACES_TECHNIQUES: dict[str, tuple[tuple[re.Pattern[str], SurfaceClass], ...]] = {
+    "fr": (
+        (re.compile(r"^(?:table\s+des\s+matieres|sommaire)\b"), "table_des_matieres"),
+        (re.compile(r"^(?:preambule|avant-propos|introduction|"
+                    r"dispositions?\s+preliminaires?)\b"), "preliminaire"),
+    ),
+    "en": (
+        (re.compile(r"^(?:table\s+of\s+contents|contents)\b"), "table_des_matieres"),
+        (re.compile(r"^(?:preamble|foreword|introduction|preliminary\s+provisions?)\b"),
+         "preliminaire"),
+    ),
+    "de": (
+        (re.compile(r"^inhaltsverzeichnis\b"), "table_des_matieres"),
+        (re.compile(r"^(?:vorwort|praambule)\b"), "preliminaire"),
+    ),
+    "nl": (
+        (re.compile(r"^inhoudsopgave\b"), "table_des_matieres"),
+        (re.compile(r"^praambule\b"), "preliminaire"),
+    ),
+    "es": ((re.compile(r"^(?:indice(?:\s+general)?|sumario)\b"), "table_des_matieres"),),
+    "it": (
+        (re.compile(r"^(?:indice(?:\s+general)?|sommario)\b"), "table_des_matieres"),
+        (re.compile(r"^preambolo\b"), "preliminaire"),
+    ),
+    "pt": ((re.compile(r"^(?:indice|sumario)\b"), "table_des_matieres"),),
+}
+# Union de tous les vocabulaires, réservée au **catalogue d'ancres candidates**. Ce catalogue n'est
+# pas une preuve : il choisit les lignes qu'un segment voisin pourra désigner, et une erreur par
+# excès n'y publie rien d'elle-même (la cible devra rester un vrai `titre_line_uid` proposé). Le
+# restreindre par langue changerait la charge utile envoyée au fournisseur, donc les réponses déjà
+# archivées ; il reste volontairement permissif, et la preuve se fait ailleurs.
+_TOUTES_SURFACES_TECHNIQUES: tuple[tuple[re.Pattern[str], SurfaceClass], ...] = tuple(
+    couple for couples in _SURFACES_TECHNIQUES.values() for couple in couples)
 
 
 def _oracle_text(value: str) -> str:
@@ -117,15 +154,20 @@ def _oracle_text(value: str) -> str:
     )
 
 
-def oracle_surface_class(title: str, supporting_texts: Sequence[str] = ()) -> SurfaceClass | None:
+def oracle_surface_class(title: str, supporting_texts: Sequence[str] = (), *,
+                         langue: str) -> SurfaceClass | None:
     """Classe de surface prouvée localement, indépendante de la proposition Opus.
 
-    Les classes techniques sont reconnues dans plusieurs langues. Une surface substantielle doit
-    porter soit une identité d'article lisible, soit du texte de corps observable ; un intitulé
-    isolé sans indice reste inconnu et ferme le gate.
+    Une classe technique n'est reconnue que dans la **langue du titre lu** : le vocabulaire d'une
+    autre langue ne dit rien de ce document-là, et l'y appliquer transformait une clause française
+    d'indexation, intitulée « Indice … », en table des matières. `langue` est exigée, sans valeur
+    par défaut : chaque frontière doit dire quelle langue elle a lue, plutôt qu'en supposer une.
+
+    Une surface substantielle doit porter soit une identité d'article lisible, soit du texte de
+    corps observable ; un intitulé isolé sans indice reste inconnu et ferme le gate.
     """
     normalized = _oracle_text(title)
-    technical = next((surface for pattern, surface in _TECHNICAL_SURFACES
+    technical = next((surface for pattern, surface in _SURFACES_TECHNIQUES.get(langue, ())
                       if pattern.search(normalized)), None)
     if technical is not None:
         return technical
@@ -225,7 +267,10 @@ def _semantique_locale(noeud: NoeudPropose, registre: dict[str, Entree]) -> tupl
         entry.titre for uid, entry in registre.items()
         if first <= entry.ordre <= last and uid not in title_set
     ]
-    return title, oracle_surface_class(title, supporting_texts)
+    # La langue est celle de la **ligne de titre** : c'est le texte que l'oracle lit, et le seul
+    # vocabulaire technique qui puisse le décrire est celui de sa langue.
+    return title, oracle_surface_class(title, supporting_texts,
+                                       langue=registre[title_uids[0]].langue)
 
 
 def _candidates_ancres(registre: dict[str, Entree]) -> tuple[AncreStructure, ...]:
@@ -241,7 +286,8 @@ def _candidates_ancres(registre: dict[str, Entree]) -> tuple[AncreStructure, ...
     for entry in sorted(registre.values(), key=lambda item: item.ordre):
         title = entry.titre.strip()
         normalized = _oracle_text(title)
-        technical = any(pattern.search(normalized) for pattern, _surface in _TECHNICAL_SURFACES)
+        technical = any(pattern.search(normalized)
+                        for pattern, _surface in _TOUTES_SURFACES_TECHNIQUES)
         looks_like_heading = (
             bool(title)
             and len(title) <= 160
@@ -449,6 +495,10 @@ class Entree:
     texte_porte: str = ""
     unite: str = ""
     source_uids: tuple[str, ...] = ()
+    # Langue de la ligne, telle que l'extraction l'a arrêtée : celle de la ligne source si elle en
+    # porte une, sinon celle de sa page. C'est elle, et rien d'autre, qui décide quel vocabulaire
+    # technique l'oracle a le droit de lire sur ce titre.
+    langue: str = "fr"
     # Classe technique décidée par la **porte de lecture** (`pdf_to_blocks.surfaces_de_provenance`),
     # ou `None` pour une ligne de corps. C'est la même règle qui rendra ces lignes non citables dans
     # le document publié : la preuve locale d'un nœud `preliminaire` ou `table_des_matieres` s'y
@@ -602,6 +652,19 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
     from server.ingest.pdf_to_blocks import surfaces_de_provenance
     provenances = surfaces_de_provenance(pages)
 
+    def _langue(page: Any, sources: Sequence[Any]) -> str:
+        """Langue de la ligne si l'extraction en pose une, sinon celle de sa page.
+
+        Aucune des deux n'est devinée ici : le registre relaie ce que l'extraction a arrêté. Tant
+        qu'une ligne n'en porte pas, la page fait autorité — c'est le niveau auquel la langue est
+        aujourd'hui décidée, et le `getattr` laisse la place à un jour où elle descendra.
+        """
+        for source in sources:
+            portee = getattr(source, "langue", None) or getattr(source, "language", None)
+            if portee:
+                return str(portee)
+        return str(getattr(page, "language", "") or "fr")
+
     def _provenance(uids: Sequence[str]) -> SurfaceClass | None:
         """Classe technique d'un porteur : celle de ses lignes, **si elles s'accordent toutes**.
 
@@ -628,6 +691,7 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 out[uid] = Entree(
                     uid=uid, page=page.page, colonne=colonne, ordre=rang, bbox=bbox_porte,
                     texte=texte_porte, texte_porte=texte_porte, source_uids=tuple(uids),
+                    langue=_langue(page, sources),
                     surface_provenance=_provenance([source.uid for source in sources]),
                 )
                 continue
@@ -644,6 +708,7 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
                                   bbox=source.bbox, texte=source.text, texte_porte=texte_porte,
                                   unite=unite, source_uids=(uid,),
+                                  langue=_langue(page, [source]),
                                   surface_provenance=_provenance([uid]))
     return out
 
@@ -860,6 +925,9 @@ def _empreinte_registre(registre: dict[str, Entree]) -> str:
             "texte_porte": entree.texte_porte,
             "unite": entree.unite,
             "source_uids": list(entree.source_uids),
+            # La langue décide quel vocabulaire technique l'oracle lit, donc le verdict de surface :
+            # elle appartient à l'empreinte au même titre que la provenance.
+            "langue": entree.langue,
             # La provenance décide du verdict de surface : si elle changeait entre la planification
             # et la couture, la même proposition serait jugée autrement. Elle appartient donc à
             # l'empreinte, au même titre que le texte.
@@ -1526,7 +1594,8 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             if noeud.surface_class != technical_surface:
                 return _refus(
                     "affectation_non_prouvee",
-                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r} ; "
+                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r} "
+                    f"(langue lue : {registre[noeud.titre_line_uid].langue!r}) ; "
                     f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
             readable_article = article_uid_lisible(title, noeud.article_uid)

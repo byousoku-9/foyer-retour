@@ -211,6 +211,29 @@ def test_gate_rejoue_oracle_semantique_sans_faire_confiance_a_la_structure_trust
     assert any(expected in issue for issue in issues)
 
 
+@pytest.mark.parametrize(("lang", "signale"), [("es", True), ("fr", False)])
+def test_gate_lit_le_vocabulaire_technique_dans_la_langue_du_document(
+        tmp_path: Path, lang: str, signale: bool) -> None:
+    """La porte applique la même règle que le vérificateur, sur la langue qu'elle a sous la main.
+
+    « Índice » est le sommaire d'un contrat espagnol ; sur un contrat français, un titre qui
+    commence par « Indice » nomme couramment la clause de revalorisation, du corps citable. Lire
+    les sept vocabulaires faisait signaler la bonne réponse, ici comme au vérificateur. Le nœud ne
+    porte aucun bloc : la langue est alors celle du document, le repli que la porte doit tenir.
+    """
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    document.lang = lang
+    document.nodes.append(Node(
+        node_id=f"{document.doc_id}:s1", level=1, title="Indice de revalorisation",
+        surface_class="substantiel",
+    ))
+
+    issues = gate._semantic_issues(document)
+
+    assert any("table_des_matieres" in issue for issue in issues) is signale
+
+
 def test_gate_observe_la_classe_et_la_fidelite_dune_surface_preliminaire() -> None:
     registry = SourceRegistry()
     source = registry.add(page=1, text="Couverture fidèle", bbox=[56, 100, 250, 114])

@@ -48,15 +48,21 @@ def _ligne(text: str, y: float, *, x: float = 56.0, uid: str | None = None,
                       source_uids=[] if uid is None else [uid])
 
 
-def _page(page_no: int, textes: list[str], *, depart: float = 100.0) -> p.PageText:
-    """Page synthétique **avec son registre** : l'idiome direct, mais registre compris (4.2c)."""
+def _page(page_no: int, textes: list[str], *, depart: float = 100.0,
+          langue: str = "fr") -> p.PageText:
+    """Page synthétique **avec son registre** : l'idiome direct, mais registre compris (4.2c).
+
+    `langue` est celle que l'extraction arrête pour la page ; le registre la relaie sur chaque
+    ligne, et c'est elle qui décide quel vocabulaire technique l'oracle a le droit de lire.
+    """
     registre = s and p.SourceRegistry()
     lines = []
     for index, text in enumerate(textes):
         bbox = [56.0, depart + index * 20.0, 356.0, depart + index * 20.0 + 12.0]
         source = registre.add(page=page_no, text=text, bbox=bbox)
         lines.append(p.PageLine(text, bbox, 10.0, source_uids=[source.uid]))
-    return p.PageText(page=page_no, width=595, height=842, lines=lines, source=registre)
+    return p.PageText(page=page_no, width=595, height=842, lines=lines, source=registre,
+                      language=langue)
 
 
 def _corpus() -> list[p.PageText]:
@@ -1421,20 +1427,21 @@ def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_s
     assert continued == dependency_node.blocks[1:]
 
 
-@pytest.mark.parametrize(("title", "article_uid", "surface", "detail"), [
-    ("Sommaire", None, "substantiel", "table_des_matieres"),
-    ("Table of contents", None, "substantiel", "table_des_matieres"),
-    ("Inhaltsverzeichnis", None, "substantiel", "table_des_matieres"),
-    ("Préambule", None, "substantiel", "preliminaire"),
-    ("Preamble", None, "substantiel", "preliminaire"),
-    ("Vorwort", None, "substantiel", "preliminaire"),
-    ("Article 12 Garanties", "article:13", "substantiel", "article_uid"),
-    ("Artikel 12 Deckung", None, "substantiel", "article_uid"),
-    ("Titre sans article", "article:12", "substantiel", "article_uid"),
+@pytest.mark.parametrize(("title", "langue", "article_uid", "surface", "detail"), [
+    ("Sommaire", "fr", None, "substantiel", "table_des_matieres"),
+    ("Table of contents", "en", None, "substantiel", "table_des_matieres"),
+    ("Inhaltsverzeichnis", "de", None, "substantiel", "table_des_matieres"),
+    ("Préambule", "fr", None, "substantiel", "preliminaire"),
+    ("Preamble", "en", None, "substantiel", "preliminaire"),
+    ("Vorwort", "de", None, "substantiel", "preliminaire"),
+    ("Article 12 Garanties", "fr", "article:13", "substantiel", "article_uid"),
+    ("Artikel 12 Deckung", "de", None, "substantiel", "article_uid"),
+    ("Titre sans article", "fr", "article:12", "substantiel", "article_uid"),
 ])
 def test_oracle_independant_refuse_semantique_opus_contredite_par_le_titre(
-        title: str, article_uid: str | None, surface: str, detail: str) -> None:
-    pages = [_page(1, [title, "Corps de la section."])]
+        title: str, langue: str, article_uid: str | None, surface: str, detail: str) -> None:
+    """Chaque vocabulaire technique reste reconnu — **dans sa langue**, qui est celle du document."""
+    pages = [_page(1, [title, "Corps de la section."], langue=langue)]
     p.ordonner_pages(pages)
     registre = s.registre_lignes(pages, document_uid=DOC)
     uids = tuple(registre)
@@ -2290,6 +2297,101 @@ def test_le_document_publie_et_sa_porte_de_certification_lisent_la_meme_provenan
     assert couverture.surface_class == "preliminaire"
     assert not any(p.is_citable(document.block(block_id)) for block_id in couverture.blocks)
     assert structure_gate._semantic_issues(document) == []
+
+
+def _proposition_dun_titre(registre: dict[str, s.Entree], surface: str) -> s.StructureProposee:
+    """Un nœud unique couvrant tout le registre, avec la surface que le modèle a déclarée."""
+    uids = tuple(registre)
+    return s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[-1],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid=None,
+            surface_class=surface, continuation_line_uids=[], relations=[]),
+    ])
+
+
+@pytest.mark.parametrize(("langue", "declaree", "acceptee"), [
+    # Français : « Indice … » ouvre couramment la clause de revalorisation. Du corps citable, que
+    # le vocabulaire espagnol/italien du sommaire revendiquait à tort.
+    ("fr", "substantiel", True),
+    ("fr", "table_des_matieres", False),
+    # Espagnol : « Índice » **est** le sommaire, et le reste.
+    ("es", "table_des_matieres", True),
+    ("es", "substantiel", False),
+    # Langue non couverte : aucun motif technique ne s'applique, la preuve retombe sur le reste de
+    # l'oracle — du texte de corps observable, donc `substantiel`. Fail-closed, sans exception.
+    ("lb", "substantiel", True),
+    ("lb", "table_des_matieres", False),
+])
+def test_le_vocabulaire_technique_est_lu_dans_la_langue_du_titre_et_nulle_part_ailleurs(
+        langue: str, declaree: str, acceptee: bool) -> None:
+    """Le même titre, mot pour mot, ne dit pas la même chose selon la langue du document.
+
+    C'est la cause du dernier refus mesuré sur le premier segment réel accepté par le fournisseur :
+    les sept vocabulaires techniques étaient appliqués à tout document, sans égard à la langue que
+    l'extraction avait pourtant déjà arrêtée.
+    """
+    pages = [_page(1, ["Indice de revalorisation",
+                       "Correspond a la moyenne arithmetique des indices publies."],
+                   langue=langue)]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    assert {entree.langue for entree in registre.values()} == {langue}
+
+    verdict = s.verifier(_proposition_dun_titre(registre, declaree), registre,
+                         doc_id=DOC, settings=get_settings())
+
+    assert verdict.accepte is acceptee, verdict.detail
+    if not acceptee:
+        assert verdict.motif == "affectation_non_prouvee"
+        assert f"langue lue : {langue!r}" in verdict.detail
+
+
+def test_une_langue_non_couverte_nemprunte_le_vocabulaire_daucune_autre() -> None:
+    """Fail-closed : sans vocabulaire pour cette langue, l'oracle n'en essaie pas un autre.
+
+    Un titre qui est **littéralement** le sommaire dans quatre langues reste sans preuve technique
+    dès que la langue lue n'est couverte par aucune d'elles. Rien n'est deviné, et l'intitulé isolé
+    sans indice ferme le gate comme avant.
+    """
+    for titre in ("Sommaire", "Inhaltsverzeichnis", "Índice", "Table of contents"):
+        pages = [_page(1, [titre], langue="lb")]
+        p.ordonner_pages(pages)
+        registre = s.registre_lignes(pages, document_uid=DOC)
+        _titre, surface = s._semantique_locale(
+            _proposition_dun_titre(registre, "substantiel").noeuds[0], registre)
+        assert surface is None, titre
+        assert s.oracle_surface_class(titre, langue="lb") is None
+    # Et le même vocabulaire, dans sa langue, reste reconnu.
+    assert s.oracle_surface_class("Sommaire", langue="fr") == "table_des_matieres"
+    assert s.oracle_surface_class("Índice", langue="es") == "table_des_matieres"
+    assert s.oracle_surface_class("Índice", langue="fr") is None
+
+
+def test_le_catalogue_dancres_reste_permissif_pour_ne_pas_toucher_a_la_requete() -> None:
+    """La charge utile envoyée au fournisseur ne dépend pas du filtre de langue.
+
+    Les ancres candidates ne prouvent rien — la cible devra rester un `titre_line_uid` réellement
+    proposé. Les restreindre par langue changerait le message envoyé, donc les réponses déjà
+    archivées, que le rejeu doit pouvoir resservir à l'identique.
+    """
+    jetons = {motif.pattern for motif, _surface in s._TOUTES_SURFACES_TECHNIQUES}
+    assert jetons == {motif.pattern for motifs in s._SURFACES_TECHNIQUES.values()
+                      for motif, _surface in motifs}
+    settings = get_settings()
+    textes = ["Índice", "Sommaire", "Inhaltsverzeichnis", "Corps de la section."]
+    charges = {
+        langue: s.requete(
+            s.registre_lignes(_ordonner([_page(1, textes, langue=langue)]), document_uid=DOC),
+            DOC, settings)["messages"][0]["content"]
+        for langue in ("fr", "es", "lb")
+    }
+    assert len(set(charges.values())) == 1, "la langue ne doit pas changer la charge utile"
+
+
+def _ordonner(pages: list[p.PageText]) -> list[p.PageText]:
+    p.ordonner_pages(pages)
+    return pages
 
 
 # --- 2 ter. Rejeu depuis l'audit, et mode diagnostic --------------------------------------------
