@@ -366,9 +366,20 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     # Et la conséquence, quelle qu'ait été l'humeur du modèle : tant que la clause n'est pas tenue
     # pour applicable, chacune des qualités qu'elle écrit est **demandée** au client — nommée par le
     # modèle, ou ajoutée par le code faute de l'avoir été.
+    #
+    # Deux resserrages du tour 4, tous deux sur la garde et aucun sur l'assertion. `!= "oui"`
+    # embarquait `applicable="non"` : une clause tenue pour inapplicable ne demande rien, et le
+    # témoin serait tombé sur un run où le code fait exactement ce qu'on lui demande. Et quand un
+    # contrôle d'entrée abandonne le jeu de champs (`champs is None`), `_libelles_manquants` ignore
+    # la claim entière : `missing.faits` est vide par construction, pour une raison prescrite et non
+    # pour une omission. Hors de ces deux cas, l'assertion reste l'AC recopiée — l'affaiblir
+    # rendrait l'AC observable au lieu de vérifiable.
+    ABANDONS = {"applicabilite_incomplete", "applicabilite_hors_borne", "qualites_non_enumerees"}
+    champs_exploites = not [c for etape in trace.steps for c in etape.checks
+                            if c.name in ABANDONS]
     citante = next((c for c in answer.claims
                     if any(q.block_id == garantie.block_id for q in c.quotes)), None)
-    if citante is not None and citante.status.applicable != "oui":
+    if citante is not None and citante.status.applicable == "humain" and champs_exploites:
         demandes = _mots_qualifiants(" ".join(verdict.missing.faits))
         assert all(racine in demandes for racine in _mots_qualifiants(garantie.text)), (
             verdict.missing.faits)

@@ -246,9 +246,15 @@ def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: i
     composées par le code. La clause vaut alors `humain` et chaque qualité part en question au client,
     ce que « forcer `humain` et produire une question bornée » demande.
 
-    Ne s'applique qu'aux clauses dont le modèle dit le fait requis **présent** : c'est le seul chemin
-    vers `oui`, et une clause qui ne vise pas le cas n'exige rien de lui (le prompt le dit déjà : « si
-    le périmètre n'est pas bon, les deux listes sont vides »).
+    S'applique **tant que la clause vise le cas et reste ouverte** : chacune des qualités qu'elle
+    écrit est alors due au client, qu'un fait la contredise déjà ou qu'il manque encore. Le tour 3 ne
+    corroborait que la branche « fait requis présent », parce que c'était le mode d'échec mesuré (la
+    porte vers `oui`) ; la sous-énumération restait gratuite sur l'autre, et le cas bougie y tombe —
+    le modèle nomme un fait manquant, n'énumère qu'une des deux qualités du texte, et « subite » n'est
+    jamais demandée au client. La borne reste celle du prompt : une clause dont le périmètre est
+    contraire — fait requis absent **et** aucun fait manquant nommé, donc `applicable="non"` — n'exige
+    rien de ce cas, et le code n'invente aucune question à son sujet (« si le périmètre n'est pas bon,
+    les deux listes sont vides »).
     """
     attendus: dict[str, str] = {}
     for clause in clauses:
@@ -1425,11 +1431,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             for q in exigees:
                 if normalize(q) not in etablies and q not in non_etablies:
                     non_etablies.append(q)
-            if a.fait_requis_present:
-                # B3, tour 3 : le modèle a coché « le fait exigé est présent » — c'est la seule porte
-                # vers `oui`. Le texte de la clause est relu ici, et ce qu'il exige sans que le modèle
-                # l'ait nommé est ajouté aux qualités **non établies** : deux listes vides ne peuvent
-                # plus valoir « cette clause n'exige rien ».
+            if a.fait_requis_present or (a.fait_manquant or "").strip():
+                # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
+                # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé
+                # est ajouté aux qualités **non établies** : deux listes vides ne peuvent plus valoir
+                # « cette clause n'exige rien ».
+                #
+                # Deux entrées, une seule borne. « Le fait exigé est présent » est la seule porte vers
+                # `oui` — c'est le mode d'échec du tour 3. Un `fait_manquant` renseigné dit l'inverse :
+                # la clause vise le cas et un fait y manque (⇒ `humain`) ; la sous-énumération y était
+                # tout aussi gratuite, et c'est là que le cas bougie tombe — « subite » n'était jamais
+                # demandée au client. Reste dehors le seul cas où compléter serait faux : fait requis
+                # absent **et** aucun fait manquant, c'est-à-dire un fait connu et contraire (⇒ `non`).
+                # Une clause qui ne vise pas ce sinistre n'exige rien de lui.
                 nommees = " ".join([*exigees, *(q.qualite for q in a.qualites_etablies),
                                     a.fait_manquant or ""])
                 for libelle in _qualites_de_la_clause(clauses.get(a.claim_id, []), nommees=nommees,

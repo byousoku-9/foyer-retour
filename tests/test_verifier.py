@@ -1604,6 +1604,49 @@ async def test_a_quality_the_clause_writes_and_the_model_omits_is_never_a_yes(co
                for libelle in v.verdict.missing.faits)
 
 
+async def test_une_qualite_ecrite_par_la_clause_est_demandee_meme_quand_le_fait_requis_manque(
+        contrat: Index) -> None:
+    """Correctif du tour 4 : le modèle dit le fait requis **absent** et n'énumère qu'une des deux qualités.
+
+    La clause vise le cas — `fait_manquant` est renseigné —, elle reste donc ouverte, et l'AC de la
+    story (« `ask_client` mentionne […] la nature « subite » ») ne peut pas dépendre de ce que le
+    modèle a bien voulu énumérer. Le tour 3 ne corroborait que la branche `fait_requis_present=true`,
+    parce que c'était le mode d'échec mesuré ; la sous-énumération restait gratuite sur l'autre, et
+    c'est là que tombe le cas bougie. Accepter « caractère soudain de l'événement » pour tenir lieu de
+    la nature « subite » serait substituer une propriété adjacente et plus faible à celle que l'AC
+    nomme : le contrat écrit les deux, et les cumule.
+    """
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", False, False, False, SOUDAIN, [SOUDAIN], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None
+    assert v.verdict.missing.faits == [SOUDAIN, "caractère « subite » exigé par la clause citée"]
+    assert all(any(libelle in q for q in v.verdict.ask_client)
+               for libelle in v.verdict.missing.faits)
+    assert len([c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]) == 1
+
+
+async def test_une_clause_dont_le_perimetre_est_contraire_ne_fait_demander_aucune_qualite(
+        contrat: Index) -> None:
+    """La borne du contrôle précédent, et elle est verte des deux côtés du correctif.
+
+    `fait_requis_present=false` **sans** `fait_manquant` : le fait est connu et contraire, la clause
+    vaut `non`. Une clause qui ne vise pas ce sinistre n'exige rien de lui, et composer là des
+    libellés reviendrait à faire établir au gestionnaire le caractère « soudain » d'un événement au
+    titre d'une clause hors sujet. Ce témoin existe pour qu'un futur élargissement à « toute claim non
+    `oui` » soit refusé par la suite plutôt que découvert en live.
+    """
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", False, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "non"
+    assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
+    assert v.verdict is not None and v.verdict.missing.faits == []
+
+
 async def test_a_clause_that_writes_no_quality_still_reaches_a_yes(contrat: Index) -> None:
     """La contrepartie du test précédent : le contrôle ne ferme aucune porte de la table (B1).
 

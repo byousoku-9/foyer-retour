@@ -327,7 +327,12 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
     assert raisons == {"c1": None, "c2": None, "c3": "hors_portee"}
     rendered_claims = {claim["claim_id"]: claim for claim in answer.model_dump(mode="json")["claims"]}
     assert rendered_claims["c3"]["status"]["applicable_reason"] == "hors_portee"
-    assert verdict.missing.faits == ["caractère subit de l'action de la chaleur"]
+    # Correctif du tour 4 : la garantie nomme un fait manquant, donc elle vise le cas et reste
+    # ouverte — le texte de la clause est relu et le qualificatif « soudain » qu'elle écrit sans que
+    # le modèle l'ait nommé part lui aussi en question au client. Miroir exact du cas live, où c'est
+    # « subit » que le modèle nomme et « soudain » que le code ajoute.
+    assert verdict.missing.faits == ["caractère subit de l'action de la chaleur",
+                                     "caractère « soudain » exigé par la clause citée"]
     # matrice I/O : `ask_client` cite les options / conditions particulières **et** la nature « subite »
     assert any("caractère subit" in q for q in verdict.ask_client)
     assert any("options" in q for q in verdict.ask_client)
