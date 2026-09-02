@@ -30,6 +30,48 @@
       }
     }
   },
+  "claude-sonnet-5:0bd7a370d41d4cd2": {
+    "certificate": {
+      "messages_sha256": "8c4ef392652222466e36b804c6fa810035e61ab1ee9dad86a8a10da585b62102",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0bd7a370d41d4cd2",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en priorité, avant même le logement, car les places dans les sections les plus demandées peuvent se remplir jusqu'à un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise, gratuite et multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années avant le départ.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence étant le seul critère.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, avec une allocation de rentrée scolaire automatique de 115 ou 235 euros versée en août, ces valeurs étant applicables au 1er juin 2026 et revalorisées à chaque tranche indiciaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les documents fournis ne précisent pas les modalités exactes de la demande initiale d'allocations au-delà de la mention d'une démarche via MyGuichet ou par formulaire, ni les détails précis d'inscription auprès de chaque type d'école.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'école est la démarche la plus longue et contrainte, à engager en premier, avant la recherche de logement, les places pouvant partir un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires existent : école publique multilingue, écoles européennes/internationales, et établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:2\",\"quote\":\"Trois voies possibles, et un choix qui se prépare bien avant le déménagement.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Enfin, des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et il faut se munir d'un certificat de radiation et des bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base des allocations est de 315,04 euros par mois et par enfant, avec suppléments d'âge et rentrée scolaire automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, valeurs applicables au 1er juin 2026.\"},{\"block_id\":\"lux-guide:fallocations:10\",\"quote\":\"Montants revalorisés à chaque tranche indiciaire.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexNtAnzV75bWvfnWBMn",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 2833,
+        "output_tokens": 1412,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:2becc401f759a37b": {
     "request": "claude-sonnet-5:2becc401f759a37b",
     "response": {
@@ -98,6 +140,48 @@
       }
     }
   },
+  "claude-sonnet-5:44cbcfc11efcb309": {
+    "certificate": {
+      "messages_sha256": "3aeff33332b5ad337fcaacfa0a757db70bfdda5cd3be9d98728166549c7c82b5",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:44cbcfc11efcb309",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en priorité, avant même le logement, car les places dans les sections les plus demandées peuvent se remplir jusqu'à un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise, gratuite et multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années avant le départ.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence étant le seul critère.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, avec une allocation de rentrée scolaire automatique de 115 ou 235 euros versée en août, ces valeurs étant applicables au 1er juin 2026 et revalorisées à chaque tranche indiciaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les documents fournis ne précisent pas les modalités exactes de la demande initiale d'allocations au-delà de la mention d'une démarche via MyGuichet ou par formulaire, ni les détails précis d'inscription auprès de chaque type d'école.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'école est la démarche la plus longue et contrainte, à engager en premier, avant la recherche de logement, les places pouvant partir un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires existent : école publique multilingue, écoles européennes/internationales, et établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:2\",\"quote\":\"Trois voies possibles, et un choix qui se prépare bien avant le déménagement.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Enfin, des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et il faut se munir d'un certificat de radiation et des bulletins avant le départ.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c4\",\"text\":\"Le montant de base des allocations est de 315,04 euros par mois et par enfant, avec suppléments d'âge et rentrée scolaire automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, valeurs applicables au 1er juin 2026.\"},{\"block_id\":\"lux-guide:fallocations:10\",\"quote\":\"Montants revalorisés à chaque tranche indiciaire.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexPuAMNdmu7dj89fej9",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 4426,
+        "output_tokens": 1369,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:6d6a82c3df9199e0": {
     "request": "claude-sonnet-5:6d6a82c3df9199e0",
     "response": {
@@ -159,6 +243,48 @@
         "inference_geo": "global",
         "input_tokens": 2705,
         "output_tokens": 1104,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:dc1cfdbcda333f2a": {
+    "certificate": {
+      "messages_sha256": "b50deaf4f19a4b7141b055d4d599be246c489a212cbd3ad6b3e63a92f8476d33",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "e732f80893e0468b1eeaa0661a12f5cd7bfbe10b1f3217ab32d4aab2f8684bf5",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:dc1cfdbcda333f2a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"allocations familiales\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"comment inscrire mes enfants à l'école\",\"montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexNeDefauCaUQu2N75Q",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3985,
+        "inference_geo": "global",
+        "input_tokens": 104,
+        "output_tokens": 166,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

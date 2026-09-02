@@ -60,5 +60,52 @@
         "service_tier": "standard"
       }
     }
+  },
+  "claude-sonnet-5:5cba306c58ce44a7": {
+    "certificate": {
+      "messages_sha256": "59230ffee26405fb0db28beae87c10cd4ad2ca1e3b5976c609ad9913858e7893",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "06d5979797b4c78bd75fdd23b547b6438d4f616dfa2bd4791ff2934d15d8dc78",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:5cba306c58ce44a7",
+    "response": {
+      "content": [
+        {
+          "signature": "EuEHCpABCBEYAipARwJM4TWreUWddARJo7xU8TQnEwcAArXyrYdJYoiXN9BWScdYtAMfQazlpAXVDhRxaD8ps7leQeWlBig+Sd8bVDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaSn4dQGEgz4YQQ88x8tpdttKsQaDDwDXi485kSXnDZCVCIwbGX9l8kuv2KxnGrdmK0iZliahyW+o5KDjiXzlB1PZiLIQQePfXNDzhNS8JGqj+ulKv0F7rslpY6vJGz5+CRci0WA2jAEwgvdIcoA9kXhhY7ul4I7UbB0Nttz7qYBm99v69vIDgc3CtLFFBk/oQvpmPf1D1Cm/D9Z/ljnLeAAanLebChGMkvwwS993cmHBEbZmFpuHk1ZUkzk9rnpr5/QVNMCagUUaav1DyNHlt0/xCKVrtVlDJ2M8sd5/kxQuQP65ebWWwmKaim0JnnYIHmQb63JRQaqUc6sde59pOBRYN3luIbWvXYXjBswauQt4W8Q/EEt4N73jQwpACthXJeHKNJsst3bfahiTSwAPUpoRik7rCWBCPJ2dAx6foK/x2xJCbkVjdfppL1oRL3aevr7bDlZvZ+T0m1SbT0Lls/KshtU5bpYUwMoxjPw0PGw1Pof0ZYDzGjKI8P7/ilV4xSyiPjpSvVrp5E+XHzkDzy2+axHsOVRkWxIwa8XcDlgZ7a/U8p1SOO77ZqkXV1OiZ9Hq96ge4gtuVxsIjDV2Cw+YxzQSk2xn6VGr4avDFahseTtHyrvCBo3tn8hSRUXan+R3IMD7XW//76b3krbxfxKfvnnXqzvjJTg4BIi5BRClzSk+TcYCfvHXQ4HL14panqd06sG9oFB0421u2ZhwYokdplwy1+mzVug39pL1aRTnDteYgabjq+bRSm7/7o+nAqkf/yq4kPxdMnZAYPfFaPem19EvxKlxIShmqUNJzW5/RaqTvvNGKPvPdmEx9a1cZrST3bbB6o49Z5UAT09vOtYQXN18MDE3i6ML6ueW9pPWwq/jllTFCbt7CMdNLV7BXbabQauWe/zmSQU+F8I42D96A+der7OhGKKTwp2WTq0csOHBiddxk2ndg+10D4CFFJLP0PWrm4rgf2hLJ0CpQxGwpXxyg5hbWadlz0v1dXrP781E6flGpKrOLYO+GVBGkgAbSI2lc8umyq9XRU0kI24L6xWtIVFJozXrLTqimR6I3fniNbZL6f5HOXhsDCRdPtuZxD7C3RQi00de6TyFa77vNZLsVkpw9PJ7q8M9oVQg41SGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quelles démarches dois-je effectuer pour ma voiture en arrivant au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"immatriculation véhicule\",\"assurance véhicule\",\"permis de conduire\"],\"themes\":[],\"facettes\":[\"démarches pour la voiture à l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexQtoYsTijvPftXncEU",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5279,
+        "inference_geo": "global",
+        "input_tokens": 199,
+        "output_tokens": 423,
+        "output_tokens_details": {
+          "thinking_tokens": 261
+        },
+        "service_tier": "standard"
+      }
+    }
   }
 }

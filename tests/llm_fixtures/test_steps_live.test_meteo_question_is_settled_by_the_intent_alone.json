@@ -60,5 +60,47 @@
         "service_tier": "standard"
       }
     }
+  },
+  "claude-sonnet-5:62a2c101020c9038": {
+    "certificate": {
+      "messages_sha256": "6f0c291e87c9cd40aec1808a8f4cb23c07889ae853e0a70f85551b2fd0ca0d90",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "e732f80893e0468b1eeaa0661a12f5cd7bfbe10b1f3217ab32d4aab2f8684bf5",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:62a2c101020c9038",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"meteo\",\"question_resolue\":\"quel temps fera-t-il demain à Luxembourg-Ville ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[],\"themes\":[],\"facettes\":[],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexNQnWicXUEsTtGuvfq",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3985,
+        "inference_geo": "global",
+        "input_tokens": 90,
+        "output_tokens": 108,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
   }
 }

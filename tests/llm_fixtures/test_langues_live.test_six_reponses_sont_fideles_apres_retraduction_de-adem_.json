@@ -433,6 +433,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:e2c6dee017c9aa39": {
+    "certificate": {
+      "messages_sha256": "a02a274cc01afb36b178fa64ba94329c8d4983513cad8721f660f16554c928b4",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:e2c6dee017c9aa39",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\":\"de\",\"fidele\":true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex4FmHSoo4yGARQJeDh",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 850,
+        "output_tokens": 16,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:e9082a737628e1d4": {
     "request": "claude-haiku-4-5-20251001:e9082a737628e1d4",
     "response": {
@@ -460,6 +499,48 @@
         "inference_geo": "not_available",
         "input_tokens": 947,
         "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:040ae5817772f6a0": {
+    "certificate": {
+      "messages_sha256": "8a07842aa5231e3aa9781b7fda13536875710574111782ce2408a9f382f6adb8",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:040ae5817772f6a0",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Die Anmeldung beim ADEM (Agence pour le développement de l'emploi), dem öffentlichen Arbeitsvermittlungsdienst, bietet mehrere Vorteile.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Zunächst eröffnet sie Zugang zu Betreuung, Weiterbildungen und unter bestimmten Bedingungen zu einer finanziellen Entschädigung.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Besonders wichtig ist ein weiterer Punkt: Arbeitgeber sind gesetzlich verpflichtet, ihre offenen Stellen dem ADEM zu melden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Das macht den Dienst zu einer Quelle für Stellenangebote, die anderswo nicht immer zirkulieren.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\",\"c3\"]},{\"text\":\"Die bereitgestellten Dokumente enthalten keine weiteren Details zu den genauen Bedingungen der Entschädigung oder zum Anmeldeverfahren selbst.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung beim ADEM ermöglicht Zugang zu Betreuung, Weiterbildungen und unter Bedingungen zu einer Entschädigung.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation.\"}]},{\"claim_id\":\"c2\",\"text\":\"Arbeitgeber müssen ihre offenen Stellen gesetzlich beim ADEM melden.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"les employeurs sont légalement tenus de lui déclarer leurs postes vacants\"}]},{\"claim_id\":\"c3\",\"text\":\"Diese Pflicht macht ADEM zu einer Quelle für Angebote, die anderswo nicht immer verfügbar sind.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:6\",\"quote\":\"L'inscription à l'ADEM ouvre des offres non publiées ailleurs.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex1nVQ92EY7DXUoYzoF",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 2781,
+        "output_tokens": 819,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
         "service_tier": "standard"
       }
     }
@@ -532,6 +613,53 @@
       }
     }
   },
+  "claude-sonnet-5:7d51a2b6a137057f": {
+    "certificate": {
+      "messages_sha256": "eb4592e83bdd49567660c4d45158123859e8316a5614e8ce85e26bda70a32b97",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "06d5979797b4c78bd75fdd23b547b6438d4f616dfa2bd4791ff2934d15d8dc78",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:7d51a2b6a137057f",
+    "response": {
+      "content": [
+        {
+          "signature": "Et0CCpABCBEYAipATZVYG5ucImjTVYDDNTIwybzZMTmmHFczxFATskbuNiFLvUy8ZCof/kPbIMrzRpnG+AYLJY2q/SvmL9LZkh3toTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAeWk4dQGEgxfUQnbx6JGX5fx3l4aDKxrAxxVRUasLzsshSIwKuWy8fy/J98+aYG5yTaap2ohmNn7pidezNbcbw+EcwzPyBloH9VYI/l8j+tzmdshKnohlx2Un2EBVpXnhdnB4b14+Zh7nFPetdabcIQuB+9y+wi+Uv8hjzemoQ8GPrm0oQXq9nSoNkjlcsE6tUhLwLbL0wmdtPmdqGz5OQPt6cMv/up/53+4NX/uOMKqyGA8iyaaWnX3wyXl9uZbn37fRgRFnxWxf+gdnF/1CxgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Welche Vorteile bietet die Anmeldung bei der ADEM?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"ADEM\",\"recherche d'emploi\",\"inscription chômage\"],\"themes\":[],\"facettes\":[\"avantages de l'inscription à l'ADEM\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex1ZgiGmbvyYXQJR2y1",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5279,
+        "inference_geo": "global",
+        "input_tokens": 91,
+        "output_tokens": 185,
+        "output_tokens_details": {
+          "thinking_tokens": 39
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:921d98bf3f2bad90": {
     "request": "claude-sonnet-5:921d98bf3f2bad90",
     "response": {
@@ -561,6 +689,53 @@
         "output_tokens": 851,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a137f671fb884611": {
+    "certificate": {
+      "messages_sha256": "0a6afe8fe64ad76f94b2bb0c8eed2fcbaadc7d3342ac322141556a24f8b5d622",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:a137f671fb884611",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"hors_objet\"},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"non_soutenue\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":false},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":false},{\"segment\":4,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex2QBVkrVPmhyCDDLDE",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1136,
+        "output_tokens": 2400,
+        "output_tokens_details": {
+          "thinking_tokens": 2195
         },
         "service_tier": "standard"
       }

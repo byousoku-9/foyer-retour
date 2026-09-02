@@ -88,6 +88,7 @@ from server.app.domain.verdict import (
 )
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
+from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 # Un `claim_id` produit par le modèle n'entre dans un motif que s'il ressemble à ce que le prompt
@@ -1181,6 +1182,11 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                                     budget=budget, step=step,
                                     max_tokens=(settings.verifier_sinistre_max_tokens if sinistre
                                                 else settings.verifier_max_tokens),
+                                    # Dérogation d'effort nommée par prompt (`EFFORT_PAR_PROMPT`),
+                                    # seulement sur un modèle qui accepte `effort` (AD-9).
+                                    effort=(EFFORT_PAR_PROMPT.get("verifier_sinistre")
+                                            if sinistre and MODEL_CAPS[model_for(step.tier)]["effort"]
+                                            else None),
                                     trusted_line_uids=trusted_line_uids)
     except PipelineError as exc:
         # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le

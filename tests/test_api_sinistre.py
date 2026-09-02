@@ -261,6 +261,7 @@ def _poster(client: TestClient, corps: dict[str, Any] | None = None, **kw: Any) 
 
 # --- ligne « Liste des contrats » ----------------------------------------
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient) -> None:
     """AC : le contrat AXA est listé `kind="contrat"`, `status="servi"`, édition « juin 2017 », source.
 
@@ -297,6 +298,7 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     assert baloise["report_status"] == "disponible"
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_baloise_gate_est_servi_et_selectionnable_en_production(
         production_reelle: TestClient) -> None:
     reponse = production_reelle.get("/api/v1/documents", headers=XFF)

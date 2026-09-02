@@ -288,6 +288,7 @@ def test_un_gate_non_contresigne_ne_dit_pas_relus_a_la_main(cas: dict[str, Any],
     assert "gate_countersigned" in code
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_le_readme_ne_decrit_pas_une_relecture_que_les_gates_livres_nattestent_pas() -> None:
     """AD-16 : rien n'affirme ce que rien n'établit — et le README est une surface publique.
 

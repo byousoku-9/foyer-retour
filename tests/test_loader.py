@@ -236,6 +236,7 @@ def test_missing_manifest_gives_empty_corpus(tmp_path: Path) -> None:
     assert c.documents == {} and c.quarantine == {}
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_repo_data_loads() -> None:
     """Les trois documents dont les gates finaux correspondent à l'image sont servis."""
     c = load_corpus(ROOT / "data", allow_ungated=False)

@@ -82,6 +82,7 @@ def test_p46_exclusion_is_first_block_of_page_under_a318(doc: Document) -> None:
     assert parent[b.block_id] == f"{DOC}:a3.1.8" and b.continues is None
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_document_shape(doc: Document) -> None:
     assert doc.kind == "contrat" and doc.edition == "juin 2017" and doc.doc_id == DOC
     assert doc.source_url == (REAL / "source.url").read_text("utf-8").strip()

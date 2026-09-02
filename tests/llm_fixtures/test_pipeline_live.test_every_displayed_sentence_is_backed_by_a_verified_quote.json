@@ -247,6 +247,95 @@
       }
     }
   },
+  "claude-sonnet-5:0bd7a370d41d4cd2": {
+    "certificate": {
+      "messages_sha256": "8c4ef392652222466e36b804c6fa810035e61ab1ee9dad86a8a10da585b62102",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0bd7a370d41d4cd2",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en priorité, avant même la recherche de logement, car les places dans les sections les plus recherchées peuvent se remplir près d'un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique luxembourgeoise, gratuite et multilingue, les écoles européennes et internationales, ainsi que des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune doit précéder l'inscription scolaire, et il faut se munir avant le départ d'un certificat de radiation et des bulletins des dernières années, souvent exigés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, dès lors que l'enfant réside au Luxembourg.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base est de 315,04 euros par mois et par enfant, majoré selon l'âge, auquel s'ajoute une allocation de rentrée scolaire versée automatiquement chaque année en août.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas les modalités pratiques exactes de dépôt du dossier scolaire (formulaires, autorité compétente) au-delà des principes généraux évoqués.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription à l'école se prépare en priorité, avant le logement, et les sections les plus demandées se remplissent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies existent pour scolariser un enfant : école publique, écoles européennes/internationales, établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen.\"},{\"block_id\":\"lux-guide:fecole:2\",\"quote\":\"Trois voies possibles, et un choix qui se prépare bien avant le déménagement.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut s'inscrire à la commune avant l'école et obtenir un certificat de radiation et les bulletins avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, avec un montant de base de 315,04 euros par mois et par enfant, majoré selon l'âge, plus une allocation de rentrée automatique en août.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex98NBNK3a4NF94Zfk7",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 2833,
+        "output_tokens": 1236,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:14ce306d59188597": {
+    "certificate": {
+      "messages_sha256": "9b99d8f7d83d553012810f114b9b6b1403e34607bed13a225e3170230bc2f1bb",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:14ce306d59188597",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en priorité, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent au Luxembourg pour scolariser un enfant : l'école publique, les écoles européennes ou internationales, et le privé.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de partir, il faut réunir certains documents auprès de l'école d'origine",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexBUqYLnEPgRuq6PNmK",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "max_tokens",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 3087,
+        "output_tokens": 2048,
+        "output_tokens_details": {
+          "thinking_tokens": 1872
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:2becc401f759a37b": {
     "request": "claude-sonnet-5:2becc401f759a37b",
     "response": {
@@ -417,6 +506,95 @@
       }
     }
   },
+  "claude-sonnet-5:cc3e8310bfe48675": {
+    "certificate": {
+      "messages_sha256": "76464ffbf054a50c29e9dc872133a031fd81927206c6bd621de074aba409657b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "f651a74b08e5c8e4d56d4bf48be3c380ae955059dac2b4833b1a94ba40105fd9",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:cc3e8310bfe48675",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en premier, avant même le logement, car les sections les plus recherchées se remplissent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Trois voies coexistent : l'école publique multilingue, les écoles européennes et internationales, et des établissements privés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence étant le seul critère, avec un montant de base de 315,04 euros par mois et par enfant au 1er juin 2026.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Une allocation de rentrée scolaire est versée automatiquement chaque année en août.\",\"kind\":\"transition\"},{\"text\":\"Les blocs ne précisent pas les modalités exactes de dossier requis par chaque commune pour l'inscription scolaire.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de l'installation, à engager en premier, avant la recherche de logement, et les sections les plus recherchées partent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"L'enregistrement à la commune précède l'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:q31:2\",\"quote\":\"L'enregistrement à la commune précède l'inscription scolaire\"}]},{\"claim_id\":\"c3\",\"text\":\"Trois voies scolaires coexistent au Luxembourg : l'école publique, les écoles européennes/internationales, et les établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont dues pour tout enfant résidant au Luxembourg sans condition de nationalité, avec un montant de base de 315,04 euros par mois et par enfant au 1er juin 2026.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexCx3RnvFVETbUKutXh",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6808,
+        "inference_geo": "global",
+        "input_tokens": 3278,
+        "output_tokens": 1103,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d88666a6e69887e8": {
+    "certificate": {
+      "messages_sha256": "e3a8f41553a1475a307ddfde13faed17a54b230227822738aca5d4b6c377f51c",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:d88666a6e69887e8",
+    "response": {
+      "content": [
+        {
+          "signature": "EpUlCpABCBEYAipArUnPKYygPSai9hlzNJ7USvKPSjAPKo7islSm8jxqO4Zb4/5AVxO+IaVdmpiCqlk4aO0o7/a8ABhIEkzXbtygXTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAeil4dQGEgzlT0P//Sl20ExQFNAaDFdVBpZeLTYuBj0nsiIwuJvlIaqx9WQW1spxE5Nswz69sTIcUrii6C9mjpQuCIUpDAm24QusI/ux4eE7bmJWKrEj04vVLZ9S7UMsgDva2cTuKMXzS+Z5BDFIAn694ynN8C0ODhfe+slPIFGxFxM6/p4tzkORGKSGHt28vKkMx74fRffdGZCgwxHyhVTRvDQskhWpxfskRFluQMxsqAxE7tVyCPne19tAMzQ1M6rehUq5g7zOYhZuqk2s1JlIc/NIUAmkqcoLg8ZpIfc13oC1hupUNE3+yundB280oLxX8ECiGgHwC58RyJIwOim/IKUSPn9HpBc9E4ztGiOePUbVwDGVVHf33DEoDjfQgZGrwbDgRT/1g+TuqgYJBI0iYXlWB10wn7u8l1zABxLNI7Pygb4mMv/Ta8CMeFcOggFw6K926h8MUVMRbUWu4q5mN40ev3avxT6f6xOno3b9pYX6lnbf/KzW2g+pwXfJrCI9IZCNFRoTyHQzWN6RI0ECndg0bZYGbxngelg/mIQ6cRFSfgwX3v0zmQfv+kaiR3S7PqVx5KM7gEDDHHFotRSIXMKaKzv1Qhps30hsbgFDgo4hzi2Hu4DJCmyG1CeRootLltGQfmrswWFTJrYFjZoC2+yrNqFsbuY7UyV2IwKr9OpF8BoWFYPdNw6o/V7VFGjUHua23q4YpVZMlNHcD4/AHI81SPAkx+k7hL/PNChPOk/A119mCR0XdullfEadWpKb5Vu/PTCknO8/MGCtGCO3PwENLGH/cBl1quLoy5ifGLtqmZGvLIMQGbVcnOGdRWkB3l88Pbq9P1uGZg7zj03A1LqRBLcrlZTxS4DfUhKWCeERpn9hnSMtHCkISup+heiOgDVncNUTWv3LWBiZtp9I+0KfBABElf40YFJ0VOf+V+xPs8+pCvHQpCQVogQcBSLDj0SIq1Ja9RbNJckzYvZa1+sD+ZHbQV5ti9O5d8kxKr3eTXHQMFM3QMBKty8wRhPFDeXHW5M5ux3EzCvpR3BQ5F+1IAslgFEfQ9ueVTm5Ew09BIO9f46dL/KNSWj83VKtHRcwJbu5OqOgiAmzikNfiEghXVr3meRx/p7Oax9B0TwrOXp0Qthr0GjRe/2Uum3xsz6xXKLxHBZ0mOLdyilb1y5Od/qQaOScSZ1Zr6xocqUUnOPADAjadVqBHiO4BuzMHZDgMb4975McwhgsWt7HRrD5EVsAVjgLXl70g16FEZXlExaznOx07mCBYoqUKrjknhLLAbZErs6qo2VVXKPT3HOkPJMqF+yFZGUdmk0zkdKKIpGXLBQC+ul45jPl0MKPAscgFePTXd21rI0+RDcmjNpHnHaP6YEwrnPktWYGQ7a+XvxCPj3EMSwQOOHjtfCzgAMb77/ohx4mDmQ0tC7Sne2h827A6nnCnPl0PQsl6gpNMtt1bNLLITXObuU/6IYNKIhVhwPd3r1MDBIwcYbUJ1ajhYfJsRc6dMdkPDTQKXULomB/bn/YIG35YOCelXxZd21VtOXtBiUqFMO4NkR5FAaYmLiLBTIzi3UeCLdyavWVofRe9grwqc8BUY5fHfoyNqxSSlEhEgqcpH8C4YwwrfydUs837GLCabyrgf2mSnJndlEhCMhD69bzcsO1qF7/mTFIJ1uczuyHlIqi0/xA77xWQlNCFOifJzDy6hUj7DEGvaN20wLhCqe+LSWVfWijFljgBqW+7EwDj4BCvotH3G540wddQ1/SMR50VM5KeEgoDyLrZIsjuw31hqYGi2SdaZ2nsT3do7PBnBAtXqL5/IJyZhKkdQxgINuJc19wvydhoVDLotaQrSxWA+uAuAS5poVTeWfmfEIuthz8mdMPqnBepl6aUhdtWF6O/WyF5losPieyo68Q9gGbv8Jmbjf2HibT3HzE+GNvIQxG08EVgrHopJwi8HoHoEkeZ21IaoyZhaH5FWi/GewTQ47v7yvFqBEa4igVlJxhW+v7LAEOw614koum2+ItjkOxT0Rs+HCyWHVIPEKeiu2g0gXxu15/8GyUnCL18fYTQPTMWi7mXilSE4SNViHxGcCSF2cuYFvvXR3wwYgrLUVbR5djJ55JlH6daMGrSlIYdLEWVZJm8tfwOz1/DuzcesVlHYxOt1egdGNI6Tbmgwj9Y3gkGLok82LT8Of2ih24IxzmzByGfk8UWaM2aK/EXeNPNqC5VeS8RtVbBR0gly9Z5rtLcpeUI/fY7pdmB45iGGFWgTv7hQ5FTUQkLHW8W+qYTnaDcYQ/zJJpo8KjrvU7qZQbFjFhrYiYv6oPH1hOUtxucdqmqPqYn4qaCdchYly6aooerrvd9sa2Ic4vRX3VM9EXv4sjIMlXla3i9vcq9tBpXpZG2T0Y44pUlscb9Dm8PcO++jyr3hI2NZIEgOtl9wqk1az0H8bqTYW84PlLmgdtilPUBWnbs4rUQg/Mi0binFzvdE9GIxeFJdLnm6FOSiQdnMNZLjA5++v+h16ncdf7CMo0uI8ukG+5NM/yiG6cKOzRZated6oC+YUXuHrmUfjWh3cybkJN+UGHsLVOn/i/ChtjivA1EuGUTqcfwg2L1E9cb6atdp7ELuIDpfi8ze8wrVDbr9o7+eOK188ufAu0zeeWGvQHMVHR4Dqe7IfQfOzb8/UuUj1+sUBhT6qw7AWPoZcbh9TWGob4V0IUR87eSdq7H6jmV8HsJ36gCjjwHsT8QfQKgmRrt8Wucd4nMbcjTc2QbtTPftipCalmcYSpxX36XgB3KupUHNvYBbxqle5JYS6uyfwrluxPaBDz50xIz9Cjva96UnnF4/OHSlLMBlst2xaHM6vstexpz4Uq4xz9B11p+6/rBgCvma6AK8PMeoy/HmED6SZ4ZKgCd0OyZbr9v4e7mxqN0cXQ08SpJosDMw1TntAvl9SFysjSNLuWC4ZScGQEpUpkYwXYDyuKnEzQlY98/DpQI+Wg1CKHjpvtuYqj82yHGdD7nQW7tJPdR1GTxXu4vnCf5Pv0qBYZvfZmO+F+D7XJ0z5j2dV9hiYXfW4gAV/CJ9K+TnRrVFqe6aYps6z8v5MS+pBZu8jL1Esuim99rgzE+6MoblEG/EOuC9f4C6eOYQseNWaKw6DIXkdX/eT76+eQcjDNDWrpI10vn/ce9M68W0ZV1W93dVv5S77IAqNYCzb/hOPXtTqn60v3IdO/8D/dFSc0deL3YklIWpBvbUvB4hi8P6MwIj1Tz1P/hZZ0VyfnFkp2SOmN5NY04JBpU+Vgo0+RcSo1Lr0bZjrRnB68TKmdkxR/17YjKXGY53NGLMWZWNRykH3O4AYmJrR7qfjfHS0G9vPWvmrweWemmYqbb9cuYK0/6+/6VJN7s2SG6lb74gHmIJosMp9NTbmwng0jbfCaq+PLGFIBGMUD9sETZ34S6+Cpw2RdiKHtumhL7O8BD4nqLAH1FEcs+JSsT23wuQtry9C0ojqcYU9j0yOOcNczyqOheNa2TJ41a5QY4WNOU28jskK79siZSsauoKzGd/9jQ9Q/94Yt8Qxajprko5NrnpW4/koLXAjOIZ3SFjm2E6OE8bturP4qFFWFdlYh4hFCVLtEr25uiWOrdDt0rhkmlxOH0EyD28dTimTDj8HbBZXmYQikjE5tk9XbisYdywgJadYFCfDUVbrHs6qxgdO3B7i4M1QDvxrkRESynnl/Vr/gNDjmhInJMZwWz3EVvvCKdKjkIpG1sQ7Q3Ku+DNmBmEAEDvVj1+eTTGep/fJxHcBZKn++DqryOWFNY1JIsrS7z5cbk23c9ko2tX0B0Ph+t/zyf1/iB0Y3HvKvdpvymv5kKcQCYGUq5pJgHpTofWqHXd2e0PRMnxOfYCHgemPlrX6cTWGSDuU5jqL0pFKcsHhAGzn2f94cWaO933AJ7LDyFYlYj0B51lHxsffn6ztESyVt+aH2dagHHaNxdtaBFSPWfYmnrJrVE3+fGNW26P/OSpZU3DiIwVOyk2/toNZd0f3MN+YrB2JxvFCiZtwuFZuKj5rqKPhj6fJTF+IZSSw45P47rYREtE22/dkaWW4JhOPhlWA0wa9C20cHcOGBW4uPl9F+N3PVyri4sr8Tp1PHynNyWyJxtheeWJNBOm8xvt15LFjOBdu9sPsgTWsiKvLHGnnV1sjs1Xo1wxP+YNluqIWossbBn+eD8Bt63Qw2xWE4j0I4yNpuW5XPGDGmn7Py0XUw2O4lZOfJPF21x+3beU//b+WQ4Oeg3SKo5NXjW0vDAF6TXgoXUG4dYJ2bsTJDzSDWwaLKjp1gzMt4U0p+9GVAacrD0W4ILrbMYc3vcjVhOnFjGvGPHva54btfp5a9HQ38RV2qNa+Podfl00MfX0NeqF/h5u+vF6cZx0hUh75K8HI/NknXW3JFDlhKSccqH0YVnX1GoFNYRzal2JfHV005kkVr+h62pTkKXqxO//Rr3iwD8CpXk5xhSRgENewHk3QeerbMPFWIdU6Oew2XRxzxJFTmoNBAQJyu4DnN69W0PLphuMVoS3rjoTM9haDaVhYLoGRTutywCGYbLa0N5CGT8MAGNbJrmR9OPr4jXr52pFrnkMFH0D3oEAd7b2xqtVX46CP0sQEmqxAeGSsKd27Rw8fRUQUHQ/vvKzIxiYA+vNxjE7lgNcFPvVW01WkBsWX6kMagwobThVrmLV2dYJFZ5ZHH+TtFlWEIg7OtiQ5zwX3Q+BSNMxDzMaMu6T0valLzEaudkbyXLX2UKYuIUOeU71qhZrJlqE9ebcwYJxa81JN/+AanA2WjfnOnZ3IgZlOSbsNKcEQKBaHAwMjYPg8fiILOExkuluTbhL4lu/8sBic+pY0vsp0ZU2GdN/MoneRodquyHRmnm5bRl31Ii+I/NRSa66z9P4B29mKrrmfXr80d2mT5X+8HqxwOS62Sup/998zDq0ohpS+/K532vVvy10SiMYKuXJkhnCgzwCOwq2xbfWNZ8KsyrRYQJ99tAANaCOEEVn7tGow8hK3nJZLBetnvtzEfIyHSOVxl45TRgzj+f2WkNnlupyGENH7OZfVyfSg3QX7HIyNnSyOgBnyR7M5wJvtW6QVvQwP2AyZVaD64frwGKWmJgBmrbmxJEUJUks2ldF0dhWxXYKc6uZPpGQ4RlDA2yDcU9xKJq2FEqpkXhos/P2P6pgcvTJ0cPqZsq4ja78p3MDGeUgwsnc9ekGKkVyLsEtVwxYFSM7wZYEiUQGU/ut+ipTDiVElgF3vb1lHBy9LKM+VcVawwuFAJtpogpDfijNPcDkCQjWYKhVsCBaV9DZv+jdsm0+Rn4ekcX0tWbGtrno7yqRjW6YnN5OV03Yz7llpgMTVlod9HMRbb6AZrBdTsiWXUqHzZZ90IV76mPJIY9DMnqiPTkFYmhhSoIPEM0vzxfQs4TPwWcaj7KJYn9dZn00Rz04N/tlf8qEeZ5i3YryXUEjSzB4WZ+CXMbthcbF+buFZN7gTmmC3x3/PNEzmqTbtNtgcK9L5xnQOO2sY/IH3tkQlpldN+mhAEQvHDLzvpvtv6ecOzODfTUhqmoDWbKtnTxaSP7ZIOj0kUTjIvsKHEbIkdJQbWvxwD70vAK75nbRyHRKMEQcyW7MuxD26ukkNieCnuJLlgcmff4c7t19P2WlFoaXg0INcL+cy6SI0AOs4enrrdIxfsoQFf6uFdY3NHNkpw2AuDum++rl/tnYEr4UJ/qR+ITMDedWzRm8F+ox+Kc3FVTp5CHA85vRuhkQ3g2tSQvZPFsyKoYB1A1al2Nz1eWiBAYQhW5xu3MJg84Y9Wi8wDt4FGd0YfdWIWslXZ+DDBIBu7X7PhS75KUUcw2Z/kWm570cvNMOHTJ6f4Sf4wT+qf4JhnLx/4VohYhn9CtwSmtIggbtV6FwHELlnVDdyzmPo6cXw3XN9phdsW340UxX+rtscr69xcHYrh1LhRiW9TrDZzIVOXc/J+Bd1PpHsWexMYoT8PaZ35zc90guCd63AzJzE/FjdEeEZfKS6thetZMsKBthbfAcbrnvGzJkEk6xnkgMdCeYEUhp+a0nyavch1ZYLDV+4AdmiNlBAWesl04S6DbUf+9f3JBSZAoLSzB1n6+J1iaJCj9+WPVk3uLUCL+/SxOBDPW+yGipRItvtoXlx31OFO034KwU4YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c4\",\"pertinente\":false,\"raison\":\"non_soutenue\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[]},{\"facette\":1,\"claim_ids\":[]}],\"segments\":[{\"segment\":0,\"soutenu\":false},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":false},{\"segment\":3,\"soutenu\":true},{\"segment\":4,\"soutenu\":false},{\"segment\":5,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexA5NNhzZ8EVatrPDkJ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1666,
+        "output_tokens": 1769,
+        "output_tokens_details": {
+          "thinking_tokens": 1496
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:de80b8cbb0729bd9": {
     "request": "claude-sonnet-5:de80b8cbb0729bd9",
     "response": {
@@ -446,6 +624,53 @@
         "output_tokens": 1401,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:f2ba498eb417c0b4": {
+    "certificate": {
+      "messages_sha256": "b50deaf4f19a4b7141b055d4d599be246c489a212cbd3ad6b3e63a92f8476d33",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "06d5979797b4c78bd75fdd23b547b6438d4f616dfa2bd4791ff2934d15d8dc78",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:f2ba498eb417c0b4",
+    "response": {
+      "content": [
+        {
+          "signature": "EqcHCpABCBEYAipArDon34yqtnx8tWpmfnaXF1yoRxkhSSJrojuqVa/YAj72/h4lNzsUlOP+H9uL5ibjGEIAioglQ27usNvl5lN00TIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcil4dQGEgyl3n44Bjzw7IOObQoaDGv3VCh4twzP5KrpwiIw+bYClzfFTFO3eOtQHZ6IkW67eTyVVbwb3m4NRC10zwvwq93Fn1IOlS5rssAtmQk9KsMFS/wxfvcWxXPr8pYCaDxMdvP/Zz/Kb7Adj2B7EsaSzI97kIcbZu6YcmGCz8CwspOBdI0KmheOHysg/BvpxneL5NDggI4ekxO31idJhlz0sGJcvPERI7PMMEoCq2f5Y1XgPKQs0B4NBZjkH2q1VPkrU3Puax2zBVonmh6DOTBL5Z9akE/sB5nV8iSj1RGK8J3A/yanDwol3oznvgeA8ULp9DpQCqczWyFLZEe7iJX9CQK9KUIzyKIUn93OeNX0wdJ/rpVAMoCLhk1CpWUHBKTrTwv6lAiBp5oEwOWwVTaXZ6005+tX0CQWTJY+ygpU+1sMnRtkgfRs7HD1ZLNlrt/x+ElGKZ1MMhTu7ggOwzho/0IfE6aMgnX5CzkLWUkElvAdwtMgcTQqa8Ba6Rbwob65epAyPrac9nRClhV2Jh9f/F+4G01Titq6Dv0zE7wweziKSdkA3SZTucsenpE5IIaUwT4LFzaKMffJ3YymO5lC7anaCpnT/9uHsG0hzHTj4ucC+1oTkXrLEf8bj6pVd68rjNrvUI02uWJyevO5aofMqYKwbQpkJOie9ROyVWJo/INWeHU8WalFtliJboMrVHG2Vf2FH+qur8/obAC82tBoakyuCdunLlcxLQ8Xq+Rts/himG+7K89xMbBEEwbl4E0XkzzD+xZuscEjOQ1SRPje/Z6PSTvWthm75aGAjcxuELj+kFL69ssep7ujXlAy2OxAxREOoT2czqGCBiAe1pKREh+lXeVvr8GJnqcSvFoaUZ5thAEkhCmXnA8NMuY4Is5lhnaZnjIqf09VfSGQDnkV7jQVm7fzhiB8WlP68JYHnRLM+ePpALDG0t743qjYDP44ki1ReK7cQ/bA0SzQvIS7L+UN/qTU7bcrDaXWV4Nq9BfZdEm2lNPVABT8O/w7du3urguTDzFKZ9gBrDMUkTyq7UrxA7wYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"allocations familiales\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"inscrire mes enfants à l'école\",\"montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceex8oJDDzVYQRL6L763c",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5279,
+        "inference_geo": "global",
+        "input_tokens": 104,
+        "output_tokens": 386,
+        "output_tokens_details": {
+          "thinking_tokens": 221
         },
         "service_tier": "standard"
       }

@@ -48,6 +48,7 @@ def doc() -> Document:
     return Document.model_validate_json((REAL / "document.json").read_bytes())
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: Document) -> None:
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]

@@ -215,6 +215,7 @@ def test_tree_invariant_violation_quarantines(data_dir: Path, tmp_path: Path,
     assert not (data_dir / "document.json").exists()
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 @pytest.mark.skipif(not (REAL / "source.js").is_file(), reason="source réelle absente")
 def test_real_source_matches_committed_artefacts() -> None:
     kb = parse_js_object((REAL / "source.js").read_text("utf-8"))

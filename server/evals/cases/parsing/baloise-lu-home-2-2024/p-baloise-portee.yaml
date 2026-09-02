@@ -6,7 +6,7 @@ scenario: "page Baloise rendue — portée"
 famille: portee
 expected:
   found: true
-  block_ids: ["baloise-lu-home-2-2024:p10:25"]
+  block_ids: ["baloise-lu-home-2-2024:p10:26"]
   text_norm: >-
     les garanties s'exercent au lieu d'assurance indiquee dans vos conditions particulieres sauf pour les garanties et packs : "vol / agression sur la personne", "objets precieux / bijoux", "multimedia nomades", "objets de loisirs" et "equipements de mobilite durable". les garanties et packs : "vol / agression sur la personne", "objets precieux / bijoux", "multimedia nomades", "objets de loisirs", "equipements de mobilite durable" et la garantie "responsabilite civile vie privee" s'exercent dans le monde entier pour des sejours prives d'une duree globale inferieure ou egale a 12 mois, renouvelable apres un sejour au grandduche du luxembourg de plus de 60 jours consecutifs. cas particulier du "logement etudiant" la "responsabilite stages d'etudes a l'etranger" s'exerce dans le monde entier, les autres garanties souscrites s'exercent au lieu d'assurance indique dans les conditions particulieres en ue et suisse.
 mode_attendu: bonne_reponse

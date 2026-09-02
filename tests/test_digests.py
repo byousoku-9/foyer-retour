@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from server.app import digests
 from server.app.digests import cases_hash, digest_paths, pipeline_digest, prompts_digest
 
@@ -112,6 +114,7 @@ def test_le_cases_hash_identifie_le_golden_set_courant(tmp_path: Path) -> None:
     assert hash_courant != hash_historique
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_un_cases_hash_courant_distinct_coexiste_avec_le_dernier_gate_vert(
         tmp_path: Path) -> None:
     """Le dépôt relie chaque gate publié à son périmètre courant sans réécrire son histoire.
@@ -168,6 +171,7 @@ def test_un_cases_hash_courant_distinct_coexiste_avec_le_dernier_gate_vert(
         assert copie.read_bytes() == avant
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
     """AD-7 : un `pipeline_digest`/`prompts_digest`/`model_ids` ≠ l'image ⇒ alerte `gate_perime`.
 

@@ -894,6 +894,7 @@ def test_les_appels_de_pipeline_nont_droit_a_aucune_reprise(monkeypatch: pytest.
 
 # --- les attendus viennent du dépôt, jamais du smoke ---------------------------------------------
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_les_attendus_sont_ceux_du_manifest_et_des_cas_du_gate() -> None:
     """Ce que le smoke exige est lu dans `data/manifest.json` et les deux YAML — rien n'est recopié."""
     attendus = charger_attendus()
@@ -1148,6 +1149,7 @@ def test_un_yaml_illisible_est_un_refus_et_non_une_exception_nue(tmp_path: Path)
         smoke._lire_cas(tmp_path, "lux-guide")
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_un_gate_cases_illisible_dans_le_manifest_est_un_refus(tmp_path: Path) -> None:
     """Le compte de cas ne se devine pas à 0 ni à 1 : ce serait inventer l'attente qu'on lit."""
     depot = tmp_path / "depot"
@@ -1201,6 +1203,7 @@ def test_une_reconstruction_est_traduite_par_la_surface_publique_sans_http(
     assert "Traceback" not in erreur
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_main_sort_en_1_quand_le_service_est_injoignable(monkeypatch: pytest.MonkeyPatch,
                                                          capsys: pytest.CaptureFixture[str]) -> None:
     """Serveur injoignable : jamais de promotion, jamais de repli (AD-16)."""

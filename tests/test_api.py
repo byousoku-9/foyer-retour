@@ -777,6 +777,7 @@ def test_un_bug_non_prevu_rend_500_generique(prod: TestClient) -> None:
 
 # --- /sante (AD-11, FR12) -------------------------------------------------
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod_configure: TestClient) -> None:
     r = prod_configure.get("/api/v1/sante", headers=XFF)
 
@@ -797,6 +798,7 @@ def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod_configure: TestCl
     assert j["thresholds"]["rate_limit_per_minute"] == 10
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_sante_dit_non_quand_aucune_cle_fournisseur_nest_configuree(prod: TestClient) -> None:
     """La panne invisible : corpus parfait, aucune clé, et `/sante` répondait `ok: true`.
 
@@ -816,6 +818,7 @@ def test_sante_dit_non_quand_aucune_cle_fournisseur_nest_configuree(prod: TestCl
     assert alerte["doc_id"] == "*" and "clé fournisseur" in alerte["detail"]
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_sans_cle_une_question_est_un_503_enveloppe_et_jamais_un_500(prod: TestClient) -> None:
     """Sans clé, le SDK lève un `TypeError` nu **avant tout réseau** — et il sortait en 500.
 
@@ -993,6 +996,7 @@ def test_lalerte_de_derogation_ne_se_leve_que_en_production(env: str, allow: boo
     assert "ungated_refuse_en_production" not in [a["alerte"] for a in alertes]
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_limage_de_production_sert_les_trois_documents_sans_derogation() -> None:
     """Après 3.6, `ENV=prod` sans `ALLOW_UNGATED` sert les trois documents gatés.
 
@@ -1038,6 +1042,7 @@ def test_sante_dit_ok_false_et_publie_la_quarantaine_quand_le_guide_nest_pas_ser
     assert quarantaine == [{"doc_id": "lux-guide", "alerte": "quarantaine", "detail": "sans_gate"}]
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_sante_publie_les_trois_booleens_du_dictionnaire_et_son_alerte(prod: TestClient) -> None:
     """AD-5 : les deux faits, la règle qu'ils décident, et l'alerte qui dit que le refus dort.
 
@@ -1197,6 +1202,7 @@ def test_lalias_chat_rend_exactement_le_meme_contrat(prod: TestClient) -> None:
     assert a == b
 
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_limage_narme_plus_allow_ungated_maintenant_que_les_gates_existent() -> None:
     """Garde-fou de la ligne `ENV` du `Dockerfile` (AD-7), **inversé** par la story 1.10.
 
@@ -1932,6 +1938,7 @@ async def test_une_trace_partielle_derreur_garde_le_gate_de_son_document() -> No
 
 # --- story 4.5 : les trois réserves et la route des résultats -----------------
 
+@pytest.mark.etat_servi  # gates servis exigés : hors preuve offline pendant l'amorçage (plancher.yaml)
 def test_sante_publie_la_troisieme_reserve_a_cote_des_deux_autres(prod: TestClient) -> None:
     """AC 4.5 : « les trois sont lisibles dans `/sante` ».
 

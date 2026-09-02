@@ -50,6 +50,14 @@ EFFORT: dict[Tier, str] = {
 # La valeur reste distincte du défaut du tier `reason` et versionnée au même endroit que celui-ci.
 EFFORT_PAR_PROMPT: dict[str, str] = {
     "rediger_sinistre": "low",
+    # *Vérifier* sinistre extrait des valeurs typées (pertinence, facettes, applicabilité) sur des
+    # claims déjà rédigées : AD-6, « le modèle n'effectue aucun calcul ». Mesuré le 02/09/2026 sur
+    # le témoin A16 (« vitre d'insert ») via `POST /api/v1/sinistre` : à l'effort `medium` du tier,
+    # la réflexion adaptative consommait la borne de sortie (3 072 tokens, JSON tronqué → 503
+    # `llm_parse`) ou la deadline (75 s, 503 `timeout`), 3 échecs sur 3 pour 0,13-0,17 € chacun,
+    # alors que le JSON utile fait ≈ 500 caractères. L'effort `low` garde la sortie et la latence
+    # dans les bornes calibrées ; la qualité reste tenue par les gardes de code de *vérifier*.
+    "verifier_sinistre": "low",
 }
 
 

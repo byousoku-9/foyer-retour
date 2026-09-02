@@ -60,5 +60,52 @@
         "service_tier": "standard"
       }
     }
+  },
+  "claude-sonnet-5:4f7de85c65800f29": {
+    "certificate": {
+      "messages_sha256": "98ca9afc2fadf87dbd08f44d3368edbd9350e7566252c9a184dfc51de5b405e5",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "06d5979797b4c78bd75fdd23b547b6438d4f616dfa2bd4791ff2934d15d8dc78",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:4f7de85c65800f29",
+    "response": {
+      "content": [
+        {
+          "signature": "EtwFCpABCBEYAipA3DPNN1iWCZgskwBr4GS/Y3K4S2GFJHBoGYmDFZP7ULJwDEdj4MwwGIDi53Pb3Eqd4Em/3BQHJyoskoUhMi3YHjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAa6n4dQGEgw8od9oDRDXzUHE66gaDK4VUqNbieFIUJxGWCIwaSO2okdx3e8A1U5ant444iWAG9HeVzE4Fpl4KZ/L7X21EjjFYxdHU2sLG795W3LvKvgD7aX6NZJlfcCKGUjk+Ud6qTHBl7JyXbzf8cOdlGSrQc3Pj2C6PYznY9JsfJwQmnT8t6zE0R2LkJBDWCDDV9cxMvaqvQWptBzN1Kr3NUkvJs0t5KDbK+x5Mixb6acR7rNiLsQ3W2APeL83bOo5BxUzr2Ec14/GhngDP6aTUkPGNG1t4OAuLAHUyaOCXWZhRJ9dxjmlZqNrFNfZr7XbToNMjcIBedOjkKjj6V//9w4frdtbLBULPZ8ZWe4LRdYSKAJGBEiTXQW4YgTl6IKNLoaWjKc4Feg3Va8WjoJrp0G10MnQD8kzEBWDTVES3xdla6ERtTEhnJFAwh5Tjf+2px/pOEluwG4Vf6osgxJtk1kz2xEp3Eo6ppt6yw9MwgKGSbB3NmXZ2b4paaMP3uEGeYGfJ9KM5oqseOvsU/xQG8v16Xr69niKl0WJhIGQNsc9IM482ugP0JvVIXtVyXN75pEB8mngyGxE4CdXIMlc1LiiKE+hP4Wn/0hWvc59DxkPY1Oob+5fCw+C17ZA6WpV0qVW/NmXJ8ihNvjQ/DbyckCDz0GjlkSs0jBUSX03GpZHdpX+d74z+eVWvbINaIBVxpKPuaRKtufVs1F8Aqxldxc33ujL+js5W2whS/htFQbzQLizMRWnwmiqxvtz3yfG4uRGlumgDcKhWwNCGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quand faut-il faire la démarche pour le permis de conduire ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"permis de conduire\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour la démarche du permis de conduire\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeexRhMzpY5DmR6kCVJS9",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5279,
+        "inference_geo": "global",
+        "input_tokens": 175,
+        "output_tokens": 305,
+        "output_tokens_details": {
+          "thinking_tokens": 171
+        },
+        "service_tier": "standard"
+      }
+    }
   }
 }

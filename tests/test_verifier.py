@@ -20,7 +20,7 @@ from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import TIERS
+from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.verifier import (
@@ -1011,6 +1011,26 @@ async def test_sinistre_ne_devine_pas_un_verdict_de_segment_absent(contrat: Inde
     assert v.segments == [] and v.claims == []
     assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
     assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
+
+
+async def test_verifier_sinistre_applique_leffort_nomme_du_prompt(
+        contrat: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La dérogation `verifier_sinistre` de `EFFORT_PAR_PROMPT` part dans la requête (AD-9).
+
+    Mesuré le 02/09/2026 sur le témoin A16 : à l'effort du tier, la réflexion adaptative consommait
+    la borne de sortie ou la deadline — 3 échecs sur 3 en 503. Le témoin fixe le mécanisme, pas la
+    valeur : c'est la table versionnée qui la porte.
+    """
+    monkeypatch.setitem(EFFORT_PAR_PROMPT, "verifier_sinistre", "high")
+    draft = _draft_libre(
+        ("La garantie du contrat couvre le mobilier.", "factuel", ["c1"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)])])
+    sortie = _applicabilite(
+        ("c1", True, False, False, None), verdicts=[("c1", True)], nb_segments=0)
+    _v, _step, fake = await _verifier_sinistre(contrat, draft, [sortie])
+
+    assert fake.requests[0]["output_config"]["effort"] == "high"
+    assert EFFORT_PAR_PROMPT["verifier_sinistre"] == "high"  # la table est la seule source
 
 
 async def test_sinistre_ne_repare_pas_une_position_de_segment_contradictoire(contrat: Index) -> None:
