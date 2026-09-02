@@ -31,6 +31,7 @@ from server.app.llm.client import LlmClient
 from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines.commun import retrieval_budget
+from server.app.steps import retrouver
 from server.app.steps.retrouver import (
     OUTILS_RECHERCHE,
     _score_positif,
@@ -4358,3 +4359,98 @@ async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> N
         assert node_id in prefixe, node_id
     assert "La commune fournit les bacs" in prefixe  # le résumé de `fdechets`, son signal propre
     assert prefixe.count("lux-guide:f") >= 36  # les 36 fiches, aucune laissée hors de la carte
+
+
+# --- Correctif du tour 2 (R1) : la place de ce qui décide est gardée avant la navigation ------
+
+
+def _corpus_a_voisins_gourmands() -> Corpus:
+    """Un nœud dont les voisins de contexte mangent le budget, et une règle ailleurs.
+
+    La géométrie est celle mesurée sur les trois runs A16 : le navigateur ouvre un nœud dont les
+    voisins non décisionnels sont longs, ils sont admis pendant ses tours, et la clause décisionnelle
+    de la seconde sous-question — courte — n'a plus de place quand la couverture par facette
+    s'exécute.
+    """
+    focus = Block(block_id="d:p1:1", text="Repère alpha règle initiale.", loc="p1", seq=1,
+                  kind="garantie", kind_source="manual")
+    voisins = [
+        Block(block_id=f"d:p1:{rang}", text="Contexte " + ("dilué " * 40) + f"numéro {rang}.",
+              loc="p1", seq=rang, kind="para")
+        for rang in range(2, 5)
+    ]
+    regle = Block(block_id="d:p9:1", text="Branche distincte règle utile.", loc="p9", seq=1,
+                  kind="exclusion", kind_source="manual")
+    return _corpus_neutre_par_noeuds(("initiale", [focus, *voisins]), ("distincte", [regle]))
+
+
+async def _lecture_a_voisins_gourmands(**kw):
+    corpus = _corpus_a_voisins_gourmands()
+    reglages = _s(max_cost_eur_per_request=1.0)
+    document = corpus.documents["d"]
+
+    def cout(block_id: str) -> int:
+        return estimate_tokens(f"{block_id}\n{document.block(block_id).text}", reglages)
+
+    # Le budget est **dérivé du corpus**, pas choisi à la main : il laisse exactement la fenêtre
+    # entière moins un token. Sans réserve, la règle de la seconde sous-question ne peut donc pas
+    # tenir ; avec elle, c'est le dernier voisin de contexte qui tombe à sa place. C'est la
+    # réallocation, mesurée, et rien d'autre : le plafond est le même dans les deux cas.
+    fenetre = sum(cout(f"d:p1:{rang}") for rang in range(1, 5))
+    regle = cout("d:p9:1")
+    return await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1")),
+    ], corpus=corpus, settings=reglages,
+        parsed=_parsed(["alpha"], facettes=["repère alpha", "branche distincte"]),
+        # Le budget de tokens est la borne mordante, comme sur A16 : les blocs ne saturent pas.
+        budget=_budget(max_opens=3, node_window=30, search_limit=5,
+                       max_blocks=10, max_tokens=fenetre + regle - 1),
+        kinds_suffisants=KINDS_FONDATEURS, **kw)
+
+
+async def test_la_place_de_lunite_decisionnelle_dune_facette_est_gardee_avant_la_navigation(
+        ) -> None:
+    """R1 — les voisins de fenêtre ne peuvent plus manger la règle de la seconde sous-question.
+
+    Avant le correctif, l'ordre d'admission était l'inverse de l'ordre des priorités : voisins et
+    définitions étaient admis pendant les tours du navigateur, et la passe de couverture par facette
+    n'avait plus rien à dépenser. La réserve ne change aucun plafond — elle alloue le même budget
+    dans l'ordre de ce qui décide.
+    """
+    result, step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    assert "d:p9:1" in result.opened_block_ids, "la règle de la seconde facette doit être transmise"
+    assert result.facette(1).block_ids == ("d:p9:1",)
+    # La réserve n'a rien ajouté : le budget de tokens reste tenu.
+    assert step.budget_lecture is not None
+    assert step.budget_lecture.tokens_remaining is not None
+    assert step.budget_lecture.tokens_remaining >= 0
+    assert step.budget_lecture.blocks_used == len(result.opened_block_ids)
+    # Le dernier voisin de contexte est ce qui a cédé la place, pas la lecture entière.
+    assert "d:p1:1" in result.opened_block_ids
+
+
+async def test_sans_reserve_les_voisins_de_fenetre_mangent_la_regle_de_la_facette(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation du témoin ci-dessus : la réserve neutralisée, on retrouve l'état d'avant.
+
+    Le seam est la part de budget que la réserve a le droit de garder. À zéro place gardée, la
+    lecture reprend l'ordre historique — les voisins d'abord — et la seconde sous-question repart
+    sans règle, déclarée bornée puisque son classement, lui, proposait bien un candidat.
+    """
+    monkeypatch.setattr(retrouver, "_unite_reservable",
+                        lambda *a, **kw: None)
+    result, _step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    assert "d:p9:1" not in result.opened_block_ids
+    assert result.facette(1).bornee and not result.facette(1).retrouvee
+
+
+async def test_le_budget_refuse_est_distingue_dun_choix_de_navigation() -> None:
+    """La trace ne dit plus « choix de navigation » quand c'est le budget qui a refusé (défaut 4)."""
+    _result, step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    candidats = [c for c in step.checks if c.name == "candidats_non_ouverts"]
+    assert not candidats or "le budget de l'étape a refusé" in candidats[0].detail

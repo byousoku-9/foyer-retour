@@ -507,9 +507,12 @@ def test_verdict_models() -> None:
 def test_trace_models() -> None:
     assert {"request_id", "pipeline", "variant", "steps", "total_cost_eur", "source_hash", "ingest_fingerprint",
             "pipeline_digest", "prompts_digest", "thresholds", "retries", "truncations", "deadline_remaining_s"} <= fields(trace.Trace)
+    # `budget_lecture` (correctif du tour 2) : ce que l'étape a consommé de son budget de lecture.
+    # `Trace.thresholds` publiait le plafond, jamais la consommation — trois runs A16 frôlaient la
+    # saturation sans que rien dans la trace ne le dise.
     assert fields(trace.StepTrace) == {
         "name", "tier", "prompt_cache", "mechanism_order", "ms", "usage",
-        "opened_block_ids", "discarded_block_ids", "checks", "calls"}
+        "opened_block_ids", "discarded_block_ids", "budget_lecture", "checks", "calls"}
     assert fields(trace.Usage) == {"input", "cached", "output", "cost_eur", "cached_response", "cost_eur_original"}
     assert {"name", "ok", "detail"} == fields(trace.CheckResult)
     # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`

@@ -324,6 +324,20 @@ class Settings(BaseSettings):
     # et la dire absente est alors la réponse honnête. `[HYPOTHÈSE]`, à régler aux témoins comme
     # `max_opens` lui-même.
     facette_max_opens: int = Field(2, ge=1)
+    # Correctif du tour 2 (R1) : la part du budget de lecture que la couverture par facette peut
+    # **garder** avant la navigation, pour que l'unité décisionnelle de chaque sous-question ne soit
+    # pas mangée par les voisins de fenêtre et les définitions suivies automatiquement — mesuré sur
+    # les trois runs A16 : 99,8 % du budget de tokens consommé, dont 39 % de lexique, quand la clause
+    # manquante en coûtait 210.
+    #
+    # C'est une **réallocation bornée**, jamais une capacité de plus : `retrieval_max_blocks` et
+    # `retrieval_max_tokens` ne bougent pas. La borne existe pour la même raison que
+    # `profil_max_opens < max_opens` — une réserve qui prendrait tout le budget ne classerait plus
+    # la lecture, elle la remplacerait, et le navigateur ne rapporterait plus rien de son propre
+    # choix. La moitié laisse largement la place : quatre unités décisionnelles du contrat servi
+    # coûtent ~1 000 tokens sur 3 500 (29 %), et une seule ~210 (6 %). `[HYPOTHÈSE]`, à régler aux
+    # témoins comme les autres bornes de l'étape.
+    facette_reserve_max_part: float = Field(0.5, gt=0, le=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses
@@ -1084,6 +1098,7 @@ class Settings(BaseSettings):
             "max_opens": self.max_opens,
             "profil_max_opens": self.profil_max_opens,
             "facette_max_opens": self.facette_max_opens,
+            "facette_reserve_max_part": self.facette_reserve_max_part,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,
