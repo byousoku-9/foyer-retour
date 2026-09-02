@@ -33,37 +33,16 @@ from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# `attendus` : le **vocabulaire français** admis pour ce cas — la liste **entière** des termes
-# rendus par *comprendre* y est comparée, terme par terme et mot par mot. C'est l'AC « `terms[]`
-# toujours en français avant le court-circuit » (AD-5) rendue mesurable sur des questions réellement
-# écrites en anglais, en allemand et en portugais.
-#
-# Revue Codex 2.4, tour 2 (I2) : la première rédaction n'exigeait qu'une forme française dans **au
-# moins un** terme et n'excluait qu'une liste finie de mots étrangers — `["école", "Schulbesuch"]`
-# la satisfaisait. Une liste blanche par cas est la seule forme qui juge chaque terme : tout mot
-# hors du vocabulaire attendu (donc tout mot non traduit, quelle que soit sa langue et qu'on l'ait
-# prévu ou non) fait échouer le cas. Le prix est assumé : ré-enregistrer les six fixtures peut
-# demander d'étendre un vocabulaire — c'est justement la relecture que l'AC réclame.
-MOTS_OUTILS = frozenset("a au aux d de des du en et l la le les pour sur un une".split())
-
+# Les six cas : identifiant, langue attendue de la réponse, question **réellement écrite** dans cette
+# langue. La quatrième colonne — un vocabulaire français admis par cas — a été retirée : c'était une
+# liste blanche, et elle rejetait du français fidèle (voir `_mots_non_traduits`).
 CAS = [
-    ("en-arrivee", "en", "How many days do I have to register my arrival with the commune?",
-     "arrivee commune declaration delai demarche domicile enregistrement inscription "
-     "jours residence communale"),
-    ("en-ecole", "en", "Where do I register my children for school in Luxembourg?",
-     "ecole ecoles enfants enseignement etablissement fondamentale inscription primaire "
-     "scolaire scolarisation scolarite luxembourg"),
-    ("de-arrivee", "de", "Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?",
-     "arrivee commune declaration delai demarche domicile enregistrement inscription "
-     "jours residence communale"),
-    ("de-adem", "de", "Welche Vorteile bietet die Anmeldung bei der ADEM?",
-     "adem agence avantages chomage demandeur developpement emploi inscription recherche"),
-    ("pt-arrivee", "pt", "Quanto tempo tenho para declarar a minha chegada à comuna?",
-     "arrivee commune declaration delai demarche domicile enregistrement inscription "
-     "jours residence communale"),
-    ("pt-ecole", "pt", "Onde devo matricular os meus filhos na escola no Luxemburgo?",
-     "ecole ecoles enfants enseignement etablissement fondamentale inscription primaire "
-     "scolaire scolarisation scolariser scolarite luxembourg"),
+    ("en-arrivee", "en", "How many days do I have to register my arrival with the commune?"),
+    ("en-ecole", "en", "Where do I register my children for school in Luxembourg?"),
+    ("de-arrivee", "de", "Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?"),
+    ("de-adem", "de", "Welche Vorteile bietet die Anmeldung bei der ADEM?"),
+    ("pt-arrivee", "pt", "Quanto tempo tenho para declarar a minha chegada à comuna?"),
+    ("pt-ecole", "pt", "Onde devo matricular os meus filhos na escola no Luxemburgo?"),
 ]
 
 
@@ -78,13 +57,42 @@ def _mots(terme: str) -> list[str]:
     return [m for m in re.split(r"[^0-9a-z]+", _sans_accent(terme)) if m]
 
 
-def _mots_hors_vocabulaire(termes: Sequence[str], attendus: str) -> list[str]:
-    """Les mots des `termes` que le vocabulaire français du cas n'admet pas — vide si tout va bien.
+def vocabulaire_francais(index: Index) -> frozenset[str]:
+    """Les mots du **corpus servi** : la seule autorité de français disponible hors ligne.
 
-    Juge **chaque** terme de la liste, pas un échantillon : c'est la correction du tour 2 (I2).
+    Ni le dictionnaire (il porte les variantes multilingues — `school`, `escola`, `anmeldung`,
+    `gemeinde` y figurent, il ne peut donc pas arbitrer le français) ni une parenté morphologique
+    (`matricular` partage huit caractères avec `matricule`) ne séparent proprement. Le corpus, lui,
+    est écrit en français : ce qu'il emploie est français, et c'est tout ce qu'on lui demande.
     """
-    admis = frozenset(attendus.split()) | MOTS_OUTILS
-    return [mot for terme in termes for mot in _mots(terme) if mot not in admis]
+    return frozenset(
+        mot
+        for document in index.corpus.documents.values()
+        for bloc in document.blocks
+        for mot in _mots(bloc.text)
+    )
+
+
+def _mots_non_traduits(termes: Sequence[str], question: str,
+                       vocabulaire: frozenset[str]) -> list[str]:
+    """Les mots des `termes` **repris de la question source** que le français ne connaît pas.
+
+    AD-5 exige `terms[]` toujours en français, et la régression que l'AC vise est un terme resté
+    dans la langue de la question. C'est donc le **report** qui se mesure — un mot du terme qui est
+    déjà un mot de la question —, recoupé par le vocabulaire français du corpus servi pour ne pas
+    condamner ce que les deux langues partagent légitimement (`ADEM`, `Luxembourg`, `commune`).
+
+    Ce que la règle abandonne, dit franchement : un mot étranger **inventé**, absent de la question,
+    passe désormais ce contrôle lexical. Il reste jugé par la seconde moitié du test — le juge de
+    retraduction (`JugementRetraduction.fidele` / `ecarts`) et l'assertion sur `answer.lang`. Ce
+    qu'elle gagne : elle ne rejette plus une formulation française qu'on n'avait pas prévue, et
+    c'est ce que la liste blanche faisait sur `scolariser`, `ses`, `chercher`, `scolarisation`.
+
+    Juge **chaque** terme de la liste, pas un échantillon : la propriété du tour 2 (I2) est gardée.
+    """
+    de_la_question = frozenset(_mots(question))
+    return [mot for terme in termes for mot in _mots(terme)
+            if mot in de_la_question and mot not in vocabulaire]
 
 
 class JugementRetraduction(BaseModel):
@@ -131,25 +139,46 @@ def _prefix() -> str:
     )
 
 
-# Le contrôle de langue des termes se prouve **hors ligne**, sur le contre-exemple même que la
-# revue Codex 2.4 (tour 2, I2) opposait à la première rédaction : une liste dont un seul terme est
-# resté dans la langue de départ. Sans lui, la seule preuve que le contrôle mord serait une mutation
-# faite à la main sur six fixtures — c'est-à-dire aucune preuve rejouée par la CI.
-@pytest.mark.parametrize(("termes", "fautifs"), [
-    (["école", "Schulbesuch"], ["schulbesuch"]),                 # le contre-exemple de la revue
-    (["inscription scolaire", "école", "scolarité"], []),        # les termes réellement enregistrés
-    (["school registration"], ["school", "registration"]),       # aucun mot traduit
-    (["inscription à l'escola"], ["escola"]),                    # un mot portugais dans un terme français
-    (["inscription scolaire", ""], []),                          # un terme vide n'invente pas de faute
+# Le contrôle de langue des termes se prouve **hors ligne**, chaque mot fautif accompagné de la
+# question qui le porte — c'est le report qui est jugé, il n'a aucun sens hors de sa source. Le
+# contre-exemple que la revue Codex 2.4 (tour 2, I2) opposait à la première rédaction est conservé,
+# réancré sur une question allemande qui emploie réellement le mot. Sans ce témoin, la seule preuve
+# que le contrôle mord serait une mutation faite à la main sur six fixtures — donc aucune preuve
+# rejouée par la CI.
+DE_SCHULBESUCH = "Wo kann ich den Schulbesuch meiner Kinder anmelden?"
+EN_INSCRIPTION = "Where do I complete my school registration in Luxembourg?"
+
+
+@pytest.mark.parametrize(("termes", "question", "fautifs"), [
+    # le contre-exemple de la revue : un seul terme resté dans la langue de départ
+    (["école", "Schulbesuch"], DE_SCHULBESUCH, ["schulbesuch"]),
+    # aucun mot traduit : les deux sont repris de la question et inconnus du français
+    (["school registration"], EN_INSCRIPTION, ["school", "registration"]),
+    # un mot portugais glissé dans un terme par ailleurs français
+    (["inscription à l'escola"], next(c[2] for c in CAS if c[0] == "pt-ecole"), ["escola"]),
+    # les termes que Sonnet rend réellement, avec **leur** question : du français fidèle que la
+    # liste blanche rejetait (`scolariser`, `ses`, `chercher`, `scolarisation`)
+    (["inscription scolaire", "scolariser ses enfants"],
+     next(c[2] for c in CAS if c[0] == "en-ecole"), []),
+    (["chercher un emploi", "ADEM", "inscription demandeur d'emploi"],
+     next(c[2] for c in CAS if c[0] == "de-adem"), []),
+    (["inscription scolaire", "scolarisation des enfants", "école"],
+     next(c[2] for c in CAS if c[0] == "pt-ecole"), []),
+    # le recoupement au corpus n'est pas décoratif : ces deux mots-là, la question étrangère les
+    # partage légitimement avec le français, et les condamner serait le faux rejet d'hier
+    (["ADEM"], next(c[2] for c in CAS if c[0] == "de-adem"), []),
+    (["déclaration à la commune"], next(c[2] for c in CAS if c[0] == "en-arrivee"), []),
+    # un terme vide n'invente pas de faute
+    (["inscription scolaire", ""], next(c[2] for c in CAS if c[0] == "en-ecole"), []),
 ])
-def test_le_controle_des_termes_juge_chaque_terme(termes: list[str], fautifs: list[str]) -> None:
-    attendus = next(c[3] for c in CAS if c[0] == "en-ecole")
-    assert _mots_hors_vocabulaire(termes, attendus) == fautifs
+def test_le_controle_des_termes_juge_chaque_terme(termes: list[str], question: str,
+                                                  fautifs: list[str], index: Index) -> None:
+    assert _mots_non_traduits(termes, question, vocabulaire_francais(index)) == fautifs
 
 
-@pytest.mark.parametrize(("cas", "langue", "question", "attendus"), CAS, ids=[c[0] for c in CAS])
+@pytest.mark.parametrize(("cas", "langue", "question"), CAS, ids=[c[0] for c in CAS])
 async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: str, question: str,
-                                                             attendus: str, index: Index,
+                                                             index: Index,
                                                              monkeypatch: pytest.MonkeyPatch,
                                                              llm_recorder: LLMRecorder) -> None:
     settings = _settings()
@@ -179,8 +208,8 @@ async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: st
     # que l'`AbsenceProof` publie (`terms_searched`), donc `terms[]` **et** `scope.themes[]` — le
     # prompt exige le français des deux, et un thème non traduit relèverait de la même régression.
     cherches = parsed.termes_de_recherche()
-    assert _mots_hors_vocabulaire(cherches, attendus) == [], (
-        f"termes non traduits ou hors du vocabulaire attendu : {cherches}")
+    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index)) == [], (
+        f"termes restés dans la langue de la question : {cherches}")
 
     assert answer.lang == langue and answer.lang_fallback is False
     assert answer.found is True and answer.claims

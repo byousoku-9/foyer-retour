@@ -2062,3 +2062,93 @@ async def test_sans_alerte_le_refus_hors_perimetre_reste_actif(index: Index) -> 
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "hors_perimetre"
+
+
+# --- le plafond de sortie de *vérifier* tient sous le budget par requête ------
+async def _preflights_de_la_chaine(index: Index, settings: Settings,
+                                   monkeypatch: pytest.MonkeyPatch,
+                                   variant: str = "outils") -> list[tuple[float, float, int]]:
+    """La chaîne guide entière, scriptée, avec le majorant relevé **à chaque** préflight.
+
+    Le budget est celui de la production (`max_cost_eur_per_request`), et non le plafond confortable
+    des autres scénarios de ce fichier : ce témoin mesure exactement ce que le client confronte au
+    coût déjà engagé avant d'envoyer un appel.
+    """
+    import server.app.llm.client as client_module
+
+    budget = RequestBudget(deadline_s=settings.deadline_s, max_attempts=settings.max_llm_attempts,
+                           max_cost_eur=settings.max_cost_eur_per_request)
+    original = client_module.estimate_cost
+    releves: list[tuple[float, float, int]] = []
+
+    def relever(*args: Any, **kwargs: Any) -> float:
+        estimate = original(*args, **kwargs)
+        max_tokens = int(args[3] if len(args) > 3 else kwargs["max_tokens"])
+        releves.append((budget.cost_eur, estimate, max_tokens))
+        return estimate
+
+    monkeypatch.setattr(client_module, "estimate_cost", relever)
+    script = _avec_navigation_outils(
+        [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))], variant)
+    answer, _trace, fake = await _run(index, script, settings=settings, budget=budget,
+                                      variant=variant)
+    assert answer.found and fake.remaining_script == 0
+    return releves
+
+
+async def test_le_plafond_de_verifier_tient_sous_le_budget_par_requete(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """La moitié du recalibrage de `verifier_max_tokens` qui se prouve **sans réseau** (AD-1, NFR4).
+
+    `max_tokens` ne facture pas, il borne : ce qui est payé est la sortie réellement produite. Le
+    seul risque d'un plafond plus large est donc le **majorant de préflight**, celui qu'`estimate_cost`
+    confronte au coût déjà engagé avant d'envoyer l'appel — et il se prouve ici, sur la chaîne
+    entière, à froid, avec les prompts, les schémas, les outils et les plafonds réels.
+
+    Ce que le témoin ne prouve pas, et que seul le réenregistrement dira : qu'aucune réponse ne se
+    tronque plus à ce plafond. La passation du 02/09 le nomme.
+    """
+    settings = _settings()
+    preflights = await _preflights_de_la_chaine(index, settings, monkeypatch)
+
+    assert settings.verifier_max_tokens in {tokens for _, _, tokens in preflights}
+    depassements = [(engage, majorant, tokens) for engage, majorant, tokens in preflights
+                    if engage + majorant > settings.max_cost_eur_per_request]
+    assert depassements == [], depassements
+
+
+async def test_le_temoin_de_cout_rougirait_si_le_plafond_montait_trop_haut(
+        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le témoin précédent n'est pas vert par construction : il mord, et voici exactement où.
+
+    `verifier_max_tokens` pèse sur le majorant de préflight au tarif de sortie du tier servi — le
+    delta mesuré est celui que le commentaire de `config.py` publie. On le montre en calant le
+    budget par requête **entre** ce que demande le plafond retenu et ce que demanderait le plus haut
+    plafond légal (`llm_max_output_tokens`) : le premier passe, le second est refusé avant l'envoi
+    (`BudgetExceeded`, AD-1 — « le garde-fou du coût s'applique **avant** qu'un appel démarre »).
+
+    Aucun seuil n'est écrit ici : les deux bornes sont **mesurées** sur la chaîne, et le budget serré
+    est leur milieu.
+    """
+    settings = _settings()
+
+    def total_verifier(preflights: list[tuple[float, float, int]], plafond: int) -> float:
+        return max(engage + majorant for engage, majorant, tokens in preflights
+                   if tokens == plafond)
+
+    retenu = total_verifier(
+        await _preflights_de_la_chaine(index, settings, monkeypatch), settings.verifier_max_tokens)
+    au_plus_haut = _settings(verifier_max_tokens=settings.llm_max_output_tokens)
+    maximal = total_verifier(
+        await _preflights_de_la_chaine(index, au_plus_haut, monkeypatch),
+        au_plus_haut.verifier_max_tokens)
+    # Le plafond de sortie **est** un poste du majorant : le relever le fait monter, mesurablement.
+    assert maximal > retenu
+
+    serre = (retenu + maximal) / 2
+    await _preflights_de_la_chaine(index, _settings(max_cost_eur_per_request=serre), monkeypatch)
+    with pytest.raises(BudgetExceeded, match="coût"):
+        await _preflights_de_la_chaine(
+            index, _settings(max_cost_eur_per_request=serre,
+                             verifier_max_tokens=settings.llm_max_output_tokens), monkeypatch)
+

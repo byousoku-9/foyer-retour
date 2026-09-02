@@ -47,7 +47,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.env == "dev" and s.allow_ungated is True
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
-    assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
+    assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 3072
     # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
     assert s.verifier_sinistre_max_tokens == 3072
