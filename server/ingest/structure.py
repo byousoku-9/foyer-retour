@@ -132,6 +132,20 @@ def oracle_article_uid(title: str) -> str | None:
     return f"article:{match.group('number')}" if match else None
 
 
+def _semantique_locale(noeud: NoeudPropose, registre: dict[str, Entree]) -> tuple[str, SurfaceClass | None]:
+    """Titre relu et classe prouvée sur l'intervalle, communs aux artefacts v1 et v2."""
+    title_uids = noeud.title_line_uids or [noeud.titre_line_uid]
+    title = " ".join(registre[uid].titre.strip() for uid in title_uids).strip()
+    first = registre[noeud.premiere_line_uid].ordre
+    last = registre[noeud.derniere_line_uid].ordre
+    title_set = set(title_uids)
+    supporting_texts = [
+        entry.titre for uid, entry in registre.items()
+        if first <= entry.ordre <= last and uid not in title_set
+    ]
+    return title, oracle_surface_class(title, supporting_texts)
+
+
 def _candidates_ancres(registre: dict[str, Entree]) -> tuple[AncreStructure, ...]:
     """Catalogue générique interne des lignes pouvant raisonnablement intituler un nœud.
 
@@ -986,17 +1000,15 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
             raise ValueError(f"titre_line_uid dupliqué {noeud.titre_line_uid!r}")
         vus.add(noeud.titre_line_uid)
     # Compatibilité des doubles historiques : le schéma filaire courant impose v2, mais les tests
-    # ou reprises v1 sont migrés sans inventer de relation. L'identité d'article reste explicitement
-    # nulle et la classe conservatrice ``inconnu`` interdit la citation jusqu'à re-proposition.
+    # ou reprises v1 sont migrés sans inventer de relation. La classe n'est jamais promue par défaut :
+    # elle est relue dans les lignes de l'intervalle par le même oracle indépendant que le gate.
     migrated = []
     for node in noeuds:
         if not node.title_line_uids:
+            _title, surface = _semantique_locale(node, registre)
             node = node.model_copy(update={
                 "title_line_uids": [node.titre_line_uid],
-            # Migration de lecture uniquement : avant V2, seules les lignes préliminaires/TDM
-            # étaient exclues par leur provenance. Une proposition V1 portant le corps est donc
-            # substantielle ; les nouvelles propositions doivent déclarer la classe explicitement.
-            "surface_class": "substantiel",
+                "surface_class": surface,
             })
         migrated.append(node)
     version = "2" if all({"title_line_uids", "article_uid", "surface_class",
@@ -1116,14 +1128,7 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                     "affectation_non_prouvee",
                     "title_line_uids contient une ligne de corps selon l'oracle local",
                 )
-            first = registre[noeud.premiere_line_uid].ordre
-            last = registre[noeud.derniere_line_uid].ordre
-            title_set = set(noeud.title_line_uids)
-            supporting_texts = [
-                entry.titre for uid, entry in registre.items()
-                if first <= entry.ordre <= last and uid not in title_set
-            ]
-            technical_surface = oracle_surface_class(title, supporting_texts)
+            _title, technical_surface = _semantique_locale(noeud, registre)
             if technical_surface is None:
                 return _refus(
                     "affectation_non_prouvee",
@@ -1340,6 +1345,21 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
     detail = unite_scindee(registre, list(bornes.values()))
     if detail is not None:
         return _refus("affectation_non_prouvee", detail)
+    # Compatibilité v1 : l'absence de classe n'est jamais promue ; ``arbre`` la dérive de la source
+    # ou conserve ``inconnu`` (donc non citable). Une classe explicitement transportée, en revanche,
+    # doit concorder avec l'oracle. Ce contrôle vient après les familles historiques afin qu'un
+    # intervalle invalide garde son motif structurel déterministe.
+    if proposition.schema_version == "1":
+        for noeud in noeuds:
+            if noeud.surface_class is None:
+                continue
+            _title, technical_surface = _semantique_locale(noeud, registre)
+            if technical_surface is None or noeud.surface_class != technical_surface:
+                return _refus(
+                    "affectation_non_prouvee",
+                    f"surface v1 {noeud.surface_class!r} sans preuve locale concordante sous "
+                    f"{noeud.titre_line_uid!r}",
+                )
     return Verdict(accepte=True,
                    detail=f"{len(noeuds)} nœud(s), couverture totale de {len(registre)} ligne(s)")
 
@@ -1383,8 +1403,9 @@ def arbre(proposition: StructureProposee, registre: dict[str, Entree], doc_id: s
                 derniere=registre[noeud.derniere_line_uid].ordre,
                 parent_id=None if parent_uid is None else node_ids[parent_uid],
                 article_uid=noeud.article_uid,
-                surface_class=(noeud.surface_class or
-                               ("substantiel" if proposition.schema_version == "1" else "inconnu")),
+                surface_class=(noeud.surface_class
+                               or _semantique_locale(noeud, registre)[1]
+                               or "inconnu"),
                 continuation_line_uids=tuple(noeud.continuation_line_uids),
             )
             parcourir(uid, position)

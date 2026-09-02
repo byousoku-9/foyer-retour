@@ -33,6 +33,7 @@ from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.retrouver import (
     OUTILS_RECHERCHE,
+    _score_positif,
     retrouver_deterministe,
     retrouver_full_context,
     retrouver_outils,
@@ -40,6 +41,27 @@ from server.app.steps.retrouver import (
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_la_suffisance_lexicale_ignore_un_chevauchement_de_mots_outils_seuls() -> None:
+    block = Block(
+        block_id="d:p1:1", text="Il est pour le contrat.", loc="p1", seq=1,
+    )
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="guide", title="t", edition="e",
+        nodes=[Node(node_id="root", items=[BlockRef(block_id=block.block_id)])],
+        blocks=[block],
+    )})
+    index = Index(corpus)
+
+    mots_outils = "Il est pour une personne."
+    score_mots_outils = index.score_clause(mots_outils, block.block_id).score
+    assert score_mots_outils.question_numerator > 0  # le record transporté reste inchangé
+    assert not _score_positif(score_mots_outils, question=mots_outils, clause=block.text)
+
+    substantielle = "Le contrat protège une personne."
+    score_substantiel = index.score_clause(substantielle, block.block_id).score
+    assert _score_positif(score_substantiel, question=substantielle, clause=block.text)
 
 
 def _s(**kw) -> Settings:
@@ -1519,7 +1541,7 @@ async def test_outils_tente_dabord_la_premiere_fondatrice_du_classement_compleme
 
 
 @pytest.mark.parametrize("max_opens", [2, 3])
-async def test_outils_ne_tronque_pas_sur_les_fondatrices_excedant_la_capacite_restante(
+async def test_outils_ne_tronque_pas_sur_les_fondatrices_pertinentes_non_ouvertes(
         max_opens: int) -> None:
     auxiliaire = Block(
         block_id="d:p1:1", text="Dossier auxiliaire avec signal rappel.", loc="p1", seq=1,
@@ -1534,15 +1556,20 @@ async def test_outils_ne_tronque_pas_sur_les_fondatrices_excedant_la_capacite_re
         ("aux", [auxiliaire]),
         *((f"fondatrice-{rang}", [fondatrice])
           for rang, fondatrice in enumerate(fondatrices, start=1)))
-    termes = ["dossier auxiliaire"]
+    # Le terme porteur commun prouve qu'une première fondatrice répond à la question. Les suivantes
+    # restent des candidates non lues : elles sont écartées, pas une fenêtre déjà lue puis coupée.
+    termes = ["signal rappel"]
+    parsed = _parsed(termes).model_copy(update={
+        "question_resolue": "La protection fondatrice est applicable.",
+    })
 
     result, _step, _fake, _request_budget = await _run_outils([
         _tool_message(
             _tool("chercher", "t1", termes=termes),
             _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
         fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
-    ], corpus=corpus, parsed=_parsed(termes),
-        budget=_budget(max_opens=max_opens, node_window=1, search_limit=3,
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=max_opens, node_window=1, search_limit=4,
                        max_blocks=4, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)
 
@@ -1550,7 +1577,45 @@ async def test_outils_ne_tronque_pas_sur_les_fondatrices_excedant_la_capacite_re
         auxiliaire.block_id,
         *(fondatrice.block_id for fondatrice in fondatrices[:max_opens - 1]),
     ]
+    assert result.truncated is False
+    non_ouvertes = [fondatrice.block_id for fondatrice in fondatrices[max_opens - 1:]]
+    assert all(block_id in result.discarded_block_ids for block_id in non_ouvertes)
+    (check,) = [check for check in _step.checks if check.name == "candidats_non_ouverts"]
+    assert check.ok is False and f"{len(non_ouvertes)} candidat(s)" in check.detail
+
+
+async def test_outils_reste_tronque_si_les_fondatrices_non_ouvertes_ne_repondent_pas() -> None:
+    auxiliaire = Block(
+        block_id="d:p1:1", text="Dossier auxiliaire avec signal rappel.", loc="p1", seq=1,
+        kind="condition", kind_source="manual")
+    fondatrices = [
+        Block(block_id=f"d:p{page}:1", text=f"Signal rappel fondatrice {rang}.",
+              loc=f"p{page}", seq=1, kind="garantie", kind_source="manual")
+        for rang, page in enumerate(range(2, 5), start=1)
+    ]
+    corpus = _corpus_neutre_par_noeuds(
+        ("aux", [auxiliaire]),
+        *((f"fondatrice-{rang}", [fondatrice])
+          for rang, fondatrice in enumerate(fondatrices, start=1)))
+
+    termes = ["signal rappel"]
+    parsed = _parsed(termes).model_copy(update={
+        "question_resolue": "Il est pour une personne.",
+    })
+    result, step, _fake, _request_budget = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=termes),
+            _tool("ouvrir_noeud", "t2", node_id="aux", focus_block_id=auxiliaire.block_id)),
+        fake_message(model="claude-sonnet-5", stop_reason="end_turn", content=[]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=2, node_window=1, search_limit=4,
+                       max_blocks=4, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
     assert result.truncated is True
+    assert fondatrices[-1].block_id in result.discarded_block_ids
+    (check,) = [check for check in step.checks if check.name == "candidats_non_ouverts"]
+    assert check.ok is False
 
 
 async def test_outils_garde_larret_substantiel_sans_exigence_declaree() -> None:
@@ -2731,15 +2796,19 @@ async def test_outils_memoise_la_recherche_de_limite_par_bloc(
     assert len(calls) == 3
 
 
-async def test_outils_reason_tier_reaches_the_provider_and_the_trace_unchanged() -> None:
-    settings = _s(max_cost_eur_per_request=1.0, retrouver_outils_tier="reason")
+@pytest.mark.parametrize("tier", ["micro", "reason"])
+async def test_outils_baseline_tier_reaches_the_provider_and_the_trace_unchanged(tier: str) -> None:
+    settings = _s(max_cost_eur_per_request=1.0, baseline_tiers=True,
+                  retrouver_outils_tier=tier)
     result, step, fake, _ = await _run_outils([
-        _tool_message(_tool("chercher", "t1", termes=["matricule"]),
-                      _tool("ouvrir_noeud", "t2", node_id="n1")),
+        fake_message(model=TIERS[tier], stop_reason="tool_use", content=[
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1"),
+        ]),
     ], settings=settings)
     assert result.opened_block_ids
-    assert fake.requests[0]["model"] == TIERS["reason"]
-    assert step.tier == "reason" and step.calls[0].model == TIERS["reason"]
+    assert fake.requests[0]["model"] == TIERS[tier]
+    assert step.tier == tier and step.calls[0].model == TIERS[tier]
 
 
 async def test_outils_category_without_blocks_returns_title_and_titled_children() -> None:

@@ -581,14 +581,16 @@ async def test_le_sinistre_ne_recoit_aucun_parcours_donc_aucun_noeud() -> None:
     assert parsed.scope.noeuds == []
 
 
-async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9() -> None:
-    """Story 4.2b (revue, MEDIUM 8) : `comprendre_tier="reason"` part réellement sur le modèle
-    `reason` — la requête envoyée et `StepTrace.tier` le prouvent, pas seulement `thresholds()`.
+@pytest.mark.parametrize("tier", ["micro", "reason"])
+async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(tier: str) -> None:
+    """Story 4.2b : chaque cellule baseline part réellement sur le modèle demandé.
+
+    La requête envoyée et `StepTrace.tier` le prouvent, pas seulement `thresholds()`.
     Une régression vers `STEP_TIERS` figerait la matrice baseline sans qu'aucun test rougisse."""
-    reglages = _settings(comprendre_tier="reason")
-    fake = FakeAnthropic([fake_message(_sortie(), model=TIERS["reason"])])
+    reglages = _settings(baseline_tiers=True, comprendre_tier=tier)
+    fake = FakeAnthropic([fake_message(_sortie(), model=TIERS[tier])])
     client = LlmClient(reglages, anthropic_client=fake)
     _parsed, step = await _comprendre(client, settings=reglages)
-    assert fake.messages.requests[0]["model"] == TIERS["reason"]
-    assert step.tier == "reason"
-    assert step.calls[0].model == TIERS["reason"]
+    assert fake.messages.requests[0]["model"] == TIERS[tier]
+    assert step.tier == tier
+    assert step.calls[0].model == TIERS[tier]

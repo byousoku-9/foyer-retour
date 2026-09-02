@@ -137,15 +137,23 @@ def _content_json(message: Any) -> list[dict[str, Any]]:
 
 _KINDS_LIMITATIFS = frozenset({"exclusion", "condition", "franchise"})
 _KINDS_CONTEXTUELS = frozenset({"heading", "definition"})
-
-
-def _score_positif(score: QuestionClauseScore) -> bool:
-    return score.question_numerator > 0
 _MOTS_OUTILS_LIMITES = frozenset({
     "a", "au", "aux", "avec", "ce", "ces", "d", "dans", "de", "des", "du", "elle", "en",
     "est", "et", "il", "ils", "l", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
     "par", "pas", "pour", "que", "qui", "sa", "se", "ses", "son", "sur", "un", "une",
 })
+
+
+def _mots_porteurs(value: str) -> set[str]:
+    """Mots lexicaux utilisables comme preuve, sans lexique documentaire ou métier."""
+    return {mot for mot in forme(value).split()
+            if mot.isalnum() and mot not in _MOTS_OUTILS_LIMITES}
+
+
+def _score_positif(score: QuestionClauseScore, *, question: str, clause: str) -> bool:
+    """Le score reste transporté tel quel ; sa suffisance exige un chevauchement substantiel."""
+    return (score.question_numerator > 0
+            and bool(_mots_porteurs(question) & _mots_porteurs(clause)))
 
 
 def _noeuds_des_blocs(block_ids: list[str], *, corpus: Corpus, index: Index) -> list[str]:
@@ -208,8 +216,7 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
                    if candidate != block_id and block(candidate).kind in _KINDS_LIMITATIFS]
         if limites:
             document = index.corpus.documents[current_doc_id]
-            mots_source = {mot for mot in forme(current.text).split()
-                           if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES}
+            mots_source = _mots_porteurs(current.text)
 
             def preuve_et_proximite(candidate: str) -> tuple[bool, float, int]:
                 limite = block(candidate)
@@ -220,8 +227,7 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
                 liee = (candidate in current.refs or block_id in limite.refs
                         or candidate in relations or block_id in relations
                         or document.node_of(block_id) in document.scope_nodes(candidate))
-                mots_candidat = {mot for mot in forme(limite.text).split()
-                                 if mot.isalpha() and mot not in _MOTS_OUTILS_LIMITES}
+                mots_candidat = _mots_porteurs(limite.text)
                 union = mots_source | mots_candidat
                 proximite = len(mots_source & mots_candidat) / len(union) if union else 0.0
                 return liee, proximite, -limites.index(candidate)
@@ -701,7 +707,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             and (hit_by_block[block_id].score.full_matches > 0
                  or hit_by_block[block_id].score.partial_numerator > 0)
             and block(block_id).kind not in _KINDS_CONTEXTUELS
-            and _score_positif(hit_by_block[block_id].score)
+            and _score_positif(
+                hit_by_block[block_id].score,
+                question=canonical_question,
+                clause=block(block_id).text,
+            )
             and (kinds_suffisants is None
                  or (block(block_id).kind in kinds_suffisants
                      and block(block_id).kind_confirmed))
@@ -1131,7 +1141,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         selected_hit
         if selected_hit is not None
         and selected_hit.clause_uid in admitted_set
-        and _score_positif(selected_hit.score)
+        and _score_positif(
+            selected_hit.score,
+            question=canonical_question,
+            clause=block(selected_hit.clause_uid).text,
+        )
         and block(selected_hit.clause_uid).kind not in _KINDS_CONTEXTUELS
         and (kinds_suffisants is None
              or (block(selected_hit.clause_uid).kind in kinds_suffisants
@@ -1412,7 +1426,11 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
         if block_id in hit_by_id
         and (hit_by_id[block_id].score.full_matches > 0
              or hit_by_id[block_id].score.partial_numerator > 0)
-        and _score_positif(hit_by_id[block_id].score)
+        and _score_positif(
+            hit_by_id[block_id].score,
+            question=canonical_question,
+            clause=block(block_id).text,
+        )
     ), None)
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in set(opened))
@@ -1780,7 +1798,11 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if block_id in hit_by_id
         and (hit_by_id[block_id].score.full_matches > 0
              or hit_by_id[block_id].score.partial_numerator > 0)
-        and _score_positif(hit_by_id[block_id].score)
+        and _score_positif(
+            hit_by_id[block_id].score,
+            question=canonical_question,
+            clause=bloc(block_id).text,
+        )
         and (not priorities or (bloc(block_id).kind in priorities
                                 and bloc(block_id).kind_confirmed))
     ), None)

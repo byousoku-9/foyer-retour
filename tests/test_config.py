@@ -27,6 +27,8 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
     assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
     assert s.retrouver_outils_tier == "reason"
+    assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
+        "reason", "reason", "reason")
     assert s.rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in Settings.model_fields
     assert s.max_cost_eur_per_request == 0.18 and s.cost_alert_eur == 0.05
@@ -149,6 +151,11 @@ def test_bounds_and_coherence() -> None:
         Settings(_env_file=None, retrouver_outils_max_tokens=8192, llm_max_output_tokens=4096)
     with pytest.raises(ValidationError, match="retrouver_outils_tier"):
         Settings(_env_file=None, retrouver_outils_tier="ingest")
+    for field in ("comprendre_tier", "verifier_tier", "retrouver_outils_tier"):
+        with pytest.raises(ValidationError, match="baseline_tiers"):
+            Settings(_env_file=None, **{field: "micro"})
+    with pytest.raises(ValidationError, match="baseline_tiers"):
+        Settings(_env_file=None, env="prod", baseline_tiers=True)
     with pytest.raises(ValidationError, match="max_llm_turns"):
         Settings(_env_file=None, max_llm_turns=3)
     # story 1.5 : *vérifier* doit pouvoir juger tout ce que *rédiger* peut produire, sinon des claims
@@ -162,6 +169,21 @@ def test_bounds_and_coherence() -> None:
                 {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):
             Settings(_env_file=None, **bad)
+
+
+@pytest.mark.parametrize("tier", ["micro", "reason"])
+def test_la_configuration_baseline_mesure_la_matrice_micro_reason(tier: str) -> None:
+    settings = Settings(
+        _env_file=None, baseline_tiers=True,
+        comprendre_tier=tier, rediger_tier=tier, verifier_tier=tier,
+        retrouver_outils_tier=tier,
+    )
+    attendu = int(tier == "reason")
+    assert settings.thresholds()["baseline_tiers"] == 1
+    assert tuple(settings.thresholds()[field] for field in (
+        "comprendre_tier_reason", "rediger_tier_reason", "verifier_tier_reason",
+        "retrouver_outils_tier_reason",
+    )) == (attendu,) * 4
 
 
 def test_env_file_is_read_from_repo_root(tmp_path: Path) -> None:

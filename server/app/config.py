@@ -285,7 +285,7 @@ class Settings(BaseSettings):
     # runner convergent au prochain démarrage/chargement sans dépendre d'une constante importée
     # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
     retrieval_variant: Literal["deterministe", "outils", "full_context"] = RETRIEVAL_DEFAULT.variant
-    retrouver_outils_tier: Literal["reason"] = RETRIEVAL_DEFAULT.tier
+    retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
     retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
     # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink
     # mémoire et ne crée jamais ce fichier (AD-10/AD-15). Rotation et rétention bornent le disque.
@@ -294,13 +294,12 @@ class Settings(BaseSettings):
     llm_audit_retention_files: int = Field(4, ge=1)
     retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
     # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
-    # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
-    # défauts sont l'affectation d'AD-9 (`STEP_TIERS`) ; la valeur active est publiée dans
-    # `thresholds()` (projection 0/1, `Trace.thresholds` étant numérique) et entre donc dans
-    # l'identité de cache des évals — deux runs à tiers différents ne partagent jamais une réponse.
-    comprendre_tier: Literal["reason"] = "reason"
+    # par étape) soit exécutable à paramètres épinglés. Le mode doit être demandé explicitement :
+    # sans lui, le produit servi refuse toute descente des trois étapes au plancher Sonnet.
+    baseline_tiers: bool = False
+    comprendre_tier: Literal["micro", "reason"] = "reason"
     rediger_tier: Literal["micro", "reason"] = "reason"
-    verifier_tier: Literal["reason"] = "reason"
+    verifier_tier: Literal["micro", "reason"] = "reason"
     retrouver_outils_max_tokens: int = Field(1024, ge=1)
     # Story 1.4 : `RetrievalBudget` borne aussi le nombre de blocs rendus (AD-1 « blocs, tokens inclus »).
     # C'est le seul poste variable du majorant de *rédiger* : préfixe (sommaire au tarif d'écriture 1 h) et
@@ -718,6 +717,21 @@ class Settings(BaseSettings):
             # `RetrievalBudget` invalide à la première question (revue coordonnée 2.3, A4).
             raise ValueError(f"profil_max_opens ({self.profil_max_opens}) doit être < max_opens "
                              f"({self.max_opens}) : le profil ordonne, il ne remplace pas la question")
+        tiers_proteges = {
+            "comprendre_tier": self.comprendre_tier,
+            "verifier_tier": self.verifier_tier,
+            "retrouver_outils_tier": self.retrouver_outils_tier,
+        }
+        if self.baseline_tiers and self.env == "prod":
+            raise ValueError("baseline_tiers est un mode de mesure hors ligne, interdit en production")
+        if not self.baseline_tiers:
+            abaisses = [name for name, tier in tiers_proteges.items() if tier != "reason"]
+            if abaisses:
+                raise ValueError(
+                    "baseline_tiers=true est requis pour mesurer micro sur "
+                    + ", ".join(abaisses)
+                    + "; le produit actif reste au plancher reason",
+                )
         mecanismes = tuple(part.strip() for part in self.retrieval_mechanism_order.split(","))
         if (len(mecanismes) != 4 or len(set(mecanismes)) != 4
                 or set(mecanismes) != {"dictionnaire", "faq", "sommaire", "outils"}):
@@ -820,6 +834,7 @@ class Settings(BaseSettings):
             # Story 4.2b : la matrice baseline épingle les tiers par étape. `Trace.thresholds` est
             # numérique : 1 = `reason`, 0 = `micro` (défaut AD-9). Publiés ici, ils entrent dans la
             # namespace de cache des évals via `thresholds()`.
+            "baseline_tiers": int(self.baseline_tiers),
             "comprendre_tier_reason": int(self.comprendre_tier == "reason"),
             "rediger_tier_reason": int(self.rediger_tier == "reason"),
             "verifier_tier_reason": int(self.verifier_tier == "reason"),

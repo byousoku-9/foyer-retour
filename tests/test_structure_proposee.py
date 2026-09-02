@@ -1228,6 +1228,51 @@ def test_oracle_independant_refuse_une_surface_sans_preuve_locale() -> None:
     assert "surface sans preuve" in verdict.detail
 
 
+@pytest.mark.parametrize("schema_version", ["1", "2"])
+@pytest.mark.parametrize(("title", "surface", "citable"), [
+    ("Préambule", "preliminaire", False),
+    ("Sommaire", "table_des_matieres", False),
+    ("Article 1 Garantie", "substantiel", True),
+])
+def test_v1_et_v2_derivent_la_citabilite_de_la_source_pas_du_suffixe_s(
+        schema_version: str, title: str, surface: str, citable: bool) -> None:
+    pages = [_page(1, [title, "Le contrat prévoit une protection juridique."])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(
+        pages, document_uid=DOC if schema_version == "2" else None,
+    )
+    uids = tuple(registre)
+    base = {
+        "titre_line_uid": uids[0], "premiere_line_uid": uids[0],
+        "derniere_line_uid": uids[-1], "parent_line_uid": None,
+    }
+    if schema_version == "1":
+        # Le chemin de migration filaire est celui qui portait l'ancien défaut ``substantiel``.
+        proposition = s.parse_proposition(
+            json.dumps({"noeuds": [base]}), registre, DOC,
+        )
+        assert proposition.schema_version == "1"
+    else:
+        proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+            s.NoeudPropose(**base, **{
+            "title_line_uids": [uids[0]],
+            "article_uid": "article:1" if citable else None,
+            "surface_class": surface,
+            "continuation_line_uids": [],
+            "relations": [],
+            }),
+        ])
+
+    document, _ = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
+        title="Contrat", structure=proposition,
+    )
+    node = next(node for node in document.nodes if node.node_id == f"{DOC}:s1")
+    assert node.surface_class == surface
+    assert bool(node.blocks) and all(p.is_citable(document.block(block_id)) is citable
+                                     for block_id in node.blocks)
+
+
 def test_oracle_independant_refuse_un_parent_semantique_faux_mais_contenant() -> None:
     pages = [_page(1, [
         "Article 1 Garanties", "Article 2.1 Risques", "Corps de la sous-section.",
