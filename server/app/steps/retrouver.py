@@ -32,7 +32,11 @@ candidats mais hors quota ; elles sont prises aux derniers nœuds retenus, et le
 après eux. Une place réservée que le budget de blocs laisse vide est **rendue** au nœud qui l'avait
 cédée (revue Codex 2.3, I1) : le profil ne peut ni ajouter une fiche, ni en retirer une.
 `truncated=True` si une fenêtre reste coupée (pas de pagination en déterministe), si des nœuds
-candidats dépassent `max_opens`, ou si le budget de blocs/tokens a écarté quelque chose. Les blocs
+candidats dépassent `max_opens`, ou si le budget de blocs/tokens a écarté quelque chose. **Il dit une
+borne de lecture, et rien d'autre** : le verdict sémantique terminal de la variante outils, qu'il
+soit illisible ou qu'il désigne un résultat non admis, refuse la suffisance sans jamais rendre
+`truncated=True` — la trace le nomme dans le check `verdict_semantique` et dans
+`SufficiencyDecision.reason` (`unreadable_semantic_verdict`, `invalid_semantic_result_uid`). Les blocs
 sont relus depuis le corpus (objets `Document.block`), jamais modifiés ; l'étape n'affirme aucune
 absence du corpus (AD-1) et ne voit que `ParsedQuestion` — jamais l'historique.
 
@@ -1003,10 +1007,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
 
     used_tools = False
     semantic_selection: SemanticSufficiencySelection | None = None
-    semantic_selection_invalid = False
+    # Deux échecs distincts du verdict terminal, et **aucun des deux n'est une borne de lecture**
+    # (correctif G1). Le dernier tour de navigation passe par `client.tool_turn`, qui n'impose
+    # aucun schéma de sortie : la forme du verdict n'est demandée que par une phrase de
+    # `llm/prompts/retrouver.md`. Une navigation qui a ouvert ce qu'elle devait ouvrir n'a rien
+    # laissé fermé parce que sa dernière phrase est de la politesse plutôt que du JSON — en faire
+    # `truncated=True` faisait porter à une réponse parfaitement sourcée la lacune
+    # `lecture_bornee` de *vérifier* et le bandeau « je n'ai pas pu lire tout ce qui pouvait
+    # concerner votre question » de *restituer*. Les bornes réelles — quota d'ouvertures, budget
+    # de blocs ou de tokens, `max_tokens`/`refusal`/`pause_turn`, pagination inachevée, aucun
+    # outil au premier tour — restent posées ailleurs et continuent de rendre `truncated=True`.
+    #
+    # `verdict_illisible` : le texte du `end_turn` ne parse pas en `SemanticSufficiencySelection`.
+    # `result_uid_non_admis` : il parse et se dit suffisant, mais désigne un résultat que le
+    # corpus n'adoube pas. Les deux restent une **insuffisance** (aucune suffisance n'est
+    # accordée sans identité admise) et se distinguent dans `sufficiency.reason` et la trace.
+    verdict_illisible = False
+    result_uid_non_admis = False
 
     async def navigate() -> None:
-        nonlocal truncated, used_tools, semantic_selection, semantic_selection_invalid
+        nonlocal truncated, used_tools, semantic_selection, verdict_illisible
         # Les candidats FAQ ne deviennent visibles au navigateur qu'une fois le mécanisme FAQ
         # franchi. Cela rend notamment `outils → FAQ` distinct de `FAQ → outils`.
         if faq_candidates and "faq_candidates" in question:
@@ -1053,8 +1073,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     try:
                         semantic_selection = SemanticSufficiencySelection.model_validate_json(raw)
                     except ValueError:
-                        semantic_selection_invalid = True
-                        truncated = True
+                        verdict_illisible = True
                 break
             used_tools = True
             tool_results: list[dict[str, Any]] = []
@@ -1153,15 +1172,15 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         else None
     )
     if semantic_selection is not None and semantic_selection.sufficient and sufficient_hit is None:
-        semantic_selection_invalid = True
-        truncated = True
+        result_uid_non_admis = True
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in admitted_set)
     sufficiency = SufficiencyDecision(
         complete=sufficient_hit is not None,
         reason=("semantic_result_uid_admitted" if sufficient_hit is not None
-                else ("invalid_semantic_result_uid" if semantic_selection_invalid
-                      else "explicit_semantic_insufficiency")),
+                else "invalid_semantic_result_uid" if result_uid_non_admis
+                else "unreadable_semantic_verdict" if verdict_illisible
+                else "explicit_semantic_insufficiency"),
         sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
         considered_result_uids=considered,
     )
@@ -1201,6 +1220,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             name="candidats_non_ouverts", ok=False,
             detail=f"{len(discarded)} candidat(s) de chercher non lu(s) par le navigateur ; "
                    "choix de navigation distinct d'une troncature"))
+    if verdict_illisible or result_uid_non_admis:
+        # Correctif G1 : la trace nomme laquelle des deux causes a dégradé le verdict terminal, et
+        # dit qu'aucune des deux ne borne la lecture. `truncated` reste le seul canal des bornes
+        # réelles ; il n'est plus réarmé ici.
+        cause = ("verdict terminal illisible (le dernier tour n'a pas rendu de JSON conforme)"
+                 if verdict_illisible
+                 else "result_uid terminal non admis par le corpus")
+        step.checks.append(CheckResult(
+            name="verdict_semantique", ok=False,
+            detail=f"{cause} ; suffisance refusée, lecture non bornée pour autant "
+                   f"(truncated={truncated})"))
     if faq_candidates:
         step.checks.append(CheckResult(
             name="faq", ok=True,

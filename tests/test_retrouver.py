@@ -201,7 +201,7 @@ async def test_outils_clot_sur_le_result_uid_explicitement_choisi_par_sonnet() -
 
 
 async def test_outils_refuse_un_result_uid_terminal_invente_ou_non_admis() -> None:
-    result, _step, _fake, _request = await _run_outils([
+    result, step, _fake, _request = await _run_outils([
         _tool_message(
             _tool("chercher", "t1", termes=["matricule"]),
             _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
@@ -214,7 +214,66 @@ async def test_outils_refuse_un_result_uid_terminal_invente_ou_non_admis() -> No
 
     assert result.sufficiency is not None and not result.sufficiency.complete
     assert result.sufficiency.sufficiency_result_uid is None
-    assert result.truncated
+    # Correctif G1 : un identifiant terminal non admis refuse la suffisance — il ne prouve pas que
+    # la lecture ait été bornée. La navigation a ouvert la fenêtre qu'elle visait, dans le budget.
+    assert result.truncated is False
+    assert result.sufficiency.reason == "invalid_semantic_result_uid"
+    (check,) = [c for c in step.checks if c.name == "verdict_semantique"]
+    assert check.ok is False and "non admis" in check.detail
+
+
+async def test_outils_ne_borne_pas_la_lecture_sur_une_phrase_finale_non_json() -> None:
+    """Témoin G1 : une politesse terminale ne réarme pas `truncated`.
+
+    Le dernier tour passe par `client.tool_turn`, sans schéma de sortie : sa forme n'est demandée
+    que par une phrase du prompt. La navigation ci-dessous a cherché puis ouvert la fenêtre visée
+    dans son budget ; seule sa phrase de conclusion n'est pas du JSON. Avant le correctif, ce
+    scénario rendait `truncated=True`, donc `Lacune(kind="lecture_bornee")` chez *vérifier* et le
+    bandeau « je n'ai pas pu lire tout ce qui pouvait concerner votre question » chez *restituer*,
+    sur une réponse pourtant entièrement sourcée.
+    """
+    result, step, _fake, _request = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+        ),
+        fake_message(
+            model=TIERS["reason"], stop_reason="end_turn",
+            text="Voilà, j'ai lu la fiche demandée. Bonne journée !",
+        ),
+    ])
+
+    assert result.opened_block_ids and result.truncated is False
+    assert result.sufficiency is not None and not result.sufficiency.complete
+    assert result.sufficiency.reason == "unreadable_semantic_verdict"
+    (check,) = [c for c in step.checks if c.name == "verdict_semantique"]
+    assert check.ok is False and "illisible" in check.detail and "truncated=False" in check.detail
+
+
+async def test_outils_signale_toujours_une_lecture_reellement_bornee_malgre_le_verdict_illisible() -> None:
+    """L'autre moitié du témoin G1 : la borne réelle survit à la même phrase non-JSON.
+
+    Le quota d'ouvertures est épuisé avant la dernière fenêtre demandée : cette lecture-là est
+    bornée pour de bon, et elle doit rester signalée alors même que le verdict terminal est la
+    même politesse que dans le témoin précédent. Le correctif retire une cause fausse, pas le canal.
+    """
+    result, step, _fake, _request = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+            _tool("ouvrir_noeud", "t3", node_id="n2", focus_block_id="d:p2:1"),
+        ),
+        fake_message(
+            model=TIERS["reason"], stop_reason="end_turn",
+            text="Voilà, j'ai lu ce que j'ai pu. Bonne journée !",
+        ),
+    ], budget=_budget(max_opens=1, max_blocks=30, max_tokens=6000))
+
+    assert result.truncated is True
+    assert result.sufficiency is not None
+    assert result.sufficiency.reason == "unreadable_semantic_verdict"
+    (check,) = [c for c in step.checks if c.name == "verdict_semantique"]
+    assert "truncated=True" in check.detail
 
 
 def _corpus_contexte_puis_regle() -> Corpus:

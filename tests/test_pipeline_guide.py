@@ -317,8 +317,11 @@ async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
     retrouver = trace.steps[1]
     assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
     assert retrouver.discarded_block_ids == tool_candidates
+    # Correctif G1 : la conclusion vide du navigateur est un verdict sémantique illisible — la
+    # trace le nomme, et ce n'est plus une borne de lecture.
     assert [check.name for check in retrouver.checks] == [
-        "candidats_non_ouverts", "repli_deterministe", "controle_deterministe"]
+        "candidats_non_ouverts", "verdict_semantique", "repli_deterministe",
+        "controle_deterministe"]
     assert retrouver.calls and retrouver.usage.cost_eur > 0
 
 
