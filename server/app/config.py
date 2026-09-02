@@ -194,7 +194,27 @@ class Settings(BaseSettings):
     # raison. `[HYPOTHÈSE]` : à re-régler sur la distribution complète que donneront les 15–20
     # sinistres des questions-témoins (4.2), qui diront aussi s'il faut baisser l'effort de *rédiger*
     # plutôt que d'attendre plus longtemps.
-    llm_timeout_s: float = Field(40.0, gt=0)
+    #
+    # **55 s depuis le correctif du tour 3.** À 40 s, le plafond de sortie du vérificateur sinistre
+    # était **inatteignable dans le temps qu'on lui laissait** : le débit mesuré sur les quatre
+    # appels audités est de 89 à 95 tokens/s, soit ≈ 46 s pour 4 096 tokens. La borne effective
+    # était donc 3 575 tokens (87 % du plafond déclaré), et toute requête qui demandait davantage
+    # sortait en 503 `timeout` — c'est exactement ce qui a tué la deuxième réponse A16, dont
+    # l'ébauche était pourtant la meilleure des trois, pour 0,14 € brûlés alors que la deadline
+    # laissait encore 73 s. Baisser `max_tokens` à la place aurait tronqué la sortie, donc rendu un
+    # `LlmParse` terminal : le même 503, pour une raison pire. L'invariante `_coherence` ci-dessous
+    # lie désormais les deux nombres, pour qu'ils ne puissent plus diverger en silence.
+    llm_timeout_s: float = Field(55.0, gt=0)
+    # Débit de sortie **minoré** du fournisseur, réflexion comprise, tel que l'audit le mesure :
+    # 89,4 tokens/s en régression sur les quatre appels du vérificateur sinistre (89 à 95 selon
+    # l'appel, ordonnée à l'origine ≈ 0). 85 le minore de 5 % — un minorant, parce qu'il sert à
+    # majorer une durée : le surestimer ferait passer une configuration qui expire en réel.
+    # `[HYPOTHÈSE]`, à re-mesurer dès qu'un autre modèle ou un autre effort est servi.
+    llm_output_tokens_per_s_min: float = Field(85.0, gt=0)
+    # Marge laissée entre la durée majorée de la plus longue sortie et le délai d'un appel : le
+    # temps que le fournisseur met à commencer à répondre, et la latence réseau. Mesurée sur les
+    # mêmes appels — l'ordonnée à l'origine de la régression est ≈ 0, donc 5 s est déjà confortable.
+    llm_latence_marge_s: float = Field(5.0, ge=0)
     # Marge que le **navigateur** ajoute à `deadline_s` avant d'abandonner sa requête (AD-11 :
     # `chat.js` borne son attente, sans quoi la saisie reste verrouillée indéfiniment). Elle vit ici
     # et non dans `chat.js` — un seuil numérique n'a qu'un domicile (convention du projet) — et
@@ -317,7 +337,12 @@ class Settings(BaseSettings):
     # 4 verdicts (~25), 4 phrases soutenues (~15), 4 facettes (~30), et 4 blocs d'applicabilité
     # portant chacun jusqu'à `qualites_exigees_max` qualités avec leur `fait_cite` borné par
     # `fait_manquant_max_chars` (~90 tokens la qualité) ≈ 1 880, plus la ponctuation JSON : 2 048.
-    verifier_sinistre_json_tokens: int = Field(2048, ge=1)
+    #
+    # **768 depuis le correctif du tour 3.** Le calcul ci-dessus majorait un contrat que le sinistre
+    # ne produit pas : le JSON réellement rendu est de **329 à 510 tokens** sur les quatre appels
+    # audités. 2 048 était quatre fois trop grand, et cette place volée à la réserve de réflexion
+    # est exactement ce qui la rendait insuffisante. 768 majore le pire mesuré de 50 %.
+    verifier_sinistre_json_tokens: int = Field(768, ge=1)
     # 2 048 pour 1 904 mesurés : ~7 % de marge, sur une mesure qui ne couvre qu'un contrat et un
     # cas-témoin. `[HYPOTHÈSE]`, à resserrer quand d'autres cas décisoires auront été joués.
     #
@@ -326,7 +351,11 @@ class Settings(BaseSettings):
     # `qualites_exigees_max` ou de la réflexion mesurée exigera de relever d'abord le plafond du
     # client — au lieu de rogner en silence sur la réflexion, ce qui tronque la sortie et rend un
     # `LlmParse` terminal sur un sinistre nominal.
-    verifier_thinking_reserve_tokens: int = Field(2048, ge=0)
+    # **2 688 depuis le correctif du tour 3.** La mesure du tour 2 (1 904) était périmée de 26 % :
+    # l'audit des quatre appels donne 2 337 et 2 394 tokens de réflexion, soit 82 % de la sortie.
+    # La réserve était donc **déjà dépassée** au moment où elle a été écrite. 2 688 majore 2 394 de
+    # 12 %.
+    verifier_thinking_reserve_tokens: int = Field(2688, ge=0)
 
     @property
     def verifier_sinistre_max_tokens(self) -> int:
@@ -1115,6 +1144,25 @@ class Settings(BaseSettings):
             if valeur > self.llm_max_output_tokens:
                 raise ValueError(f"{nom} ({valeur}) doit être <= llm_max_output_tokens "
                                  f"({self.llm_max_output_tokens})")
+        # Correctif du tour 3 (R3). **Un plafond de sortie qu'on n'a pas le temps d'écrire est un
+        # 503 qui s'ignore.** À 4 096 tokens et 40 s, la borne effective du vérificateur sinistre
+        # était 3 575 tokens — 87 % du plafond déclaré — et la deuxième réponse A16 est morte là,
+        # sur son délai d'appel, avec la meilleure ébauche des trois et 73 s de deadline encore
+        # disponibles. Les deux nombres vivaient dans deux dérivations qui s'ignoraient ; ils sont
+        # désormais liés, et une configuration qui les fait diverger refuse de démarrer.
+        #
+        # Le débit est **minoré** et la marge est une latence d'amorçage, toutes deux mesurées :
+        # majorer une durée demande de sous-estimer la vitesse, pas de la moyenner.
+        plus_longue = max(self.verifier_sinistre_max_tokens, self.verifier_max_tokens,
+                          self.rediger_max_tokens, self.comprendre_max_tokens,
+                          self.retrouver_outils_max_tokens)
+        duree_majoree = plus_longue / self.llm_output_tokens_per_s_min + self.llm_latence_marge_s
+        if duree_majoree > self.llm_timeout_s:
+            raise ValueError(
+                f"llm_timeout_s ({self.llm_timeout_s} s) ne laisse pas écrire la plus longue "
+                f"sortie d'étape ({plus_longue} tokens) : {duree_majoree:.1f} s requises à "
+                f"{self.llm_output_tokens_per_s_min} tokens/s plus {self.llm_latence_marge_s} s "
+                "de latence — relever le délai, ou baisser le plafond de sortie")
         if self.quote_min_chars > self.quote_max_chars:
             raise ValueError(f"quote_min_chars ({self.quote_min_chars}) doit être "
                              f"<= quote_max_chars ({self.quote_max_chars})")
@@ -1183,6 +1231,8 @@ class Settings(BaseSettings):
         return {
             "deadline_s": self.deadline_s,
             "llm_timeout_s": self.llm_timeout_s,
+            "llm_output_tokens_per_s_min": self.llm_output_tokens_per_s_min,
+            "llm_latence_marge_s": self.llm_latence_marge_s,
             "client_abort_margin_s": self.client_abort_margin_s,
             "raison_publiable_max_chars": self.raison_publiable_max_chars,
             "quote_min_chars": self.quote_min_chars,

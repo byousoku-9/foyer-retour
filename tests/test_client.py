@@ -765,12 +765,14 @@ def test_new_budget_takes_the_active_settings_and_never_extends_the_deadline() -
     pouvoir en demander moins ; lui laisser en demander **plus** offrirait, depuis l'extérieur du
     serveur, un contournement de la deadline par requête.
     """
-    settings = _settings(deadline_s=55.0, max_llm_attempts=6, max_cost_eur_per_request=0.10)
+    # 70 et non 55 : depuis le correctif du tour 3, `llm_timeout_s` vaut 55, et une deadline
+    # égale au délai d'appel est refusée par `Settings` — ce que ce témoin ne mesure pas.
+    settings = _settings(deadline_s=70.0, max_llm_attempts=6, max_cost_eur_per_request=0.10)
     client, _fake = _client([], settings)
     defaut = client.new_budget()
-    assert defaut.deadline_s == 55.0
+    assert defaut.deadline_s == 70.0
     assert defaut.max_attempts == 6 and defaut.max_cost_eur == 0.10
     # une valeur plus petite passe telle quelle
     assert client.new_budget(deadline_s=12.0).deadline_s == 12.0
     # une valeur plus grande est ramenée au plafond du réglage
-    assert client.new_budget(deadline_s=600.0).deadline_s == 55.0
+    assert client.new_budget(deadline_s=600.0).deadline_s == 70.0

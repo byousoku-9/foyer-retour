@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from server.app.domain.trace import Usage
 from server.app.llm.budget import RequestBudget
 
@@ -205,7 +207,12 @@ def test_relever_la_deadline_ne_rallonge_aucune_requete() -> None:
     for deadline in (ANCIENNE, settings.deadline_s):
         budget = RequestBudget(deadline_s=deadline, max_attempts=settings.max_llm_attempts,
                                max_cost_eur=1.0)
-        assert budget.timeout_for_call(settings.llm_timeout_s) == settings.llm_timeout_s
+        # `approx` et non l'égalité : depuis le correctif du tour 3, `llm_timeout_s` vaut 55, soit
+        # exactement l'ancienne deadline comparée ici — l'horloge monotone a déjà avancé de
+        # quelques microsecondes quand le budget est construit. Ce que le témoin tient est que le
+        # plafond par appel est le même des deux côtés, pas la milliseconde.
+        assert budget.timeout_for_call(settings.llm_timeout_s) == pytest.approx(
+            settings.llm_timeout_s, abs=0.01)
 
     # Et à temps écoulé égal, le budget large n'accorde jamais **moins** que l'étroit : le seul
     # effet d'une deadline plus haute est de laisser aboutir ce que l'autre aurait coupé.

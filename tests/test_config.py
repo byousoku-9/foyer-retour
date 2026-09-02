@@ -23,7 +23,10 @@ def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
     # 75 s : mesurée sur les cinq appels Sonnet du chemin nominal, queue dispersée comprise
     # (02/09/2026) ; 40 s : AD-16 amendé en 1.9, sur mesure.
-    assert s.deadline_s == 100 and s.llm_timeout_s == 40
+    # `llm_timeout_s` : 55 depuis le correctif du tour 3 — à 40, le plafond de sortie du
+    # vérificateur sinistre était inatteignable dans le temps qu'on lui laissait (46 s pour 4 096
+    # tokens au débit mesuré), et une réponse valide mourait sur son délai d'appel.
+    assert s.deadline_s == 100 and s.llm_timeout_s == 55
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     # `max_llm_turns` : trois depuis le correctif du tour 2 — à deux, le verdict terminal de la
@@ -59,9 +62,12 @@ def test_defaults_match_spine_hypotheses() -> None:
     # valait 3 072 de JSON sans un token pour la réflexion, alors que celle-ci est comptée dans le
     # même `max_tokens` et représente 55 à 91 % de la sortie mesurée. La somme atteint exactement
     # le plafond du client : le contrôle de cohérence mord, et c'est voulu.
-    assert s.verifier_sinistre_json_tokens == 2048
-    assert s.verifier_thinking_reserve_tokens == 2048
-    assert s.verifier_sinistre_max_tokens == 4096 == s.llm_max_output_tokens
+    # Corrigé au tour 3 : le JSON réellement rendu vaut 329 à 510 tokens (2 048 majorait un contrat
+    # que le sinistre ne produit pas), et la réflexion mesurée 2 394 — la réserve du tour 2 était
+    # déjà dépassée quand elle a été écrite.
+    assert s.verifier_sinistre_json_tokens == 768
+    assert s.verifier_thinking_reserve_tokens == 2688
+    assert s.verifier_sinistre_max_tokens == 3456 <= s.llm_max_output_tokens
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
     assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
@@ -628,11 +634,43 @@ def test_la_borne_du_verificateur_sinistre_reserve_la_reflexion_quelle_paie() ->
     from server.app.config import Settings
 
     s = Settings(_env_file=None, anthropic_api_key="")
-    REFLEXION_MESUREE = 1904  # maximum observé sur les appels audités
+    # Maximum observé sur les appels audités du vérificateur sinistre. Il valait 1 904 au tour 2 ;
+    # l'audit du tour 3 le corrige à 2 394 — la réserve d'alors était **déjà** dépassée.
+    REFLEXION_MESUREE = 2394
+    JSON_MESURE = 510
     assert s.verifier_thinking_reserve_tokens >= REFLEXION_MESUREE, (
         "la réserve doit couvrir la réflexion mesurée, sinon elle rogne sur le JSON")
+    assert s.verifier_sinistre_json_tokens >= JSON_MESURE
     assert (s.verifier_sinistre_max_tokens
             == s.verifier_sinistre_json_tokens + s.verifier_thinking_reserve_tokens)
     # Le contrôle de cohérence mord : la somme ne peut plus dépasser le plafond du client en silence.
     with pytest.raises(ValidationError, match="verifier_sinistre_max_tokens"):
-        Settings(_env_file=None, anthropic_api_key="", verifier_thinking_reserve_tokens=2049)
+        Settings(_env_file=None, anthropic_api_key="", verifier_thinking_reserve_tokens=3500)
+
+
+def test_le_delai_dappel_laisse_ecrire_la_plus_longue_sortie_detape() -> None:
+    """R3 — un plafond de sortie qu'on n'a pas le temps d'écrire est un 503 qui s'ignore.
+
+    À 4 096 tokens et 40 s, la borne effective du vérificateur sinistre était 3 575 tokens (87 % du
+    plafond déclaré) au débit mesuré, et la deuxième réponse A16 est morte là — sur son délai
+    d'appel, avec la meilleure ébauche des trois, alors que la deadline lui laissait encore 73 s.
+    Les deux nombres vivaient dans deux dérivations qui s'ignoraient.
+    """
+    from server.app.config import Settings
+
+    s = Settings(_env_file=None, anthropic_api_key="")
+    plus_longue = max(s.verifier_sinistre_max_tokens, s.verifier_max_tokens, s.rediger_max_tokens,
+                      s.comprendre_max_tokens, s.retrouver_outils_max_tokens)
+    assert plus_longue / s.llm_output_tokens_per_s_min + s.llm_latence_marge_s <= s.llm_timeout_s
+    # Le débit publié **minore** la mesure (89 à 95 tokens/s sur les quatre appels audités) :
+    # majorer une durée demande de sous-estimer la vitesse, pas de la moyenner.
+    assert s.llm_output_tokens_per_s_min <= 89.0
+
+    # L'invariante mord dans les deux sens : un délai trop court comme un plafond trop grand.
+    with pytest.raises(ValidationError, match="ne laisse pas écrire"):
+        Settings(_env_file=None, anthropic_api_key="", llm_timeout_s=40.0)
+    with pytest.raises(ValidationError, match="ne laisse pas écrire"):
+        # Le plafond du client relevé **et** une étape qui le remplit : la borne par étape passe,
+        # c'est bien le temps d'écriture qui refuse.
+        Settings(_env_file=None, anthropic_api_key="", llm_max_output_tokens=6000,
+                 rediger_max_tokens=6000)
