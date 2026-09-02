@@ -239,6 +239,25 @@ class FacetteCouverture(DomainModel):
     rang: int = Field(ge=0)
     block_ids: tuple[str, ...] = ()
     candidats: int = Field(default=0, ge=0)
+    # Correctif du tour 4 (C5) — **instrumentation seule** : ce que la passe a décidé, et le fait
+    # qui l'a décidé. Aucune de ces valeurs n'entre dans une règle ; elles existent pour que le
+    # prochain audit lise ce qui s'est passé au lieu de le redériver hors ligne, comme les trois
+    # précédents ont dû le faire.
+    #
+    # `tete` est le bloc de tête du classement, `forme_gagnante` la forme de la requête qui a
+    # produit sa couverture pleine, et `part_des_blocs` la fraction des blocs du document que ce
+    # mot occupe. C'est ce triplet qui nomme une collision : sur le contrat servi, la forme
+    # « vitres » (0,57 % des blocs) gagne la sous-question « bris de la vitre » et rapporte deux
+    # clauses de dégâts des eaux, parce que la normalisation efface les accents et confond le
+    # pluriel du nom avec le participe « vitrés ».
+    tete: str | None = None
+    forme_gagnante: str | None = None
+    part_des_blocs: float = Field(default=0.0, ge=0, le=1)
+    # Ce que la réserve a gardé pour cette sous-question, et ce que son honoration a réellement
+    # fait entrer : honorer une réservation ouvre une **fenêtre**, pas une unité, et l'écart entre
+    # les deux gouvernait une dépense 8,7× plus grande que le nombre qui la bornait.
+    tokens_reserves: int = Field(default=0, ge=0)
+    tokens_admis: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _blocs_uniques(self) -> FacetteCouverture:

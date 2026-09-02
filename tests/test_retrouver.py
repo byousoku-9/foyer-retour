@@ -4829,3 +4829,61 @@ async def test_le_navigateur_apprend_combien_de_tours_il_lui_reste() -> None:
     # Le préfixe système ne bouge pas d'un octet entre les tours : il reste cacheable (AD-9).
     prefixes = {requete["system"][0]["text"] for requete in fake.requests}
     assert len(prefixes) == 1
+
+
+# --- Correctif du tour 4 (C5) : instrumenter la sélection avant d'y retoucher ------------------
+
+
+def test_la_trace_publie_ce_que_la_selection_par_facette_a_decide() -> None:
+    """C5 — trois audits ont dû redériver ces nombres hors ligne. Ils sont désormais lus.
+
+    La collision mesurée sur le contrat servi est exactement ce que ce triplet nomme : la forme
+    « vitres » gagne la sous-question du bris et rapporte deux clauses de dégâts des eaux, parce que
+    la normalisation efface les accents et confond le pluriel du nom avec le participe « vitrés ».
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    libelles = ["dommages liés au bris de la vitre de l'insert",
+                "dommages liés au noircissement par la fumée"]
+    mappings = _mappings_facettes(libelles, dictionnaire=None, dictionary_ready=False,
+                                  index=index, doc_id=doc_id,
+                                  variante_max_part=_s().facette_variante_max_part)
+    classement = retrouver._classement_par_facette(
+        index=index, doc_id=doc_id, question=" ".join(libelles),
+        kinds_confirmes=KINDS_FONDATEURS, limit=20)
+    document = index.corpus.documents[doc_id]
+
+    couverture = retrouver._couverture_facettes(
+        mappings, classement=classement, admis=set(),
+        tokens_du_bloc=lambda b: set(retrouver.words(retrouver.normalize(document.block(b).text))),
+        part_du_mot=lambda mot: max((index.part_des_blocs(m, doc_id=doc_id)
+                                     for m in mot.split()), default=0.0),
+        tokens_reserves={0: 81}, tokens_admis={0: 703})
+
+    bris, fumee = couverture
+    assert bris.tete == f"{doc_id}:p38:1" and bris.forme_gagnante == "vitres"
+    assert 0 < bris.part_des_blocs <= _s().facette_variante_max_part
+    # La mesure que le rapport a dû faire à la main : ce qui est gardé, et ce qui entre vraiment.
+    assert bris.tokens_reserves == 81 and bris.tokens_admis == 703
+    assert fumee.tete == f"{doc_id}:p34:11" and fumee.forme_gagnante == "fumees"
+
+
+async def test_une_forme_absente_du_document_ne_peut_jamais_etre_en_tete() -> None:
+    """L'inertie des formes mortes, documentée : une forme que le document ne porte pas ne gagne rien.
+
+    La règle des variantes en produit — « bri », « inserts », « salons » —, toutes à part nulle.
+    Elles ne coûtent rien et ne décident rien ; ce témoin fixe le fait plutôt que de le supposer.
+    """
+    corpus, parsed = _corpus_a_recouvrement_partiel()
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["dommages"]),
+                      _tool("ouvrir_noeud", "t2", node_id="pertinent", focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=3, node_window=2, search_limit=20),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    selection = next(c for c in step.checks if c.name == "selection_par_facette")
+    assert "rang 0" in selection.detail and "rang 1" in selection.detail
+    for facette in result.facettes:
+        if facette.forme_gagnante is not None:
+            assert facette.part_des_blocs > 0, facette

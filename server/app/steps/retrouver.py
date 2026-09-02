@@ -557,10 +557,32 @@ def _unite_reservable(block_id: str, *, block: Callable[[str], Block], index: In
         return None
 
 
+def _forme_gagnante(mapping: dict[str, list[str]] | list[str], *,
+                    tokens: set[str]) -> str | None:
+    """La forme de la requête que le bloc de tête couvre **entièrement** : celle qui l'a fait gagner.
+
+    Instrumentation seule (C5). C'est ce mot-là qui explique un classement, et c'est lui qu'un audit
+    doit lire au lieu de le redériver : « fumées » désigne la clause, « vitres » désigne la collision
+    entre le pluriel d'un nom et un participe que la normalisation confond.
+    """
+    groupes = (((canon, *variantes) for canon, variantes in mapping.items())
+               if isinstance(mapping, dict) else (mapping,))
+    for groupe in groupes:
+        for valeur in groupe:
+            mots = set(words(normalize(valeur)))
+            if mots and mots <= tokens:
+                return " ".join(sorted(mots))
+    return None
+
+
 def _couverture_facettes(mappings: list[tuple[int, dict[str, list[str]] | list[str]]], *,
                          classement: Callable[[dict[str, list[str]] | list[str]],
                                               list[ScoredHit]],
-                         admis: set[str]) -> list[FacetteCouverture]:
+                         admis: set[str],
+                         tokens_du_bloc: Callable[[str], set[str]] | None = None,
+                         part_du_mot: Callable[[str], float] | None = None,
+                         tokens_reserves: dict[int, int] | None = None,
+                         tokens_admis: dict[int, int] | None = None) -> list[FacetteCouverture]:
     """Pour chaque facette : les blocs décisionnels confirmés **transmis** que son classement propose.
 
     L'attribution est structurelle, et c'est ce qui la rend démontrable : un bloc couvre une facette
@@ -576,13 +598,21 @@ def _couverture_facettes(mappings: list[tuple[int, dict[str, list[str]] | list[s
     couverture: list[FacetteCouverture] = []
     for rang, mapping in mappings:
         hits = classement(mapping)
+        tete = hits[0].clause_uid if hits else None
+        forme = (_forme_gagnante(mapping, tokens=tokens_du_bloc(tete))
+                 if tete is not None and tokens_du_bloc is not None else None)
         couverture.append(FacetteCouverture(
             rang=rang,
             block_ids=tuple(dict.fromkeys(hit.clause_uid for hit in hits
                                           if hit.clause_uid in admis)),
             # Le classement entier, admis ou non : c'est lui qui distingue « le contrat n'en parle
             # pas » de « je n'ai pas eu la place de le lire » (NFR2).
-            candidats=len({hit.clause_uid for hit in hits})))
+            candidats=len({hit.clause_uid for hit in hits}),
+            tete=tete, forme_gagnante=forme,
+            part_des_blocs=(part_du_mot(forme) if forme is not None and part_du_mot is not None
+                            else 0.0),
+            tokens_reserves=(tokens_reserves or {}).get(rang, 0),
+            tokens_admis=(tokens_admis or {}).get(rang, 0)))
     return couverture
 
 
@@ -678,7 +708,12 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # pas admis, sa place n'est dépensable par personne d'autre : ni par un voisin de fenêtre, ni
     # par une définition suivie automatiquement. Ce n'est **pas** une capacité de plus — c'est la
     # même, allouée dans l'ordre de ce qui décide.
-    reserve_facettes: dict[str, list[str]] = {}
+    # `block_id` du primaire réservé → (rang de la sous-question, unité atomique gardée).
+    reserve_facettes: dict[str, tuple[int, list[str]]] = {}
+    # C5, instrumentation seule : ce que chaque sous-question a **réellement** fait entrer. Honorer
+    # une réservation ouvre une fenêtre, pas une unité ; l'écart entre les deux n'était mesurable
+    # nulle part, et il gouvernait une dépense bien plus grande que le nombre qui la bornait.
+    tokens_admis_par_rang: dict[int, int] = {}
     # Une unité refusée par le budget est un fait distinct d'un candidat que le navigateur a choisi
     # de ne pas ouvrir : la trace ne doit pas dire l'un pour l'autre.
     budget_a_refuse = False
@@ -732,6 +767,15 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 result_uid=hit.result_uid, state="admitted", reason=reason,
                 snapshot=budget_snapshot())
 
+    def cout_des_blocs(block_ids: Iterable[str]) -> int:
+        """Le coût en tokens de blocs **déjà admis** : la même représentation que `admit`.
+
+        `cout_unite` ne compte que ce qui reste à admettre — c'est ce qu'il faut avant l'admission,
+        et exactement ce qu'il ne faut pas après (il rendrait zéro).
+        """
+        return sum(estimate_tokens(f"{b}\n{block(b).text}", settings)
+                   for b in dict.fromkeys(block_ids))
+
     def cout_unite(unit: Iterable[str]) -> tuple[int, int]:
         """Ce qu'une unité coûterait **en plus** : blocs et tokens, doublons déjà lus déduits."""
         neufs = [b for b in dict.fromkeys(unit) if b not in admitted_set]
@@ -747,7 +791,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         dépenser.
         """
         blocs = tokens = 0
-        for primaire, unite in reserve_facettes.items():
+        for primaire, (_rang, unite) in reserve_facettes.items():
             if primaire in admitted_set:
                 continue
             cout_blocs, cout_tokens = cout_unite(unite)
@@ -994,7 +1038,13 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if unit is None:
                     truncated = True
                     continue
-                got = admit(unit, reserve=item.block_id in reserve_facettes)
+                reservee = reserve_facettes.get(item.block_id)
+                got = admit(unit, reserve=reservee is not None)
+                if reservee is not None and got:
+                    # C5 : honorer une réservation fait entrer **la fenêtre**, pas la seule unité
+                    # gardée. C'est cette dépense-là qu'aucun compteur ne voyait.
+                    tokens_admis_par_rang[reservee[0]] = (
+                        tokens_admis_par_rang.get(reservee[0], 0) + cout_des_blocs(got))
                 if item.block_id in got:
                     primary.append(item.block_id)
                 if item.block_id in admitted_set:
@@ -1420,7 +1470,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return
         mappings_figes = mappings
         classement = classement_des_facettes()
-        for _rang, mapping in mappings:
+        for rang, mapping in mappings:
             for hit in classement(mapping):
                 if hit.clause_uid in admitted_set or hit.clause_uid in reserve_facettes:
                     break  # cette facette a déjà sa place, gardée ou déjà lue
@@ -1443,7 +1493,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     # retirerait du budget sans rien rendre. La facette repartira par la passe de
                     # couverture, sous les bornes ordinaires, ou sera dite bornée.
                     break
-                reserve_facettes[hit.clause_uid] = unite
+                reserve_facettes[hit.clause_uid] = (rang, unite)
                 break
 
     def couvrir_les_facettes() -> None:
@@ -1510,10 +1560,16 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 best_hit_by_node.setdefault(candidat.node_uid, candidat.clause_uid)
                 if candidat.clause_uid not in search_candidates:
                     search_candidates.append(candidat.clause_uid)
+                avant = set(admitted_set)
                 _payload, is_error = execute(
                     "ouvrir_noeud",
                     {"node_id": candidat.node_uid, "focus_block_id": candidat.clause_uid},
                     prioritize_focus=True)
+                # C5 : même mesure que pour la réserve — la fenêtre ouverte, pas l'unité visée.
+                entres = [b for b in admitted_set - avant]
+                if entres:
+                    tokens_admis_par_rang[rang] = (tokens_admis_par_rang.get(rang, 0)
+                                                   + cout_des_blocs(entres))
                 if is_error:
                     return
             if not progression:
@@ -1730,8 +1786,14 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # couverture qu'aucune passe n'a eu le droit de compléter aurait fait porter à `RetrievalResult`
     # une absence ou une borne que l'étape n'a jamais cherché à lever.
     facettes_couverture = (
-        _couverture_facettes(mappings_figes, classement=classement_des_facettes(),
-                             admis=set(admitted))
+        _couverture_facettes(
+            mappings_figes, classement=classement_des_facettes(), admis=set(admitted),
+            tokens_du_bloc=lambda b: set(words(normalize(block(b).text))),
+            part_du_mot=lambda mot: max((index.part_des_blocs(m, doc_id=doc_id)
+                                         for m in mot.split()), default=0.0),
+            tokens_reserves={rang: cout_des_blocs(unite)
+                             for _primaire, (rang, unite) in reserve_facettes.items()},
+            tokens_admis=tokens_admis_par_rang)
         if kinds_suffisants is not None and admitted and mappings_figes else [])
     if any(facette.bornee for facette in facettes_couverture):
         # NFR2 : des candidats décisionnels d'une sous-question sont restés fermés. La lecture est
@@ -1823,6 +1885,19 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                        "aucune absence affirmée")
         step.checks.append(CheckResult(
             name="facettes_retrouvees", ok=not (absentes or bornees), detail=detail))
+        # C5, instrumentation seule : ce que la passe a décidé **et le fait qui l'a décidé**. Trois
+        # audits successifs ont dû redériver ces nombres hors ligne ; ils sont désormais lus.
+        # AD-10 : des identifiants du corpus, des comptes et une part — la forme gagnante est un mot
+        # normalisé de la requête, du même ordre que les termes que la trace publie déjà.
+        step.checks.append(CheckResult(
+            name="selection_par_facette", ok=True,
+            detail=" | ".join(
+                f"rang {facette.rang} : tête {facette.tete or 'aucune'}"
+                f", forme « {facette.forme_gagnante or 'aucune'} »"
+                f" ({facette.part_des_blocs:.4%} des blocs)"
+                f", {facette.candidats} candidat(s)"
+                f", {facette.tokens_reserves} token(s) gardé(s) pour {facette.tokens_admis} admis"
+                for facette in facettes_couverture)))
     if discarded:
         # Le détail disait « choix de navigation » sans condition. Sur les trois runs A16, les
         # quinze candidats non lus l'avaient été par **épuisement du budget de tokens**, pas par
@@ -2820,8 +2895,11 @@ def couvrir_facettes(parsed: ParsedQuestion, *, retrieval: RetrievalResult, corp
             break
 
     blocs = [*retrieval.blocs, *(bloc(b) for b in retenus)]
-    facettes = _couverture_facettes(mappings, classement=classement,
-                                    admis={b.block_id for b in blocs})
+    facettes = _couverture_facettes(
+        mappings, classement=classement, admis={b.block_id for b in blocs},
+        tokens_du_bloc=lambda b: set(words(normalize(bloc(b).text))),
+        part_du_mot=lambda mot: max((index.part_des_blocs(m, doc_id=doc_id)
+                                     for m in mot.split()), default=0.0))
     if any(f.rang in vises and f.bornee for f in facettes):
         # Comme dans la phase `outils` : des candidats décisionnels sont restés fermés, la lecture
         # est bornée, et aucune absence n'est affirmée sur eux (NFR2).

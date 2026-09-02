@@ -845,6 +845,7 @@ window.CHAT = (function () {
     reprise_unique: "une seule relecture après la satisfaction de la demande de contexte",
     satisfaction_demande: "blocs rouverts pour satisfaire la demande de contexte du contrôle",
     seconde_demande_refusee: "la relecture redemande du contexte : refusée, jamais satisfaite",
+    selection_par_facette: "ce que la sélection par sous-question a retenu, et le mot qui l'a décidé",
     segment_contradictoire: "deux verdicts opposés pour une même phrase",
     segments_derives: "phrases identiques à leur affirmation : un seul jugement, celui de la pertinence",
     segments_derives_masques: "phrases identiques à une affirmation rejetée ou sans verdict : masquées avec elle",
