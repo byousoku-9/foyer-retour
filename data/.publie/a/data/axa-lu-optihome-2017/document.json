@@ -59,12 +59,6 @@
           "block_id": "axa-lu-optihome-2017:p2:2"
         },
         {
-          "block_id": "axa-lu-optihome-2017:p2:3"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p2:4"
-        },
-        {
           "block_id": "axa-lu-optihome-2017:p3:1"
         },
         {
@@ -75,21 +69,6 @@
         },
         {
           "block_id": "axa-lu-optihome-2017:p4:2"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p4:3"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p4:4"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p4:5"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p4:6"
-        },
-        {
-          "block_id": "axa-lu-optihome-2017:p4:7"
         }
       ]
     },
@@ -12848,7 +12827,7 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p2:1",
-      "text": "section page",
+      "text": "section page\nÉtendues territoriales 5\n1 Lexique 6\n6\n6\n6\n7\n7\n7\n8\n8\n8\n8\n9\n9\n9\n9\n9\n10\n10\n10\n10\n10\n10\n10\n10\n11\n11\n11\n11\n11\n11\n12\n12\n12\n12\n12\n12\n13\n13\n13\n13\n13\n14\n14\n14\n14\n14\n14\n15\n15\n15\n15\n15\n15\n16\n16",
       "loc": "p2",
       "seq": 1,
       "page": 2,
@@ -12856,7 +12835,7 @@
         56.69,
         69.35,
         306.9,
-        82.87
+        798.17
       ],
       "kind": "autre",
       "structural_kind": "autre",
@@ -12875,61 +12854,10 @@
           ],
           "page": 2,
           "order": 1
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p2:2",
-      "text": "contenu",
-      "loc": "p2",
-      "seq": 2,
-      "page": 2,
-      "bbox": [
-        333.69,
-        69.35,
-        377.13,
-        82.87
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
+        },
         {
-          "line_id": "axa-lu-optihome-2017:p2:2:l1",
-          "line_uid": "line-v1:09710638b5f43c7f1f793700ae89715e110267ead65337ff0ee29f7769b9d364",
-          "text": "contenu",
-          "bbox": [
-            333.69,
-            69.35,
-            377.13,
-            82.87
-          ],
-          "page": 2,
-          "order": 2
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p2:3",
-      "text": "Étendues territoriales 5\n1 Lexique 6\n6\n6\n6\n7\n7\n7\n8\n8\n8\n8\n9\n9\n9\n9\n9\n10\n10\n10\n10\n10\n10\n10\n10\n11\n11\n11\n11\n11\n11\n12\n12\n12\n12\n12\n12\n13\n13\n13\n13\n13\n14\n14\n14\n14\n14\n14\n15\n15\n15\n15\n15\n15\n16\n16",
-      "loc": "p2",
-      "seq": 3,
-      "page": 2,
-      "bbox": [
-        56.69,
-        105.03,
-        306.31,
-        798.17
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p2:3:l1",
-          "line_uid": "line-v1:2d49a9f40a18dfc258f04c33ea6aaf9601afa1865ac82f1118dcb8b5dc9bb19b",
+          "line_id": "axa-lu-optihome-2017:p2:1:l2",
+          "line_uid": "line-v1:08ded43f65682567cb1cf5b0b0bac0da721fdc2a7af7536b19314eee9acbe3f6",
           "text": "Étendues territoriales 5",
           "bbox": [
             56.69,
@@ -12938,11 +12866,11 @@
             118.54
           ],
           "page": 2,
-          "order": 3
+          "order": 2
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l2",
-          "line_uid": "line-v1:811346d04afb38f325ee832b2b4926d070c41a0eaf0b5238c976a6f850540713",
+          "line_id": "axa-lu-optihome-2017:p2:1:l3",
+          "line_uid": "line-v1:635f8d919fd5838f22310ef753cc8e6b4708731e814925299fb6df506a06114d",
           "text": "1 Lexique 6",
           "bbox": [
             56.69,
@@ -12951,11 +12879,11 @@
             149.55
           ],
           "page": 2,
-          "order": 4
+          "order": 3
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l3",
-          "line_uid": "line-v1:f19908ef43d4362d0914ef031b5e7181015d5d90cabe7577a37cff03f3940230",
+          "line_id": "axa-lu-optihome-2017:p2:1:l4",
+          "line_uid": "line-v1:42141da10e42163ea3b214d05cadde284ee66c2087901bfe7700dfb45062ae0e",
           "text": "6",
           "bbox": [
             297.31,
@@ -12964,11 +12892,11 @@
             161.17
           ],
           "page": 2,
-          "order": 5
+          "order": 4
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l4",
-          "line_uid": "line-v1:a8508de045a7afb8d20647376771eb58ec768f5072e0267fe17b5a7e276f2da4",
+          "line_id": "axa-lu-optihome-2017:p2:1:l5",
+          "line_uid": "line-v1:e21ca21a8c84410f53afe080eae0ada456a8495148d54b5fcc7cac4b34a35883",
           "text": "6",
           "bbox": [
             297.31,
@@ -12977,11 +12905,11 @@
             173.17
           ],
           "page": 2,
-          "order": 6
+          "order": 5
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l5",
-          "line_uid": "line-v1:5d086c6fa5cf06d70129f975487bb8bcb773a426cc68c7e81dd555d8dafc7929",
+          "line_id": "axa-lu-optihome-2017:p2:1:l6",
+          "line_uid": "line-v1:d5d7a4b191d36b0b20d7166639cf8978146446a11e176278ca2b270f8b526376",
           "text": "6",
           "bbox": [
             297.31,
@@ -12990,11 +12918,11 @@
             185.17
           ],
           "page": 2,
-          "order": 7
+          "order": 6
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l6",
-          "line_uid": "line-v1:2da75e9db4864c1f189db8393ff8f12ff2990497a62a216d51c463a96d0c0290",
+          "line_id": "axa-lu-optihome-2017:p2:1:l7",
+          "line_uid": "line-v1:38c5ae80ba7a907579535f329c576ce5b20b58762aaa22079dc3e9364f04119c",
           "text": "7",
           "bbox": [
             297.31,
@@ -13003,11 +12931,11 @@
             197.17
           ],
           "page": 2,
-          "order": 8
+          "order": 7
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l7",
-          "line_uid": "line-v1:3ccc119efb6e41711c6a6104fdca830a64541b19d3266980bd8d7825f08fa843",
+          "line_id": "axa-lu-optihome-2017:p2:1:l8",
+          "line_uid": "line-v1:b6a25942d2ca12f151fdd32d9f69853165aefdfddfb52a4544af59919061bd7a",
           "text": "7",
           "bbox": [
             297.31,
@@ -13016,11 +12944,11 @@
             209.17
           ],
           "page": 2,
-          "order": 9
+          "order": 8
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l8",
-          "line_uid": "line-v1:d0360c46597b3c277a616665f39751282389e00ee38d7d170642c6fd62253102",
+          "line_id": "axa-lu-optihome-2017:p2:1:l9",
+          "line_uid": "line-v1:0bfb850bcb967119e63916bcfceb1beb75d9faadb2b930b1263880b420b54ec4",
           "text": "7",
           "bbox": [
             297.31,
@@ -13029,11 +12957,11 @@
             221.17
           ],
           "page": 2,
-          "order": 10
+          "order": 9
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l9",
-          "line_uid": "line-v1:3509a00edfe5ce63925ec64dcfd46b90231ac16dd0494525c25a64c28eac5bff",
+          "line_id": "axa-lu-optihome-2017:p2:1:l10",
+          "line_uid": "line-v1:66c8735684835dac86b1d4498e1b5b1ff93676b3878c7a13b5106df4b456a619",
           "text": "8",
           "bbox": [
             297.31,
@@ -13042,11 +12970,11 @@
             233.17
           ],
           "page": 2,
-          "order": 11
+          "order": 10
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l10",
-          "line_uid": "line-v1:b04a76a349a43735d6b39e8048dffb1ef50747450a7a790b96c35b462a6140fc",
+          "line_id": "axa-lu-optihome-2017:p2:1:l11",
+          "line_uid": "line-v1:27f991db4fb8041c182f9730b412ee7620c1df0bc42c0c57405de958d8aec1cf",
           "text": "8",
           "bbox": [
             297.31,
@@ -13055,11 +12983,11 @@
             245.17
           ],
           "page": 2,
-          "order": 12
+          "order": 11
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l11",
-          "line_uid": "line-v1:fadc6894912b09f24027981d7079c2664395a3d116c469f51437e148253d4b7c",
+          "line_id": "axa-lu-optihome-2017:p2:1:l12",
+          "line_uid": "line-v1:8d3b48d7d842d5889935d869375f0910000131fb3ad336b6b4df0544570cb6ab",
           "text": "8",
           "bbox": [
             297.31,
@@ -13068,11 +12996,11 @@
             257.17
           ],
           "page": 2,
-          "order": 13
+          "order": 12
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l12",
-          "line_uid": "line-v1:03d3dff3906b6593adb5e9e27c07b342e4fcc76d7f59cb38f89e2b5aeb0017ea",
+          "line_id": "axa-lu-optihome-2017:p2:1:l13",
+          "line_uid": "line-v1:1a5c729ea918fe6ac96983069a00dab3a6f9c5f0ff9059d59d82166b793d009e",
           "text": "8",
           "bbox": [
             297.31,
@@ -13081,11 +13009,11 @@
             269.17
           ],
           "page": 2,
-          "order": 14
+          "order": 13
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l13",
-          "line_uid": "line-v1:9f19b5f6863871e38b76819696eb7473e6c0446de7bb3abf9d8fcc8bb9b4c99f",
+          "line_id": "axa-lu-optihome-2017:p2:1:l14",
+          "line_uid": "line-v1:4d0e614af7a923dd430e67fd7d2408524252214b07cd25610ceea683db19ddd5",
           "text": "9",
           "bbox": [
             297.31,
@@ -13094,11 +13022,11 @@
             281.17
           ],
           "page": 2,
-          "order": 15
+          "order": 14
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l14",
-          "line_uid": "line-v1:8de073c1ab81f15c51f9f3bcc399a5df81451f1e54fd58e9f5cabba5bf11a707",
+          "line_id": "axa-lu-optihome-2017:p2:1:l15",
+          "line_uid": "line-v1:9f4aff5968694286e418f08e15a9f5000e4335fa891dab1aa0b2657342f973ba",
           "text": "9",
           "bbox": [
             297.31,
@@ -13107,11 +13035,11 @@
             293.17
           ],
           "page": 2,
-          "order": 16
+          "order": 15
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l15",
-          "line_uid": "line-v1:276312c76381f292e13464969f3e1b43936d65ee6e374a6df5124d55306cd3f5",
+          "line_id": "axa-lu-optihome-2017:p2:1:l16",
+          "line_uid": "line-v1:792a579d69c05f1fc213354ddbc7617cf2840ddcee748ade6c1fef6c1ee6f2ba",
           "text": "9",
           "bbox": [
             297.31,
@@ -13120,11 +13048,11 @@
             305.17
           ],
           "page": 2,
-          "order": 17
+          "order": 16
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l16",
-          "line_uid": "line-v1:53ae29405e72d29571a927441637ebe1e9b854c52d5e6834a79277bac1f733cc",
+          "line_id": "axa-lu-optihome-2017:p2:1:l17",
+          "line_uid": "line-v1:5d00aa0e20b9ca74ec49346ec828561fe8fca097dc9fafb72003f3f6aa4e719f",
           "text": "9",
           "bbox": [
             297.31,
@@ -13133,11 +13061,11 @@
             317.17
           ],
           "page": 2,
-          "order": 18
+          "order": 17
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l17",
-          "line_uid": "line-v1:9fab0ba022adb540e5dc5efb76b6b1180bd5952a592afe091d29fad2c64e1ae0",
+          "line_id": "axa-lu-optihome-2017:p2:1:l18",
+          "line_uid": "line-v1:5cddefafc13a0a9c89803fc7bd51dc572c5f130f374def3b42fadbd00af9d4b4",
           "text": "9",
           "bbox": [
             297.31,
@@ -13146,11 +13074,11 @@
             329.17
           ],
           "page": 2,
-          "order": 19
+          "order": 18
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l18",
-          "line_uid": "line-v1:4502f8b1b6578fce4cedb94f17bf8fdaaffd89437542ac7806d5e437faec6b26",
+          "line_id": "axa-lu-optihome-2017:p2:1:l19",
+          "line_uid": "line-v1:2a371c2447ca27e6ab1f223c8106c34a54887dd744fe47d5d0db62350ef4fdae",
           "text": "10",
           "bbox": [
             291.31,
@@ -13159,11 +13087,11 @@
             341.17
           ],
           "page": 2,
-          "order": 20
+          "order": 19
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l19",
-          "line_uid": "line-v1:2795eaad714cc2db303dc6329d24b062897c90918e434421256fb9240512009f",
+          "line_id": "axa-lu-optihome-2017:p2:1:l20",
+          "line_uid": "line-v1:9c9ffacfbf95f9d1f88475425539c6f18f0f187a2cf0455af4b6653587386593",
           "text": "10",
           "bbox": [
             291.31,
@@ -13172,11 +13100,11 @@
             353.17
           ],
           "page": 2,
-          "order": 21
+          "order": 20
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l20",
-          "line_uid": "line-v1:e317736946cfa86d8bf71ee813c91a946d41eaf071f4238004fabaf75323bf57",
+          "line_id": "axa-lu-optihome-2017:p2:1:l21",
+          "line_uid": "line-v1:52a3d37ff45df67b79532d2dda59cdb10f29fc61d89cf4d95217320a38f97a9a",
           "text": "10",
           "bbox": [
             291.31,
@@ -13185,11 +13113,11 @@
             365.17
           ],
           "page": 2,
-          "order": 22
+          "order": 21
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l21",
-          "line_uid": "line-v1:e0165ec93b1883c66b13da3bf8f808ac1b1d9585439a1d08ef926ef60f94cb6f",
+          "line_id": "axa-lu-optihome-2017:p2:1:l22",
+          "line_uid": "line-v1:8dd3cfa047ecae8177742d898eae2f7cac362192a711eb9699dc8c97f172683a",
           "text": "10",
           "bbox": [
             291.31,
@@ -13198,11 +13126,11 @@
             377.17
           ],
           "page": 2,
-          "order": 23
+          "order": 22
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l22",
-          "line_uid": "line-v1:fc820ffb323ec692ad86ff4fac09b69a6ee1c7dfbdb003b6ada47bd3b7a8807e",
+          "line_id": "axa-lu-optihome-2017:p2:1:l23",
+          "line_uid": "line-v1:1094c862efed0b8c4c80680bbddbf292e1042fb724a1a0d93d11879452f95aa8",
           "text": "10",
           "bbox": [
             291.31,
@@ -13211,11 +13139,11 @@
             389.17
           ],
           "page": 2,
-          "order": 24
+          "order": 23
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l23",
-          "line_uid": "line-v1:c30eac824cb61099862c5db13534d1afb893cf0542ddeb50271f6c677b0ff2fb",
+          "line_id": "axa-lu-optihome-2017:p2:1:l24",
+          "line_uid": "line-v1:dd734bd7310c0fdc4d943cbae331477adc2c098e5c33742eba38f94967667d1b",
           "text": "10",
           "bbox": [
             291.31,
@@ -13224,11 +13152,11 @@
             401.17
           ],
           "page": 2,
-          "order": 25
+          "order": 24
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l24",
-          "line_uid": "line-v1:720a44454ae6e2957585704ba1cfac73199b295f51ae0e40274cd4acf1f88ce9",
+          "line_id": "axa-lu-optihome-2017:p2:1:l25",
+          "line_uid": "line-v1:8e4fa1664f2e753bac75b379d2b534128ef1770640debbff6ba7929216bf9c31",
           "text": "10",
           "bbox": [
             291.31,
@@ -13237,11 +13165,11 @@
             413.17
           ],
           "page": 2,
-          "order": 26
+          "order": 25
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l25",
-          "line_uid": "line-v1:095cd46e9ca119b0df47a879417a437b6639b7d61bf830a1d03675c0caa3d40c",
+          "line_id": "axa-lu-optihome-2017:p2:1:l26",
+          "line_uid": "line-v1:b4017395573cd223ef4d3d520e9eb770b149424105e6c8724cc5d17c16c2020c",
           "text": "10",
           "bbox": [
             291.31,
@@ -13250,11 +13178,11 @@
             425.17
           ],
           "page": 2,
-          "order": 27
+          "order": 26
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l26",
-          "line_uid": "line-v1:d05532a95844ea292dbf8118f7a2c409a977a0b5f8d2356d353d7f6eb8e12018",
+          "line_id": "axa-lu-optihome-2017:p2:1:l27",
+          "line_uid": "line-v1:4484f3ea72df306f825ec7e3a68493442f4768f9ab08e76ca848927ddd901bc0",
           "text": "11",
           "bbox": [
             291.31,
@@ -13263,11 +13191,11 @@
             437.17
           ],
           "page": 2,
-          "order": 28
+          "order": 27
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l27",
-          "line_uid": "line-v1:331d5fd44438218c846d40418962a05652a2ed03daa47df9449864e9f6156052",
+          "line_id": "axa-lu-optihome-2017:p2:1:l28",
+          "line_uid": "line-v1:ec73522dd5619c800f0e1fec81f50ec1bd0eddd45dd0653849ba73655d10bdcb",
           "text": "11",
           "bbox": [
             291.31,
@@ -13276,11 +13204,11 @@
             449.17
           ],
           "page": 2,
-          "order": 29
+          "order": 28
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l28",
-          "line_uid": "line-v1:00005962f46db54606de72a9ae726e7deb6209ce78ce4520711b122da626b996",
+          "line_id": "axa-lu-optihome-2017:p2:1:l29",
+          "line_uid": "line-v1:13f08483eb5fffc7cff72889fae5b394101dc8bed550ad74cb5c272adc1e7f58",
           "text": "11",
           "bbox": [
             291.31,
@@ -13289,11 +13217,11 @@
             461.17
           ],
           "page": 2,
-          "order": 30
+          "order": 29
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l29",
-          "line_uid": "line-v1:ba30f3b9364384e68ba6a6ce29c123e544c71c0d70bc25745e41cf77eb972e46",
+          "line_id": "axa-lu-optihome-2017:p2:1:l30",
+          "line_uid": "line-v1:978dc5f1717ad944551e4e1674549026ef3755eec106cf0df9d84280e7266479",
           "text": "11",
           "bbox": [
             291.31,
@@ -13302,11 +13230,11 @@
             473.17
           ],
           "page": 2,
-          "order": 31
+          "order": 30
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l30",
-          "line_uid": "line-v1:64c88aa8db29939638e73773b83b107e60cba7e392fb9f4d4f797ab395fdc761",
+          "line_id": "axa-lu-optihome-2017:p2:1:l31",
+          "line_uid": "line-v1:4983e3421af693b8c1f43dba08633b3c99c393ed063d74fb84b34e6c211e3ead",
           "text": "11",
           "bbox": [
             291.31,
@@ -13315,11 +13243,11 @@
             485.17
           ],
           "page": 2,
-          "order": 32
+          "order": 31
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l31",
-          "line_uid": "line-v1:41caf57d4e465b7f1b94f659d94b0814569379bc6be7852816cf246d9f35da86",
+          "line_id": "axa-lu-optihome-2017:p2:1:l32",
+          "line_uid": "line-v1:1b2d48b05e1cf08a6d3f856e666db06f95d7cb365b162beff3767a153e4e1b4d",
           "text": "11",
           "bbox": [
             291.31,
@@ -13328,11 +13256,11 @@
             497.17
           ],
           "page": 2,
-          "order": 33
+          "order": 32
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l32",
-          "line_uid": "line-v1:91e3efc089cc07f12ec10c9527f7bfc626a35c63bf19b26cf40bd30e37489373",
+          "line_id": "axa-lu-optihome-2017:p2:1:l33",
+          "line_uid": "line-v1:3cb44e41f1bc37f6bc6468d5f23f190b3a327206ab4d4f47d9055742e18c5675",
           "text": "12",
           "bbox": [
             291.31,
@@ -13341,11 +13269,11 @@
             509.17
           ],
           "page": 2,
-          "order": 34
+          "order": 33
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l33",
-          "line_uid": "line-v1:61641d9836451be2979fbc4fc52104f42baea5e4f98e34791fbe4daf0f9dc911",
+          "line_id": "axa-lu-optihome-2017:p2:1:l34",
+          "line_uid": "line-v1:3533c33acb69734225df2563f3a74bcc7af6bb13a9e0fd48bb0a8e97b18f8610",
           "text": "12",
           "bbox": [
             291.31,
@@ -13354,11 +13282,11 @@
             521.17
           ],
           "page": 2,
-          "order": 35
+          "order": 34
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l34",
-          "line_uid": "line-v1:5589a475604913376e5d2f0d9e7be75eb8ef4dc96cc71e0439383dc762cfc741",
+          "line_id": "axa-lu-optihome-2017:p2:1:l35",
+          "line_uid": "line-v1:1010bd20b03574df8c7d81a407399f749553796fe37ad32f97000b515fa5d8b5",
           "text": "12",
           "bbox": [
             291.31,
@@ -13367,11 +13295,11 @@
             533.17
           ],
           "page": 2,
-          "order": 36
+          "order": 35
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l35",
-          "line_uid": "line-v1:c195ad5ab1380e3cdff9471788ae29e7118d7d306d9d7cfff3ab55766f3d4ac1",
+          "line_id": "axa-lu-optihome-2017:p2:1:l36",
+          "line_uid": "line-v1:8cf58aff7bdd80889adc9001c34d7a0c50730bab4ef82afa4d2ef3529a45e41f",
           "text": "12",
           "bbox": [
             291.31,
@@ -13380,11 +13308,11 @@
             545.17
           ],
           "page": 2,
-          "order": 37
+          "order": 36
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l36",
-          "line_uid": "line-v1:2231c152b4c14b1b1ef3ab28c68f1346684052458b035c0ea81be955d9a5646b",
+          "line_id": "axa-lu-optihome-2017:p2:1:l37",
+          "line_uid": "line-v1:fa78cf14fe4337c3082ffc6afa86c6ef40e9e1fb8abeed1bd7e00fd51e27a4cf",
           "text": "12",
           "bbox": [
             291.31,
@@ -13393,11 +13321,11 @@
             557.17
           ],
           "page": 2,
-          "order": 38
+          "order": 37
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l37",
-          "line_uid": "line-v1:721aa51ffe262c09fa0b7eb082ed1a511858ed87a19b73e637c143abf565fb85",
+          "line_id": "axa-lu-optihome-2017:p2:1:l38",
+          "line_uid": "line-v1:62edca9fdf402dae67d021408e627c3e2518a62f8a6e250e52adcf14a82ad7d5",
           "text": "12",
           "bbox": [
             291.31,
@@ -13406,11 +13334,11 @@
             569.17
           ],
           "page": 2,
-          "order": 39
+          "order": 38
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l38",
-          "line_uid": "line-v1:2fd6177992a21cf7651f5c85268061c8685096db40914371d3285a4ae28bdece",
+          "line_id": "axa-lu-optihome-2017:p2:1:l39",
+          "line_uid": "line-v1:b015fa7a829dc2226e436075d2b33b9024257c36e65cbb080348942c4f85f5a2",
           "text": "13",
           "bbox": [
             291.31,
@@ -13419,11 +13347,11 @@
             581.17
           ],
           "page": 2,
-          "order": 40
+          "order": 39
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l39",
-          "line_uid": "line-v1:e6ff0b6b1cfe5e65890e8c3795e6c630d59d7f42211f4aafde66ae22559f1edf",
+          "line_id": "axa-lu-optihome-2017:p2:1:l40",
+          "line_uid": "line-v1:28a705b2a8eef67fad32e9126679fb1b9f70b4c8405ef2bbf9e699c558d0946b",
           "text": "13",
           "bbox": [
             291.31,
@@ -13432,11 +13360,11 @@
             593.17
           ],
           "page": 2,
-          "order": 41
+          "order": 40
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l40",
-          "line_uid": "line-v1:fcbd601312eb3bd823f6e5a3922d791637319329c291e86caa705a666a9140ff",
+          "line_id": "axa-lu-optihome-2017:p2:1:l41",
+          "line_uid": "line-v1:24f3fa1bff2940feb0a29275d502447c3dbf1d6dea7743eabf7fc6d5a30566e6",
           "text": "13",
           "bbox": [
             291.31,
@@ -13445,11 +13373,11 @@
             605.17
           ],
           "page": 2,
-          "order": 42
+          "order": 41
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l41",
-          "line_uid": "line-v1:4ae6e479d5c7b595ba4fa5dc7711fb80551566c40804dac57541e1db8b84c779",
+          "line_id": "axa-lu-optihome-2017:p2:1:l42",
+          "line_uid": "line-v1:bb68015e59d0b2da1272a139b3c2f1a5d0a353beae4c65499d62ae23e4406e52",
           "text": "13",
           "bbox": [
             291.31,
@@ -13458,11 +13386,11 @@
             617.17
           ],
           "page": 2,
-          "order": 43
+          "order": 42
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l42",
-          "line_uid": "line-v1:91712e9aaddb742e608f35d7de032fcc2eeb6873b2cf588d9d556c99071bbae5",
+          "line_id": "axa-lu-optihome-2017:p2:1:l43",
+          "line_uid": "line-v1:b8e374e107aa30fb516fa1b2ab041741a37d9cd0438a7947e3540170f8007266",
           "text": "13",
           "bbox": [
             291.31,
@@ -13471,11 +13399,11 @@
             629.17
           ],
           "page": 2,
-          "order": 44
+          "order": 43
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l43",
-          "line_uid": "line-v1:19e658d2c8971fa996783fde7cd6463461a0c4fcfde2a20065a6cb2ab86049d7",
+          "line_id": "axa-lu-optihome-2017:p2:1:l44",
+          "line_uid": "line-v1:1543625c8b3836dd640a08e762b1857ea075c0c50f12b176a757d62566de1091",
           "text": "14",
           "bbox": [
             291.31,
@@ -13484,11 +13412,11 @@
             641.17
           ],
           "page": 2,
-          "order": 45
+          "order": 44
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l44",
-          "line_uid": "line-v1:bda119f36a179e5fbd480d0e36afed895574e320d09c89db22a00d41ae3bfa39",
+          "line_id": "axa-lu-optihome-2017:p2:1:l45",
+          "line_uid": "line-v1:dd872bf0389f344fa2d4ead78ee4f5d93a13842e97cc07eb83af5cb15b1dde1a",
           "text": "14",
           "bbox": [
             291.31,
@@ -13497,11 +13425,11 @@
             653.17
           ],
           "page": 2,
-          "order": 46
+          "order": 45
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l45",
-          "line_uid": "line-v1:dea563fd4904e9ebad9b0b1634a5f1cf3f129d25a94c474014c6c7e186121c28",
+          "line_id": "axa-lu-optihome-2017:p2:1:l46",
+          "line_uid": "line-v1:81201de13d4a73edcbfe6a62011c2a3406ae632abc801c0707dc0e6b986e347b",
           "text": "14",
           "bbox": [
             291.31,
@@ -13510,11 +13438,11 @@
             665.17
           ],
           "page": 2,
-          "order": 47
+          "order": 46
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l46",
-          "line_uid": "line-v1:a2cae78574736dbf9550b32ba2c32e19942080e7577dcdeade6f201f1fce65ef",
+          "line_id": "axa-lu-optihome-2017:p2:1:l47",
+          "line_uid": "line-v1:e151af2a82475b7575462ebdfd3a2ee524e61d53bf6bdd94a3bbf27205538472",
           "text": "14",
           "bbox": [
             291.31,
@@ -13523,11 +13451,11 @@
             677.17
           ],
           "page": 2,
-          "order": 48
+          "order": 47
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l47",
-          "line_uid": "line-v1:367071602893fd302502f277753e8ebbb6e8b19e1bea1b9416fdea93a274773b",
+          "line_id": "axa-lu-optihome-2017:p2:1:l48",
+          "line_uid": "line-v1:a48a2b72c2aed15f9f795d88d0c25ca78cac6091066101dff1aff6b3ad79f4bc",
           "text": "14",
           "bbox": [
             291.31,
@@ -13536,11 +13464,11 @@
             689.17
           ],
           "page": 2,
-          "order": 49
+          "order": 48
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l48",
-          "line_uid": "line-v1:51934c9a055b8c6f2e51d7ddaaa25c0d4c6ce9543b3b421683fe84cb670441b7",
+          "line_id": "axa-lu-optihome-2017:p2:1:l49",
+          "line_uid": "line-v1:95258da851b3a6fa3a32b05c382a455860bd95ad1b008fa045e36e697c16f23f",
           "text": "14",
           "bbox": [
             291.31,
@@ -13549,11 +13477,11 @@
             701.17
           ],
           "page": 2,
-          "order": 50
+          "order": 49
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l49",
-          "line_uid": "line-v1:e6038b3f7e477566dbdc082579bea0f4ee9b41a1e45cb1a897121f67fb581136",
+          "line_id": "axa-lu-optihome-2017:p2:1:l50",
+          "line_uid": "line-v1:feec315e20cd0f335519c546022a08110325f34bb50785cf1ac5708ac5432333",
           "text": "15",
           "bbox": [
             291.31,
@@ -13562,11 +13490,11 @@
             713.17
           ],
           "page": 2,
-          "order": 51
+          "order": 50
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l50",
-          "line_uid": "line-v1:febdbb9f406c67b71626febff4015f8b6180e8d3405dc8b1ccb1a2833a95b350",
+          "line_id": "axa-lu-optihome-2017:p2:1:l51",
+          "line_uid": "line-v1:926b63627c9b707dde182b9f220a773dacaa2c969d47b899602410bc945d3d06",
           "text": "15",
           "bbox": [
             291.31,
@@ -13575,11 +13503,11 @@
             725.17
           ],
           "page": 2,
-          "order": 52
+          "order": 51
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l51",
-          "line_uid": "line-v1:52165c113b9a149f9f65f9e0d9bac58d99de9c42394cedc22ea8728385883e46",
+          "line_id": "axa-lu-optihome-2017:p2:1:l52",
+          "line_uid": "line-v1:360f73d8a6b2a06f56bb515f0bb2aee131503cf0b3bc9bd7b78788e460060df2",
           "text": "15",
           "bbox": [
             291.31,
@@ -13588,11 +13516,11 @@
             737.17
           ],
           "page": 2,
-          "order": 53
+          "order": 52
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l52",
-          "line_uid": "line-v1:68130663fb48e528c6fd073e0f827ad65d18f9498d7dcc975016ed6ef8372f30",
+          "line_id": "axa-lu-optihome-2017:p2:1:l53",
+          "line_uid": "line-v1:48ac571cb98086ad732e1ac390d9e501b47f8685bd558bdfa95fe2ff0a51ca7e",
           "text": "15",
           "bbox": [
             291.31,
@@ -13601,11 +13529,11 @@
             749.17
           ],
           "page": 2,
-          "order": 54
+          "order": 53
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l53",
-          "line_uid": "line-v1:18a79d312038244bc4a5be953107b89101a1e6cbd4d2c2f90739708cd069e87e",
+          "line_id": "axa-lu-optihome-2017:p2:1:l54",
+          "line_uid": "line-v1:e0783c10bbea6eaaf86bc29399df1b572098b19e9230f2ba5f69c67878f88bde",
           "text": "15",
           "bbox": [
             291.31,
@@ -13614,11 +13542,11 @@
             762.17
           ],
           "page": 2,
-          "order": 55
+          "order": 54
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l54",
-          "line_uid": "line-v1:35911270ea501e4bfead88d0e772ea353a400abb1af2b5417f4d8da70b47aebc",
+          "line_id": "axa-lu-optihome-2017:p2:1:l55",
+          "line_uid": "line-v1:bd3690265ce08d6bacb4178de7e8b195bdf7495f74761a47ba9c5e182179ed06",
           "text": "15",
           "bbox": [
             291.31,
@@ -13627,11 +13555,11 @@
             774.17
           ],
           "page": 2,
-          "order": 56
+          "order": 55
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l55",
-          "line_uid": "line-v1:86ba7e9fdd6a116df127aad56cede77ad170d247580e246aa8e42a4a0ec6ff93",
+          "line_id": "axa-lu-optihome-2017:p2:1:l56",
+          "line_uid": "line-v1:eaacf33cd2694283be3a6355012ee0a966228afb89363c6bcffdec05071c05c6",
           "text": "16",
           "bbox": [
             291.31,
@@ -13640,11 +13568,11 @@
             786.17
           ],
           "page": 2,
-          "order": 57
+          "order": 56
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:3:l56",
-          "line_uid": "line-v1:f9a6f91b3ccc05c5ff340156e365600863139ed013fe505a23d3511c2c8be0ad",
+          "line_id": "axa-lu-optihome-2017:p2:1:l57",
+          "line_uid": "line-v1:e73ce9612cdd5a4ca5ce4dffa5435229d905474b7c77c69c80cf9bd685ac2ea9",
           "text": "16",
           "bbox": [
             291.31,
@@ -13653,19 +13581,19 @@
             798.17
           ],
           "page": 2,
-          "order": 58
+          "order": 57
         }
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p2:4",
-      "text": "Accident\nAccidentel\nAssuré\nAttentat\nBâtiment désigné\nBiens désignés\nBijoux\nChômage immobilier\nCollection\nCompagnie\nConflit du travail\nContenu\nDépendances\nDocuments constitutifs du contrat\nDommages corporels\nDommages matériels\nDommages immatériels\nEquipement d’alarme et de surveillance\nEquipement domotique\nFrais de conservation\nFranchise\nGlissement de terrain\nAffaissement de terrain\nInondation\nLocaux\nMatériel multimédia\nMatériel nomade\nMobilier\nMobilier de jardin\nObjets de valeur\nObjets personnels\nOccupation\nPluies torrentielles\nPréfabriqué (construction de type)\nPreneur d’assurance\nRecours des locataires ou occupants\nRecours des tiers (recours des voisins)\nRésiliation\nResponsabilité locative ou d’occupant\nSanitaires\nSéjour temporaire\nSerrure de sécurité / Serrure de sûreté\nSTATEC\nSuperficie\nTempête\nTremblement de terre\nValeurs\nValeur à neuf\nValeur du jour\nValeur réelle\nValeur vénale\nVillégiature (bâtiment de -)\nVol\nVoyage\nZone inondable",
+      "block_id": "axa-lu-optihome-2017:p2:2",
+      "text": "contenu\nAccident\nAccidentel\nAssuré\nAttentat\nBâtiment désigné\nBiens désignés\nBijoux\nChômage immobilier\nCollection\nCompagnie\nConflit du travail\nContenu\nDépendances\nDocuments constitutifs du contrat\nDommages corporels\nDommages matériels\nDommages immatériels\nEquipement d’alarme et de surveillance\nEquipement domotique\nFrais de conservation\nFranchise\nGlissement de terrain\nAffaissement de terrain\nInondation\nLocaux\nMatériel multimédia\nMatériel nomade\nMobilier\nMobilier de jardin\nObjets de valeur\nObjets personnels\nOccupation\nPluies torrentielles\nPréfabriqué (construction de type)\nPreneur d’assurance\nRecours des locataires ou occupants\nRecours des tiers (recours des voisins)\nRésiliation\nResponsabilité locative ou d’occupant\nSanitaires\nSéjour temporaire\nSerrure de sécurité / Serrure de sûreté\nSTATEC\nSuperficie\nTempête\nTremblement de terre\nValeurs\nValeur à neuf\nValeur du jour\nValeur réelle\nValeur vénale\nVillégiature (bâtiment de -)\nVol\nVoyage\nZone inondable",
       "loc": "p2",
-      "seq": 4,
+      "seq": 2,
       "page": 2,
       "bbox": [
-        333.7,
-        138.11,
+        333.69,
+        69.35,
         508.33,
         798.17
       ],
@@ -13675,7 +13603,20 @@
       "surface_class": "table_des_matieres",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l1",
+          "line_id": "axa-lu-optihome-2017:p2:2:l1",
+          "line_uid": "line-v1:81f1e502623a4c10f143966df5cabf94042c680600b2cd89dc4a41595f321ff3",
+          "text": "contenu",
+          "bbox": [
+            333.69,
+            69.35,
+            377.13,
+            82.87
+          ],
+          "page": 2,
+          "order": 58
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p2:2:l2",
           "line_uid": "line-v1:6b83d937c935afcbe5c6a603d83510b2c053738ee8b17eca0bc64a6cca10ac1d",
           "text": "Accident",
           "bbox": [
@@ -13688,7 +13629,7 @@
           "order": 59
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l2",
+          "line_id": "axa-lu-optihome-2017:p2:2:l3",
           "line_uid": "line-v1:bf3655def0f7158cb30159a3e829629506279e5843d86a3ffaab59cdae825f98",
           "text": "Accidentel",
           "bbox": [
@@ -13701,7 +13642,7 @@
           "order": 60
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l3",
+          "line_id": "axa-lu-optihome-2017:p2:2:l4",
           "line_uid": "line-v1:3b89407dd358c2129c820e5561ab509179164ad246cc12f3551b1dcfed9a0dfc",
           "text": "Assuré",
           "bbox": [
@@ -13714,7 +13655,7 @@
           "order": 61
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l4",
+          "line_id": "axa-lu-optihome-2017:p2:2:l5",
           "line_uid": "line-v1:6e52b0f80b9e9901146bd801d51598d64daf9d57ff42d38d560447fad71fe7f4",
           "text": "Attentat",
           "bbox": [
@@ -13727,7 +13668,7 @@
           "order": 62
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l5",
+          "line_id": "axa-lu-optihome-2017:p2:2:l6",
           "line_uid": "line-v1:cf77e3d2507802a23f60ff730b3fdd4419d0048a31cc6d7bd58f901ed47f5995",
           "text": "Bâtiment désigné",
           "bbox": [
@@ -13740,7 +13681,7 @@
           "order": 63
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l6",
+          "line_id": "axa-lu-optihome-2017:p2:2:l7",
           "line_uid": "line-v1:2812a5cf8ad2b47cee77239b2fa011cdf46b0aaec8a7f72253f429a1738c721e",
           "text": "Biens désignés",
           "bbox": [
@@ -13753,7 +13694,7 @@
           "order": 64
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l7",
+          "line_id": "axa-lu-optihome-2017:p2:2:l8",
           "line_uid": "line-v1:e7ef92399b81ea1bd0e85261bcb55d9915b917bb7de6ba80c53afd4f82cc5e83",
           "text": "Bijoux",
           "bbox": [
@@ -13766,7 +13707,7 @@
           "order": 65
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l8",
+          "line_id": "axa-lu-optihome-2017:p2:2:l9",
           "line_uid": "line-v1:8f586fc421ab5ace6e11e9bf4c89628a3f69364bcb3914a14fd2fe47ec15d288",
           "text": "Chômage immobilier",
           "bbox": [
@@ -13779,7 +13720,7 @@
           "order": 66
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l9",
+          "line_id": "axa-lu-optihome-2017:p2:2:l10",
           "line_uid": "line-v1:3874567a3b1b65f638129e635751e290cd7fdc2c3e23d66e8b29fc156f091f87",
           "text": "Collection",
           "bbox": [
@@ -13792,7 +13733,7 @@
           "order": 67
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l10",
+          "line_id": "axa-lu-optihome-2017:p2:2:l11",
           "line_uid": "line-v1:6580279ef350e6f375a7add3957e25e7fd1f5b733931666de757b3dca62a1fd1",
           "text": "Compagnie",
           "bbox": [
@@ -13805,7 +13746,7 @@
           "order": 68
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l11",
+          "line_id": "axa-lu-optihome-2017:p2:2:l12",
           "line_uid": "line-v1:de6f697ee66bacd27f1fd6f73dc84e6719f8e3d4dc524f08213695961b59f665",
           "text": "Conflit du travail",
           "bbox": [
@@ -13818,7 +13759,7 @@
           "order": 69
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l12",
+          "line_id": "axa-lu-optihome-2017:p2:2:l13",
           "line_uid": "line-v1:c3c4edf4a19ab38395a046aa0d899c980406abb15ee43ec608f468a58c3fda48",
           "text": "Contenu",
           "bbox": [
@@ -13831,7 +13772,7 @@
           "order": 70
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l13",
+          "line_id": "axa-lu-optihome-2017:p2:2:l14",
           "line_uid": "line-v1:cd68950fc2df0185ea0f8a1b7684d90c07206d983c73ffdb77c2947c8a5a66c5",
           "text": "Dépendances",
           "bbox": [
@@ -13844,7 +13785,7 @@
           "order": 71
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l14",
+          "line_id": "axa-lu-optihome-2017:p2:2:l15",
           "line_uid": "line-v1:44ea566bcda52fa7669e13b048de416702d61843d669886dc1ee6934f77c4ea0",
           "text": "Documents constitutifs du contrat",
           "bbox": [
@@ -13857,7 +13798,7 @@
           "order": 72
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l15",
+          "line_id": "axa-lu-optihome-2017:p2:2:l16",
           "line_uid": "line-v1:7406fb6eea3f0289f3c3df4811220425eebd78e3b46c0b66b3345d73e9c2d7b1",
           "text": "Dommages corporels",
           "bbox": [
@@ -13870,7 +13811,7 @@
           "order": 73
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l16",
+          "line_id": "axa-lu-optihome-2017:p2:2:l17",
           "line_uid": "line-v1:aca9d56e0606e1811befc5a2f3e59519bc54c4c04b174e23874c74a7a2780e37",
           "text": "Dommages matériels",
           "bbox": [
@@ -13883,7 +13824,7 @@
           "order": 74
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l17",
+          "line_id": "axa-lu-optihome-2017:p2:2:l18",
           "line_uid": "line-v1:bc5a39b12ec2e0935aae2d54952b4884337605c02be9ccdcbb3f3f573e1f9b5b",
           "text": "Dommages immatériels",
           "bbox": [
@@ -13896,7 +13837,7 @@
           "order": 75
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l18",
+          "line_id": "axa-lu-optihome-2017:p2:2:l19",
           "line_uid": "line-v1:0ea405ec4926dc2b428ac4f789fab9047332dd878395ed4fcb456d5ae0392ee4",
           "text": "Equipement d’alarme et de surveillance",
           "bbox": [
@@ -13909,7 +13850,7 @@
           "order": 76
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l19",
+          "line_id": "axa-lu-optihome-2017:p2:2:l20",
           "line_uid": "line-v1:a078510ad04a5ae7152d1c57af4457a03072739d44efc66e01aeafa51f395da2",
           "text": "Equipement domotique",
           "bbox": [
@@ -13922,7 +13863,7 @@
           "order": 77
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l20",
+          "line_id": "axa-lu-optihome-2017:p2:2:l21",
           "line_uid": "line-v1:7375d401b3f0af48051f611205b236bbee2ac6d9bc46df87e033e4fe358e30d6",
           "text": "Frais de conservation",
           "bbox": [
@@ -13935,7 +13876,7 @@
           "order": 78
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l21",
+          "line_id": "axa-lu-optihome-2017:p2:2:l22",
           "line_uid": "line-v1:97e9e56389f0c55bafab288573d4471a7dc25a97892902e6787ab7a62954aa7d",
           "text": "Franchise",
           "bbox": [
@@ -13948,7 +13889,7 @@
           "order": 79
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l22",
+          "line_id": "axa-lu-optihome-2017:p2:2:l23",
           "line_uid": "line-v1:4d96961f066e09b654d0d3d817be15fb84f1fdbb1d6154a3771b0780932d3cbf",
           "text": "Glissement de terrain",
           "bbox": [
@@ -13961,7 +13902,7 @@
           "order": 80
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l23",
+          "line_id": "axa-lu-optihome-2017:p2:2:l24",
           "line_uid": "line-v1:dfa7695652dcb0d632f6391c2626acbc4922803d44a969add92a2478545b12ad",
           "text": "Affaissement de terrain",
           "bbox": [
@@ -13974,7 +13915,7 @@
           "order": 81
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l24",
+          "line_id": "axa-lu-optihome-2017:p2:2:l25",
           "line_uid": "line-v1:41044dcd4925415d0a02a18b06be9ae738d2df8bf8ac01da184fc520dabe9d0e",
           "text": "Inondation",
           "bbox": [
@@ -13987,7 +13928,7 @@
           "order": 82
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l25",
+          "line_id": "axa-lu-optihome-2017:p2:2:l26",
           "line_uid": "line-v1:721475c0b0ef3ddf07faf6ca94e9566a09e9937830bc904e3ab8a80a0d2ed6cd",
           "text": "Locaux",
           "bbox": [
@@ -14000,7 +13941,7 @@
           "order": 83
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l26",
+          "line_id": "axa-lu-optihome-2017:p2:2:l27",
           "line_uid": "line-v1:d9d3a308da6b6a827818ce9fcdd90450e460ac9d13c2c54600718c7bb2272f0e",
           "text": "Matériel multimédia",
           "bbox": [
@@ -14013,7 +13954,7 @@
           "order": 84
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l27",
+          "line_id": "axa-lu-optihome-2017:p2:2:l28",
           "line_uid": "line-v1:04605e4769fcce407535fa2d188add98f38f40d625a976514a9fae38023b821a",
           "text": "Matériel nomade",
           "bbox": [
@@ -14026,7 +13967,7 @@
           "order": 85
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l28",
+          "line_id": "axa-lu-optihome-2017:p2:2:l29",
           "line_uid": "line-v1:738c97e516ba91415238a8d4cf257fd0f7c7bfc2daa56769e28f5cb0b65d2d7b",
           "text": "Mobilier",
           "bbox": [
@@ -14039,7 +13980,7 @@
           "order": 86
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l29",
+          "line_id": "axa-lu-optihome-2017:p2:2:l30",
           "line_uid": "line-v1:f9a987b376b9cd6ce09e1938a6a8d0a028e48ed1711904668c0f507a1fc0c3b0",
           "text": "Mobilier de jardin",
           "bbox": [
@@ -14052,7 +13993,7 @@
           "order": 87
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l30",
+          "line_id": "axa-lu-optihome-2017:p2:2:l31",
           "line_uid": "line-v1:f8310fdc4109c02d90ff9e38c05e89198a76f3c359d89c4225d25b98b14b08d5",
           "text": "Objets de valeur",
           "bbox": [
@@ -14065,7 +14006,7 @@
           "order": 88
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l31",
+          "line_id": "axa-lu-optihome-2017:p2:2:l32",
           "line_uid": "line-v1:853422c6b0222e4a1a42d5cb26469c26268031bfe7c390d6778b604fe054dec3",
           "text": "Objets personnels",
           "bbox": [
@@ -14078,7 +14019,7 @@
           "order": 89
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l32",
+          "line_id": "axa-lu-optihome-2017:p2:2:l33",
           "line_uid": "line-v1:c1266b29adbaa1a2eaacbde4f71bbc78bec4184ce8872b8eb7033bde98f32ffb",
           "text": "Occupation",
           "bbox": [
@@ -14091,7 +14032,7 @@
           "order": 90
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l33",
+          "line_id": "axa-lu-optihome-2017:p2:2:l34",
           "line_uid": "line-v1:800d2f8f4acb0a1f46185bdd1f7f35203ff5a5f476948748d712bf2b91f09639",
           "text": "Pluies torrentielles",
           "bbox": [
@@ -14104,7 +14045,7 @@
           "order": 91
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l34",
+          "line_id": "axa-lu-optihome-2017:p2:2:l35",
           "line_uid": "line-v1:3a2230c5c3198c897022d715689e079961e40c95c777e5351a9d27d52316843f",
           "text": "Préfabriqué (construction de type)",
           "bbox": [
@@ -14117,7 +14058,7 @@
           "order": 92
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l35",
+          "line_id": "axa-lu-optihome-2017:p2:2:l36",
           "line_uid": "line-v1:780b2b53d2c392c4f0499405dc1bc9c81b100abd27cbad2263c05b26f7dd2a63",
           "text": "Preneur d’assurance",
           "bbox": [
@@ -14130,7 +14071,7 @@
           "order": 93
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l36",
+          "line_id": "axa-lu-optihome-2017:p2:2:l37",
           "line_uid": "line-v1:0eaa60199c93bc154bc9a0efefe7e95c8a5a2bdff07f7372cc644b911df951bc",
           "text": "Recours des locataires ou occupants",
           "bbox": [
@@ -14143,7 +14084,7 @@
           "order": 94
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l37",
+          "line_id": "axa-lu-optihome-2017:p2:2:l38",
           "line_uid": "line-v1:a288956938caf7639424af51163fc320f3f01ddba1cc8204892ae585909de921",
           "text": "Recours des tiers (recours des voisins)",
           "bbox": [
@@ -14156,7 +14097,7 @@
           "order": 95
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l38",
+          "line_id": "axa-lu-optihome-2017:p2:2:l39",
           "line_uid": "line-v1:953c6dea265a9ecb46ee1b06b326a1b82a09049c58bd32e7f82f68bc432e01e6",
           "text": "Résiliation",
           "bbox": [
@@ -14169,7 +14110,7 @@
           "order": 96
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l39",
+          "line_id": "axa-lu-optihome-2017:p2:2:l40",
           "line_uid": "line-v1:1e4115b929af4cf509e5fb9cefd8241f546e3786f3a84727351710ff9489d5fc",
           "text": "Responsabilité locative ou d’occupant",
           "bbox": [
@@ -14182,7 +14123,7 @@
           "order": 97
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l40",
+          "line_id": "axa-lu-optihome-2017:p2:2:l41",
           "line_uid": "line-v1:5f779a8cc2f987148d65d20d4945df22df6d06a704dc31fb03b0b2c0aa7173db",
           "text": "Sanitaires",
           "bbox": [
@@ -14195,7 +14136,7 @@
           "order": 98
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l41",
+          "line_id": "axa-lu-optihome-2017:p2:2:l42",
           "line_uid": "line-v1:06f6c97f810784654591b4c7174a895a356d582080768507a88ada1530fa3f9a",
           "text": "Séjour temporaire",
           "bbox": [
@@ -14208,7 +14149,7 @@
           "order": 99
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l42",
+          "line_id": "axa-lu-optihome-2017:p2:2:l43",
           "line_uid": "line-v1:d0e5387bf4bf7f692eed8b7f6d56b43ec9e405da35e53ae438c1c1cfb69644f6",
           "text": "Serrure de sécurité / Serrure de sûreté",
           "bbox": [
@@ -14221,7 +14162,7 @@
           "order": 100
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l43",
+          "line_id": "axa-lu-optihome-2017:p2:2:l44",
           "line_uid": "line-v1:52c9c0649f7c02032b005dc146d1cb40cfc5696d753a91ae0e8dbced5c2dee32",
           "text": "STATEC",
           "bbox": [
@@ -14234,7 +14175,7 @@
           "order": 101
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l44",
+          "line_id": "axa-lu-optihome-2017:p2:2:l45",
           "line_uid": "line-v1:5c9efcea45ac96fd1daf65d7ca43543f41dcc99eae8a9e2943cc4d45511cebd5",
           "text": "Superficie",
           "bbox": [
@@ -14247,7 +14188,7 @@
           "order": 102
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l45",
+          "line_id": "axa-lu-optihome-2017:p2:2:l46",
           "line_uid": "line-v1:a52f13bd654db0c28ef77ec29a79f62debfe26ce3dcf8717a96d53aa5f96c521",
           "text": "Tempête",
           "bbox": [
@@ -14260,7 +14201,7 @@
           "order": 103
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l46",
+          "line_id": "axa-lu-optihome-2017:p2:2:l47",
           "line_uid": "line-v1:b6c00d0603c1611ec8cb2ae3067f81e6c6ecf61dd3866eba2cfe340554cee278",
           "text": "Tremblement de terre",
           "bbox": [
@@ -14273,7 +14214,7 @@
           "order": 104
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l47",
+          "line_id": "axa-lu-optihome-2017:p2:2:l48",
           "line_uid": "line-v1:57afb46affdcb9643239bb8f2509a1aa8262d15505a03b51a76f23ef39461c88",
           "text": "Valeurs",
           "bbox": [
@@ -14286,7 +14227,7 @@
           "order": 105
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l48",
+          "line_id": "axa-lu-optihome-2017:p2:2:l49",
           "line_uid": "line-v1:a8fd9742ef0a114faa68f579539f319ebfee32acc23774a60a1df2a0a99eccbf",
           "text": "Valeur à neuf",
           "bbox": [
@@ -14299,7 +14240,7 @@
           "order": 106
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l49",
+          "line_id": "axa-lu-optihome-2017:p2:2:l50",
           "line_uid": "line-v1:84316bbe2ccf53daea288b467b5c2b4f888c0fe27fdbb5017f9458381269d948",
           "text": "Valeur du jour",
           "bbox": [
@@ -14312,7 +14253,7 @@
           "order": 107
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l50",
+          "line_id": "axa-lu-optihome-2017:p2:2:l51",
           "line_uid": "line-v1:4e8946cda39d4a473f8ef050573a965fe99c6455cd23266a7576da8f6a86a0e0",
           "text": "Valeur réelle",
           "bbox": [
@@ -14325,7 +14266,7 @@
           "order": 108
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l51",
+          "line_id": "axa-lu-optihome-2017:p2:2:l52",
           "line_uid": "line-v1:c18bfb2eaa77f3120d2f1ebf1727d70352bd16304738b056277f93cebe740f76",
           "text": "Valeur vénale",
           "bbox": [
@@ -14338,7 +14279,7 @@
           "order": 109
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l52",
+          "line_id": "axa-lu-optihome-2017:p2:2:l53",
           "line_uid": "line-v1:c9fbac0d2b0c39cf1ba109bc1f56266980887dbc540c38c286aef0027580aebb",
           "text": "Villégiature (bâtiment de -)",
           "bbox": [
@@ -14351,7 +14292,7 @@
           "order": 110
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l53",
+          "line_id": "axa-lu-optihome-2017:p2:2:l54",
           "line_uid": "line-v1:7a8247f3794b3a8b71a770c69a4756376be1050b7b6aea895608651620e3d8c9",
           "text": "Vol",
           "bbox": [
@@ -14364,7 +14305,7 @@
           "order": 111
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l54",
+          "line_id": "axa-lu-optihome-2017:p2:2:l55",
           "line_uid": "line-v1:fe10c145098ef31c5d4ca050954043971880da6bdf4fb87e894e0282d4ea4970",
           "text": "Voyage",
           "bbox": [
@@ -14377,7 +14318,7 @@
           "order": 112
         },
         {
-          "line_id": "axa-lu-optihome-2017:p2:4:l55",
+          "line_id": "axa-lu-optihome-2017:p2:2:l56",
           "line_uid": "line-v1:dac2e1ddc573e1e3cac0c3bc3f0c5a394cf2e917bb9983d97544bb4def5d11e2",
           "text": "Zone inondable",
           "bbox": [
@@ -15783,7 +15724,7 @@
     },
     {
       "block_id": "axa-lu-optihome-2017:p4:1",
-      "text": "4 L’assurance des personnes 65\net de leurs activités 65",
+      "text": "4 L’assurance des personnes 65\net de leurs activités 65\n65\n70\n72\n77\n92\n92\n95\n96",
       "loc": "p4",
       "seq": 1,
       "page": 4,
@@ -15791,7 +15732,7 @@
         58.11,
         83.35,
         307.72,
-        110.87
+        218.48
       ],
       "kind": "autre",
       "structural_kind": "autre",
@@ -15823,74 +15764,10 @@
           ],
           "page": 4,
           "order": 2
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p4:2",
-      "text": "Option « responsabilités civiles, protection\njuridique et risques liés à internet »",
-      "loc": "p4",
-      "seq": 2,
-      "page": 4,
-      "bbox": [
-        335.11,
-        99.42,
-        518.85,
-        122.48
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p4:2:l1",
-          "line_uid": "line-v1:10c4d1370f4cd4394e06dd4d4c0c4d09bd1db2acf30a64eaa2a1496c7118fab5",
-          "text": "Option « responsabilités civiles, protection",
-          "bbox": [
-            335.11,
-            99.42,
-            518.85,
-            110.48
-          ],
-          "page": 4,
-          "order": 3
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:2:l2",
-          "line_uid": "line-v1:05d96086d917657698fa109eb301f5ea300dd0d95b187c7588ecae1a0aca1ff4",
-          "text": "juridique et risques liés à internet »",
-          "bbox": [
-            335.11,
-            111.42,
-            490.99,
-            122.48
-          ],
-          "page": 4,
-          "order": 4
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p4:3",
-      "text": "65\n70\n72\n77\n92",
-      "loc": "p4",
-      "seq": 3,
-      "page": 4,
-      "bbox": [
-        292.72,
-        123.42,
-        307.72,
-        182.48
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p4:3:l1",
-          "line_uid": "line-v1:353ba313dcdab4dfda722e1a268ea56a498f7947559bb8aa12e4467a4caaa3e3",
+          "line_id": "axa-lu-optihome-2017:p4:1:l3",
+          "line_uid": "line-v1:41564b7f74d9bd2ec825652238516be9052c41b4851d6f92144e669ca0d9f643",
           "text": "65",
           "bbox": [
             292.72,
@@ -15899,11 +15776,11 @@
             134.48
           ],
           "page": 4,
-          "order": 5
+          "order": 3
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:3:l2",
-          "line_uid": "line-v1:042a2925ed92f682584dae011b5f9510282882fe10997ad31375805601ff0d04",
+          "line_id": "axa-lu-optihome-2017:p4:1:l4",
+          "line_uid": "line-v1:900a53871edfd896f148165d77db34b2850f8c5e2a3f311e8ab1b05ec83c2213",
           "text": "70",
           "bbox": [
             292.72,
@@ -15912,11 +15789,11 @@
             146.48
           ],
           "page": 4,
-          "order": 6
+          "order": 4
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:3:l3",
-          "line_uid": "line-v1:4ca48b7d0b5cf74c7d394bfc700681a0b26946618aabfe13c9a7cb31f8bd7c18",
+          "line_id": "axa-lu-optihome-2017:p4:1:l5",
+          "line_uid": "line-v1:35907df156ebd41707d338e2376acedd70b573759e0077151f83f7b7176c4279",
           "text": "72",
           "bbox": [
             292.72,
@@ -15925,11 +15802,11 @@
             158.48
           ],
           "page": 4,
-          "order": 7
+          "order": 5
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:3:l4",
-          "line_uid": "line-v1:c62566c658beeed424316049f39bae4061c816a018980090bdba63789f782690",
+          "line_id": "axa-lu-optihome-2017:p4:1:l6",
+          "line_uid": "line-v1:dbb654ce6ff99f699f8f6a1537107911605f1d1ce303c4d8a101892c6e598870",
           "text": "77",
           "bbox": [
             292.72,
@@ -15938,11 +15815,11 @@
             170.48
           ],
           "page": 4,
-          "order": 8
+          "order": 6
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:3:l5",
-          "line_uid": "line-v1:f83284f0a32ca3f1609029303252ca8ca3c6ed82dfe8c7fb396f3cd2425359b9",
+          "line_id": "axa-lu-optihome-2017:p4:1:l7",
+          "line_uid": "line-v1:a67ce6bc690fb2980c19cbd7f318bcc1685f95a1ee3a212e333a803006678e33",
           "text": "92",
           "bbox": [
             292.72,
@@ -15951,133 +15828,11 @@
             182.48
           ],
           "page": 4,
-          "order": 9
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p4:4",
-      "text": "Responsabilité civile vie privée\nResponsabilité civile chasse\nProtection juridique\nE-protection",
-      "loc": "p4",
-      "seq": 4,
-      "page": 4,
-      "bbox": [
-        346.11,
-        123.42,
-        480.11,
-        170.48
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p4:4:l1",
-          "line_uid": "line-v1:b0168d722f665ac1edda28bcd53a8d79aecf759d0f88acfa29bc450fc1ded8ef",
-          "text": "Responsabilité civile vie privée",
-          "bbox": [
-            346.11,
-            123.42,
-            480.11,
-            134.48
-          ],
-          "page": 4,
-          "order": 10
+          "order": 7
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:4:l2",
-          "line_uid": "line-v1:1d47c414ee7c5cc3fe2070e79683b4302f5f37ff5fa1bbd894ba31fbcf51c117",
-          "text": "Responsabilité civile chasse",
-          "bbox": [
-            346.11,
-            135.42,
-            470.11,
-            146.48
-          ],
-          "page": 4,
-          "order": 11
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p4:4:l3",
-          "line_uid": "line-v1:4fc136b2b134f1d7ae8a5bfa45dac9d76d4afb585c249f6d14af9b4ecb8494bb",
-          "text": "Protection juridique",
-          "bbox": [
-            346.11,
-            147.42,
-            430.46,
-            158.48
-          ],
-          "page": 4,
-          "order": 12
-        },
-        {
-          "line_id": "axa-lu-optihome-2017:p4:4:l4",
-          "line_uid": "line-v1:668ebc17b6a33a084443011ea35134ecb371dd10f92249f1928a2231b8f9ee39",
-          "text": "E-protection",
-          "bbox": [
-            346.11,
-            159.42,
-            397.86,
-            170.48
-          ],
-          "page": 4,
-          "order": 13
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p4:5",
-      "text": "Option « Voyage »",
-      "loc": "p4",
-      "seq": 5,
-      "page": 4,
-      "bbox": [
-        335.11,
-        171.42,
-        407.37,
-        182.48
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p4:5:l1",
-          "line_uid": "line-v1:a4bf0b5581962dc7b9065cbd1a2d288bd8c5c7c08b1bc78b438b40f8a8a466b8",
-          "text": "Option « Voyage »",
-          "bbox": [
-            335.11,
-            171.42,
-            407.37,
-            182.48
-          ],
-          "page": 4,
-          "order": 14
-        }
-      ]
-    },
-    {
-      "block_id": "axa-lu-optihome-2017:p4:6",
-      "text": "92\n95\n96",
-      "loc": "p4",
-      "seq": 6,
-      "page": 4,
-      "bbox": [
-        292.72,
-        183.42,
-        307.72,
-        218.48
-      ],
-      "kind": "autre",
-      "structural_kind": "autre",
-      "source_field": "tdm",
-      "surface_class": "table_des_matieres",
-      "lines": [
-        {
-          "line_id": "axa-lu-optihome-2017:p4:6:l1",
-          "line_uid": "line-v1:85185f2b20a532bfa991b80bc16fdfdcd6ec5e6878b330c0d9a10f65953edc91",
+          "line_id": "axa-lu-optihome-2017:p4:1:l8",
+          "line_uid": "line-v1:73308e55a6591bf06c07e6941a1bf143d1aa5187af5cbb73ae1a1d6701548a7d",
           "text": "92",
           "bbox": [
             292.72,
@@ -16086,11 +15841,11 @@
             194.48
           ],
           "page": 4,
-          "order": 15
+          "order": 8
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:6:l2",
-          "line_uid": "line-v1:f9f595bcc0adbf2b731adf0c4cf5085e5386b02efae787994f1b34762b8a5aea",
+          "line_id": "axa-lu-optihome-2017:p4:1:l9",
+          "line_uid": "line-v1:13ea97a85844ef563b587ab0a9519f71f3c50cf6b965d700fb5481fc9ba74f58",
           "text": "95",
           "bbox": [
             292.72,
@@ -16099,11 +15854,11 @@
             206.48
           ],
           "page": 4,
-          "order": 16
+          "order": 9
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:6:l3",
-          "line_uid": "line-v1:1585395d1da9ab8f652dd97bb28589f2501c942dcbff16e47cc4ed13ea9e262c",
+          "line_id": "axa-lu-optihome-2017:p4:1:l10",
+          "line_uid": "line-v1:f233c21b00afd42e404a4815fee779ee298a7cfb9c1c2a2575c723a8dd7094ed",
           "text": "96",
           "bbox": [
             292.72,
@@ -16112,20 +15867,20 @@
             218.48
           ],
           "page": 4,
-          "order": 17
+          "order": 10
         }
       ]
     },
     {
-      "block_id": "axa-lu-optihome-2017:p4:7",
-      "text": "Annulation\nBagages\nAssistance voyage",
+      "block_id": "axa-lu-optihome-2017:p4:2",
+      "text": "Option « responsabilités civiles, protection\njuridique et risques liés à internet »\nResponsabilité civile vie privée\nResponsabilité civile chasse\nProtection juridique\nE-protection\nOption « Voyage »\nAnnulation\nBagages\nAssistance voyage",
       "loc": "p4",
-      "seq": 7,
+      "seq": 2,
       "page": 4,
       "bbox": [
-        346.11,
-        183.42,
-        426.71,
+        335.11,
+        99.42,
+        518.85,
         218.48
       ],
       "kind": "autre",
@@ -16134,7 +15889,98 @@
       "surface_class": "table_des_matieres",
       "lines": [
         {
-          "line_id": "axa-lu-optihome-2017:p4:7:l1",
+          "line_id": "axa-lu-optihome-2017:p4:2:l1",
+          "line_uid": "line-v1:76da1e5f018f9014934405df9b6abe0a6a838ad6f8b8803de1c47db5461d90f7",
+          "text": "Option « responsabilités civiles, protection",
+          "bbox": [
+            335.11,
+            99.42,
+            518.85,
+            110.48
+          ],
+          "page": 4,
+          "order": 11
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l2",
+          "line_uid": "line-v1:32c1904a49e45e5eecf14cc5cfc9b4df3262ec6dd965eb8cccb5f91039d10ea4",
+          "text": "juridique et risques liés à internet »",
+          "bbox": [
+            335.11,
+            111.42,
+            490.99,
+            122.48
+          ],
+          "page": 4,
+          "order": 12
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l3",
+          "line_uid": "line-v1:fb2d2ef696d05d45049dd4eba5b151b91eeabd0473136e5f606ac78c79130bc1",
+          "text": "Responsabilité civile vie privée",
+          "bbox": [
+            346.11,
+            123.42,
+            480.11,
+            134.48
+          ],
+          "page": 4,
+          "order": 13
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l4",
+          "line_uid": "line-v1:e01486a6304de81d7580fda1110e710c2cc56a2de58f274c77acf59219443795",
+          "text": "Responsabilité civile chasse",
+          "bbox": [
+            346.11,
+            135.42,
+            470.11,
+            146.48
+          ],
+          "page": 4,
+          "order": 14
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l5",
+          "line_uid": "line-v1:47b359a8718bb2dc0aa46e41244044261b4d961be92ff0df6029efb62d4f988d",
+          "text": "Protection juridique",
+          "bbox": [
+            346.11,
+            147.42,
+            430.46,
+            158.48
+          ],
+          "page": 4,
+          "order": 15
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l6",
+          "line_uid": "line-v1:8f637317ae251b9ff50be8d65d0dc14f93128de86f7bff1544a4b6024e152945",
+          "text": "E-protection",
+          "bbox": [
+            346.11,
+            159.42,
+            397.86,
+            170.48
+          ],
+          "page": 4,
+          "order": 16
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l7",
+          "line_uid": "line-v1:0a2603a5893caa6c3614a44148c4cf88c3ad9312cde0324b2a5c494c67399226",
+          "text": "Option « Voyage »",
+          "bbox": [
+            335.11,
+            171.42,
+            407.37,
+            182.48
+          ],
+          "page": 4,
+          "order": 17
+        },
+        {
+          "line_id": "axa-lu-optihome-2017:p4:2:l8",
           "line_uid": "line-v1:32cf443fd8537f2563e975a7602575ab3d053ffa20ca630500142710208c0b22",
           "text": "Annulation",
           "bbox": [
@@ -16147,7 +15993,7 @@
           "order": 18
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:7:l2",
+          "line_id": "axa-lu-optihome-2017:p4:2:l9",
           "line_uid": "line-v1:07660d4b30c72bb9b6119eabb07d3acc7720dfa83b01a8da72eb381a600fbcfe",
           "text": "Bagages",
           "bbox": [
@@ -16160,7 +16006,7 @@
           "order": 19
         },
         {
-          "line_id": "axa-lu-optihome-2017:p4:7:l3",
+          "line_id": "axa-lu-optihome-2017:p4:2:l10",
           "line_uid": "line-v1:8098043b46d70555ad03a0ba3e92c5b3a1eb75d38bfd20774034c8a8358c1387",
           "text": "Assistance voyage",
           "bbox": [
@@ -96019,5 +95865,5 @@
   ],
   "source_url": "https://luxembourg-axa.cdn.axa-contento-118412.eu/luxembourg-axa/dca71203-191a-4a67-8207-9f8646a313c2_axa+luxembourg+-+optihome+-+condition+assurances+fr.pdf",
   "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
-  "ingest_fingerprint": "4aee329f53655c1390d00e88994307be550365e6eb523cb729ecaf7ecaaa60dc"
+  "ingest_fingerprint": "a6f0e57bc52af4455e3b5f263ea252ad258e9156b5af2cb47229af15c1ff5129"
 }
