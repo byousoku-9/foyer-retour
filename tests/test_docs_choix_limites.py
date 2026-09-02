@@ -10,7 +10,7 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parents[1] / "docs" / "choix-et-limites.md"
 DETAILS = "\n<details>\n"
 ANNEXE_TITLE = "# Choix et limites mesurées\n"
-ANNEXE_SHA256 = "120e0d93d3be8a5204e095639000ea50fb4f5920990b230bd26f2b77d141c935"
+ANNEXE_SHA256 = "9dae6444359ab42d9be135e2676d3c374ffdfd50e1194e87d1fa9548c745d64c"
 
 
 def _document() -> str:

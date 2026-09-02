@@ -738,7 +738,6 @@ jusqu'à 38 boîtes et retiennent désormais celle qui n'en coupe aucune, 1 407 
 nœuds inchangés. Le typage déjà payé se réutilise sur l'identité source des blocs : **966 sur 966**
 pour AXA — aucun bloc à retyper —, 459 sur 737 pour le contrat luxembourgeois, soit 278 à rejouer.
 
-</details>
 
 ## Correctif du 02/09/2026 — un titre n'est pas une clause, une phrase coupée reste une phrase
 
@@ -820,3 +819,5 @@ entière — ce n'est pas une perte, c'est la conséquence voulue du lien restau
   dépôt exige des certificats **égaux** et ne peut pas l'absorber, à raison. La fixture se réenregistre
   avec la clé (`pytest tests/test_sinistre_live.py`). En amont, faire entrer une empreinte de parseur
   dans un prompt facturé et mis en cache reste un choix à rejuger.
+
+</details>
