@@ -23,7 +23,7 @@ import pymupdf
 
 from server.app.config import REPO_ROOT, get_settings
 from server.app.corpus.text import normalize
-from server.app.domain import Document, Report, is_citable
+from server.app.domain import Document, Node, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
 from server.ingest.artifacts import document_json, write_atomic
 from server.ingest.pdf_to_blocks import (
@@ -151,6 +151,27 @@ def _readable_article_uid(title: str, claimed: str | None) -> str | None:
     return article_uid_lisible(title, claimed)
 
 
+def _blocs_de_lintervalle(doc: Document, node: Node) -> list[str]:
+    """Blocs que le nœud couvre : les siens **et ceux de ses descendants**, dans l'ordre de lecture.
+
+    C'est la même étendue que celle sur laquelle le vérificateur prouve la surface d'un nœud (les
+    lignes de son intervalle). La restreindre aux blocs directs faisait diverger les deux lectures
+    du « texte de corps observable » sur tout nœud conteneur.
+    """
+    vus: list[str] = []
+    a_voir = [node.node_id]
+    visites: set[str] = set()
+    par_id = {item.node_id: item for item in doc.nodes}
+    while a_voir:
+        courant = a_voir.pop(0)
+        if courant in visites or courant not in par_id:
+            continue
+        visites.add(courant)
+        vus.extend(par_id[courant].blocks)
+        a_voir.extend(par_id[courant].children)
+    return vus
+
+
 def _semantic_issues(doc: Document) -> list[str]:
     node_ids = {node.node_id for node in doc.nodes}
     by_node = {node.node_id: node for node in doc.nodes}
@@ -165,7 +186,13 @@ def _semantic_issues(doc: Document) -> list[str]:
         if node.surface_class == "inconnu":
             issues.append(f"{node.node_id}: classe de surface inconnue")
         readable_article = _readable_article_uid(node.title, node.article_uid)
-        blocs = [doc.block(block_id) for block_id in node.blocks]
+        # **L'intervalle, pas les blocs directs.** Le vérificateur lit toutes les lignes que le
+        # nœud couvre, descendants compris ; la porte ne lisait que les blocs attachés au nœud
+        # lui-même. Un conteneur dont toute la substance est dans ses sous-sections — « Résiliation »
+        # : un bloc, son propre titre, quatre enfants — n'avait donc « aucun texte de corps
+        # observable » ici et « du texte » là. Deux lectures d'une même notion, dont l'une refusait
+        # ce que l'autre venait de prouver.
+        blocs = [doc.block(block_id) for block_id in _blocs_de_lintervalle(doc, node)]
         # Même règle qu'au vérificateur : le vocabulaire technique lu est celui de la langue du
         # nœud — celle de ses blocs, à défaut celle du document. Le lire dans toutes les langues
         # faisait ici la même faute qu'ailleurs, sur le même titre.
