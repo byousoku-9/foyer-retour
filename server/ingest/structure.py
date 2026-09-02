@@ -227,6 +227,35 @@ def surface_de_provenance(noeud: NoeudPropose, registre: dict[str, Entree]) -> S
     return lues.pop() if len(lues) == 1 else None
 
 
+def noeuds_contenant(uid: str, noeuds: Sequence[NoeudPropose],
+                     order_of: dict[str, int]) -> list[NoeudPropose]:
+    """Nœuds dont l'intervalle **contient** cette ligne, du plus profond au moins profond.
+
+    Le vérificateur de segment a déjà refusé tout croisement d'intervalles : les nœuds qui
+    contiennent une même ligne forment donc une chaîne d'emboîtements, et le plus étroit **est** le
+    plus profond. Ce n'est pas une heuristique de tri, c'est une propriété prouvée en amont. Les
+    départages restants — borne de départ la plus tardive, puis uid — ne servent qu'à rendre le
+    choix déterministe si deux nœuds partageaient exactement le même intervalle.
+    """
+    rang = order_of[uid]
+    contenants = [noeud for noeud in noeuds
+                  if order_of[noeud.premiere_line_uid] <= rang
+                  <= order_of[noeud.derniere_line_uid]]
+    return sorted(contenants, key=lambda noeud: (
+        order_of[noeud.derniere_line_uid] - order_of[noeud.premiere_line_uid],
+        -order_of[noeud.premiere_line_uid], noeud.titre_line_uid))
+
+
+def _ligne_designee(uid: str, registre: dict[str, Entree]) -> str:
+    """Une ligne rendue au lecteur : son rang de lecture, sa page, son texte tronqué.
+
+    Un refus de couture qui ne cite qu'une empreinte de 72 caractères laisse chercher dans un
+    contrat de plusieurs milliers de lignes laquelle est en cause.
+    """
+    entree = registre[uid]
+    return f"[ordre {entree.ordre}, p.{entree.page}] « {entree.titre.strip()[:60]} »"
+
+
 def _lignes_lues(noeud: NoeudPropose, registre: dict[str, Entree], limite: int = 6) -> str:
     """Ce que l'oracle a **lu**, rendu au lecteur : index dans le registre, page, texte tronqué.
 
@@ -2170,9 +2199,13 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
         raise ValueError("couture refusée : couverture des segments non bijective")
 
     nodes: list[NoeudPropose] = []
-    continuations: list[ContinuationFrontiereProposee] = []
+    continuations: list[tuple[int, ContinuationFrontiereProposee]] = []
     title_owners: dict[str, int] = {}
+    noeuds_du_segment: dict[int, list[NoeudPropose]] = {}
+    segment_de_ligne = {uid: segment.index
+                        for segment in plan.segments for uid in segment.line_uids}
     for segment, proposition in zip(plan.segments, propositions, strict=True):
+        noeuds_du_segment[segment.index] = list(proposition.noeuds)
         if proposition.doc_id != doc_id:
             raise ValueError(
                 f"couture refusée : segment {segment.index} pour {proposition.doc_id!r}")
@@ -2187,7 +2220,7 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
                 raise ValueError(
                     f"couture refusée : continuation du segment {segment.index} vise une "
                     f"ancre inconnue {continuation.target_line_uid!r}")
-            continuations.append(continuation)
+            continuations.append((segment.index, continuation))
         for node in proposition.noeuds:
             owned_references = {
                 node.titre_line_uid,
@@ -2220,12 +2253,33 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
             nodes.append(node)
 
     by_title = {node.titre_line_uid: node for node in nodes}
-    missing_continuations = sorted({continuation.target_line_uid for continuation in continuations}
-                                   - set(by_title))
-    if missing_continuations:
-        raise ValueError(
-            f"couture refusée : continuation vise une ancre non proposée "
-            f"{missing_continuations[:5]}")
+    order_of = {uid: entry.ordre for uid, entry in registre.items()}
+
+    def _cible_resolue(uid: str, quoi: str) -> str:
+        """Titre du nœud que cette ligne désigne réellement, ou refus nommé.
+
+        Un modèle qui continue une clause coupée par une frontière désigne **la ligne qu'il
+        continue**, pas le titre de la section qui la contient : le catalogue d'ancres lui offre
+        toute ligne brève sans ponctuation finale, et une ligne de corps y entre naturellement. La
+        couture la résout donc vers le nœud le plus profond qui la contient dans le segment qui la
+        possède — le seul nœud dont le texte est effectivement prolongé.
+
+        Fail-closed inchangé : une ligne qu'aucun nœud ne contient, ou qui n'appartient à aucun
+        segment, reste un refus, et il dit ce qu'il a lu.
+        """
+        if uid in by_title:
+            return uid
+        index = segment_de_ligne.get(uid)
+        if index is None or uid not in registre:
+            raise ValueError(
+                f"couture refusée : {quoi} vise une ligne qui n'appartient à aucun segment "
+                f"{uid!r}")
+        contenants = noeuds_contenant(uid, noeuds_du_segment.get(index, ()), order_of)
+        if not contenants:
+            raise ValueError(
+                f"couture refusée : {quoi} vise {_ligne_designee(uid, registre)} qu'aucun nœud du "
+                f"segment {index} ne contient")
+        return contenants[0].titre_line_uid
     for node in nodes:
         targets = [*(relation.target_line_uid for relation in node.relations)]
         if node.parent_line_uid is not None:
@@ -2239,7 +2293,6 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
     # Calcule la fermeture transitive des bornes parentales. Un parent doit commencer avant son
     # enfant ; seule sa dernière borne peut alors être étendue. Le DFS détecte aussi les cycles
     # avant toute mutation de la proposition globale.
-    order_of = {uid: entry.ordre for uid, entry in registre.items()}
     uid_at_order = {entry.ordre: uid for uid, entry in registre.items()}
     children: dict[str, list[str]] = {uid: [] for uid in by_title}
     for node in nodes:
@@ -2248,8 +2301,9 @@ def _recoller(plan: PlanStructure, propositions: Sequence[StructureProposee],
     colors: dict[str, int] = {uid: 0 for uid in by_title}
     final_last: dict[str, int] = {}
     continuation_last: dict[str, int] = {}
-    for continuation in continuations:
-        target = continuation.target_line_uid
+    for index, continuation in continuations:
+        target = _cible_resolue(
+            continuation.target_line_uid, f"la continuation du segment {index}")
         continuation_last[target] = max(
             continuation_last.get(target, 0),
             order_of[continuation.derniere_line_uid],
@@ -2519,12 +2573,19 @@ class DiagnosticStructure:
     verdicts: tuple[VerdictSegment, ...]
     usage: Usage
     arret: str | None = None
+    # Verdict de la **couture globale**, tentée seulement quand tous les segments sont acceptés.
+    # `None` : non tentée. Sans elle, un lot dont chaque segment passe pouvait être annoncé bon et
+    # se faire refuser à la publication, sur une contrainte qu'aucun segment ne porte seul.
+    couture_acceptee: bool | None = None
+    couture_detail: str = ""
 
     def charge(self) -> dict[str, Any]:
         return {
             "doc_id": self.doc_id,
             "plan_uid": self.plan_uid,
             "arret": self.arret,
+            "couture_acceptee": self.couture_acceptee,
+            "couture_detail": self.couture_detail,
             "cout_eur": round(self.usage.cost_eur, 4),
             "segments": [
                 {
@@ -2556,6 +2617,11 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     Un refus d'**oracle** est un résultat : il est consigné et le segment suivant part. Un refus
     **fournisseur** — panne, 400, réponse interrompue non récupérable — arrête tout : ce qui suit ne
     serait pas plus soumissible, et continuer ne ferait que dépenser.
+
+    Quand tous les segments sont acceptés, la **couture globale** est jouée à son tour, sans rien
+    publier. Un lot dont chaque segment passe peut échouer à la couture — les arêtes transfrontières
+    ne sont vérifiables que là —, et l'annoncer bon aurait envoyé à la publication un lot qu'elle
+    refuse.
     """
     _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
     ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
@@ -2566,6 +2632,7 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
     artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     run_uid = f"structure-diagnostic:{doc_id}:{plan.plan_uid}"
     verdicts: list[VerdictSegment] = []
+    propositions: list[StructureProposee] = []
     usages: list[Usage] = []
     arret: str | None = None
     for segment in plan.segments:
@@ -2617,6 +2684,8 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
             verdict = _verifier_segment(proposition, subset, doc_id=doc_id, settings=settings)
             motif, detail = (None, verdict.detail) if verdict.accepte else (
                 verdict.motif, verdict.detail)
+            if motif is None:
+                propositions.append(proposition)
         except StructureRefusee as exc:
             motif, detail = exc.motif, exc.detail
         except ValueError as exc:
@@ -2625,8 +2694,19 @@ def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Ent
             index=segment.index, segment_uid=segment.segment_uid,
             lignes=len(segment.line_uids), accepte=motif is None, motif=motif, detail=detail,
             servi_du_cache=du_cache, cout_eur=mesure.cost_eur if mesure else 0.0, noeuds=noeuds))
+    couture_acceptee: bool | None = None
+    couture_detail = ""
+    if arret is None and len(propositions) == len(plan.segments):
+        try:
+            cousue = _recoller(plan, propositions, registre, doc_id=doc_id, settings=settings)
+        except ValueError as exc:
+            couture_acceptee, couture_detail = False, str(exc)
+        else:
+            couture_acceptee = True
+            couture_detail = f"{len(cousue.noeuds)} nœud(s) cousus, rien n'est publié"
     return DiagnosticStructure(doc_id=doc_id, plan_uid=plan.plan_uid,
-                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret)
+                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret,
+                               couture_acceptee=couture_acceptee, couture_detail=couture_detail)
 
 
 def _servi(client: Any, requete_: dict[str, Any]) -> bool:
@@ -2789,6 +2869,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
                     file=output)
             if diagnostic.arret is not None:
                 print(f"arrêt : {diagnostic.arret}", file=output)
+            if diagnostic.couture_acceptee is not None:
+                print(f"couture globale : "
+                      f"{'acceptée' if diagnostic.couture_acceptee else 'refusée'} — "
+                      f"{diagnostic.couture_detail[:500]}", file=output)
             chemin_diagnostic = (Path(args.diagnostic) if args.diagnostic
                                  else doc_dir / "structure-diagnostic.json")
             write_atomic(chemin_diagnostic, json.dumps(
@@ -2797,7 +2881,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             print(f"diagnostic : {acceptes}/{len(diagnostic.verdicts)} segment(s) jugé(s) "
                   f"accepté(s), coût réel {diagnostic.usage.cost_eur:.4f} € ; "
                   f"{chemin_diagnostic} écrit ; aucune proposition publiée", file=output)
-            return 0 if acceptes == len(plan.segments) else 4
+            # Un lot n'est bon que si la couture l'est aussi : la publication ne demande rien de
+            # moins, et l'annoncer vert sur les seuls segments serait une promesse qu'elle refuse.
+            return 0 if (acceptes == len(plan.segments)
+                         and diagnostic.couture_acceptee) else 4
         execution = executer_plan(
             client, plan, registre, doc_id=args.doc_id, settings=settings,
             source_hash=source_hash, max_cost_eur=ceiling)
