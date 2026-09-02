@@ -26,6 +26,7 @@ from server.app.domain.answer import (AnswerDraft, ClaimStatus, Quote, RejectedC
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import (
     BudgetExceeded,
+    Timeout,
     CorpusUnavailable,
     InvalidRequest,
     LlmUnavailable,
@@ -49,7 +50,7 @@ from server.app.pipelines import sinistre
 from server.app.steps import retrouver as retrouver_module
 from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
-from tests.llm_fake import FakeAnthropic, fake_message
+from tests.llm_fake import FakeAnthropic, fake_message, provider_exception
 
 DOC_ID = "cg"
 
@@ -2902,3 +2903,52 @@ def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index:
     assert sinistre._blocs_juges_hors_objet(hors_objet) == [f"{DOC_ID}:p1:5"]
     # Une limite rejetée faute de soutien reste demandée : là, la relance est utile.
     assert sinistre._blocs_juges_hors_objet(non_soutenue) == []
+
+
+async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
+        index: Index) -> None:
+    """Rapport rédiger B — un 200 valide devenait un 503 parce qu'une amélioration a expiré.
+
+    La relance est **discrétionnaire** : le pipeline la décide, l'utilisateur ne la demande pas.
+    Quand sa rédaction a abouti et que seule sa vérification échoue, la première vérification existe
+    et elle est servable. Le cas est réel — un `APITimeoutError` sur un second *vérifier* mesuré à
+    26,3 s (A16 #2), à 34 % de marge sous `llm_timeout_s`.
+    """
+    fake = FakeAnthropic([
+        _comprendre(), _rediger(GAR, MAUVAISE),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c9", False, False, False, False, None, [], [], "non_soutenue")),
+        _rediger(GAR),
+        provider_exception(anthropic.APITimeoutError)])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    answer, trace = await sinistre.run(
+        None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+        settings=settings, request_id="req-sinistre", budget=_budget(), variant="deterministe")
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    # Servie, mais **jamais donnée pour complète** : la lacune typée de la relance abandonnée.
+    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
+    abandons = [c for s in trace.steps for c in s.checks if c.name == "relance_abandonnee"]
+    assert abandons and "la vérification de la relance a échoué" in abandons[0].detail
+    # L'échec reste tracé avec son étape : le coût d'un appel commencé ne disparaît pas (AD-10).
+    assert [s.name for s in trace.steps].count("verifier") == 2
+
+
+async def test_un_acquis_vide_garde_la_regle_terminale_dad16(index: Index) -> None:
+    """L'exception est fermée : sans rien à servir, un appel commencé qui échoue reste terminal."""
+    fake = FakeAnthropic([
+        _comprendre(), _rediger(MAUVAISE),
+        _verifier(("c9", False, False, False, False, None, [], [], "non_soutenue")),
+        _rediger(GAR),
+        provider_exception(anthropic.APITimeoutError)])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    with pytest.raises(Timeout):
+        await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+                           settings=settings, request_id="req-sinistre", budget=_budget(),
+                           variant="deterministe")

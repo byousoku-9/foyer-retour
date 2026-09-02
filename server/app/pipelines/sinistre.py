@@ -865,6 +865,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                      else consigne)
             acquise = verification
             appels_avant = budget.attempts
+            redaction_relancee = False
             try:
                 if budget.remaining() <= settings.llm_retry_margin_s:
                     raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
@@ -887,6 +888,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                              step=step_rediger_2)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
+                redaction_relancee = True
                 relances += 1
                 if draft_2.digest() == draft.digest():
                     step_rediger_2.checks.append(CheckResult(
@@ -936,19 +938,42 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Même partage qu'au guide (AD-16, revue Codex 1.5, B5) : un appel **commencé** qui
                 # échoue reste terminal, une relance qui n'a jamais démarré laisse l'acquis servir.
-                commence = budget.attempts > appels_avant or (exc.step is not None and bool(exc.step.calls))
-                if commence:
+                #
+                # **Amendement d'AD-16 (correctif du tour 2, rapport rédiger B), écrit comme tel.**
+                # Une exception : quand la **rédaction relancée a abouti** et que seule sa
+                # vérification échoue, la première vérification existe et elle est servable. La
+                # relance est discrétionnaire — le pipeline l'a décidée, l'utilisateur ne l'a pas
+                # demandée — et jeter une réponse acquise, vérifiée et complète parce qu'une
+                # amélioration facultative a expiré est le contraire de ce que la règle protège. Le
+                # cas est réel : un `APITimeoutError` sur un second *vérifier* mesuré à 26,3 s
+                # (A16 #2) transforme un 200 valide en 503, à 34 % de marge sous `llm_timeout_s`.
+                # La réponse acquise est donc servie, **jamais donnée pour complète** (même lacune
+                # typée que la relance non démarrée), et l'échec reste nommé dans la trace avec son
+                # étape et son coût. Si l'acquis n'a **rien** trouvé, il n'y a rien à servir : la
+                # règle d'origine s'applique sans exception.
+                if redaction_relancee and acquise.found:
                     if exc.step is not None:
                         steps.append(exc.step)
-                    exc.trace = tracer()
-                    raise
-                verification = relance_abandonnee(acquise)
-                step_verifier.checks.append(CheckResult(
-                    name="relance_abandonnee", ok=False,
-                    detail=f"relance de rédiger non démarrée ({exc.code.value}) : "
-                           f"la première vérification fait foi — {exc.message}"))
-                if not verification.found:
-                    step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
+                    verification = relance_abandonnee(acquise)
+                    step_verifier.checks.append(CheckResult(
+                        name="relance_abandonnee", ok=False,
+                        detail=f"la vérification de la relance a échoué ({exc.code.value}) : la "
+                               f"première vérification, servable, fait foi — {exc.message}"))
+                else:
+                    commence = (budget.attempts > appels_avant
+                                or (exc.step is not None and bool(exc.step.calls)))
+                    if commence:
+                        if exc.step is not None:
+                            steps.append(exc.step)
+                        exc.trace = tracer()
+                        raise
+                    verification = relance_abandonnee(acquise)
+                    step_verifier.checks.append(CheckResult(
+                        name="relance_abandonnee", ok=False,
+                        detail=f"relance de rédiger non démarrée ({exc.code.value}) : "
+                               f"la première vérification fait foi — {exc.message}"))
+                    if not verification.found:
+                        step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
 
         # --- demande de contexte typée (story 4.2e) --------------------------
         # **Après** la relance d'AD-3, et jamais dans son chemin : ce sont deux mécanismes distincts.

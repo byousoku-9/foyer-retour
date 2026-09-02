@@ -738,4 +738,24 @@ jusqu'à 38 boîtes et retiennent désormais celle qui n'en coupe aucune, 1 407 
 nœuds inchangés. Le typage déjà payé se réutilise sur l'identité source des blocs : **966 sur 966**
 pour AXA — aucun bloc à retyper —, 459 sur 737 pour le contrat luxembourgeois, soit 278 à rejouer.
 
+## Correctif du 02/09/2026 — un amendement d'AD-16, écrit plutôt que glissé
+
+AD-16 dit qu'« un appel commencé qui échoue reste terminal », et cette règle protège une chose
+juste : ne pas servir une réponse dont on ne sait plus ce qu'elle a coûté ni ce qu'elle contient.
+Elle souffre désormais **une** exception, et une seule.
+
+Quand la rédaction relancée a abouti et que seule sa **vérification** échoue, la première
+vérification existe : elle est complète, elle a été payée, et elle est servable. La relance, elle,
+est discrétionnaire — c'est le pipeline qui l'a décidée, pas l'utilisateur qui l'a demandée. Jeter
+une réponse vérifiée parce qu'une amélioration facultative a expiré est le contraire de ce que la
+règle protège. Le cas n'est pas théorique : un `APITimeoutError` sur un second *vérifier* mesuré à
+26,3 s (témoin A16, deuxième réponse) transformait un 200 valide en 503, à 34 % de marge sous
+`llm_timeout_s`.
+
+La réponse acquise est donc servie, **jamais donnée pour complète** — elle porte la même cause typée
+que la relance qui n'a pas pu démarrer —, et l'appel échoué reste dans la trace avec son étape et son
+coût. Si l'acquis n'a rien trouvé, il n'y a rien à servir et la règle d'origine s'applique sans
+exception. Le second *vérifier* de la reprise après demande de contexte, lui, garde la règle
+d'origine : il relit la même ébauche, et son échec ne laisse aucune vérification neuve derrière lui.
+
 </details>

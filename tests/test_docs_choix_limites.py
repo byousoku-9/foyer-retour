@@ -10,7 +10,9 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parents[1] / "docs" / "choix-et-limites.md"
 DETAILS = "\n<details>\n"
 ANNEXE_TITLE = "# Choix et limites mesurées\n"
-ANNEXE_SHA256 = "120e0d93d3be8a5204e095639000ea50fb4f5920990b230bd26f2b77d141c935"
+# Bougé le 02/09/2026 : le registre gagne la section « un amendement d'AD-16, écrit plutôt que
+# glissé ». L'empreinte est là pour qu'un ajout au registre soit un acte, pas une dérive.
+ANNEXE_SHA256 = "3d4b8d85debdc699c22ce56741d385bf893bf376cb0116d3cc16df914f3a8775"
 
 
 def _document() -> str:
