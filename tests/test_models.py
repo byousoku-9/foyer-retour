@@ -42,6 +42,11 @@ FORMULATIONS_PERIMEES = ("appel micro", "appels micro", "appel est micro",
 # Journaux de mesures datées (`docs/tests-live.md`, `.memlog.md`, baselines d'évals) et tests
 # `*live.py` sont hors garde : ils consignent ce qui a réellement tourné, jamais ce que le produit
 # sert aujourd'hui. `web/` a sa propre surface et son propre cycle.
+# `README.md` est hors balayage pour une raison de fond, pas par oubli : sa ligne 50 dit « leur
+# contrôle `micro` par retraduction », et ce contrôle-là **est** un appel `micro`, distinct des
+# étapes servies. Y appliquer la garde rendrait rouge une phrase vraie. Ce que le README affirme du
+# plancher servi est déjà verrouillé au-dessus, par
+# `test_documentation_active_aligne_le_plancher_sonnet_des_choix_semantiques`.
 SURFACES_ACTIVES_SUFFIXES = {".py", ".md", ".yaml", ".yml"}
 
 # Deux artefacts portent la formulation périmée **et** un verrou d'identité à l'octet ; les réécrire
