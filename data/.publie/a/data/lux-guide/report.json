@@ -4,7 +4,7 @@
     {
       "name": "invariants_arbre",
       "level": "info",
-      "detail": "ok"
+      "detail": "arbre atteste document_hash=58a9053d8983bc4ef91f466ab1d71435d024b6b01b7f58f4dd9622c7184f0de2 ingest_fingerprint=7c40a0cbf0315a4e4b3f5ff982a048bc283da32418e1386d376f004d660beb34 ; ok"
     },
     {
       "name": "parcours_ingere",
