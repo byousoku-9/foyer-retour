@@ -183,7 +183,13 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     confirmed = {b.block_id: b for b in d.blocks if b.kind_confirmed}
     golden_ids = {f"{DOC}:p9:2", f"{DOC}:p11:12", f"{DOC}:p34:12", f"{DOC}:p46:1"}
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
-    assert len(confirmed) == report.stats["blocs_juridiques_confirmes"]
+    legal = {"definition", "garantie", "exclusion", "condition", "franchise"}
+    # `blocs_juridiques_confirmes` ne compte que les kinds juridiques. `T2_ELIGIBILITY_MODE`
+    # = ISOLATED fait aussi passer les `renvoi` en seconde lecture : un `renvoi` confirmé est un
+    # certificat légitime, il n'est simplement pas un kind juridique. Rien d'autre ne peut l'être.
+    assert {b.kind for b in confirmed.values()} - legal <= {"renvoi"}
+    assert sum(b.kind in legal for b in confirmed.values()) == \
+        report.stats["blocs_juridiques_confirmes"]
     assert golden_ids <= set(confirmed)
     assert confirmed[f"{DOC}:p9:2"].kind == "definition"
     assert normalize(confirmed[f"{DOC}:p9:2"].defines or "") == "contenu"

@@ -796,7 +796,22 @@ class Settings(BaseSettings):
     # Majorant des **deux** lectures, vérifié avant la première soumission avec le pire cas où tous
     # les blocs seraient juridiques. Le coût publié après exécution vient toujours de l'usage API.
     type_clauses_max_cost_eur: float = Field(12.0, gt=0)
+    # Confiance minimale exigée de l'**arbitre**, et d'elle seule, dans le seul cas où il départage
+    # un vrai désaccord : deux lectures qui se contredisent sur le `kind`, et un arbitre qui tranche
+    # contre l'une d'elles. Ce seuil n'est **pas** une garde d'admission des lectures 1 et 2 : deux
+    # lectures indépendantes qui s'accordent confirment quelle que soit leur confiance, et trois
+    # lectures concordantes confirment aussi sous le seuil. Un flottant que le modèle se donne à
+    # lui-même, que rien n'a calibré, ne peut pas annuler un accord ; il peut seulement refuser de
+    # faire foi quand il est le dernier mot. L'observabilité de la confiance vit ailleurs :
+    # `kind_confidence` publié par bloc et l'alerte `confiance_typage_faible` à
+    # `kind_confidence_min`.
     type_clauses_arbitration_confidence_min: float = Field(0.8, ge=0, le=1)
+    # Écart de confiance toléré entre deux lectures indépendantes avant de parler de désaccord. Le
+    # défaut `1.0` — l'écart maximal possible — dit qu'aucun écart de confiance ne fait à lui seul
+    # un désaccord : deux lectures qui donnent le même `kind` à 0,88 et 0,85 sont d'accord, et le
+    # « pas assez sûr » est déjà porté par `type_clauses_arbitration_confidence_min`. Abaisser ce
+    # seuil est la seule façon de faire compter un écart ; l'égalité stricte n'en est pas une.
+    type_clauses_confidence_tolerance: float = Field(1.0, ge=0, le=1)
     type_clauses_batch_poll_s: float = Field(20.0, gt=0)
     type_clauses_batch_timeout_s: float = Field(7200.0, gt=0)
     # Transport CLI de reprise (jamais utilisé par le runtime HTTP) : Messages standard, sans
@@ -1106,6 +1121,7 @@ class Settings(BaseSettings):
             "type_clauses_max_output_tokens": self.type_clauses_max_output_tokens,
             "type_clauses_max_cost_eur": self.type_clauses_max_cost_eur,
             "type_clauses_arbitration_confidence_min": self.type_clauses_arbitration_confidence_min,
+            "type_clauses_confidence_tolerance": self.type_clauses_confidence_tolerance,
             "type_clauses_batch_poll_s": self.type_clauses_batch_poll_s,
             "type_clauses_batch_timeout_s": self.type_clauses_batch_timeout_s,
             "type_clauses_standard_concurrency": self.type_clauses_standard_concurrency,
