@@ -2122,6 +2122,38 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             usage_cumule=_usage_audit(
                 audited_usages, current_known=measured_before_validation is not None),
         )
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            # La réponse est perdue mais **facturée** : son coût entre au cumul avant toute
+            # décision, sans quoi le plafond serait jugé sur une dépense sous-déclarée.
+            if measured_before_validation is not None:
+                usages.append(measured_before_validation)
+            acquis = _usage_cumule(usages).cost_eur
+            derive = (
+                f"segment {segment.index}/{len(working_plan.segments)} interrompu "
+                f"(stop_reason='max_tokens') : "
+                f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+            if raffinements >= settings.structure_max_refinements:
+                raise ValueError(
+                    f"{derive}; borne de scission "
+                    f"STRUCTURE_MAX_REFINEMENTS={settings.structure_max_refinements} atteinte; "
+                    f"coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            refined = _raffiner_plan(
+                working_plan, position, registre, doc_id=doc_id, settings=settings)
+            if refined is None:
+                raise ValueError(
+                    f"{derive}; l'unité de portage "
+                    f"{registre[segment.line_uids[0]].portage!r} est indivisible et ne peut pas "
+                    f"être scindée; coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            retry_bound = _arrondir_eur_superieur(
+                acquis + sum(item.majorant_eur_brut for item in refined.segments[position:]))
+            if retry_bound > ceiling:
+                raise ValueError(
+                    f"{derive}; scission refusée avant retry : majorant cumulé "
+                    f"{retry_bound:.4f} € > plafond {ceiling:.4f} €; "
+                    f"coût réel cumulé acquis {acquis:.4f} €; rien n'a été écrit")
+            working_plan = refined
+            raffinements += 1
+            continue
         try:
             raw, usage = _texte(message, settings)
             proposition = parse_proposition(
