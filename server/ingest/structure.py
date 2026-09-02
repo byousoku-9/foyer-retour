@@ -90,6 +90,9 @@ LINE_UID_MAX = len("line-v1:") + 64
 # à la fois payload et enum sans ouvrir un levier corpus dans la configuration produit.
 MAX_BOUNDARY_ANCHORS = 32
 
+# Titre qui s'ouvre sur un numéro nu (« 1. Définitions »), la forme qu'emploie un contrat qui ne
+# écrit pas le mot « article ». Relu seulement sur revendication : voir `article_uid_lisible`.
+_NUMBERED_HEADING_RE = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)*)\b")
 _ARTICLE_TITLE_RE = re.compile(
     r"^\s*(?:article|art\.?|artikel|articulo|artigo|articolo)\s+"
     r"(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
@@ -140,10 +143,81 @@ def oracle_article_uid(title: str) -> str | None:
     return f"article:{match.group('number')}" if match else None
 
 
+def article_uid_lisible(title: str, revendique: str | None) -> str | None:
+    """Identité relue dans le titre, numéro nu compris — **si** une identité est revendiquée.
+
+    Une seule implémentation pour les deux frontières qui la jugent : le vérificateur de la
+    proposition et la porte de certification. Elles en portaient deux, et la plus stricte — celle
+    qui exige le mot « article » — refusait ce que l'autre acceptait : un contrat qui numérote ses
+    sections « 1. Définitions » voyait `article:1` déclaré illisible, alors que le parseur lit ce
+    même « 1 » pour bâtir son arbre.
+
+    Le numéro nu n'est relu que sur revendication : sans elle, une énumération de corps qui commence
+    par un chiffre se verrait attribuer une identité juridique que personne n'a proposée.
+    """
+    explicite = oracle_article_uid(title)
+    if explicite is not None:
+        return explicite
+    if revendique is None:
+        return None
+    numero = _NUMBERED_HEADING_RE.search(_oracle_text(title))
+    return f"article:{numero.group('number')}" if numero else None
+
+
+def _lignes_de_lintervalle(noeud: NoeudPropose,
+                           registre: dict[str, Entree]) -> list[Entree]:
+    """Lignes du registre couvertes par l'intervalle du nœud, dans l'ordre de lecture."""
+    first = registre[noeud.premiere_line_uid].ordre
+    last = registre[noeud.derniere_line_uid].ordre
+    return sorted((entry for entry in registre.values() if first <= entry.ordre <= last),
+                  key=lambda entry: entry.ordre)
+
+
+def surface_de_provenance(noeud: NoeudPropose, registre: dict[str, Entree]) -> SurfaceClass | None:
+    """Classe technique prouvée par la **provenance** de toutes les lignes de l'intervalle.
+
+    Toutes, sans exception : une seule ligne de corps dans l'intervalle et le nœud n'est plus une
+    surface technique. C'est la même règle que celle qui rendra ces lignes non citables — appeler
+    `preliminaire` un intervalle que la porte de lecture publiera citable serait la contradiction
+    que ce chemin corrige.
+    """
+    lues = {entry.surface_provenance for entry in _lignes_de_lintervalle(noeud, registre)}
+    return lues.pop() if len(lues) == 1 else None
+
+
+def _lignes_lues(noeud: NoeudPropose, registre: dict[str, Entree], limite: int = 6) -> str:
+    """Ce que l'oracle a **lu**, rendu au lecteur : index dans le registre, page, texte tronqué.
+
+    Un refus de surface qui ne dit que la classe attendue et la classe reçue laisse chercher dans
+    un contrat de plusieurs milliers de lignes lesquelles il a jugées.
+    """
+    rangs = {entry.uid: index for index, entry
+             in enumerate(sorted(registre.values(), key=lambda item: item.ordre))}
+    lignes = _lignes_de_lintervalle(noeud, registre)
+    rendu = [
+        f"[{rangs[entry.uid]}] p.{entry.page} "
+        f"{entry.surface_provenance or 'corps'} « {entry.titre.strip()[:60]} »"
+        for entry in lignes[:limite]
+    ]
+    if len(lignes) > limite:
+        rendu.append(f"… {len(lignes) - limite} ligne(s) de plus")
+    return " ; ".join(rendu)
+
+
 def _semantique_locale(noeud: NoeudPropose, registre: dict[str, Entree]) -> tuple[str, SurfaceClass | None]:
-    """Titre relu et classe prouvée sur l'intervalle, communs aux artefacts v1 et v2."""
+    """Titre relu et classe prouvée sur l'intervalle, communs aux artefacts v1 et v2.
+
+    **Une seule source pour la surface technique.** La provenance décide la première : elle vient
+    de la porte de lecture, qui est aussi ce qui rendra ces lignes citables ou non. Ce n'est
+    qu'ensuite, sur du corps, que les mots du titre sont lus. Dans l'autre ordre, une couverture
+    (« HOME / Conditions générales / CG-… / Particuliers ») ne portait aucun mot technique, l'oracle
+    la déclarait `substantiel` faute de mieux — et refusait la seule bonne réponse.
+    """
     title_uids = noeud.title_line_uids or [noeud.titre_line_uid]
     title = " ".join(registre[uid].titre.strip() for uid in title_uids).strip()
+    provenance = surface_de_provenance(noeud, registre)
+    if provenance is not None:
+        return title, provenance
     first = registre[noeud.premiere_line_uid].ordre
     last = registre[noeud.derniere_line_uid].ordre
     title_set = set(title_uids)
@@ -375,6 +449,11 @@ class Entree:
     texte_porte: str = ""
     unite: str = ""
     source_uids: tuple[str, ...] = ()
+    # Classe technique décidée par la **porte de lecture** (`pdf_to_blocks.surfaces_de_provenance`),
+    # ou `None` pour une ligne de corps. C'est la même règle qui rendra ces lignes non citables dans
+    # le document publié : la preuve locale d'un nœud `preliminaire` ou `table_des_matieres` s'y
+    # appuie plutôt que de redevinner la notion à partir de mots de titre.
+    surface_provenance: SurfaceClass | None = None
 
     @property
     def titre(self) -> str:
@@ -518,6 +597,20 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
     texte **est** servi, par le bloc `table`.
     L'ordre de lecture doit avoir été arrêté (`pdf_to_blocks.ordonner_pages`) avant l'appel.
     """
+    # Import tardif : `pdf_to_blocks` dépend de ce module pour vérifier une proposition, l'importer
+    # au chargement fermerait le cycle. La provenance vient de **là-bas** et de nulle part ailleurs.
+    from server.ingest.pdf_to_blocks import surfaces_de_provenance
+    provenances = surfaces_de_provenance(pages)
+
+    def _provenance(uids: Sequence[str]) -> SurfaceClass | None:
+        """Classe technique d'un porteur : celle de ses lignes, **si elles s'accordent toutes**.
+
+        Un porteur à cheval sur la frontière du dernier groupe technique et du premier article
+        n'est prouvé technique par personne ; il retombe sur l'oracle de titre, fail-closed.
+        """
+        lues = {provenances.get(uid) for uid in uids}
+        return lues.pop() if len(lues) == 1 else None
+
     out: dict[str, Entree] = {}
     rang = 0
     for page in pages:
@@ -535,6 +628,7 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 out[uid] = Entree(
                     uid=uid, page=page.page, colonne=colonne, ordre=rang, bbox=bbox_porte,
                     texte=texte_porte, texte_porte=texte_porte, source_uids=tuple(uids),
+                    surface_provenance=_provenance([source.uid for source in sources]),
                 )
                 continue
             # Un porteur **est** une unité de portage : ce que ce bloc-là portera d'un seul tenant.
@@ -549,7 +643,8 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 unite = unite or uid
                 out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
                                   bbox=source.bbox, texte=source.text, texte_porte=texte_porte,
-                                  unite=unite, source_uids=(uid,))
+                                  unite=unite, source_uids=(uid,),
+                                  surface_provenance=_provenance([uid]))
     return out
 
 
@@ -765,6 +860,10 @@ def _empreinte_registre(registre: dict[str, Entree]) -> str:
             "texte_porte": entree.texte_porte,
             "unite": entree.unite,
             "source_uids": list(entree.source_uids),
+            # La provenance décide du verdict de surface : si elle changeait entre la planification
+            # et la couture, la même proposition serait jugée autrement. Elle appartient donc à
+            # l'empreinte, au même titre que le texte.
+            "surface_provenance": entree.surface_provenance,
         }
         for entree in sorted(registre.values(), key=lambda item: item.ordre)
     ]
@@ -1214,6 +1313,103 @@ def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
     )
 
 
+def _requete_cachable(requete_: dict[str, Any]) -> dict[str, Any]:
+    """Requête telle que l'audit la conserve : sans ses entrées `None`.
+
+    `LlmClient` calcule sa clé sur un corps qui porte des `None` (`tools`, `extra_body`) et
+    n'archive que les entrées renseignées. Nettoyer des deux côtés est ce qui fait qu'un couple
+    archivé et sa requête vivante rendent **la même** clé, sans supposer laquelle des deux formes
+    est la bonne.
+    """
+    return {nom: valeur for nom, valeur in requete_.items() if valeur is not None}
+
+
+def cache_de_rejeu(chemin: Path) -> dict[str, dict[str, Any]]:
+    """Couples requête/réponse archivés d'un fichier d'audit, indexés par clé de cache LLM.
+
+    La clé est celle que `server.app.llm.client._cache_key` calcule, importée et non réécrite :
+    une empreinte recalculée ici dériverait dès que le client changerait la sienne, et le rejeu
+    deviendrait silencieusement vide (idiome `replay_typing_audit` — ne jamais recalculer une
+    empreinte que l'implémentation courante possède déjà).
+
+    Seuls les appels `step=structure` réellement rendus sont retenus : une ligne d'erreur n'a pas
+    de réponse à resservir. À clé égale, la **dernière** ligne gagne — c'est la plus récente.
+    """
+    from server.app.llm.client import _cache_key
+
+    cache: dict[str, dict[str, Any]] = {}
+    with chemin.open("r", encoding="utf-8") as fichier:
+        for ligne in fichier:
+            ligne = ligne.strip()
+            if not ligne:
+                continue
+            try:
+                evenement = json.loads(ligne)
+            except json.JSONDecodeError:
+                continue  # une ligne tronquée par la rotation n'invalide pas le reste du fichier
+            if (not isinstance(evenement, dict) or evenement.get("step") != "structure"
+                    or evenement.get("error_class")):
+                continue
+            requete_ = evenement.get("request")
+            reponse = evenement.get("response")
+            if not isinstance(requete_, dict) or not isinstance(reponse, dict):
+                continue
+            cache[_cache_key(_requete_cachable(requete_))] = {
+                "response": reponse, "call_uid": evenement.get("call_uid", ""),
+            }
+    return cache
+
+
+class _MessagesRejoues:
+    """`messages.parse` qui sert d'abord un enregistrement, puis le fournisseur."""
+
+    def __init__(self, cache: dict[str, dict[str, Any]], fournisseur: Any = None) -> None:
+        self._cache = cache
+        self._fournisseur = fournisseur
+        self.servis: list[str] = []
+
+    def parse(self, **params: Any) -> Any:
+        from server.app.llm.client import _cache_key
+
+        entree = self._cache.get(_cache_key(_requete_cachable(params)))
+        if entree is None:
+            if self._fournisseur is None:
+                raise RuntimeError(
+                    "requête absente du rejeu et aucun fournisseur configuré; aucun appel soumis")
+            return self._fournisseur.messages.parse(**params)
+        self.servis.append(entree.get("call_uid", ""))
+        return ReponseRejouee(message=anthropic.types.Message.model_validate(entree["response"]))
+
+
+class ClientRejeu:
+    """Client injectable : une requête identique est resservie, une requête inconnue part.
+
+    C'est tout ce que `--rejouer-audit` change au chemin. Corriger le code hors ligne puis rejouer
+    les réponses déjà payées coûte zéro ; ce qui n'a jamais été soumis part normalement, sous le
+    même plafond.
+    """
+
+    def __init__(self, cache: dict[str, dict[str, Any]], fournisseur: Any = None) -> None:
+        self.messages = _MessagesRejoues(cache, fournisseur)
+
+    def servi_du_cache(self, requete_: dict[str, Any]) -> bool:
+        from server.app.llm.client import _cache_key
+
+        return _cache_key(_requete_cachable(requete_)) in self.messages._cache
+
+
+def _majorant_a_reserver(plan: PlanStructure, client: Any) -> float:
+    """Majorant du plan **moins** ce qu'un rejeu sert déjà : un segment rejoué ne coûte rien.
+
+    Sans cela, un rejeu intégralement gratuit serait refusé par le préflight du plan complet — le
+    plafond arrêterait précisément le chemin qui ne dépense pas.
+    """
+    servi = getattr(client, "servi_du_cache", None)
+    return _arrondir_eur_superieur(sum(
+        segment.majorant_eur_brut for segment in plan.segments
+        if servi is None or not servi(segment.request)))
+
+
 def _refus(motif: str, detail: str) -> Verdict:
     return Verdict(accepte=False, motif=motif, detail=detail[:1000])
 
@@ -1324,14 +1520,16 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             if technical_surface is None:
                 return _refus(
                     "affectation_non_prouvee",
-                    f"surface sans preuve locale indépendante sous {noeud.titre_line_uid!r}",
+                    f"surface sans preuve locale indépendante sous {noeud.titre_line_uid!r} ; "
+                    f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
             if noeud.surface_class != technical_surface:
                 return _refus(
                     "affectation_non_prouvee",
-                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r}",
+                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r} ; "
+                    f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
-            readable_article = oracle_article_uid(title)
+            readable_article = article_uid_lisible(title, noeud.article_uid)
             if noeud.article_uid != readable_article:
                 return _refus(
                     "affectation_non_prouvee",
@@ -1747,11 +1945,48 @@ def charger_octets(path: Path, *, settings: Settings | None = None
                                f"{path.name} illisible ou hors schéma : {type(exc).__name__}") from exc
 
 
+@dataclass(frozen=True)
+class ReponseRejouee:
+    """Réponse archivée resservie sans réseau : même contenu exact, coût réel nul.
+
+    Le contenu **est** celui du fichier d'audit, reconstruit dans le type du SDK ; seul le coût
+    change, parce qu'aucun appel n'a eu lieu. Tout le reste du chemin — texte, rapprochement des
+    index, vérificateur — ne voit aucune différence, et c'est précisément ce qui rend le rejeu
+    probant : il juge la réponse d'hier avec le code d'aujourd'hui.
+    """
+
+    message: Any
+    cout_original_eur: float = 0.0
+
+    def __getattr__(self, nom: str) -> Any:
+        if nom.startswith("__"):
+            raise AttributeError(nom)
+        return getattr(object.__getattribute__(self, "message"), nom)
+
+
+def _usage_mesure(message: Any, settings: Settings) -> Usage | None:
+    """Usage facturable d'une réponse, ou `None` s'il est absent.
+
+    Une réponse rejouée porte l'usage de l'appel d'origine — c'est la seule chose honnête à
+    consigner — mais son coût réel est **nul** : rien n'a été soumis. Le coût d'origine reste dit,
+    sous le nom que le domaine lui donne déjà pour le cache d'évals.
+    """
+    api_usage = getattr(message, "usage", None)
+    if not api_usage:
+        return None
+    mesure = cost_from_usage(MODEL, api_usage, settings.usd_eur, batch=False)
+    if not isinstance(message, ReponseRejouee):
+        return mesure
+    return mesure.model_copy(update={
+        "cached_response": True, "cost_eur_original": mesure.cost_eur, "cost_eur": 0.0})
+
+
 def _texte(message: Any, settings: Settings) -> tuple[str, Usage]:
     usage = getattr(message, "usage", None)
     if not usage:  # absente **ou vide** : sans usage, aucun coût réel ne peut être certifié
         raise ValueError("réponse sans usage facturable; aucun artefact écrit")
-    measured = cost_from_usage(MODEL, usage, settings.usd_eur, batch=False)
+    measured = _usage_mesure(message, settings)
+    assert measured is not None
     stop_reason = getattr(message, "stop_reason", None)
     if stop_reason is not None and stop_reason not in NORMAL_STOPS:
         raise ValueError(
@@ -2049,9 +2284,10 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     """
     _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
     ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
-    if plan.majorant_eur > ceiling:
+    a_reserver = _majorant_a_reserver(plan, client)
+    if a_reserver > ceiling:
         raise ValueError(
-            f"majorant cumulé {plan.majorant_eur:.4f} € > plafond {ceiling:.4f} €; "
+            f"majorant cumulé {a_reserver:.4f} € > plafond {ceiling:.4f} €; "
             "aucun appel soumis")
     artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
     run_uid = f"structure:{doc_id}:{plan.plan_uid}"
@@ -2105,11 +2341,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
                 "rien n'a été écrit") from exc
         raw = ""
         usage: Usage | None = None
-        api_usage = getattr(message, "usage", None)
-        measured_before_validation = (
-            cost_from_usage(MODEL, api_usage, settings.usd_eur, batch=False)
-            if api_usage else None
-        )
+        measured_before_validation = _usage_mesure(message, settings)
         audited_usages = [*usages]
         if measured_before_validation is not None:
             audited_usages.append(measured_before_validation)
@@ -2117,6 +2349,7 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
             settings.llm_audit_path, run_uid=run_uid, step="structure",
             model=MODEL, request=segment.request, response=message,
             trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+            cache_hit=isinstance(message, ReponseRejouee),
             max_bytes=settings.llm_audit_max_bytes,
             retention_files=settings.llm_audit_retention_files,
             usage_cumule=_usage_audit(
@@ -2193,6 +2426,145 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     return ExecutionStructure(proposition=stitched, plan=working_plan, usage=cumulative)
 
 
+@dataclass(frozen=True)
+class VerdictSegment:
+    """Ce qu'un segment a rendu, jugé mais **non publié**."""
+
+    index: int
+    segment_uid: str
+    lignes: int
+    accepte: bool
+    motif: str | None
+    detail: str
+    servi_du_cache: bool
+    cout_eur: float
+    noeuds: int
+
+
+@dataclass(frozen=True)
+class DiagnosticStructure:
+    """Verdicts de tous les segments soumis, et la raison d'un arrêt s'il y en a eu un."""
+
+    doc_id: str
+    plan_uid: str
+    verdicts: tuple[VerdictSegment, ...]
+    usage: Usage
+    arret: str | None = None
+
+    def charge(self) -> dict[str, Any]:
+        return {
+            "doc_id": self.doc_id,
+            "plan_uid": self.plan_uid,
+            "arret": self.arret,
+            "cout_eur": round(self.usage.cost_eur, 4),
+            "segments": [
+                {
+                    "index": verdict.index,
+                    "segment_uid": verdict.segment_uid,
+                    "lignes": verdict.lignes,
+                    "accepte": verdict.accepte,
+                    "motif": verdict.motif,
+                    "detail": verdict.detail,
+                    "servi_du_cache": verdict.servi_du_cache,
+                    "cout_eur": round(verdict.cout_eur, 4),
+                    "noeuds": verdict.noeuds,
+                }
+                for verdict in self.verdicts
+            ],
+        }
+
+
+def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree], *,
+                       doc_id: str, settings: Settings, source_hash: str | None = None,
+                       max_cost_eur: float | None = None) -> DiagnosticStructure:
+    """Soumet tous les segments, juge chacun, **ne publie rien**.
+
+    Le run nominal est atomique et s'arrête au premier refus : c'est ce qu'il doit faire, mais cela
+    fait payer sept segments pour n'apprendre qu'un défaut. Le diagnostic paie une fois, rend tous
+    les verdicts, et laisse corriger l'oracle hors ligne puis rejouer gratuitement les mêmes
+    réponses (`--rejouer-audit`).
+
+    Un refus d'**oracle** est un résultat : il est consigné et le segment suivant part. Un refus
+    **fournisseur** — panne, 400, réponse interrompue non récupérable — arrête tout : ce qui suit ne
+    serait pas plus soumissible, et continuer ne ferait que dépenser.
+    """
+    _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
+    ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
+    a_reserver = _majorant_a_reserver(plan, client)
+    if a_reserver > ceiling:
+        raise ValueError(
+            f"majorant cumulé {a_reserver:.4f} € > plafond {ceiling:.4f} €; aucun appel soumis")
+    artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
+    run_uid = f"structure-diagnostic:{doc_id}:{plan.plan_uid}"
+    verdicts: list[VerdictSegment] = []
+    usages: list[Usage] = []
+    arret: str | None = None
+    for segment in plan.segments:
+        anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
+        subset = {uid: registre[uid] for uid in segment.line_uids}
+        trusted_uids = tuple(sorted({*segment.line_uids, *anchor_uids}))
+        engage = _usage_cumule(usages).cost_eur
+        if engage + segment.majorant_eur_brut > ceiling and not _servi(client, segment.request):
+            arret = (f"plafond atteint avant le segment {segment.index} : {engage:.4f} € engagés "
+                     f"+ {segment.majorant_eur:.4f} € majorés > {ceiling:.4f} €")
+            break
+        try:
+            message = client.messages.parse(**segment.request)
+        except Exception as exc:  # noqa: BLE001 - une panne fournisseur arrête le diagnostic
+            append_ingest_audit(
+                settings.llm_audit_path, run_uid=run_uid, step="structure",
+                model=MODEL, request=segment.request, response=None,
+                trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+                error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
+                retention_files=settings.llm_audit_retention_files,
+                usage_cumule=_usage_audit(usages, current_known=False))
+            arret = f"refus fournisseur au segment {segment.index} ({type(exc).__name__})"
+            break
+        mesure = _usage_mesure(message, settings)
+        du_cache = isinstance(message, ReponseRejouee)
+        append_ingest_audit(
+            settings.llm_audit_path, run_uid=run_uid, step="structure",
+            model=MODEL, request=segment.request, response=message,
+            trusted_line_uids=trusted_uids, artifact_uid=artifact_uid, cache_hit=du_cache,
+            max_bytes=settings.llm_audit_max_bytes,
+            retention_files=settings.llm_audit_retention_files,
+            usage_cumule=_usage_audit([*usages, *((mesure,) if mesure else ())],
+                                      current_known=mesure is not None))
+        if mesure is not None:
+            usages.append(mesure)
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            arret = (f"réponse interrompue au segment {segment.index} : "
+                     f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+            break
+        motif: str | None = None
+        detail = ""
+        noeuds = 0
+        try:
+            raw, _usage = _texte(message, settings)
+            proposition = parse_proposition(
+                rapprocher_indices(raw, subset, anchors=segment.anchors),
+                subset, doc_id, settings=settings, reference_uids=anchor_uids)
+            noeuds = len(proposition.noeuds)
+            verdict = _verifier_segment(proposition, subset, doc_id=doc_id, settings=settings)
+            motif, detail = (None, verdict.detail) if verdict.accepte else (
+                verdict.motif, verdict.detail)
+        except StructureRefusee as exc:
+            motif, detail = exc.motif, exc.detail
+        except ValueError as exc:
+            motif, detail = "proposition_illisible", str(exc)
+        verdicts.append(VerdictSegment(
+            index=segment.index, segment_uid=segment.segment_uid,
+            lignes=len(segment.line_uids), accepte=motif is None, motif=motif, detail=detail,
+            servi_du_cache=du_cache, cout_eur=mesure.cost_eur if mesure else 0.0, noeuds=noeuds))
+    return DiagnosticStructure(doc_id=doc_id, plan_uid=plan.plan_uid,
+                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret)
+
+
+def _servi(client: Any, requete_: dict[str, Any]) -> bool:
+    servi = getattr(client, "servi_du_cache", None)
+    return bool(servi is not None and servi(requete_))
+
+
 def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
              settings: Settings, source_hash: str | None = None,
              plan: PlanStructure | None = None) -> tuple[StructureProposee, float]:
@@ -2237,6 +2609,14 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
     parser.add_argument("--data", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-cost", type=float)
+    parser.add_argument(
+        "--rejouer-audit", type=Path, metavar="JSONL",
+        help="sert les réponses déjà enregistrées dans ce fichier d'audit ; une requête absente "
+             "part au fournisseur sous le même plafond")
+    parser.add_argument(
+        "--diagnostic", nargs="?", const="", metavar="FICHIER",
+        help="soumet tous les segments, consigne chaque verdict et n'écrit aucune proposition ; "
+             "sans valeur, le fichier de diagnostic est déposé à côté de structure.json")
     args = parser.parse_args(argv)
     settings = settings or get_settings()
     # AD-9 : le plafond est résolu et validé **avant** toute lecture, toute extraction et toute
@@ -2311,11 +2691,44 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             print("dry-run : aucune soumission, aucune écriture", file=output)
             return 0
         if client is None:
-            if cle_absente(settings):
+            fournisseur = None
+            if not cle_absente(settings):
+                fournisseur = anthropic.Anthropic(
+                    api_key=settings.anthropic_api_key, max_retries=0)
+            if args.rejouer_audit is not None:
+                cache = cache_de_rejeu(args.rejouer_audit)
+                print(f"rejeu : {len(cache)} réponse(s) enregistrée(s) dans "
+                      f"{args.rejouer_audit}", file=output)
+                client = ClientRejeu(cache, fournisseur)
+            elif fournisseur is None:
                 print("ANTHROPIC_API_KEY absente; aucun appel soumis", file=sys.stderr)
                 return 2
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, max_retries=0)
+            else:
+                client = fournisseur
         source_hash = hashlib.sha256((doc_dir / "source.pdf").read_bytes()).hexdigest()
+        if args.diagnostic is not None:
+            diagnostic = diagnostiquer_plan(
+                client, plan, registre, doc_id=args.doc_id, settings=settings,
+                source_hash=source_hash, max_cost_eur=ceiling)
+            for verdict_segment in diagnostic.verdicts:
+                etat = "accepté" if verdict_segment.accepte else verdict_segment.motif
+                print(
+                    f"segment {verdict_segment.index}/{len(plan.segments)} "
+                    f"{verdict_segment.lignes} ligne(s), {verdict_segment.noeuds} nœud(s), "
+                    f"{'rejoué' if verdict_segment.servi_du_cache else 'soumis'}, "
+                    f"{verdict_segment.cout_eur:.4f} € : {etat} — {verdict_segment.detail[:400]}",
+                    file=output)
+            if diagnostic.arret is not None:
+                print(f"arrêt : {diagnostic.arret}", file=output)
+            chemin_diagnostic = (Path(args.diagnostic) if args.diagnostic
+                                 else doc_dir / "structure-diagnostic.json")
+            write_atomic(chemin_diagnostic, json.dumps(
+                diagnostic.charge(), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            acceptes = sum(1 for item in diagnostic.verdicts if item.accepte)
+            print(f"diagnostic : {acceptes}/{len(diagnostic.verdicts)} segment(s) jugé(s) "
+                  f"accepté(s), coût réel {diagnostic.usage.cost_eur:.4f} € ; "
+                  f"{chemin_diagnostic} écrit ; aucune proposition publiée", file=output)
+            return 0 if acceptes == len(plan.segments) else 4
         execution = executer_plan(
             client, plan, registre, doc_id=args.doc_id, settings=settings,
             source_hash=source_hash, max_cost_eur=ceiling)

@@ -183,10 +183,16 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
                         trusted_line_uids: tuple[str, ...] = (),
                         artifact_uid: str = "",
                         error_class: str | None = None,
+                        cache_hit: bool = False,
                         usage_cumule: dict[str, int | float | bool] | None = None,
                         max_bytes: int = 16 * 1024 * 1024,
                         retention_files: int = 4) -> dict[str, Any]:
-    """Couture commune aux clients d'ingestion synchrones (Opus/T1/T2/arbitre)."""
+    """Couture commune aux clients d'ingestion synchrones (Opus/T1/T2/arbitre).
+
+    `cache_hit` dit qu'aucun appel n'a eu lieu : la réponse consignée vient d'un enregistrement
+    antérieur, et son coût réel est nul. Le champ existait déjà dans l'événement ; seuls les
+    clients qui passent par `LlmClient` savaient le renseigner.
+    """
     projected = _json_value(response)
     serialized_response = (projected if projected is None or isinstance(projected, dict)
                            else {"value": projected})
@@ -194,7 +200,7 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
         call_uid=f"call:{uuid.uuid4()}", run_uid=run_uid, artifact_uid=artifact_uid,
         step=step, tier="ingest",
         model=model, request=request, response=serialized_response,
-        trusted_line_uids=trusted_line_uids, error_class=error_class,
+        trusted_line_uids=trusted_line_uids, error_class=error_class, cache_hit=cache_hit,
         usage_cumule=usage_cumule,
     )
     return JsonlAuditSink(

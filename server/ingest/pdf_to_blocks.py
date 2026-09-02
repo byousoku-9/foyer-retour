@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from math import ceil
 from pathlib import Path
@@ -38,7 +38,7 @@ from pydantic import ValidationError
 from server.app.config import get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
-from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE
+from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, SurfaceClass
 from server.ingest.artifacts import (OVERLAY_FILE, SCHEMA_VERSION, STRUCTURE_FILE,
                                      TYPING_REUSED_IDS_STAT, LectureDuLot, document_json,
                                      exiger_espace_installe, merge_manifest, read_manifest,
@@ -1984,6 +1984,90 @@ def reconcilier_affectation(nodes: dict[str, Node], block_uids: dict[str, list[s
                     f"sous {prescrit or 'aucun nœud'}")
 
 
+def _parcours_de_provenance(
+    pages: list[PageText], node_of_uid: dict[str, str] | None = None,
+) -> Iterator[tuple[PageText, list[tuple[str, list[tuple[str, list[PageLine]]]]],
+                    list[tuple[str, list[PageLine]]], bool]]:
+    """**L'unique** règle de provenance de la porte de lecture, rejouée sans rien construire.
+
+    Rend, page par page : les groupes techniques avec leur `table_source` (`tdm` ou
+    `preliminaire`), les groupes de corps qui restent, et si la continuité de paragraphe entre
+    pages doit être rompue avant eux.
+
+    Elle décide « d'où vient ce texte » — couverture, sommaire, quatrième de couverture — et cette
+    notion n'a plus qu'une implémentation : `build_document` la consomme pour rendre ces blocs non
+    citables, et `surfaces_de_provenance` pour que la preuve locale d'un nœud technique s'appuie
+    dessus au lieu d'une seconde règle, à base de mots de titre, qui la contredisait.
+
+    La règle est de **provenance**, jamais de position : aucune « page 1 » ni « dernière page » n'y
+    figure. Sur une page mixte, seuls les groupes situés avant le premier article sont techniques.
+    """
+    node_of_uid = node_of_uid or {}
+    article_seen = False
+    document_has_articles = any(line.number is not None for page in pages for line in page.lines)
+    document_has_toc = any(page.is_toc for page in pages)
+    for pt in pages:
+        groups = _segment_page(pt, node_of_uid)
+        techniques: list[tuple[str, list[tuple[str, list[PageLine]]]]] = []
+        rompre = False
+        if pt.is_toc:
+            # Contiguïté : sur une page de sommaire les entrées forment un préfixe contigu, et le
+            # corps commence au premier groupe numéroté qui n'est **pas** une entrée. Il ne se
+            # referme plus : une clause dont le texte a la forme d'un renvoi reste citable.
+            first_article_group = _premier_groupe_de_corps(groups, pt)
+            techniques.append((
+                "tdm", groups if first_article_group is None else groups[:first_article_group]))
+            rompre = True
+            if first_article_group is None:
+                yield pt, techniques, [], rompre
+                continue
+            # Une première clause sur la même page clôt la TdM : elle et tous les groupes suivants
+            # appartiennent au corps citable.
+            groups = groups[first_article_group:]
+            article_seen = True
+        if pt.surface_class == "preliminaire":
+            techniques.append(("preliminaire", groups))
+            yield pt, techniques, [], True
+            continue
+        first_article_group = next((i for i, (_, lines) in enumerate(groups)
+                                    if lines[0].number is not None), None)
+        if (document_has_articles or document_has_toc) and not article_seen and not pt.after_toc:
+            preliminary_count = len(groups) if first_article_group is None else first_article_group
+            techniques.append(("preliminaire", groups[:preliminary_count]))
+            if first_article_group is None:
+                yield pt, techniques, [], True
+                continue
+            groups = groups[first_article_group:]
+            article_seen = True
+        elif first_article_group is not None:
+            article_seen = True
+        yield pt, techniques, groups, rompre
+
+
+def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
+    """Classe technique de chaque ligne source, telle que la porte de lecture la décidera.
+
+    Clé : l'uid d'extraction d'une `SourceLine` ; valeur : `preliminaire` ou
+    `table_des_matieres`. Les lignes de corps n'y figurent pas.
+
+    C'est la vérité que `build_document` applique déjà pour rendre ces blocs non citables ; la
+    proposition de structure la lit ici au lieu de la redevinner. Sans elle, une couverture
+    (« HOME / Conditions générales / CG-… / Particuliers ») ne portait aucun mot de titre technique
+    et l'oracle la déclarait `substantiel` — donc refusait la bonne réponse, et aurait accepté une
+    couverture citable.
+    """
+    _classify_surfaces(pages)
+    surfaces: dict[str, SurfaceClass] = {}
+    for _pt, techniques, _corps, _rompre in _parcours_de_provenance(pages):
+        for table_source, groups in techniques:
+            surface = _SURFACE_DE_PROVENANCE[table_source]
+            for _kind, lines in groups:
+                for line in lines:
+                    for uid in line.source_uids:
+                        surfaces[uid] = surface
+    return surfaces
+
+
 def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc: list[Any],
                    doc_id: str = DOC_ID, title: str = TITLE, source_url: str | None = None,
                    structure: StructureProposee | None = None) -> tuple[Document, dict[str, Any]]:
@@ -2022,9 +2106,6 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
     toc_node: Node | None = None
     last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
     precedent_noeud: str | None = None  # nœud proposé qui le portait, pour ne pas continuer à travers
-    article_seen = False
-    document_has_articles = any(line.number is not None for page in pages for line in page.lines)
-    document_has_toc = any(page.is_toc for page in pages)
     future_numbers = [line.number for page in pages for line in page.lines
                       if line.number is not None]
 
@@ -2073,8 +2154,28 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 pending.extend(lines)
         flush()
 
+    # Sans proposition, la porte de lecture décide seule d'où vient chaque groupe ; avec une
+    # proposition vérifiée, c'est elle qui gouverne tout le rattachement et la provenance ne sert
+    # plus (les surfaces techniques sont déjà celles que le vérificateur a prouvées).
+    parcours = None if structure is not None else _parcours_de_provenance(pages, node_of_uid)
     for pt in pages:
-        groups = _segment_page(pt, node_of_uid)
+        if parcours is None:
+            groups = _segment_page(pt, node_of_uid)
+        else:
+            _page, techniques, groups, rompre = next(parcours)
+            for table_source, groupes_techniques in techniques:
+                if table_source == "tdm" and toc_node is None:
+                    toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières",
+                                    surface_class="table_des_matieres")
+                    b.nodes[toc_node.node_id] = toc_node
+                    b.order.append(toc_node.node_id)
+                    b.root.items.append(NodeRef(node_id=toc_node.node_id))
+                saved = b.current
+                b.current = toc_node if table_source == "tdm" else b.root
+                add_preliminary_groups(pt, groupes_techniques, table_source=table_source)
+                b.current = saved
+            if rompre:
+                last_text_block = None
         if structure is not None:
             # Une proposition vérifiée gouverne **tout** le rattachement. Les branches TdM et
             # « préliminaire » sont écrites pour l'heuristique numérique : elles rattachent à la
@@ -2101,46 +2202,6 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             elif groups:
                 last_text_block = None
             continue
-        if pt.is_toc:
-            if toc_node is None:
-                toc_node = Node(node_id=f"{doc_id}:tdm", level=1, title="Table des matières",
-                                surface_class="table_des_matieres")
-                b.nodes[toc_node.node_id] = toc_node
-                b.order.append(toc_node.node_id)
-                b.root.items.append(NodeRef(node_id=toc_node.node_id))
-            saved, b.current = b.current, toc_node
-            # Contiguïté : sur une page de sommaire les entrées forment un préfixe contigu, et le
-            # corps commence au premier groupe numéroté qui n'est **pas** une entrée. Il ne se
-            # referme plus : une clause dont le texte a la forme d'un renvoi reste citable.
-            first_article_group = _premier_groupe_de_corps(groups, pt)
-            toc_groups = groups if first_article_group is None else groups[:first_article_group]
-            add_preliminary_groups(pt, toc_groups, table_source="tdm")
-            b.current = saved
-            last_text_block = None
-            if first_article_group is None:
-                continue
-            # Une première clause sur la même page clôt la TdM : elle et tous les groupes suivants
-            # appartiennent au corps citable.
-            groups = groups[first_article_group:]
-            article_seen = True
-        if pt.surface_class == "preliminaire":
-            saved, b.current = b.current, b.root
-            add_preliminary_groups(pt, groups, table_source="preliminaire")
-            b.current = saved
-            last_text_block = None
-            continue
-        first_article_group = next((i for i, (_, lines) in enumerate(groups)
-                                    if lines[0].number is not None), None)
-        if (document_has_articles or document_has_toc) and not article_seen and not pt.after_toc:
-            preliminary_count = len(groups) if first_article_group is None else first_article_group
-            add_preliminary_groups(pt, groups[:preliminary_count], table_source="preliminaire")
-            if first_article_group is None:
-                last_text_block = None
-                continue
-            groups = groups[first_article_group:]
-            article_seen = True
-        elif first_article_group is not None:
-            article_seen = True
         first = True
         page_last: Block | None = None
         for kind, lines in groups:

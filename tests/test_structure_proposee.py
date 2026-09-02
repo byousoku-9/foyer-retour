@@ -2151,6 +2151,358 @@ def test_la_borne_de_scission_est_configuree_et_arrete_le_run(
     assert "coût réel cumulé acquis" in detail and "rien n'a été écrit" in detail
 
 
+# --- 2 bis. La surface technique n'a qu'une source : la provenance ------------------------------
+
+def _page_numerotee(page_no: int, entrees: list[Any], *, depart: float = 100.0) -> p.PageText:
+    """Page synthétique dont certaines lignes portent le numéro que le parseur leur a lu.
+
+    C'est ce numéro — et lui seul — qui fait exister une « première ancre » : la porte de lecture
+    en déduit que ce qui la précède est préliminaire. Aucune règle de position n'entre ici.
+    """
+    registre = p.SourceRegistry()
+    lignes = []
+    for index, entree in enumerate(entrees):
+        texte, numero = entree if isinstance(entree, tuple) else (entree, None)
+        bbox = [56.0, depart + index * 20.0, 356.0, depart + index * 20.0 + 12.0]
+        source = registre.add(page=page_no, text=texte, bbox=bbox)
+        lignes.append(p.PageLine(texte, bbox, 10.0, source_uids=[source.uid], number=numero))
+    return p.PageText(page=page_no, width=595, height=842, lines=lignes, source=registre)
+
+
+_COUVERTURE = ["HOME", "Conditions générales", "CG-HOME(2)-LUFR-09-24", "Particuliers"]
+_CORPS = [("1 Objet du contrat", "1"), "Le present contrat couvre le logement.",
+          ("2 Exclusions", "2"), "Les dommages volontaires sont exclus."]
+
+
+def _noeud(ordonnees: list[s.Entree], titre: int, premiere: int, derniere: int, *,
+           surface: str, article: str | None = None) -> s.NoeudPropose:
+    return s.NoeudPropose(
+        titre_line_uid=ordonnees[titre].uid, premiere_line_uid=ordonnees[premiere].uid,
+        derniere_line_uid=ordonnees[derniere].uid, parent_line_uid=None,
+        title_line_uids=[ordonnees[titre].uid], article_uid=article, surface_class=surface,
+        continuation_line_uids=[], relations=[])
+
+
+def _ordonnees(registre: dict[str, s.Entree]) -> list[s.Entree]:
+    return sorted(registre.values(), key=lambda entree: entree.ordre)
+
+
+def test_une_couverture_est_preliminaire_par_provenance_et_par_rien_dautre() -> None:
+    """La cause du refus mesuré sur le premier segment réel accepté par le fournisseur.
+
+    Une couverture ne porte aucun mot de titre technique — ni « préambule », ni « introduction ».
+    L'oracle de titre y lisait « du texte de corps observable » (« Particuliers » en est) et rendait
+    `substantiel` : la seule bonne réponse était refusée, et une couverture déclarée citable aurait
+    été acceptée. La provenance de la porte de lecture, elle, sait exactement ce que c'est.
+
+    Les deux corpus ne diffèrent que par une chose : le second ne porte aucun numéro d'article, donc
+    aucune première ancre, donc aucune page préliminaire. La couverture y est mot pour mot la même.
+    """
+    avec = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS)]
+    p.ordonner_pages(avec)
+    registre = s.registre_lignes(avec, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    assert [entree.surface_provenance for entree in lignes[:4]] == ["preliminaire"] * 4
+    assert all(entree.surface_provenance is None for entree in lignes[4:])
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, 7, surface="substantiel"),
+    ])
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert verdict.accepte, verdict.detail
+
+    # Sans numéro d'article, la porte de lecture ne classe plus rien : la même couverture, mot pour
+    # mot, redevient du corps et l'oracle de titre reprend la main — le refus est donc conservé.
+    sans = [_page_numerotee(1, _COUVERTURE),
+            _page_numerotee(2, [texte for texte, *_ in
+                                (item if isinstance(item, tuple) else (item,) for item in _CORPS)])]
+    p.ordonner_pages(sans)
+    registre_nu = s.registre_lignes(sans, document_uid=DOC)
+    lignes_nues = _ordonnees(registre_nu)
+    assert all(entree.surface_provenance is None for entree in lignes_nues)
+    refusee = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes_nues, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes_nues, 4, 4, 7, surface="substantiel"),
+    ])
+    refus = s.verifier(refusee, registre_nu, doc_id=DOC, settings=get_settings())
+    assert not refus.accepte and refus.motif == "affectation_non_prouvee"
+    # Le refus dit ce que l'oracle a lu : index, page, provenance et texte tronqué.
+    assert "[0] p.1 corps « HOME »" in refus.detail
+    assert "« Particuliers »" in refus.detail
+
+
+def test_une_quatrieme_de_couverture_est_preliminaire_par_la_meme_regle() -> None:
+    """Aucune règle « dernière page » : c'est la même provenance, sur la queue du document.
+
+    La porte de lecture sort la queue du corps lorsqu'une page physiquement blanche la sépare d'un
+    article déjà observé et qu'aucun article ne s'y ouvre. Les coordonnées d'un agent n'ont pas plus
+    de mot de titre technique qu'une couverture.
+    """
+    blanche = p.PageText(page=3, width=595, height=842, native_text=False)
+    pages = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS), blanche,
+             _page_numerotee(4, ["Votre agence", "12 rue de la Gare", "L-1234 Luxembourg"])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    queue = [entree for entree in lignes if entree.page == 4]
+    assert queue and all(entree.surface_provenance == "preliminaire" for entree in queue)
+    debut = lignes.index(queue[0])
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, debut - 1, surface="substantiel"),
+        _noeud(lignes, debut, debut, len(lignes) - 1, surface="preliminaire"),
+    ])
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert verdict.accepte, verdict.detail
+    # Déclarée citable, la même queue est refusée : la provenance tranche dans les deux sens.
+    citable = s.StructureProposee(
+        schema_version="2", doc_id=DOC,
+        noeuds=[*proposition.noeuds[:-1],
+                _noeud(lignes, debut, debut, len(lignes) - 1, surface="substantiel")])
+    refus = s.verifier(citable, registre, doc_id=DOC, settings=get_settings())
+    assert not refus.accepte and refus.motif == "affectation_non_prouvee"
+    assert "preliminaire" in refus.detail and "Votre agence" in refus.detail
+
+
+def test_le_document_publie_et_sa_porte_de_certification_lisent_la_meme_provenance() -> None:
+    """Une seule source, de bout en bout : sans quoi le refus se déplace d'un cran, c'est tout.
+
+    Le vérificateur accepte la couverture, le document bâti la rend non citable, et le gate ne la
+    contredit plus. Avant, le gate rejouait l'oracle de titre sur le nœud publié et rougissait
+    exactement là où le vérificateur venait d'accepter.
+    """
+    pages = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS)]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, 7, surface="substantiel"),
+    ])
+    assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+    document, _meta = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+        structure=proposition)
+    couverture = next(node for node in document.nodes if node.title == "HOME")
+    assert couverture.surface_class == "preliminaire"
+    assert not any(p.is_citable(document.block(block_id)) for block_id in couverture.blocks)
+    assert structure_gate._semantic_issues(document) == []
+
+
+# --- 2 ter. Rejeu depuis l'audit, et mode diagnostic --------------------------------------------
+
+def _message_archive(noeuds: list[dict[str, Any]], *,
+                     stop_reason: str = "end_turn") -> dict[str, Any]:
+    """Réponse au format exact du SDK, telle qu'un fichier d'audit la conserve."""
+    return {
+        "id": "msg_archive", "type": "message", "role": "assistant", "model": s.MODEL,
+        "stop_reason": stop_reason, "stop_sequence": None,
+        "content": [{"type": "text", "text": json.dumps({"noeuds": noeuds})}],
+        "usage": {"input_tokens": 120, "output_tokens": 30},
+    }
+
+
+def _noeuds_par_ligne(nombre: int) -> list[dict[str, Any]]:
+    return [{"titre_line_uid": index, "premiere_line_uid": index, "derniere_line_uid": index,
+             "parent_line_uid": None} for index in range(nombre)]
+
+
+def _ecrire_audit(chemin: Path, couples: list[tuple[dict[str, Any], dict[str, Any]]]) -> None:
+    chemin.write_text("\n".join(
+        json.dumps({"step": "structure", "call_uid": f"call:{index}", "error_class": None,
+                    # L'audit écrit la requête **sans ses entrées `None`** : le rejeu doit
+                    # reconstruire la clé exactement comme le client la calcule.
+                    "request": {nom: valeur for nom, valeur in requete.items()
+                                if valeur is not None},
+                    "response": reponse}, ensure_ascii=False)
+        for index, (requete, reponse) in enumerate(couples)) + "\n", "utf-8")
+
+
+def test_le_rejeu_sert_une_requete_identique_sans_appel_et_laisse_partir_linconnue(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Corriger le code hors ligne puis rejouer les réponses déjà payées doit coûter zéro.
+
+    La clé du cache est celle du client LLM, importée et non réécrite : c'est ce qui fait qu'une
+    requête vivante et son enregistrement se retrouvent. Une requête que personne n'a archivée part
+    au fournisseur, normalement.
+    """
+    registre = _registre(_corpus())
+    settings = get_settings()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) == 1
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(plan.segments[0].request,
+                            _message_archive(_noeuds_par_ligne(len(registre))))])
+
+    cache = s.cache_de_rejeu(chemin)
+    assert len(cache) == 1
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    fournisseur = SimpleNamespace(messages=FauxMessagesUnNoeudParLigne())
+    client = s.ClientRejeu(cache, fournisseur)
+    assert client.servi_du_cache(plan.segments[0].request)
+
+    execution = s.executer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert fournisseur.messages.calls == [], "aucun appel fournisseur n'a été soumis"
+    assert client.messages.servis == ["call:0"]
+    assert execution.usage.cost_eur == 0.0 and execution.usage.cached_response
+    assert execution.usage.cost_eur_original > 0, "le coût de l'appel d'origine reste dit"
+    assert len(execution.proposition.noeuds) == len(registre)
+
+    # Une requête que le fichier ne contient pas part au fournisseur, sous le même plafond.
+    autre = replace(plan.segments[0],
+                    request={**plan.segments[0].request, "max_tokens": 4096})
+    assert not client.servi_du_cache(autre.request)
+    client.messages.parse(**autre.request)
+    assert len(fournisseur.messages.calls) == 1
+
+
+def test_la_cle_du_rejeu_est_celle_du_client_et_ignore_les_entrees_absentes(
+        tmp_path: Path) -> None:
+    """L'audit écrit la requête **sans ses entrées `None`** ; la requête vivante peut en porter.
+
+    Les deux doivent se retrouver, sinon le rejeu est silencieusement vide — le pire des échecs,
+    puisqu'il repart au fournisseur sans rien dire. La clé est celle du client LLM, importée : la
+    recalculer ici la ferait dériver à la première évolution de `_cache_key`.
+    """
+    from server.app.llm.client import _cache_key
+
+    vivante = {"model": s.MODEL, "max_tokens": 8, "system": [{"type": "text", "text": "s"}],
+               "messages": [{"role": "user", "content": "{}"}], "tools": None,
+               "extra_body": None}
+    archivee = {nom: valeur for nom, valeur in vivante.items() if valeur is not None}
+    assert "tools" not in archivee and "tools" in vivante
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(archivee, _message_archive([]))])
+
+    cache = s.cache_de_rejeu(chemin)
+    assert list(cache) == [_cache_key(archivee)]
+    assert s.ClientRejeu(cache).servi_du_cache(vivante), (
+        "la requête vivante et son enregistrement doivent rendre la même clé")
+
+
+def test_le_prefligth_ne_reserve_rien_pour_un_segment_que_le_rejeu_sert(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans cela, le plafond arrêterait précisément le chemin qui ne dépense pas."""
+    registre = _registre(_corpus())
+    settings = get_settings()
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    chemin = tmp_path / "llm-calls.jsonl"
+    _ecrire_audit(chemin, [(plan.segments[0].request,
+                            _message_archive(_noeuds_par_ligne(len(registre))))])
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    plafond = plan.majorant_eur / 2
+    assert plafond < plan.majorant_eur
+
+    with pytest.raises(ValueError, match="majorant cumulé"):
+        s.executer_plan(FauxClient(), plan, registre, doc_id=DOC, settings=settings,
+                        max_cost_eur=plafond)
+
+    rejeu = s.ClientRejeu(s.cache_de_rejeu(chemin))
+    execution = s.executer_plan(rejeu, plan, registre, doc_id=DOC, settings=settings,
+                                max_cost_eur=plafond)
+    assert execution.usage.cost_eur == 0.0
+
+
+class FauxMessagesDiagnostic(FauxMessagesUnNoeudParLigne):
+    """Un segment refusé par l'oracle, un accepté, puis une panne fournisseur."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pannes_apres = 2
+
+    def parse(self, **params: Any) -> Any:
+        if len(self.calls) >= self.pannes_apres:
+            self.calls.append(params)
+            raise RuntimeError("panne fournisseur")
+        if not self.calls:
+            self.calls.append(params)
+            lignes = json.loads(params["messages"][0]["content"])["lignes"]
+            # `surface_class` que l'oracle local ne peut pas prouver : un refus d'oracle, pas une
+            # panne — le diagnostic doit continuer.
+            noeud = {"titre_line_uid": 0, "premiere_line_uid": 0,
+                     "derniere_line_uid": len(lignes) - 1, "parent_line_uid": None,
+                     "title_line_uids": [0], "article_uid": None,
+                     "surface_class": "table_des_matieres", "continuation_line_uids": [],
+                     "relations": []}
+            return SimpleNamespace(
+                usage=self.usage, stop_reason="end_turn",
+                content=[SimpleNamespace(type="text",
+                                         text=json.dumps({"noeuds": [noeud]}))])
+        return super().parse(**params)
+
+
+def test_le_diagnostic_juge_tous_les_segments_ne_publie_rien_et_sarrete_sur_le_fournisseur(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Payer les sept segments une fois, corriger hors ligne, rejouer gratuitement.
+
+    Le run nominal est atomique et s'arrête au premier refus : c'est ce qu'il doit faire, mais cela
+    fait payer tout un plan pour n'apprendre qu'un défaut. Un refus d'**oracle** est un résultat, le
+    segment suivant part ; un refus **fournisseur** arrête, parce que la suite ne serait pas plus
+    soumissible.
+    """
+    registre = _registre(_corpus())
+    settings = _settings_segmentees()
+    ordonnes = tuple(registre)
+    candidates = s._candidates_ancres(registre)
+    paires = [ordonnes[index:index + 2] for index in range(0, len(ordonnes), 2)]
+    borne = max(
+        s._taille_entree_majorante(s.requete(
+            {uid: registre[uid] for uid in paire}, DOC, settings,
+            anchors=s._ancres_frontiere(registre, paire, candidates=candidates)), settings)[1]
+        for paire in paires
+    )
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": borne + s.max_tokens_segment(2, settings)})
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) >= 3
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+    client = SimpleNamespace(messages=FauxMessagesDiagnostic())
+
+    diagnostic = s.diagnostiquer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert [verdict.accepte for verdict in diagnostic.verdicts] == [False, True]
+    assert diagnostic.verdicts[0].motif == "affectation_non_prouvee"
+    assert diagnostic.verdicts[0].detail and diagnostic.verdicts[0].noeuds == 1
+    assert diagnostic.arret is not None and "refus fournisseur au segment 3" in diagnostic.arret
+    assert len(client.messages.calls) == 3, "le refus d'oracle n'a pas arrêté le diagnostic"
+    assert diagnostic.usage.cost_eur > 0 and len(audits) == 3
+    # Rien n'est publié : ni proposition, ni artefact.
+    assert not hasattr(diagnostic, "proposition")
+    charge = diagnostic.charge()
+    assert charge["doc_id"] == DOC and charge["plan_uid"] == plan.plan_uid
+    assert [item["motif"] for item in charge["segments"]] == ["affectation_non_prouvee", None]
+
+
+def test_la_cli_diagnostic_ecrit_ses_verdicts_et_nemet_aucune_proposition(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le fichier de diagnostic est déposé, `structure.json` ne l'est pas."""
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    settings = get_settings()
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    sortie = io.StringIO()
+    chemin = tmp_path / "diagnostic.json"
+
+    code = s.main(
+        [DOC, "--data", str(dossier.parent), "--diagnostic", str(chemin), "--max-cost=5"],
+        client=FauxClient(), settings=settings, output=sortie)
+
+    assert code == 0
+    assert not (dossier / "structure.json").exists()
+    assert "aucune proposition publiée" in sortie.getvalue()
+    charge = json.loads(chemin.read_text("utf-8"))
+    assert charge["doc_id"] == DOC and charge["arret"] is None
+    assert charge["segments"] and all(item["accepte"] for item in charge["segments"])
+
+
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
 
 @pytest.mark.parametrize("noeuds,motif", [

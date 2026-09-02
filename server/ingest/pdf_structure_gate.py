@@ -33,13 +33,10 @@ from server.ingest.pdf_to_blocks import (
     extract_pages,
     reutiliser_typage_identique,
 )
-from server.ingest.structure import (charger_octets, oracle_article_uid, oracle_surface_class,
+from server.ingest.structure import (article_uid_lisible, charger_octets, oracle_surface_class,
                                      presente)
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_NUMBERED_HEADING_RE = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)*)\b")
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -150,14 +147,8 @@ def _page_identity(doc: Document, page: int) -> str:
 
 
 def _readable_article_uid(title: str, claimed: str | None) -> str | None:
-    """Relit un numéro nu seulement lorsqu'une identité d'article est effectivement revendiquée."""
-    explicit = oracle_article_uid(title)
-    if explicit is not None:
-        return explicit
-    if claimed is None:
-        return None
-    numbered = _NUMBERED_HEADING_RE.search(normalize(title))
-    return f"article:{numbered.group('number')}" if numbered else None
+    """Alias de la seule implémentation, qui vit avec l'oracle qu'elle prolonge."""
+    return article_uid_lisible(title, claimed)
 
 
 def _semantic_issues(doc: Document) -> list[str]:
@@ -178,7 +169,18 @@ def _semantic_issues(doc: Document) -> list[str]:
             node.title, [doc.block(block_id).text for block_id in node.blocks
                          if normalize(doc.block(block_id).text) != normalize(node.title)],
         )
-        if technical_surface is None and readable_article is not None:
+        blocs = [doc.block(block_id) for block_id in node.blocks]
+        if (node.surface_class in ("preliminaire", "table_des_matieres")
+                and blocs and not any(is_citable(bloc) for bloc in blocs)):
+            # Même notion que `structure.surface_de_provenance`, vue depuis le document publié : la
+            # porte de lecture a rendu **tout** le nœud non citable. Les mots du titre ne peuvent
+            # pas la contredire — une couverture (« HOME / Conditions générales ») n'en porte aucun,
+            # et l'oracle la déclarait `substantiel` faute de mieux, donc rouge sur la bonne réponse.
+            # Ce que ce chemin garde : un nœud technique dont un bloc reste citable est toujours
+            # signalé, et le sens inverse — un `substantiel` dont le titre dit « Table des matières »
+            # — est jugé par l'oracle, inchangé.
+            technical_surface = node.surface_class
+        elif technical_surface is None and readable_article is not None:
             technical_surface = "substantiel"
         if technical_surface is None:
             issues.append(f"{node.node_id}: classe de surface sans preuve locale")
