@@ -21,7 +21,8 @@ from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
-from server.app.domain.answer import AnswerDraft, Verification
+from server.app.domain.answer import (AnswerDraft, ClaimStatus, Verification, VerifiedClaim,
+                                      VerifiedQuote)
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import (
     BudgetExceeded,
@@ -30,8 +31,8 @@ from server.app.domain.errors import (
     LlmUnavailable,
 )
 from server.app.domain.ingest import Gate, ManifestEntry
-from server.app.domain.question import Faits
-from server.app.domain.retrieval import RetrievalResult
+from server.app.domain.question import Faits, ParsedQuestion
+from server.app.domain.retrieval import FacetteCouverture, RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
@@ -2678,7 +2679,11 @@ async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
 
     assert fake.remaining_script == 0
     relance = fake.requests[-2]["messages"][-1]["content"]
-    assert "sous-question(s) de la demande n'ont reçu aucune affirmation affichée" in relance
+    # La clause de la sous-question restée sans réponse est **nommée** au rédacteur. Depuis le
+    # correctif du tour 2, c'est la consigne fondatrice qui la porte — la plus précise des deux —
+    # parce que `_fondatrices_omises` raisonne désormais par sous-question : une fondatrice citée
+    # pour l'une ne dit plus rien de l'autre.
+    assert "clause décisionnelle confirmée pourtant retrouvée" in relance
     assert par_facette.bloc("regle_registre") in relance
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
@@ -2705,3 +2710,53 @@ async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(
                                              "restituer"]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire")}
+
+
+def _retrieval_a_deux_fondatrices(corpus: CorpusNeutre) -> RetrievalResult:
+    """Le retrieval du corpus à deux facettes : une règle décisionnelle confirmée par facette."""
+    document = corpus.index.corpus.documents[corpus.identite.doc_id]
+    blocs = [document.block(corpus.bloc(cle))
+             for cle in ("regle_inventaire", "regle_registre")]
+    return RetrievalResult(
+        blocs=blocs, opened_block_ids=[b.block_id for b in blocs],
+        facettes=[FacetteCouverture(rang=0, block_ids=(corpus.bloc("regle_inventaire"),),
+                                    candidats=1),
+                  FacetteCouverture(rang=1, block_ids=(corpus.bloc("regle_registre"),),
+                                    candidats=1)])
+
+
+def _verification_couvrant_la_premiere(corpus: CorpusNeutre) -> Verification:
+    """Une affirmation affichée, qui cite la fondatrice de la **première** sous-question."""
+    return Verification(
+        claims=[VerifiedClaim(
+            claim_id="k1", text="Le texte prend en charge l'objet inventorié.",
+            quotes=[VerifiedQuote(block_id=corpus.bloc("regle_inventaire"),
+                                  quote=CITATION_INVENTAIRE, start=0, end=len(CITATION_INVENTAIRE),
+                                  text_start=0, text_end=len(CITATION_INVENTAIRE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="2030"))],
+        found=True, facettes_couvertes=[0])
+
+
+def test_une_fondatrice_citee_pour_une_facette_nen_couvre_pas_une_autre(
+        par_facette: CorpusNeutre) -> None:
+    """Correctif du tour 2 — la base décisionnelle existe **par sous-question**, ou pas du tout.
+
+    A16 #2 : la lecture portait les deux règles, la rédaction n'en citait qu'une, et ce garde-fou
+    se taisait parce qu'« une fondatrice citée » suffisait à le désarmer, quel que soit le nombre
+    de sous-questions ouvertes. Le rouge-avant est la ligne du dessous : sans couverture par
+    facette mesurée, la règle historique — celle qui s'appliquait à A16 #2 — ne signale rien.
+    """
+    parsed = ParsedQuestion(
+        question_resolue=QUESTION_RESOLUE_NEUTRE, intent="question",
+        facettes=[FACETTE_INVENTAIRE, FACETTE_REGISTRE])
+    retrieval = _retrieval_a_deux_fondatrices(par_facette)
+    verification = _verification_couvrant_la_premiere(par_facette)
+    reglages = _settings_neutre(par_facette.identite)
+
+    assert sinistre._fondatrices_omises(verification, retrieval, reglages, parsed) == [
+        par_facette.bloc("regle_registre")]
+
+    # Mutation : la couverture par facette effacée du résultat, la règle historique reprend — et
+    # elle se tait, parce qu'une fondatrice est citée quelque part.
+    sans_mesure = retrieval.model_copy(update={"facettes": []})
+    assert sinistre._fondatrices_omises(verification, sans_mesure, reglages, parsed) == []

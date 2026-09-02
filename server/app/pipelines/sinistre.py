@@ -175,8 +175,8 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     return False
 
 
-def _fondatrices_omises(verification: Verification, retrieval: Any,
-                        settings: Settings) -> list[str]:
+def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Settings,
+                        parsed: ParsedQuestion) -> list[str]:
     """Blocs `garantie|exclusion` confirmés retrouvés dont aucune claim survivante ne cite un seul.
 
     Preuve finale 4.2a : la rédaction peut ne rendre qu'une définition et un segment limite —
@@ -184,8 +184,9 @@ def _fondatrices_omises(verification: Verification, retrieval: Any,
     décisionnelle confirmée. Le témoin d'AD-6 exige qu'une règle retrouvée soit rendue vérifiable,
     son applicabilité étant **calculée par le code** : une portée contraire vaut `applicable="non"`,
     jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs du retrieval ; aucun
-    vocabulaire de la question n'entre dans la décision. Dès qu'une seule fondatrice est citée par
-    une claim survivante, rien n'est signalé : la base décisionnelle existe. Ce déclencheur est
+    vocabulaire de la question n'entre dans la décision. La lecture est faite **par sous-question**
+    dès que la couverture par facette a été mesurée : une fondatrice citée pour l'une ne dit rien
+    de l'autre. Ce déclencheur est
     complémentaire de `_fondatrice_rejetee` (clause citée mais rejetée) : il couvre la clause
     jamais citée, que l'autre ne voit pas. L'adoption de la seconde vérification, elle, passe par
     la dominance générique seule (revue Codex 4.2a, B3).
@@ -195,9 +196,29 @@ def _fondatrices_omises(verification: Verification, retrieval: Any,
     if not fondatrices:
         return []
     citees = {quote.block_id for claim in verification.claims for quote in claim.quotes}
-    if citees & set(fondatrices):
-        return []
-    return fondatrices[:settings.draft_max_claims]
+    if not retrieval.facettes:
+        # Aucune couverture par facette mesurée (variante guide, repli déterministe, question à une
+        # seule sous-question) : la question **est** la sous-question, et la règle historique vaut
+        # telle quelle — une fondatrice citée quelque part prouve que la base décisionnelle existe.
+        if citees & set(fondatrices):
+            return []
+        return fondatrices[:settings.draft_max_claims]
+    # Correctif du tour 2 : la règle historique se désarmait à la **première** fondatrice citée,
+    # quel que soit le nombre de sous-questions ouvertes. Sur A16 #2, la lecture portait les deux
+    # règles, la rédaction n'en citait qu'une, et ce garde-fou se taisait parce que « une »
+    # suffisait. La base décisionnelle existe **par sous-question**, ou elle n'existe pas : une
+    # fondatrice confirmée retrouvée pour une facette que rien n'a couverte, et qu'aucune claim ne
+    # cite, est exactement la clause que la relance doit faire rendre.
+    fondatrices_confirmees = set(fondatrices)
+    omises: list[str] = []
+    for rang in _facettes_non_couvertes(verification, parsed):
+        couverture = retrieval.facette(rang)
+        if couverture is None:
+            continue
+        omises.extend(block_id for block_id in couverture.block_ids
+                      if block_id in fondatrices_confirmees and block_id not in citees
+                      and block_id not in omises)
+    return omises[:settings.draft_max_claims]
 
 
 def _facettes_non_couvertes(verification: Verification, parsed: ParsedQuestion) -> list[int]:
@@ -654,6 +675,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         rangs_non_couverts = _facettes_non_couvertes(verification, parsed)
         retrieval_relance = retrieval
         consigne_facette: str | None = None
+        blocs_des_facettes: list[str] = []
         if rangs_non_couverts:
             complement_facettes, step_facettes = couvrir_facettes(
                 parsed, retrieval=retrieval, corpus=corpus, index=index, budget=borne_retrieval,
@@ -674,23 +696,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 "truncated": truncated,
                 "discarded_block_ids": list(complement_facettes.discarded_block_ids)})
             retrieval_relance = complement_facettes.model_copy(update={"truncated": truncated})
-            blocs_des_facettes = list(dict.fromkeys(
+            blocs_des_facettes[:] = list(dict.fromkeys(
                 block_id for rang in rangs_non_couverts
                 for block_id in (complement_facettes.facette(rang).block_ids
                                  if complement_facettes.facette(rang) is not None else ())))
-            if blocs_des_facettes:
-                # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du
-                # corpus typé, jamais de la question ni du libellé de la facette — la consigne
-                # nomme des blocs à rendre vérifiables, exactement comme celle de la story 3.3.
-                consigne_facette = (
-                    f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
-                    "affirmation affichée, alors que la lecture porte pour elles des clauses "
-                    "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
-                    "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
-                    "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
-                    "applicabilité au dossier — le code la calcule. Conserve les affirmations "
-                    "déjà acquises.")
-            elif complement_facettes.facettes:
+            if not blocs_des_facettes and complement_facettes.facettes:
                 # Fin de chaîne honnête : rien de décisionnel n'existe dans le contrat lu pour ces
                 # sous-questions, et aucune relance de *rédiger* ne peut le fabriquer. La réponse
                 # le dit — *vérifier* dépose la lacune `facettes_sans_clause` sur la déclaration
@@ -707,7 +717,25 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                            "aucune relance de rédiger ne peut les couvrir, l'absence est dite"))
 
         # --- relance unique (AD-3) ------------------------------------------
-        omises = _fondatrices_omises(verification, retrieval, settings)
+        omises = _fondatrices_omises(verification, retrieval_relance, settings, parsed)
+        # Les deux consignes disent deux choses différentes et ne doivent pas dire la même deux
+        # fois : `omises` nomme les **fondatrices** qu'aucune claim ne cite (leur consigne est celle
+        # de la story 3.3, la plus précise) ; ce qui reste des blocs décisionnels d'une facette non
+        # couverte — conditions, franchises, fondatrices déjà citées ailleurs — relève de la
+        # consigne de facette. Un identifiant n'apparaît donc que dans l'une des deux.
+        blocs_des_facettes = [block_id for block_id in blocs_des_facettes
+                              if block_id not in set(omises)]
+        if blocs_des_facettes:
+            # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du corpus
+            # typé, jamais de la question — la consigne nomme des blocs à rendre vérifiables.
+            consigne_facette = (
+                f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
+                "affirmation affichée, alors que la lecture porte pour elles des clauses "
+                "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
+                "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
+                "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
+                "applicabilité au dossier — le code la calcule. Conserve les affirmations "
+                "déjà acquises.")
         if omises and len(verification.claims) >= settings.draft_max_claims:
             # Revue Codex 4.2a (B1) : la fusion doit reconduire **tous** les acquis et au moins une
             # correction fondatrice. Quand les affirmations retenues occupent déjà
