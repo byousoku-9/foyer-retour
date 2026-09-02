@@ -52,7 +52,11 @@ def assert_empreinte_committee_declaree(doc_id: str, committee: str) -> None:
     n'est écrite en dur : les deux valeurs comparées sont lues, l'une dans l'artefact, l'autre au
     parseur courant.
     """
-    courante = p.ingest_fingerprint()
+    # L'empreinte porte aussi sur la proposition de structure **effectivement appliquée** (AD-2) :
+    # la garde la calcule comme l'ingestion, depuis les octets du `structure.json` publié s'il existe.
+    structure_path = Path(__file__).resolve().parents[1] / "data" / doc_id / "structure.json"
+    structure = p.charger_octets(structure_path)[0] if p.presente(structure_path) else None
+    courante = p.ingest_fingerprint(structure)
     declaree = doc_id in empreintes_perimees_declarees()
     if committee == courante:
         assert not declaree, (
