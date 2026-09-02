@@ -139,6 +139,7 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                   client: LlmClient, budget: RequestBudget, index: Index, doc_id: str,
                   settings: Settings, motif: str | None = None,
                   blocs_a_conserver: Iterable[str] = (),
+                  blocs_hors_objet: Iterable[str] = (),
                   prompt: str = "rediger"
                   ) -> tuple[AnswerDraft, StepTrace]:
     """`prompt` nomme le fichier de `llm/prompts/` inséré entre `commun.md` et le sommaire.
@@ -222,9 +223,22 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         reserve_facettes = min(len(parsed.facettes), settings.draft_max_claims)
         places_dependances = settings.draft_max_claims - reserve_facettes
         dependances_directes = set(retrieval.decision_dependency_block_ids)
+        # Correctif du tour 2 (rapport rédiger E). **Le message ne peut pas ordonner d'émettre la
+        # claim que le motif ordonne de remplacer.** L'audit du cas bougie montre les deux
+        # consignes côte à côte dans la même requête : le motif rejette `p46:1` comme hors de
+        # l'objet, et quatre lignes plus haut « Limites à rendre vérifiables : … p46:1 » demande de
+        # la rendre. Le modèle la ré-émet à l'octet près, le contrôle la re-rejette, et le second
+        # cycle est stérile par construction sur toute cette classe.
+        #
+        # Le filtre ne porte que sur `hors_objet` — un jugement de périmètre que la relance ne
+        # déplace pas. Une limite rejetée `non_soutenue` reste demandée : là, la relance est utile,
+        # et c'est justement la story 3.3 qui veut que le code, pas le modèle, décide de
+        # l'applicabilité.
+        hors_objet = set(blocs_hors_objet)
         limites_portees = [b.block_id for b in retrieval.blocs
                             if b.kind in {"exclusion", "condition", "franchise"}
-                            and b.scope_node_ids and b.block_id in dependances_directes]
+                            and b.scope_node_ids and b.block_id in dependances_directes
+                            and b.block_id not in hors_objet]
         limites_portees = limites_portees[:places_dependances]
         if limites_portees:
             # Story 3.3 : le code aval est seul autorisé à décider qu'une portée explicite ne couvre

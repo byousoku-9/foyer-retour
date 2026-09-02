@@ -23,6 +23,15 @@ SegmentKind = Literal["factuel", "transition", "limite"]
 # nomme précisément comme ce qu'il empêche. Aucun des trois kinds d'origine ne la décrit : elle n'est
 # ni introuvable, ni ambiguë, ni jugée non pertinente.
 RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue", "non_citee"]
+# Le vocabulaire **fermé** des raisons de non-pertinence. Il vivait uniquement dans le schéma de
+# sortie de *vérifier* et n'atteignait le reste de la chaîne que fondu dans une phrase de motif.
+# Or ces trois raisons n'ont pas la même nature (correctif du tour 2, rapport rédiger F) : une
+# citation `non_soutenue` et une `conclusion_ajoutee` sont des défauts de **rédaction**, qu'une
+# reformulation corrige ; un `hors_objet` est un jugement de **périmètre**, stable, que relancer ne
+# déplace pas. Décider entre les deux en relisant une phrase française aurait été une heuristique
+# de texte ; la raison devient donc un fait typé, porté par la claim rejetée.
+RaisonNonPertinence = Literal["non_soutenue", "hors_objet", "conclusion_ajoutee"]
+RAISONS_CORRIGEABLES: frozenset[str] = frozenset({"non_soutenue", "conclusion_ajoutee"})
 # `clarification_requise` amende AD-4 (story 1.5) : `Answer` exige un `reason` dès que `found=False`, et
 # aucun des trois kinds d'origine ne décrit « la question n'a pas pu être rendue autonome » (AD-5, deux
 # sorties exclusives de *comprendre*). Répondre `hors_perimetre` à une anaphore irrésoluble serait un
@@ -233,6 +242,10 @@ class VerifiedClaim(Claim):
 
 class RejectedClaim(VerifiedClaim):
     rejection_kind: RejectionKind
+    # La raison fermée du rejet de pertinence, quand le contrôle en a rendu une. `None` sur les
+    # autres kinds de rejet, et sur une pertinence rejetée sans raison valide — absence de mesure,
+    # jamais une raison par défaut (AD-16).
+    rejection_reason: RaisonNonPertinence | None = None
     motif: str = ""
 
     # Une claim rejetée sur ses citations n'a pas d'occurrence à conserver : ses quotes restent celles

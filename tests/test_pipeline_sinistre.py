@@ -21,8 +21,8 @@ from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
-from server.app.domain.answer import (AnswerDraft, ClaimStatus, Verification, VerifiedClaim,
-                                      VerifiedQuote)
+from server.app.domain.answer import (AnswerDraft, ClaimStatus, Quote, RejectedClaim,
+                                      Verification, VerifiedClaim, VerifiedQuote)
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import (
     BudgetExceeded,
@@ -2857,3 +2857,48 @@ def test_une_sous_question_de_plus_vaut_une_reserve_declaree_de_plus() -> None:
     # Fermeture : à couverture **égale**, la règle historique reprend et la relance est écartée.
     egale = seconde.model_copy(update={"facettes_couvertes": [0]})
     assert not domine(egale, acquise)
+
+
+# --- Correctif du tour 2 (rapport rédiger E/F) : la relance n'est due que si elle peut servir ---
+
+
+def _rejetee(claim_id: str, bloc: str, raison: str | None) -> RejectedClaim:
+    return RejectedClaim(
+        claim_id=claim_id, text="Une affirmation écartée.",
+        quotes=[Quote(block_id=bloc, quote=Q_EXCLUSION)],
+        status=ClaimStatus(retrouvee=True, pertinente=False, edition="juin 2017"),
+        rejection_kind="non_pertinente", rejection_reason=raison, motif="peu importe")
+
+
+def test_un_hors_objet_narme_plus_la_relance_mais_un_defaut_de_redaction_si(index: Index) -> None:
+    """Rapport rédiger F — un jugement de périmètre est stable ; le relancer est une dépense sûre.
+
+    `hors_objet` porte sur ce que la clause vise, pas sur la façon dont elle est rapportée : la
+    relance ne peut pas le déplacer. C'est pourtant le cas nominal dès que le retrieval ramène une
+    exclusion hors périmètre — deux appels, ~30 s et ~0,07 € mesurés, pour un gain nul, et l'audit
+    montre le modèle ré-émettant la même claim à l'octet près.
+    """
+    fondatrice = f"{DOC_ID}:p1:5"  # exclusion du socle, kind confirmé
+
+    def rejetee(raison: str | None) -> Verification:
+        return Verification.model_construct(
+            claims=[], rejected_claims=[_rejetee("c1", fondatrice, raison)], found=True)
+
+    assert not sinistre._fondatrice_rejetee(rejetee("hors_objet"), corpus=index.corpus, index=index)
+    assert sinistre._fondatrice_rejetee(rejetee("non_soutenue"), corpus=index.corpus, index=index)
+    assert sinistre._fondatrice_rejetee(rejetee("conclusion_ajoutee"),
+                                        corpus=index.corpus, index=index)
+    # Sans raison fermée rendue par le contrôle, le doute profite à la relance, comme avant.
+    assert sinistre._fondatrice_rejetee(rejetee(None), corpus=index.corpus, index=index)
+
+
+def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index: Index) -> None:
+    """Rapport rédiger E — le message ne peut pas ordonner ce que le motif ordonne de remplacer."""
+    hors_objet = Verification.model_construct(
+        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "hors_objet")], found=True)
+    non_soutenue = Verification.model_construct(
+        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "non_soutenue")], found=True)
+
+    assert sinistre._blocs_juges_hors_objet(hors_objet) == [f"{DOC_ID}:p1:5"]
+    # Une limite rejetée faute de soutien reste demandée : là, la relance est utile.
+    assert sinistre._blocs_juges_hors_objet(non_soutenue) == []

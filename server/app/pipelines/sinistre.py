@@ -31,6 +31,7 @@ from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.domain.answer import (
+    RAISONS_CORRIGEABLES,
     AbsenceProof,
     Answer,
     AnswerDraft,
@@ -164,6 +165,18 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     for claim in verification.rejected_claims:
         if claim.rejection_kind != "non_pertinente":
             continue
+        if claim.rejection_reason is not None and claim.rejection_reason not in RAISONS_CORRIGEABLES:
+            # Correctif du tour 2 (rapport rédiger F). **Une relance n'est due que si elle peut
+            # changer quelque chose.** Une citation `non_soutenue` ou une `conclusion_ajoutee` sont
+            # des défauts de rédaction qu'une reformulation corrige. Un `hors_objet` est un jugement
+            # de périmètre : il porte sur ce que la clause vise, pas sur la façon dont elle est
+            # rapportée, et le relancer est une dépense sûre — deux appels, ~30 s et ~0,07 € mesurés
+            # — pour un gain nul. C'est le cas nominal dès que le retrieval ramène une exclusion
+            # hors périmètre, et l'audit montre le modèle ré-émettant la même claim à l'octet près.
+            # Le vrai manque, lui, est visé par la couverture des sous-questions.
+            continue
+        # Sans raison fermée rendue par le contrôle, on ne sait pas laquelle des deux natures on a :
+        # le doute profite à la relance, comme avant ce correctif.
         for quote in claim.quotes:
             try:
                 document = corpus.documents[index.doc_of(quote.block_id)]
@@ -219,6 +232,20 @@ def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Se
                       if block_id in fondatrices_confirmees and block_id not in citees
                       and block_id not in omises)
     return omises[:settings.draft_max_claims]
+
+
+def _blocs_juges_hors_objet(verification: Verification) -> list[str]:
+    """Les blocs qu'une affirmation rejetée `hors_objet` citait, à ne pas redemander à la relance.
+
+    Le motif de relance dit « appuie-toi sur un passage qui répond à cet objet » ; la consigne
+    permanente de la story 3.3 dit, dans le **même** message, « rends une claim courte pour ce bloc,
+    même si sa portée semble différente du cas ». Les deux se contredisent, et l'audit montre le
+    modèle ré-émettant la claim rejetée à l'octet près. La contradiction se ferme ici, avec le seul
+    fait typé qui la distingue : la raison fermée du rejet.
+    """
+    return list(dict.fromkeys(
+        quote.block_id for claim in verification.rejected_claims
+        if claim.rejection_reason == "hors_objet" for quote in claim.quotes))
 
 
 def _facettes_non_couvertes(verification: Verification, parsed: ParsedQuestion) -> list[int]:
@@ -854,6 +881,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                         index=index, doc_id=doc_id, settings=settings,
                                                         motif=motif_relance,
                                                         blocs_a_conserver=sorted(blocs_cites(acquise)),
+                                                        blocs_hors_objet=_blocs_juges_hors_objet(acquise),
                                                         prompt="rediger_sinistre")
                 draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings,
                                              step=step_rediger_2)
