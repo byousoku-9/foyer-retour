@@ -2426,6 +2426,145 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
     return ExecutionStructure(proposition=stitched, plan=working_plan, usage=cumulative)
 
 
+@dataclass(frozen=True)
+class VerdictSegment:
+    """Ce qu'un segment a rendu, jugé mais **non publié**."""
+
+    index: int
+    segment_uid: str
+    lignes: int
+    accepte: bool
+    motif: str | None
+    detail: str
+    servi_du_cache: bool
+    cout_eur: float
+    noeuds: int
+
+
+@dataclass(frozen=True)
+class DiagnosticStructure:
+    """Verdicts de tous les segments soumis, et la raison d'un arrêt s'il y en a eu un."""
+
+    doc_id: str
+    plan_uid: str
+    verdicts: tuple[VerdictSegment, ...]
+    usage: Usage
+    arret: str | None = None
+
+    def charge(self) -> dict[str, Any]:
+        return {
+            "doc_id": self.doc_id,
+            "plan_uid": self.plan_uid,
+            "arret": self.arret,
+            "cout_eur": round(self.usage.cost_eur, 4),
+            "segments": [
+                {
+                    "index": verdict.index,
+                    "segment_uid": verdict.segment_uid,
+                    "lignes": verdict.lignes,
+                    "accepte": verdict.accepte,
+                    "motif": verdict.motif,
+                    "detail": verdict.detail,
+                    "servi_du_cache": verdict.servi_du_cache,
+                    "cout_eur": round(verdict.cout_eur, 4),
+                    "noeuds": verdict.noeuds,
+                }
+                for verdict in self.verdicts
+            ],
+        }
+
+
+def diagnostiquer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree], *,
+                       doc_id: str, settings: Settings, source_hash: str | None = None,
+                       max_cost_eur: float | None = None) -> DiagnosticStructure:
+    """Soumet tous les segments, juge chacun, **ne publie rien**.
+
+    Le run nominal est atomique et s'arrête au premier refus : c'est ce qu'il doit faire, mais cela
+    fait payer sept segments pour n'apprendre qu'un défaut. Le diagnostic paie une fois, rend tous
+    les verdicts, et laisse corriger l'oracle hors ligne puis rejouer gratuitement les mêmes
+    réponses (`--rejouer-audit`).
+
+    Un refus d'**oracle** est un résultat : il est consigné et le segment suivant part. Un refus
+    **fournisseur** — panne, 400, réponse interrompue non récupérable — arrête tout : ce qui suit ne
+    serait pas plus soumissible, et continuer ne ferait que dépenser.
+    """
+    _valider_plan(plan, registre, doc_id=doc_id, settings=settings)
+    ceiling = settings.structure_max_cost_eur if max_cost_eur is None else max_cost_eur
+    a_reserver = _majorant_a_reserver(plan, client)
+    if a_reserver > ceiling:
+        raise ValueError(
+            f"majorant cumulé {a_reserver:.4f} € > plafond {ceiling:.4f} €; aucun appel soumis")
+    artifact_uid = document_artifact_uid(document_uid=doc_id, source_hash=source_hash)
+    run_uid = f"structure-diagnostic:{doc_id}:{plan.plan_uid}"
+    verdicts: list[VerdictSegment] = []
+    usages: list[Usage] = []
+    arret: str | None = None
+    for segment in plan.segments:
+        anchor_uids = tuple(anchor.line_uid for anchor in segment.anchors)
+        subset = {uid: registre[uid] for uid in segment.line_uids}
+        trusted_uids = tuple(sorted({*segment.line_uids, *anchor_uids}))
+        engage = _usage_cumule(usages).cost_eur
+        if engage + segment.majorant_eur_brut > ceiling and not _servi(client, segment.request):
+            arret = (f"plafond atteint avant le segment {segment.index} : {engage:.4f} € engagés "
+                     f"+ {segment.majorant_eur:.4f} € majorés > {ceiling:.4f} €")
+            break
+        try:
+            message = client.messages.parse(**segment.request)
+        except Exception as exc:  # noqa: BLE001 - une panne fournisseur arrête le diagnostic
+            append_ingest_audit(
+                settings.llm_audit_path, run_uid=run_uid, step="structure",
+                model=MODEL, request=segment.request, response=None,
+                trusted_line_uids=trusted_uids, artifact_uid=artifact_uid,
+                error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
+                retention_files=settings.llm_audit_retention_files,
+                usage_cumule=_usage_audit(usages, current_known=False))
+            arret = f"refus fournisseur au segment {segment.index} ({type(exc).__name__})"
+            break
+        mesure = _usage_mesure(message, settings)
+        du_cache = isinstance(message, ReponseRejouee)
+        append_ingest_audit(
+            settings.llm_audit_path, run_uid=run_uid, step="structure",
+            model=MODEL, request=segment.request, response=message,
+            trusted_line_uids=trusted_uids, artifact_uid=artifact_uid, cache_hit=du_cache,
+            max_bytes=settings.llm_audit_max_bytes,
+            retention_files=settings.llm_audit_retention_files,
+            usage_cumule=_usage_audit([*usages, *((mesure,) if mesure else ())],
+                                      current_known=mesure is not None))
+        if mesure is not None:
+            usages.append(mesure)
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            arret = (f"réponse interrompue au segment {segment.index} : "
+                     f"{_segment_impossible(len(segment.line_uids), segment.request, settings)}")
+            break
+        motif: str | None = None
+        detail = ""
+        noeuds = 0
+        try:
+            raw, _usage = _texte(message, settings)
+            proposition = parse_proposition(
+                rapprocher_indices(raw, subset, anchors=segment.anchors),
+                subset, doc_id, settings=settings, reference_uids=anchor_uids)
+            noeuds = len(proposition.noeuds)
+            verdict = _verifier_segment(proposition, subset, doc_id=doc_id, settings=settings)
+            motif, detail = (None, verdict.detail) if verdict.accepte else (
+                verdict.motif, verdict.detail)
+        except StructureRefusee as exc:
+            motif, detail = exc.motif, exc.detail
+        except ValueError as exc:
+            motif, detail = "proposition_illisible", str(exc)
+        verdicts.append(VerdictSegment(
+            index=segment.index, segment_uid=segment.segment_uid,
+            lignes=len(segment.line_uids), accepte=motif is None, motif=motif, detail=detail,
+            servi_du_cache=du_cache, cout_eur=mesure.cost_eur if mesure else 0.0, noeuds=noeuds))
+    return DiagnosticStructure(doc_id=doc_id, plan_uid=plan.plan_uid,
+                               verdicts=tuple(verdicts), usage=_usage_cumule(usages), arret=arret)
+
+
+def _servi(client: Any, requete_: dict[str, Any]) -> bool:
+    servi = getattr(client, "servi_du_cache", None)
+    return bool(servi is not None and servi(requete_))
+
+
 def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
              settings: Settings, source_hash: str | None = None,
              plan: PlanStructure | None = None) -> tuple[StructureProposee, float]:
@@ -2474,6 +2613,10 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
         "--rejouer-audit", type=Path, metavar="JSONL",
         help="sert les réponses déjà enregistrées dans ce fichier d'audit ; une requête absente "
              "part au fournisseur sous le même plafond")
+    parser.add_argument(
+        "--diagnostic", nargs="?", const="", metavar="FICHIER",
+        help="soumet tous les segments, consigne chaque verdict et n'écrit aucune proposition ; "
+             "sans valeur, le fichier de diagnostic est déposé à côté de structure.json")
     args = parser.parse_args(argv)
     settings = settings or get_settings()
     # AD-9 : le plafond est résolu et validé **avant** toute lecture, toute extraction et toute
@@ -2563,6 +2706,29 @@ def main(argv: list[str] | None = None, *, client: Any = None, settings: Setting
             else:
                 client = fournisseur
         source_hash = hashlib.sha256((doc_dir / "source.pdf").read_bytes()).hexdigest()
+        if args.diagnostic is not None:
+            diagnostic = diagnostiquer_plan(
+                client, plan, registre, doc_id=args.doc_id, settings=settings,
+                source_hash=source_hash, max_cost_eur=ceiling)
+            for verdict_segment in diagnostic.verdicts:
+                etat = "accepté" if verdict_segment.accepte else verdict_segment.motif
+                print(
+                    f"segment {verdict_segment.index}/{len(plan.segments)} "
+                    f"{verdict_segment.lignes} ligne(s), {verdict_segment.noeuds} nœud(s), "
+                    f"{'rejoué' if verdict_segment.servi_du_cache else 'soumis'}, "
+                    f"{verdict_segment.cout_eur:.4f} € : {etat} — {verdict_segment.detail[:400]}",
+                    file=output)
+            if diagnostic.arret is not None:
+                print(f"arrêt : {diagnostic.arret}", file=output)
+            chemin_diagnostic = (Path(args.diagnostic) if args.diagnostic
+                                 else doc_dir / "structure-diagnostic.json")
+            write_atomic(chemin_diagnostic, json.dumps(
+                diagnostic.charge(), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            acceptes = sum(1 for item in diagnostic.verdicts if item.accepte)
+            print(f"diagnostic : {acceptes}/{len(diagnostic.verdicts)} segment(s) jugé(s) "
+                  f"accepté(s), coût réel {diagnostic.usage.cost_eur:.4f} € ; "
+                  f"{chemin_diagnostic} écrit ; aucune proposition publiée", file=output)
+            return 0 if acceptes == len(plan.segments) else 4
         execution = executer_plan(
             client, plan, registre, doc_id=args.doc_id, settings=settings,
             source_hash=source_hash, max_cost_eur=ceiling)

@@ -2407,6 +2407,102 @@ def test_le_prefligth_ne_reserve_rien_pour_un_segment_que_le_rejeu_sert(
     assert execution.usage.cost_eur == 0.0
 
 
+class FauxMessagesDiagnostic(FauxMessagesUnNoeudParLigne):
+    """Un segment refusé par l'oracle, un accepté, puis une panne fournisseur."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pannes_apres = 2
+
+    def parse(self, **params: Any) -> Any:
+        if len(self.calls) >= self.pannes_apres:
+            self.calls.append(params)
+            raise RuntimeError("panne fournisseur")
+        if not self.calls:
+            self.calls.append(params)
+            lignes = json.loads(params["messages"][0]["content"])["lignes"]
+            # `surface_class` que l'oracle local ne peut pas prouver : un refus d'oracle, pas une
+            # panne — le diagnostic doit continuer.
+            noeud = {"titre_line_uid": 0, "premiere_line_uid": 0,
+                     "derniere_line_uid": len(lignes) - 1, "parent_line_uid": None,
+                     "title_line_uids": [0], "article_uid": None,
+                     "surface_class": "table_des_matieres", "continuation_line_uids": [],
+                     "relations": []}
+            return SimpleNamespace(
+                usage=self.usage, stop_reason="end_turn",
+                content=[SimpleNamespace(type="text",
+                                         text=json.dumps({"noeuds": [noeud]}))])
+        return super().parse(**params)
+
+
+def test_le_diagnostic_juge_tous_les_segments_ne_publie_rien_et_sarrete_sur_le_fournisseur(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Payer les sept segments une fois, corriger hors ligne, rejouer gratuitement.
+
+    Le run nominal est atomique et s'arrête au premier refus : c'est ce qu'il doit faire, mais cela
+    fait payer tout un plan pour n'apprendre qu'un défaut. Un refus d'**oracle** est un résultat, le
+    segment suivant part ; un refus **fournisseur** arrête, parce que la suite ne serait pas plus
+    soumissible.
+    """
+    registre = _registre(_corpus())
+    settings = _settings_segmentees()
+    ordonnes = tuple(registre)
+    candidates = s._candidates_ancres(registre)
+    paires = [ordonnes[index:index + 2] for index in range(0, len(ordonnes), 2)]
+    borne = max(
+        s._taille_entree_majorante(s.requete(
+            {uid: registre[uid] for uid in paire}, DOC, settings,
+            anchors=s._ancres_frontiere(registre, paire, candidates=candidates)), settings)[1]
+        for paire in paires
+    )
+    caps = dict(s.MODEL_CAPS[s.MODEL])
+    monkeypatch.setitem(
+        s.MODEL_CAPS, s.MODEL,
+        {**caps, "context_window": borne + s.max_tokens_segment(2, settings)})
+    plan = s.planifier_segments(registre, doc_id=DOC, settings=settings)
+    assert len(plan.segments) >= 3
+    audits: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        s, "append_ingest_audit", lambda _path, **event: audits.append(event) or {})
+    client = SimpleNamespace(messages=FauxMessagesDiagnostic())
+
+    diagnostic = s.diagnostiquer_plan(client, plan, registre, doc_id=DOC, settings=settings)
+
+    assert [verdict.accepte for verdict in diagnostic.verdicts] == [False, True]
+    assert diagnostic.verdicts[0].motif == "affectation_non_prouvee"
+    assert diagnostic.verdicts[0].detail and diagnostic.verdicts[0].noeuds == 1
+    assert diagnostic.arret is not None and "refus fournisseur au segment 3" in diagnostic.arret
+    assert len(client.messages.calls) == 3, "le refus d'oracle n'a pas arrêté le diagnostic"
+    assert diagnostic.usage.cost_eur > 0 and len(audits) == 3
+    # Rien n'est publié : ni proposition, ni artefact.
+    assert not hasattr(diagnostic, "proposition")
+    charge = diagnostic.charge()
+    assert charge["doc_id"] == DOC and charge["plan_uid"] == plan.plan_uid
+    assert [item["motif"] for item in charge["segments"]] == ["affectation_non_prouvee", None]
+
+
+def test_la_cli_diagnostic_ecrit_ses_verdicts_et_nemet_aucune_proposition(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le fichier de diagnostic est déposé, `structure.json` ne l'est pas."""
+    dossier = _dossier(tmp_path)
+    _poser_la_disposition(tmp_path, dossier)
+    settings = get_settings()
+    monkeypatch.setattr(s, "append_ingest_audit", lambda _path, **event: {})
+    sortie = io.StringIO()
+    chemin = tmp_path / "diagnostic.json"
+
+    code = s.main(
+        [DOC, "--data", str(dossier.parent), "--diagnostic", str(chemin), "--max-cost=5"],
+        client=FauxClient(), settings=settings, output=sortie)
+
+    assert code == 0
+    assert not (dossier / "structure.json").exists()
+    assert "aucune proposition publiée" in sortie.getvalue()
+    charge = json.loads(chemin.read_text("utf-8"))
+    assert charge["doc_id"] == DOC and charge["arret"] is None
+    assert charge["segments"] and all(item["accepte"] for item in charge["segments"])
+
+
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
 
 @pytest.mark.parametrize("noeuds,motif", [
