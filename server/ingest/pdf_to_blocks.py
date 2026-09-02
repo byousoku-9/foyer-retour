@@ -894,7 +894,13 @@ def _est_entree_de_sommaire(line: PageLine, page: PageText) -> bool:
     Conséquence assumée et nommée : une entrée dont le renvoi est déjà fondu dans un unique fragment
     natif, sans points de conduite, n'est pas prouvable et sort du sommaire comme un article. C'est
     exactement le comportement de la base `e79cedc` pour cette forme — rien n'y est perdu — et c'est
-    le sens sûr : aucune clause juridique n'est jamais rendue non citable par cette règle.
+    le sens sûr, puisque l'erreur inverse rendrait une clause juridique non citable.
+
+    Ce prédicat n'est **pas** infaillible dans l'autre sens, et il ne faut pas le croire : un montant
+    à droite d'un libellé numéroté, dans un tableau de garanties, est indiscernable d'un renvoi de
+    page — `_PAGE_NUMBER_RE` accepte les deux. Ce qui protège les clauses n'est donc pas la finesse
+    du prédicat, c'est le fait qu'une fausse entrée n'emporte **que sa propre ligne** : ni lecture
+    arrière, ni preuve empruntée à un fragment voisin.
     """
     if _TOC_LEADER_RE.match(line.text.strip()):
         return True
@@ -940,8 +946,9 @@ def _has_toc_entries(page: PageText) -> bool:
     """Vrai si la page porte une entrée avec numéro en colonne ou points de conduite vers une page.
 
     Décision de **page**, volontairement plus permissive que `_est_entree_de_sommaire` : elle ouvre
-    la TdM et ne peut pas se borner au nombre de pages du document, que ce niveau ne connaît pas.
-    C'est le prédicat de ligne, lui, qui décide où la TdM *finit* — les deux ne se confondent pas.
+    la TdM sur la seule forme imprimée, que `_est_entree_de_sommaire` refuse. C'est le prédicat de
+    ligne, lui, qui décide où la TdM *finit* — les deux ne se confondent pas, et c'est voulu : ouvrir
+    trop large ne coûte que du classement de page, refuser trop large coûterait des clauses.
     """
     settings = get_settings()
     texts = [line.text for line in page.lines]
