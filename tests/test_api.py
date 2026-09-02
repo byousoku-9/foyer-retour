@@ -1249,7 +1249,7 @@ def test_un_identifiant_quarantine_invalide_nentre_jamais_dans_la_liste_publique
     try:
         for doc_id in invalides:
             etat.corpus.quarantine[doc_id] = "quarantaine de test"
-        publies = {item["doc_id"] for item in prod.get("/api/v1/documents").json()}
+        publies = {item["doc_id"] for item in prod.get("/api/v1/documents", headers=XFF).json()}
         assert publies.isdisjoint(invalides)
     finally:
         for doc_id in invalides:

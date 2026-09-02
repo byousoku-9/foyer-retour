@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.app.api.errors import gestionnaire_pipeline
+from server.app.api.limiter import RateLimiter
 from server.app.api.main import create_app
 from server.app.api.routes import documents as route_documents
 from server.app.config import Settings
@@ -25,6 +26,7 @@ from server.app.domain.document import Block, BlockRef, Document, Line, Node
 from server.app.domain.errors import CorpusUnavailable, InvalidRequest, PipelineError, Timeout
 
 DOC_ID = "cg-mini"
+XFF = {"X-Forwarded-For": "198.51.100.9"}
 BLOCK_1 = f"{DOC_ID}:p1:1"
 BLOCK_1_B = f"{DOC_ID}:p1:2"
 BLOCK_2 = f"{DOC_ID}:p2:1"
@@ -70,7 +72,8 @@ def _renderer(*, max_lines: int = 24, max_blocks: int = 10, concurrency: int = 2
 
 @contextmanager
 def _client(tmp_path: Path, *, document: Document | None = None,
-            renderer: PageRenderer | None = None, corrupt: bool = False) -> Iterator[TestClient]:
+            renderer: PageRenderer | None = None, corrupt: bool = False,
+            env: str = "dev") -> Iterator[TestClient]:
     source_path = tmp_path / "source.pdf"
     if corrupt:
         source_path.write_bytes(b"ceci n'est pas un PDF")
@@ -81,11 +84,44 @@ def _client(tmp_path: Path, *, document: Document | None = None,
     app = FastAPI()
     app.add_exception_handler(PipelineError, gestionnaire_pipeline)
     app.include_router(route_documents.router, prefix="/api/v1")
+    # `followup_limiter` **fait partie de l'état applicatif réel** depuis que ce routeur porte le
+    # quota coût-zéro d'AD-13 : le double doit le porter aussi, sinon il décrit une application qui
+    # n'existe pas. Les seuils sont ceux de la configuration, larges devant ce que ces tests jouent.
     app.state.foyer = SimpleNamespace(
         corpus=corpus, page_renderer=renderer or _renderer(), pdf_sources={DOC_ID: source},
-        reports={}, source_urls={})
+        reports={}, source_urls={},
+        followup_limiter=RateLimiter(
+            Settings(_env_file=None, anthropic_api_key="", env=env),
+            per_minute="conversation_rate_limit_per_minute",
+            per_day="conversation_rate_limit_per_day"))
     with TestClient(app) as client:
         yield client
+
+
+def test_le_routeur_documents_est_borne_comme_les_routes_qui_appellent_un_modele(
+        tmp_path: Path) -> None:
+    """Le rendu de page est **gratuit et cher** : rien ne le bornait, et c'est la pire combinaison.
+
+    `GET /documents/{doc_id}/pages/{page}.png` rehache le PDF entier pour vérifier son identité,
+    puis rasterise jusqu'à `pdf_render_max_pixels` — 16 Mpx. Aucun euro n'y est dépensé, donc aucun
+    plafond de coût ne le voit passer ; et le service tourne sur une instance unique servant deux
+    requêtes de front. Une boucle sur cette route rendait `/chat` inutilisable sans rien coûter.
+
+    Le quota est celui des suivis (coût zéro, compteur distinct, même identité AD-13). Ce témoin
+    tient les deux moitiés : l'identité est exigée comme sur `/chat`, et la fenêtre finit par
+    répondre 429 plutôt que de rasteriser sans fin.
+    """
+    reglages = Settings(_env_file=None, anthropic_api_key="")
+    with _client(tmp_path, env="prod") as client:
+        # 1. Sans identité, hors dev : refusé avant toute lecture du PDF, comme sur `/chat`.
+        nu = client.get(f"/api/v1/documents/{DOC_ID}/pages/1.png")
+        assert nu.status_code == 400, nu.text
+
+        # 2. Avec identité : servi, puis borné. La fenêtre est celle des suivis, pas celle du chat.
+        codes = [client.get(f"/api/v1/documents/{DOC_ID}/pages/1.png", headers=XFF).status_code
+                 for _ in range(reglages.conversation_rate_limit_per_minute + 1)]
+    assert codes[0] == 200, "la première requête identifiée doit être servie"
+    assert codes[-1] == 429, f"le routeur n'est pas borné : {codes}"
 
 
 def _pixel(png: bytes, x: int, y: int) -> tuple[int, ...]:

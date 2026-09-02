@@ -267,7 +267,7 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
     Le guide y figure **aussi** : il est servi, et taire un document servi ferait de cette route une
     vue partielle de ce que le service expose. C'est la page qui n'en propose que les contrats.
     """
-    r = prod.get("/api/v1/documents")
+    r = prod.get("/api/v1/documents", headers=XFF)
     assert r.status_code == 200
     items = r.json()
     assert [d["doc_id"] for d in items] == sorted(d["doc_id"] for d in items)  # triés par doc_id
@@ -299,7 +299,7 @@ def test_documents_liste_le_corpus_reel_avec_edition_et_source(prod: TestClient)
 
 def test_baloise_gate_est_servi_et_selectionnable_en_production(
         production_reelle: TestClient) -> None:
-    reponse = production_reelle.get("/api/v1/documents")
+    reponse = production_reelle.get("/api/v1/documents", headers=XFF)
     assert reponse.status_code == 200
     baloise = {item["doc_id"]: item for item in reponse.json()}[BALOISE]
     assert baloise["status"] == "servi"
@@ -344,7 +344,7 @@ def test_report_dun_document_inconnu_est_un_400_sans_echo(prod: TestClient) -> N
 
     Et le message ne recopie pas le `doc_id` reçu (AD-15) : c'est une chaîne de l'appelant.
     """
-    r = prod.get("/api/v1/documents/pas-un-document/report")
+    r = prod.get("/api/v1/documents/pas-un-document/report", headers=XFF)
     assert r.status_code == 400
     erreur = r.json()["error"]
     assert erreur["code"] == "invalid_request"
@@ -435,10 +435,10 @@ def test_un_rapport_illisible_remonte_jusqua_sante_et_a_la_route(tmp_path: Any) 
     with _client_sur(tmp_path) as client:
         alertes = client.get("/api/v1/sante").json()["alerts"]
         assert ("doc-mini", "rapport_illisible") in [(a["doc_id"], a["alerte"]) for a in alertes]
-        r = client.get("/api/v1/documents/doc-mini/report")
+        r = client.get("/api/v1/documents/doc-mini/report", headers=XFF)
         assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
         assert r.json()["error"]["message"] == "le rapport d'ingestion est illisible"
-        audit = client.get("/api/v1/documents").json()[0]
+        audit = client.get("/api/v1/documents", headers=XFF).json()[0]
         assert audit["doc_id"] == "doc-mini"
         assert audit["status"] == "quarantaine"
         assert audit["selectionnable"] is False
@@ -455,7 +455,7 @@ def test_une_source_privee_nest_jamais_publiee(tmp_path: Any) -> None:
     _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
                        source="gs://foyer-retour-sources/doc-mini.pdf\n")
     with _client_sur(tmp_path) as client:
-        assert client.get("/api/v1/documents").json()[0]["source_url"] is None
+        assert client.get("/api/v1/documents", headers=XFF).json()[0]["source_url"] is None
 
 
 @pytest.mark.parametrize("fichier", [
@@ -468,7 +468,7 @@ def test_une_source_sur_deux_lignes_publie_la_ligne_publiable(tmp_path: Any, fic
     _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
                        source=fichier)
     with _client_sur(tmp_path) as client:
-        publiee = client.get("/api/v1/documents").json()[0]["source_url"]
+        publiee = client.get("/api/v1/documents", headers=XFF).json()[0]["source_url"]
         assert publiee == "https://exemple.invalid/cg.pdf"
         assert "gs://" not in publiee
 
@@ -527,7 +527,7 @@ def test_un_source_url_de_document_non_publiable_est_filtre_aussi(prod: TestClie
     corpus.documents[DOC_ID].source_url = "gs://foyer-retour-sources/cg-mini.pdf"
     etat = prod.app.state.foyer
     etat.corpus, etat.index = corpus, index
-    par_id = {d["doc_id"]: d for d in prod.get("/api/v1/documents").json()}
+    par_id = {d["doc_id"]: d for d in prod.get("/api/v1/documents", headers=XFF).json()}
     assert par_id[DOC_ID]["source_url"] is None
 
 
@@ -547,12 +547,12 @@ def test_un_rapport_qui_decrit_un_autre_document_nest_pas_publie(tmp_path: Any) 
         # Le nom de l'alerte est distinct de `rapport_illisible` : le fichier n'est pas illisible,
         # il est étranger, et ce n'est pas le même correctif.
         assert ("doc-mini", "rapport_illisible") not in alertes
-        erreur = client.get("/api/v1/documents/doc-mini/report")
+        erreur = client.get("/api/v1/documents/doc-mini/report", headers=XFF)
         assert erreur.status_code == 400
         assert erreur.json()["error"]["message"] == (
             "le rapport d'ingestion décrit un autre document")
         # Le document reste servi : un rapport étranger n'est pas une incohérence du document.
-        audit = client.get("/api/v1/documents").json()[0]
+        audit = client.get("/api/v1/documents", headers=XFF).json()[0]
         assert audit["doc_id"] == "doc-mini"
         assert audit["report_status"] == "etranger"
 
@@ -562,14 +562,14 @@ def test_un_document_en_quarantaine_est_auditable_sans_etre_charge(tmp_path: Any
     _corpus_sur_disque(tmp_path, rapport='{"doc_id": "doc-mini", "checks": [], "stats": {}}',
                        source="https://exemple.invalid/cg.pdf", quarantaine=True)
     with _client_sur(tmp_path) as client:
-        items = client.get("/api/v1/documents").json()
+        items = client.get("/api/v1/documents", headers=XFF).json()
         assert len(items) == 1
         assert items[0]["doc_id"] == "doc-mini"
         assert items[0]["status"] == "quarantaine"
         assert items[0]["selectionnable"] is False
         assert items[0]["raison"] == "quarantaine (manifest)"
         assert items[0]["title"] == "doc-mini"  # aucun document.json quarantiné n'est relu
-        assert client.get("/api/v1/documents/doc-mini/report").json()["checks"] == []
+        assert client.get("/api/v1/documents/doc-mini/report", headers=XFF).json()["checks"] == []
         assert client.app.state.foyer.corpus.documents == {}
         alertes = client.get("/api/v1/sante").json()["alerts"]
         assert "quarantaine" in [a["alerte"] for a in alertes]
@@ -643,7 +643,7 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
     _corpus_sur_disque(tmp_path, rapport=rapport,
                        source="https://exemple.invalid/cg.pdf", quarantaine=True)
     with _client_sur(tmp_path) as client:
-        avant = client.get("/api/v1/documents/doc-mini/report").json()
+        avant = client.get("/api/v1/documents/doc-mini/report", headers=XFF).json()
         (tmp_path / "doc-mini" / "report.json").write_text(
             '{"doc_id":"doc-mini","checks":[],"stats":{}}', encoding="utf-8")
         (tmp_path / "doc-mini" / "source.url").write_text(
@@ -652,8 +652,8 @@ def test_rapport_et_metadonnees_restent_ceux_du_demarrage(tmp_path: Any) -> None
         manifest["doc-mini"]["source_hash"] = "mutation-apres-boot"
         manifest["doc-mini"]["ingest_fingerprint"] = "mutation-apres-boot"
         (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        apres = client.get("/api/v1/documents/doc-mini/report").json()
-        audit = client.get("/api/v1/documents").json()[0]
+        apres = client.get("/api/v1/documents/doc-mini/report", headers=XFF).json()
+        audit = client.get("/api/v1/documents", headers=XFF).json()[0]
 
         assert apres == avant
         assert [c["name"] for c in apres["checks"]] == ["premier", "second"]
@@ -732,7 +732,7 @@ def test_les_deux_surfaces_http_filtrent_un_chemin_relatif_avec_la_borne_configu
     etat.alerts = _alertes(
         etat.corpus, raison_max_chars=etat.settings.raison_publiable_max_chars)
     sante = prod.get("/api/v1/sante")
-    documents = prod.get("/api/v1/documents")
+    documents = prod.get("/api/v1/documents", headers=XFF)
     assert sante.status_code == documents.status_code == 200
     assert "secrets/contrats" not in sante.text and "[emplacement masqué]" in sante.text
     assert "secrets/contrats" not in documents.text and "[emplacement masqué]" in documents.text
@@ -765,7 +765,7 @@ def test_un_rapport_publie_masque_les_emplacements_prives_sans_perdre_les_checks
     _corpus_sur_disque(tmp_path, rapport=rapport,
                        source="https://exemple.invalid/cg.pdf", quarantaine=True)
     with _client_sur(tmp_path) as client:
-        publie = client.get("/api/v1/documents/doc-mini/report")
+        publie = client.get("/api/v1/documents/doc-mini/report", headers=XFF)
         assert publie.status_code == 200
         corps = publie.json()
         assert [(c["name"], c["level"]) for c in corps["checks"]] == [
@@ -791,7 +791,7 @@ def test_le_boot_applique_la_borne_configuree_aux_alertes_et_rapports(tmp_path: 
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with _client_sur(tmp_path, raison_max_chars=max_chars) as client:
         sante = client.get("/api/v1/sante").json()
-        rapport_public = client.get("/api/v1/documents/doc-mini/report").json()
+        rapport_public = client.get("/api/v1/documents/doc-mini/report", headers=XFF).json()
     assert sante["thresholds"]["raison_publiable_max_chars"] == max_chars
     quarantaine = next(a for a in sante["alerts"] if a["alerte"] == "quarantaine")
     dictionnaire = next(a for a in sante["alerts"] if a["alerte"] == "dictionnaire_non_valide")
@@ -828,7 +828,7 @@ def test_un_lien_symbolique_daudit_ne_lit_jamais_hors_data(tmp_path: Any) -> Non
 def test_rapport_absent_est_distingue_sur_la_liste(tmp_path: Any) -> None:
     _corpus_sur_disque(tmp_path, rapport=None, source="https://exemple.invalid/cg.pdf")
     with _client_sur(tmp_path) as client:
-        audit = client.get("/api/v1/documents").json()[0]
+        audit = client.get("/api/v1/documents", headers=XFF).json()[0]
         assert audit["status"] == "servi"
         assert audit["report_status"] == "absent"
 

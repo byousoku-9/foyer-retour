@@ -20,14 +20,34 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Request, Response
+from fastapi import APIRouter, Depends, Path, Request, Response
 
 from server.app.api.etat import doc_id_auditable, raison_publiable, url_publiable
 from server.app.api.schemas import DOC_ID_MAX, DOC_ID_PATTERN, DocumentItem
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.ingest import Report
 
-router = APIRouter()
+
+async def verifier_quota_documents(request: Request) -> None:
+    """Quota **coût-zéro** de ce routeur : il ne protège pas des euros, il protège la machine.
+
+    AD-13 borne les routes qui appellent un modèle ; celles-ci n'en appellent aucun, et c'est
+    précisément pourquoi elles n'étaient bornées par rien. Mais `GET /documents/{doc_id}/pages/
+    {page}.png` **rehache le PDF entier** à chaque requête pour vérifier son identité, puis rasterise
+    la page demandée jusqu'à `pdf_render_max_pixels` — jusqu'à 16 Mpx. Rien n'y coûte un centime, et
+    tout y coûte du CPU et de la mémoire, sur une instance unique servant deux requêtes de front :
+    une boucle sur cette route suffit à rendre `/chat` inutilisable sans dépenser un euro, donc sans
+    croiser le moindre plafond.
+
+    Le limiteur employé est celui des **suivis** (`followup_limiter`), et pour la même raison qu'eux :
+    ce sont des tours gratuits, qui doivent avoir leur propre compteur plus large plutôt que d'épuiser
+    le quota des requêtes payantes. Même identité AD-13, mêmes réponses (400 sans en-tête hors dev,
+    429 avec `Retry-After`), et rien n'est lu ni rendu avant qu'il ait tranché.
+    """
+    request.app.state.foyer.followup_limiter.check(request)
+
+
+router = APIRouter(dependencies=[Depends(verifier_quota_documents)])
 
 
 @router.get("/documents", response_model=list[DocumentItem])
