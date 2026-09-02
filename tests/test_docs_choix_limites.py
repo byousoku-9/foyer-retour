@@ -10,7 +10,7 @@ from pathlib import Path
 DOC = Path(__file__).resolve().parents[1] / "docs" / "choix-et-limites.md"
 DETAILS = "\n<details>\n"
 ANNEXE_TITLE = "# Choix et limites mesurées\n"
-ANNEXE_SHA256 = "bb40794e7859444af8c0ba9f8dd57cc2ff03e9c3bbe771f6e0606f3e7053ad53"
+ANNEXE_SHA256 = "120e0d93d3be8a5204e095639000ea50fb4f5920990b230bd26f2b77d141c935"
 
 
 def _document() -> str:
@@ -234,7 +234,9 @@ def test_l_annexe_technique_historique_est_repliable_et_byte_identique() -> None
     for marqueur in (
         "COLUMN_GUTTER_MIN_PT=18.0",
         "STRUCTURE_MAX_COST_EUR=8.0",
-        "empreinte-committee-perimee: axa-lu-optihome-2017",
-        "empreinte-committee-perimee: baloise-lu-home-2-2024",
+        # Les déclarations `empreinte-committee-perimee: <doc>` sont dynamiques par construction
+        # (la garde exige leur retrait dès que la réingestion rétablit l'égalité) : le registre
+        # doit nommer le mécanisme, jamais épingler une déclaration active.
+        "assert_empreinte_committee_declaree",
     ):
         assert marqueur in annexe.decode("utf-8")

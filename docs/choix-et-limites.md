@@ -127,11 +127,9 @@ relance ; le plafond par requête passe à 0,45 €. Les deux tiers (0,128 €) 
 ## Limites honnêtes
 
 La porte de lecture change l'identité publiée. Un artefact committé non réingéré est explicitement
-périmé jusqu'à la réingestion orchestrée — les deux contrats le sont depuis la correction du
-02/09/2026 :
-
-- `empreinte-committee-perimee: axa-lu-optihome-2017`
-- `empreinte-committee-perimee: baloise-lu-home-2-2024`
+périmé jusqu'à la réingestion orchestrée, par une déclaration `empreinte-committee-perimee: <doc>`
+dans ce document. Au 02/09/2026, les deux contrats ont été réingérés avec le parseur courant :
+aucune déclaration n'est active.
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
   réseau forgée empêchent d'en faire un quota global.
@@ -562,10 +560,8 @@ du typage. C'est un état de la donnée servie, pas un verdict sur la règle.
 
 La divergence est **déclarée ici, document par document**, et une garde toujours exécutée la
 confronte à l'empreinte du parseur courant (`assert_empreinte_committee_declaree`, jouée par
-`tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`) :
-
-- `empreinte-committee-perimee: axa-lu-optihome-2017`
-- `empreinte-committee-perimee: baloise-lu-home-2-2024`
+`tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`). Liste active au 02/09/2026 :
+aucune — les deux contrats sont réingérés avec le parseur courant.
 
 Une empreinte committée qui divergerait **sans** figurer dans cette liste fait rougir la garde ; et
 le jour où la réingestion rétablit l'égalité, c'est la ligne restée ici qui la fait rougir, pour

@@ -123,9 +123,10 @@ def test_document_shape(doc: Document) -> None:
     printed_toc = next(c for c in report.checks if c.name == "tdm_imprimee")
     assert printed_toc.level == "info" and "4 titre(s)" in printed_toc.detail
     by_check = {check.name: check for check in report.checks}
-    # 15 blocs : couverture, sommaire (pages 1-4) et quatrième de couverture (page 109, coordonnées
-    # de l'agent), tous hors rappel.
-    assert "15 bloc(s) sur 5 page(s)" in by_check["blocs_non_citables"].detail
+    # 8 blocs : couverture, sommaire (pages 2-4, un bloc par colonne depuis que la porte de lecture
+    # recolle les glyphes à leur ligne) et quatrième de couverture (page 109, coordonnées de
+    # l'agent), tous hors rappel.
+    assert "8 bloc(s) sur 5 page(s)" in by_check["blocs_non_citables"].detail
     assert by_check["pages_mixtes"].detail.endswith(": 1")
     assert report.stats["tables"] == 7 and report.stats["couverture"] == 1.0
     assert report.stats["tables"] == sum(
