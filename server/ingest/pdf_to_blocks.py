@@ -59,10 +59,11 @@ TYPING_REUSED_COUNT_STAT = "blocs_typage_reutilises"
 TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 
 # Entrent dans `ingest_fingerprint` : toute modification change les IDs attendus (AD-2, stabilité).
-# story 4.2c : registre de lignes source, colonnes géométriques (lignes **et** tables), structure
-# vérifiée. La génération reste `10` : elle nomme la story, dont les artefacts committés sont déjà
-# déclarés périmés dans `docs/choix-et-limites.md`, et c'est `SEGMENTATION_RULES` — lui aussi dans
-# l'empreinte — qui porte l'énoncé exact de la règle et change dès qu'elle change.
+# La génération nomme le changement de règles qui l'a produite — ici le prédicat d'entrée de
+# sommaire et la surface de groupe tenue de sa provenance ; les artefacts committés qui la précèdent
+# sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
+# l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
+# numéro de génération le résume, il ne le remplace pas.
 PARSER_VERSION = "15-entree-de-sommaire-et-provenance"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
@@ -75,10 +76,13 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "&geometrie_dans_la_detection(rangees a l'aplomb de la boite,sans_bloc=>ignoree);"
                       "ocr:page_visuelle_sans_texte_retenu=>get_textpage_ocr(fra)&source_field=ocr;"
                       "tdm:entrees_structurees(numero+page|points_de_conduite+page)|intitule_autonome_visible"
-                      "=>continuation_si_entrees_structurees;fragments_meme_bas_geometrique_et_colonne"
+                      "=>continuation_si_entrees_structurees"
+                      "&continuation+article&sans_preuve_forte(geometrie|points_de_conduite|intitule)"
+                      "=>corps;fragments_meme_bas_geometrique_et_colonne"
                       "=>gauche_droite;"
-                      "entree:numero+renvoi_a_droite_meme_ligne_de_base"
-                      "|forme_imprimee&nombre_final<=pages_du_document;"
+                      "entree:numero+renvoi_a_droite_meme_ligne_de_base|points_de_conduite"
+                      "(avant_assemblage);+forme_imprimee&nombre_final<=pages_du_document"
+                      "(apres_assemblage);"
                       "fin_tdm:premier_groupe_numerote_non_entree(prefixe_contigu,sans_lecture_arriere)"
                       "&meme_predicat_a_la_frontiere_de_page;"
                       "sans_rearmement_apres_corps;"
@@ -852,32 +856,47 @@ def _renvoi_de_page_a_droite(line: PageLine, lines: Sequence[PageLine], toleranc
                for candidate in lines)
 
 
-def _indice_de_page_annonce(text: str) -> int | None:
-    """Nombre final d'une entrée imprimée (points de conduite, ou « numérotation … nombre »)."""
+def _indice_de_page_annonce(text: str, *, forme_imprimee_admise: bool) -> int | None:
+    """Nombre final d'une entrée textuelle : points de conduite, ou forme imprimée si admise.
+
+    Les points de conduite sont une **marque typographique** : une prose contractuelle ne porte pas
+    « ….... 12 ». La forme imprimée « numérotation … nombre final », elle, est banale en prose et
+    n'est admise que là où l'assemblage a réuni l'intitulé et son renvoi (voir la phase).
+    """
     value = text.strip()
-    if not (_TOC_LEADER_RE.match(value) or _PRINTED_TOC_RE.match(value)):
+    admissible = _TOC_LEADER_RE.match(value) or (forme_imprimee_admise and _PRINTED_TOC_RE.match(value))
+    if not admissible:
         return None
     final = re.search(r"(\d{1,3})\s*$", value)
     return int(final.group(1)) if final else None
 
 
-def _est_entree_de_sommaire(line: PageLine, lines: Sequence[PageLine], page_count: int) -> bool:
-    """Prédicat de ligne unique : « ceci est une entrée de sommaire », à deux formes.
+def _est_entree_de_sommaire(line: PageLine, lines: Sequence[PageLine], page_count: int, *,
+                            assemblees: bool) -> bool:
+    """Prédicat de ligne unique : « ceci est une entrée de sommaire », à deux formes et **deux phases**.
 
     Ni le numéro ni la seule forme textuelle ne suffisent. Le correctif visuel propage volontairement
     `number` à travers l'assemblage des fragments, donc une entrée numérotée est indiscernable d'un
     titre d'article par son numéro. Et la forme imprimée seule, mesurée, accepte de la prose
-    contractuelle ordinaire : « 2 La franchise reste de 250 » commence par une numérotation et finit
-    par un entier. Deux propriétés tiennent, et le prédicat en est la disjonction :
+    contractuelle ordinaire : « 1 La franchise par sinistre est de 100 » commence par une
+    numérotation et finit par un entier. Deux propriétés tiennent :
 
-    1. **géométrique**, disponible avant assemblage — une ligne numérotée accompagnée, à sa droite
-       et sur la même ligne de base, d'une ligne réduite à un numéro de page. C'est déjà le signal
-       qui fait classer une page en TdM ;
-    2. **textuelle bornée**, disponible après assemblage — points de conduite, ou forme imprimée
-       dont le nombre final est un indice de page **possible de ce document** (``1..page_count``).
-       La borne est une condition nécessaire, pas suffisante : un renvoi imprimé peut différer de
-       l'indice physique. Elle suffit à rejeter l'impossible, et ne nomme ni montant, ni document,
-       ni page — c'est le nombre de pages du document courant.
+    1. **géométrique** — une ligne numérotée accompagnée, à sa droite et sur la même ligne de base,
+       d'une ligne réduite à un numéro de page. C'est déjà le signal qui fait classer une page en
+       TdM, et le seul disponible **avant** assemblage, quand l'intitulé et son renvoi sont encore
+       deux fragments distincts ;
+    2. **textuelle bornée** — points de conduite, ou forme imprimée dont le nombre final est un
+       indice de page **possible de ce document** (``1..page_count``). La borne est une condition
+       nécessaire, pas suffisante : un renvoi imprimé peut différer de l'indice physique. Elle
+       suffit à rejeter l'impossible, et ne nomme ni montant, ni document, ni page — c'est le nombre
+       de pages du document courant.
+
+    `assemblees` porte la phase, et ce n'est pas un détail d'implémentation. **Avant** assemblage,
+    le nombre final du texte d'un fragment brut n'est jamais une preuve : l'admettre rendait toute
+    une page de corps non citable dès qu'une clause avait la forme d'un renvoi tombant dans la
+    pagination du document — la propriété inverse de celle qu'on cherche. Seules la forme
+    géométrique et les points de conduite y sont donc admissibles. **Après** assemblage, la forme
+    imprimée redevient admissible : c'est l'assemblage lui-même qui a réuni l'intitulé et son renvoi.
 
     Une entrée de sommaire qui ne porte **aucun** renvoi reste indiscernable d'un titre d'article :
     la limite est assumée, et c'est la contiguïté du préfixe d'entrées qui en fait le tour, jamais
@@ -887,7 +906,7 @@ def _est_entree_de_sommaire(line: PageLine, lines: Sequence[PageLine], page_coun
     if (_TOC_NUMBER_RE.match(text)
             and _renvoi_de_page_a_droite(line, lines, get_settings().toc_page_number_baseline_pt)):
         return True
-    renvoi = _indice_de_page_annonce(text)
+    renvoi = _indice_de_page_annonce(text, forme_imprimee_admise=assemblees)
     return renvoi is not None and 1 <= renvoi <= page_count
 
 
@@ -909,6 +928,18 @@ def _has_toc_entries(page: PageText) -> bool:
                for line in page.lines)
 
 
+def _preuve_forte_de_sommaire(page: PageText, page_count: int) -> bool:
+    """Preuve de sommaire disponible **avant** assemblage : géométrie, points de conduite, intitulé.
+
+    C'est le sous-ensemble de `_has_toc_entries` qu'une prose contractuelle ne peut pas imiter. La
+    forme imprimée en est volontairement absente : mesurée sur un artefact réel, elle apparaît
+    38 fois hors de la page de sommaire.
+    """
+    return _has_toc_title(page) or any(
+        _est_entree_de_sommaire(line, page.lines, page_count, assemblees=False)
+        for line in page.lines)
+
+
 def _mark_toc_pages(pages: list[PageText]) -> None:
     """Entre par la structure visible, propage tant qu'elle subsiste et ne se réarme jamais après le corps."""
     in_toc = False
@@ -916,11 +947,15 @@ def _mark_toc_pages(pages: list[PageText]) -> None:
     for page in pages:
         structural = _has_toc_entries(page)
         visible_title = _has_toc_title(page)
+        continuation = in_toc
         # La fin de la TdM se décide aussi **à la frontière de page**. Une ligne numérotée appariée à
         # un renvoi n'est pas un article : sans ce prédicat, une TdM numérotée sur plusieurs pages
-        # publiait ses pages 2 et suivantes en articles citables.
+        # publiait ses pages 2 et suivantes en articles citables. Ici les lignes sont des fragments
+        # bruts — `_assemble_toc_lines` n'a pas encore tourné — donc `assemblees=False` : la forme
+        # imprimée n'y est pas une preuve, seules la géométrie et les points de conduite le sont.
         has_article = any(line.number is not None
-                          and not _est_entree_de_sommaire(line, page.lines, len(pages))
+                          and not _est_entree_de_sommaire(line, page.lines, len(pages),
+                                                          assemblees=False)
                           for line in page.lines)
         if toc_finished:
             page.is_toc = False
@@ -929,6 +964,19 @@ def _mark_toc_pages(pages: list[PageText]) -> None:
         if not in_toc and (structural or visible_title):
             in_toc = True
         if in_toc and (structural or visible_title):
+            # Une page de **continuation** qui porte un article et n'apporte aucune preuve forte de
+            # sommaire est du corps : le sommaire s'était terminé à la page précédente. Sans cette
+            # borne, la seule forme imprimée d'une clause — banale en prose contractuelle, et le
+            # seul signal que cette page apporte — prolongeait la TdM d'une page entière et rendait
+            # la clause non citable. La page d'**ouverture** garde sa permissivité : c'est elle qui
+            # décide qu'un sommaire commence, et une TdM d'une seule page en forme imprimée n'a que
+            # ce signal-là.
+            if continuation and has_article and not _preuve_forte_de_sommaire(page, len(pages)):
+                page.is_toc = False
+                page.after_toc = True
+                in_toc = False
+                toc_finished = True
+                continue
             page.is_toc = True
             page.after_toc = False
             if has_article:
@@ -1908,7 +1956,8 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
             first_article_group = next(
                 (i for i, (_, lines) in enumerate(groups)
                  if lines[0].number is not None
-                 and not _est_entree_de_sommaire(lines[0], pt.lines, len(pages))), None)
+                 and not _est_entree_de_sommaire(lines[0], pt.lines, len(pages),
+                                                 assemblees=True)), None)
             toc_groups = groups if first_article_group is None else groups[:first_article_group]
             add_preliminary_groups(pt, toc_groups, table_source="tdm")
             b.current = saved
