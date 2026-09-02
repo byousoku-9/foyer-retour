@@ -79,7 +79,8 @@ from server.app.pipelines.commun import (
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
-from server.app.steps.retrouver import retrouver_deterministe, retrouver_outils, satisfaire_demande
+from server.app.steps.retrouver import (couvrir_facettes, retrouver_deterministe,
+                                        retrouver_outils, satisfaire_demande)
 from server.app.steps.verifier import verifier
 
 PIPELINE = "sinistre"
@@ -197,6 +198,19 @@ def _fondatrices_omises(verification: Verification, retrieval: Any,
     if citees & set(fondatrices):
         return []
     return fondatrices[:settings.draft_max_claims]
+
+
+def _facettes_non_couvertes(verification: Verification, parsed: ParsedQuestion) -> list[int]:
+    """Les rangs de `ParsedQuestion.facettes` qu'aucune affirmation affichée ne couvre.
+
+    *vérifier* rend la couverture qu'il a **mesurée** ; ce qui manque est le complément, calculé ici
+    et nulle part ailleurs — c'est le seul endroit qui décide quoi en faire (AD-1 : *vérifier* ne
+    touche aucun outil). Les rangs viennent du découpage arrêté par *comprendre* avant tout
+    retrieval : ils sont stables pour toute la requête, et ce sont eux, jamais un libellé, qui
+    circulent.
+    """
+    couvertes = set(verification.facettes_couvertes)
+    return [rang for rang in range(len(parsed.facettes)) if rang not in couvertes]
 
 
 def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verification,
@@ -625,6 +639,73 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # cette étape-là que ses checks doivent nommer).
         draft_verifie, step_de_la_verification = draft, step_verifier
 
+        # --- couverture des facettes, avant toute relance --------------------
+        # *vérifier* mesure quelles sous-questions une affirmation **affichée** couvre ; jusqu'ici
+        # ce constat ne déclenchait rien. Une facette laissée de côté par la rédaction — ou dont la
+        # lecture n'avait rapporté aucune règle — se contentait d'abaisser `complete`, et le second
+        # cycle re-rédigeait sur exactement les mêmes blocs : il ne pouvait pas couvrir ce qui
+        # n'avait pas été retrouvé.
+        #
+        # La reprise est **ciblée** sur les seules facettes non couvertes, **en code pur** (aucun
+        # appel : `couvrir_facettes` ne fait que classer et rouvrir), **sous le budget de l'étape**
+        # — le même objet `borne_retrieval` que la passe initiale et que la satisfaction 4.2e, sans
+        # quoi une seconde passe repartie de zéro ne serait plus bornée du tout. Une passe, jamais
+        # une boucle : ce qui reste sans clause après elle est déclaré absent, et la chaîne cesse.
+        rangs_non_couverts = _facettes_non_couvertes(verification, parsed)
+        retrieval_relance = retrieval
+        consigne_facette: str | None = None
+        if rangs_non_couverts:
+            complement_facettes, step_facettes = couvrir_facettes(
+                parsed, retrieval=retrieval, corpus=corpus, index=index, budget=borne_retrieval,
+                settings=settings, doc_id=doc_id, kinds_suffisants=KINDS_FONDATEURS,
+                dictionnaire=dictionnaire, rangs=rangs_non_couverts)
+            # Fusion de trace, comme le repli déterministe et la satisfaction 4.2e : l'étape
+            # *retrouver* reste une, et ce qu'elle vient de rouvrir rejoint ce qu'elle publiait.
+            step_retrouver.checks.extend(step_facettes.checks)
+            step_retrouver.ms += step_facettes.ms
+            step_retrouver.opened_block_ids = list(complement_facettes.opened_block_ids)
+            step_retrouver.discarded_block_ids = list(complement_facettes.discarded_block_ids)
+            # La borne se dit **tout de suite**, même si le complément n'est pas adopté (revue
+            # 4.2e, F) : un refus aval ne doit jamais repartir d'une lecture donnée pour exhaustive
+            # alors que le budget a écarté des candidats. Les **blocs**, eux, restent ceux que la
+            # vérification servie a réellement vus.
+            truncated = truncated or complement_facettes.truncated
+            retrieval = retrieval.model_copy(update={
+                "truncated": truncated,
+                "discarded_block_ids": list(complement_facettes.discarded_block_ids)})
+            retrieval_relance = complement_facettes.model_copy(update={"truncated": truncated})
+            blocs_des_facettes = list(dict.fromkeys(
+                block_id for rang in rangs_non_couverts
+                for block_id in (complement_facettes.facette(rang).block_ids
+                                 if complement_facettes.facette(rang) is not None else ())))
+            if blocs_des_facettes:
+                # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du
+                # corpus typé, jamais de la question ni du libellé de la facette — la consigne
+                # nomme des blocs à rendre vérifiables, exactement comme celle de la story 3.3.
+                consigne_facette = (
+                    f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
+                    "affirmation affichée, alors que la lecture porte pour elles des clauses "
+                    "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
+                    "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
+                    "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
+                    "applicabilité au dossier — le code la calcule. Conserve les affirmations "
+                    "déjà acquises.")
+            elif complement_facettes.facettes:
+                # Fin de chaîne honnête : rien de décisionnel n'existe dans le contrat lu pour ces
+                # sous-questions, et aucune relance de *rédiger* ne peut le fabriquer. La réponse
+                # le dit — *vérifier* dépose la lacune `facettes_sans_clause` sur la déclaration
+                # d'absence de *retrouver*, et *restituer* la projette dans `unknown[]`.
+                #
+                # `complement.facettes` vide veut dire « pas mesuré » (question à une seule
+                # sous-question, où la facette **est** la question) : il n'y a alors rien à dire de
+                # plus que ce que la chaîne dit déjà, et la trace se tait plutôt que d'annoncer une
+                # absence qu'aucune passe n'a cherché à lever.
+                step_de_la_verification.checks.append(CheckResult(
+                    name="facettes_sans_clause", ok=False,
+                    detail=f"{len(rangs_non_couverts)} sous-question(s) restent sans clause "
+                           "décisionnelle confirmée après une reprise ciblée de retrouver : "
+                           "aucune relance de rédiger ne peut les couvrir, l'absence est dite"))
+
         # --- relance unique (AD-3) ------------------------------------------
         omises = _fondatrices_omises(verification, retrieval, settings)
         if omises and len(verification.claims) >= settings.draft_max_claims:
@@ -641,10 +722,23 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        "acquis et ajouter la clause"))
             verification = relance_abandonnee(verification)
             omises = []
+        if consigne_facette is not None and len(verification.claims) >= settings.draft_max_claims:
+            # Même raison que ci-dessus, et elle vaut mot pour mot : la fusion doit reconduire tous
+            # les acquis **et** ajouter la clause de la sous-question laissée de côté. Sous
+            # `draft_max_claims` déjà occupé, la relance ne pourrait que troquer une facette contre
+            # une autre — exactement ce que la dominance interdit.
+            step_verifier.checks.append(CheckResult(
+                name="relance_facette_sans_place", ok=False,
+                detail=f"{len(rangs_non_couverts)} sous-question(s) sans affirmation affichée mais "
+                       f"les {len(verification.claims)} affirmation(s) retenue(s) occupent déjà "
+                       "draft_max_claims : la relance ne peut pas reconduire les acquis et "
+                       "couvrir la facette"))
+            verification = relance_abandonnee(verification)
+            consigne_facette = None
         relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, corpus=corpus, index=index)
-        )) or omises)
+        )) or omises or consigne_facette)
         if relance_due:
             # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
             # La fusion doit reconduire tous les acquis, **toutes leurs limites** et au moins une
@@ -682,6 +776,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     "déclaré.")
                 motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
                                  else consigne_fondatrice)
+            if consigne_facette is not None:
+                motif_relance = (f"{motif_relance}\n{consigne_facette}" if motif_relance
+                                 else consigne_facette)
             acquise = verification
             appels_avant = budget.attempts
             try:
@@ -691,7 +788,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     raise BudgetExceeded(
                         f"plafond d'appels trop bas pour la relance et sa vérification "
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
-                draft_2, step_rediger_2 = await rediger(parsed, retrieval, [], client=client, budget=budget,
+                # La relance rédige et se vérifie sur la lecture **complétée** : sans cela, la
+                # reprise ciblée n'aurait servi à rien — la facette redemandée n'aurait toujours
+                # pas ses blocs sous les yeux du rédacteur. Cette lecture-là n'est adoptée que si
+                # la vérification qu'elle produit l'est aussi (revue 4.2e, F).
+                draft_2, step_rediger_2 = await rediger(parsed, retrieval_relance, [], client=client,
+                                                        budget=budget,
                                                         index=index, doc_id=doc_id, settings=settings,
                                                         motif=motif_relance,
                                                         blocs_a_conserver=sorted(blocs_cites(acquise)),
@@ -706,7 +808,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                         name="relance_sans_effet", ok=False,
                         detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))
                 else:
-                    seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed, retrieval=retrieval,
+                    seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed,
+                                                              retrieval=retrieval_relance,
                                                               corpus=corpus, index=index, client=client,
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
@@ -724,6 +827,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     relance_trouve_clause = seconde.found and not acquise.found
                     if relance_trouve_clause or domine(seconde, acquise):
                         verification = seconde
+                        # La lecture servie est celle que cette vérification-là a réellement vue :
+                        # le complément de facettes n'est adopté qu'avec elle.
+                        retrieval, truncated = retrieval_relance, retrieval_relance.truncated
                         # Story 4.2e : la vérification retenue est celle de l'ébauche relancée. Une
                         # reprise de contexte qui repartirait de la première soumettrait un lot où
                         # le `claim_id` de la demande n'existe pas — et, la dominance n'étant pas

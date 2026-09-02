@@ -20,9 +20,10 @@ Deux moitiés, dans cet ordre, et jamais l'inverse :
    B1). Une phrase `limite` — « le guide ne dit rien de X » — n'est affichable par aucune de ces
    preuves : elle ne rejoint que `unknown[]` (tour 3, B1).
 
-**« Partiel » dit toujours ce qui manque (story 2.3).** `complete=False` naît de six causes — facettes
-non couvertes, découpage non établi, retrieval tronqué, renvoi non résolu, phrases écartées, limite
-déclarée par le modèle — et une seule d'entre elles écrivait quelque chose dans `unknown[]`. Chacune
+**« Partiel » dit toujours ce qui manque (story 2.3).** `complete=False` naît de causes énumérées —
+facettes sans clause retrouvée, facettes non couvertes, découpage non établi, retrieval tronqué,
+renvoi non résolu, phrases écartées, limite déclarée par le modèle — dont une seule écrivait
+quelque chose dans `unknown[]` avant cette story. Chacune
 est désormais constatée par le **code** sous forme de `Lacune(kind, n)` (`_lacunes`, AD-16 / NFR2)
 et déposée dans `Verification.lacunes` — **distinct** d'`unknown`, qui reste ce que le modèle a
 déclaré. *Restituer* projette ensuite ces causes dans la langue de la réponse et les fond dans
@@ -1077,9 +1078,24 @@ def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_cou
         # L'absence de mesure est une lacune en soi, et elle se dit — sinon « partiel » resterait nu
         # sur la seule question qui n'a pas pu être découpée.
         lacunes.append(Lacune(kind="sans_decoupage"))
-    elif len(facettes_couvertes) < len(parsed.facettes):
-        manquantes = len(parsed.facettes) - len(facettes_couvertes)
-        lacunes.append(Lacune(kind="facettes_sans_reponse", n=manquantes))
+    else:
+        # Deux manques de nature différente, et **exclusifs** : une facette pour laquelle
+        # *retrouver* n'a rapporté aucune clause décisionnelle confirmée — il le déclare
+        # lui-même — n'avait rien à rendre, et le dire « sans réponse » ferait porter à la
+        # rédaction un manque qui est celui de la lecture. Une facette dont les clauses ont bien
+        # été lues mais qu'aucune affirmation affichée ne couvre reste, elle, sans réponse. Le
+        # même manque n'est donc jamais annoncé deux fois. Un retrieval qui ne mesure pas les
+        # facettes (variante guide, repli déterministe) ne déclare aucune absence : tout ce qui
+        # n'est pas couvert reste `facettes_sans_reponse`, comme avant.
+        absentes = set(retrieval.facettes_absentes)
+        manquantes = [rang for rang in range(len(parsed.facettes))
+                      if rang not in set(facettes_couvertes)]
+        sans_clause = [rang for rang in manquantes if rang in absentes]
+        sans_reponse = [rang for rang in manquantes if rang not in absentes]
+        if sans_clause:
+            lacunes.append(Lacune(kind="facettes_sans_clause", n=len(sans_clause)))
+        if sans_reponse:
+            lacunes.append(Lacune(kind="facettes_sans_reponse", n=len(sans_reponse)))
     if renvois_ouverts:
         lacunes.append(Lacune(kind="renvoi_non_resolu"))
     if contradiction:
