@@ -294,7 +294,7 @@ async def test_a_claim_is_found_only_if_all_its_quotes_are(mini: Index) -> None:
 
 
 # --- pertinence : un seul appel groupé --------------------------------------
-async def test_relevance_is_one_grouped_micro_call_with_delimited_content(mini: Index) -> None:
+async def test_relevance_is_one_grouped_reason_call_with_delimited_content(mini: Index) -> None:
     draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]),
                    ("c2", "La caution vaut deux mois.", [("mini:p1:3", "caution est plafonnée à deux mois de loyer")]),
                    ("c3", "Un renvoi non résolu.", [("mini:p1:7", "Un renvoi non résolu.")]))
@@ -1177,7 +1177,7 @@ def _applicabilite(*entrees: tuple, verdicts: list[tuple[str, bool]],
                    doublon: bool = False, enumere: bool = True,
                    raisons: dict[str, str | None] | None = None,
                    demande: dict | None = None) -> dict:
-    """Sortie de l'unique appel `micro` en mode sinistre : pertinence + facettes + phrases + applicabilité.
+    """Sortie de l'unique appel `reason` en mode sinistre : pertinence + facettes + phrases + applicabilité.
 
     Une entrée est `(claim_id, fait_requis_present, option_requise, cp_requise, fait_manquant)`,
     éventuellement suivie des deux listes de qualités `(exigees, etablies)` de la revue Codex 1.8 (B3).
@@ -1242,7 +1242,7 @@ async def test_the_guide_mode_never_derives_an_applicability(mini: Index) -> Non
     assert "applicabilite" not in fake.requests[0]["system"][0]["text"]
 
 
-async def test_applicability_travels_in_the_single_grouped_micro_call(contrat: Index) -> None:
+async def test_applicability_travels_in_the_single_grouped_reason_call(contrat: Index) -> None:
     """AD-9 amendé : « un seul appel groupé […] Jamais un second appel »."""
     draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
     v, step, fake = await _verifier_sinistre(

@@ -198,8 +198,8 @@ class ClarificationRequise(DomainModel):
         est **forcée**, le message de l'étape l'impose et la clarification suit `Answer.lang`. Quand
         la **détection** tombe hors des quatre langues servies ou reste illisible, `language`
         retombe sur `fr` **après** la réponse : la question est déjà écrite, dans la langue de
-        l'utilisateur, et rien ne peut plus la traduire — un second appel `micro` est exclu par le
-        titre même d'AD-5 (« après un **seul** appel `micro` », « c'est le seul appel modèle avant
+        l'utilisateur, et rien ne peut plus la traduire — un second appel `reason` est exclu par le
+        titre même d'AD-5 (« après un **seul** appel `reason` », « c'est le seul appel modèle avant
         le court-circuit »), et une consigne ajoutée à *chaque* requête a été mesurée le 2026-08-25
         comme faisant basculer deux ACs livrées (2.2 et 2.3 en direct, cinq variantes,
         `docs/tests-live.md` § 2.4).

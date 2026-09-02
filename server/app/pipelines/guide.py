@@ -354,7 +354,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         #
         # Il porte sur `ParsedQuestion.question_resolue` (les termes en viennent, AD-5) et sur des
         # termes **toujours en français** (invariant de `ParsedQuestion.terms`), et n'est jamais
-        # atteint après un appel `reason` : *comprendre* est un appel `micro`, et rien d'autre n'a
+        # atteint après *rédiger* : *comprendre* est un appel `reason`, et rien d'autre n'a
         # tourné à ce point de la chaîne.
         #
         # **Il doit être au moins aussi large que ce que *retrouver* trouve** (revue coordonnée
@@ -509,7 +509,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 relances += 1
                 if draft_2.digest() == draft.digest():
                     # AD-3 : « chaque relance change quelque chose ». Rien n'a changé : re-vérifier rendrait
-                    # exactement le même résultat pour le prix d'un appel `micro` de plus.
+                    # exactement le même résultat pour le prix d'un appel `reason` de plus.
                     step_rediger_2.checks.append(CheckResult(
                         name="relance_sans_effet", ok=False,
                         detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))

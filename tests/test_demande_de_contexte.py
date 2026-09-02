@@ -534,7 +534,7 @@ async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insati
 
     Le corpus porte une définition dont le terme est employé par un bloc **déjà ouvert**. Rendue
     pour n'importe quelle cible, elle faisait compter « un bloc neuf », déclarait la demande
-    satisfaite, payait un appel `micro` de reprise et sautait la fermeture — alors que le contexte
+    satisfaite, payait un appel `reason` de reprise et sautait la fermeture — alors que le contexte
     demandé n'avait jamais été trouvé. C'est la garantie fail-closed de la story qui tombait.
     """
     answer, trace, fake = await _run(neutre, [
@@ -734,7 +734,7 @@ async def test_la_reprise_relit_lebauche_qui_a_produit_la_demande(
         neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
     """Revue 4.2e (A) : après une relance AD-3 adoptée, la demande porte sur la **seconde** ébauche.
 
-    Reprendre la première dépensait un appel `micro` sur une ébauche périmée, soumettait un lot où
+    Reprendre la première dépensait un appel `reason` sur une ébauche périmée, soumettait un lot où
     le `claim_id` de la demande n'existe pas, et — `domine()` n'étant pas stricte — pouvait faire
     servir la rédaction d'**avant** la relance : la correction que la relance venait d'obtenir
     disparaissait alors en silence.

@@ -65,7 +65,7 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 LISTE_MAX = LISTE_MAX_ITEMS
 
 class SortieComprendre(DomainModel):
-    """Sortie structurée de l'appel `micro` : plate, tous champs requis (aucun défaut).
+    """Sortie structurée de l'appel `reason` : plate, tous champs requis (aucun défaut).
 
     `question_resolue` et `clarification` sont les deux issues exclusives d'AD-5 : exactement l'une
     des deux est renseignée. L'invariant est porté par le schéma de sortie et non par le code de

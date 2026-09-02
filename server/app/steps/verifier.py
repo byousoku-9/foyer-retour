@@ -9,7 +9,7 @@ Deux moitiés, dans cet ordre, et jamais l'inverse :
    pas ambiguë (le même passage dans un second bloc du **document** attribuerait la phrase au mauvais
    endroit). Les offsets de l'occurrence et les `line_ids` traversés sont conservés pour le
    surlignage. Une claim est `retrouvee` **ssi toutes** ses quotes le sont.
-2. **Un seul appel `micro` groupé** (AD-4), uniquement sur les claims retrouvées, borné par
+2. **Un seul appel `reason` groupé** (AD-4), uniquement sur les claims retrouvées, borné par
    `verifier_max_claims` : « ces passages soutiennent-ils l'affirmation **et** répond-elle à la
    question ? ». Le modèle ne rend qu'un booléen par `claim_id` — aucun texte libre, aucun calcul :
    `found` et `complete` sont calculés ici, par le code, et le motif de rejet est composé ici aussi.
@@ -156,7 +156,7 @@ class VerdictSegment(BaseModel):
 
 
 class SortieVerifier(BaseModel):
-    """Sortie de l'appel `micro` : un booléen par claim, un par phrase affichée, le découpage (AD-4).
+    """Sortie de l'appel `reason` : un booléen par claim, un par phrase affichée, le découpage (AD-4).
 
     Aucun champ de justification : le modèle ne peut pas glisser de motif dans la trace, et il ne peut
     pas non plus « expliquer » un verdict que le code ne lui a pas demandé. `found` et `complete`
@@ -622,7 +622,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     Ce que le mode ajoute, et rien d'autre : `verifier_sinistre.md` appendu au préfixe, un bloc
     `untrusted("faits", …)` dans le message, le schéma `SortieVerifierSinistre`, le contrôle « une
     clause par affirmation » (D6), la dérivation d'`applicable` et l'application de la table AD-6.
-    Le nombre d'appels ne change pas : **un** appel `micro` groupé, jamais deux (AD-9 amendé).
+    Le nombre d'appels ne change pas : **un** appel `reason` groupé, jamais deux (AD-9 amendé).
     Sans `faits`, l'étape est celle du guide, à l'octet près.
 
     `dossier` est le `MissingPackage` que l'appelant **a** déjà (conditions particulières, options,
@@ -714,7 +714,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                    f"({settings.quote_max_chars} caractères) : exactes, seulement bavardes — "
                    "affichées telles quelles, jamais tronquées ni rejetées"))
 
-    # AD-4 : **un seul** appel `micro` groupé, borné par `verifier_max_claims`. Au-delà, les claims
+    # AD-4 : **un seul** appel `reason` groupé, borné par `verifier_max_claims`. Au-delà, les claims
     # excédentaires ne sont pas évaluées — jamais devinées (`draft_max_claims` fait que le cas ne se
     # produit pas sur le corpus servi, la borne est une ceinture).
     evaluees = retrouvees[: settings.verifier_max_claims]
@@ -1102,7 +1102,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       fournis: set[str] | None = None,
                       ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
                                  dict[str, ChampsApplicabilite], DemandeContexte | None, bool]:
-    """L'unique appel `micro` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
+    """L'unique appel `reason` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
     Tout sort du **même** appel (AD-9 amendé : « un seul appel groupé, qui rend pertinence, phrases
     soutenues, couverture des facettes **et** champs typés d'applicabilité. Jamais un second appel »).

@@ -288,14 +288,14 @@ async def test_une_langue_forcee_non_servie_est_refusee_avant_tout_appel(index: 
 # --- nominal : le cas bougie -------------------------------------------------
 async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
         index: Index, gate_du_mini_contrat) -> None:
-    """AC : cinq étapes, `pipeline="sinistre"`, un seul appel `micro` dans *vérifier*, verdict complet."""
+    """AC : cinq étapes, `pipeline="sinistre"`, un seul appel `reason` dans *vérifier*, verdict complet."""
     answer, trace, fake = await _run(index, [
         _comprendre(),
         _rediger(GAR, DEF, EXC_EXT),
         _verifier(("c1", True, False, False, False, "caractère subit de l'action de la chaleur"),
                   ("c2", True, False, False, False, None),
                   ("c3", True, False, False, False, None))])
-    assert fake.remaining_script == 0 and len(fake.requests) == 3  # micro, reason, micro
+    assert fake.remaining_script == 0 and len(fake.requests) == 3  # reason, reason, reason
     assert fake.requests[1]["max_tokens"] == _settings().rediger_max_tokens == 2048
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
     assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
@@ -2230,7 +2230,7 @@ async def test_a_budget_and_a_deadline_are_exclusive(index: Index) -> None:
 
 
 # --- court-circuits d'AD-5, toujours avec un verdict ----------------------------
-async def test_an_out_of_scope_request_is_refused_after_one_micro_call(index: Index) -> None:
+async def test_an_out_of_scope_request_is_refused_after_one_reason_call(index: Index) -> None:
     answer, trace, fake = await _run(index, [_comprendre("hors_perimetre")])
     assert fake.remaining_script == 0 and len(fake.requests) == 1  # l'étage `reason` n'est pas atteint
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]

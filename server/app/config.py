@@ -213,7 +213,7 @@ class Settings(BaseSettings):
     # non un seul. « La chaleur a agi lentement » partage « chaleur » avec « action subite de la
     # chaleur » et dit exactement le contraire ; c'est le qualificatif (*subite*) qui décide.
     qualite_mot_min_chars: int = Field(5, ge=1)
-    # L'appel `micro` du sinistre rend tout ce que rend celui du guide **plus** une entrée
+    # L'appel `reason` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
     # ce qui masquait le problème : à `verifier_max_claims` (8) claims, la sortie tronquée devient un
@@ -654,7 +654,7 @@ class Settings(BaseSettings):
     type_clauses_definition_max_words: int = Field(12, ge=1)
     # Longueur maximale du périmètre dérivé du corpus et rendu dans le préfixe de *comprendre*
     # (`Corpus.perimetres`). Le préfixe est cacheable (AD-9) et facturé : une projection qui
-    # grossirait avec le corpus sans borne ferait grossir chaque appel `micro`. Au-delà, les
+    # grossirait avec le corpus sans borne ferait grossir chaque appel `reason`. Au-delà, les
     # dernières catégories sont **retirées** (jamais une ligne coupée en deux, et jamais la
     # première : un périmètre vide serait pire que court).
     # **Mesuré (revue coordonnée 2.1), et la marge est plus mince qu'annoncé** : le guide livré rend
@@ -832,7 +832,7 @@ class Settings(BaseSettings):
             "evals_max_cost_eur": self.evals_max_cost_eur,
             "live_budget_eur": self.live_budget_eur,
             # Story 4.2b : la matrice baseline épingle les tiers par étape. `Trace.thresholds` est
-            # numérique : 1 = `reason`, 0 = `micro` (défaut AD-9). Publiés ici, ils entrent dans la
+            # numérique : 1 = `reason` (défaut AD-9), 0 = `micro`. Publiés ici, ils entrent dans la
             # namespace de cache des évals via `thresholds()`.
             "baseline_tiers": int(self.baseline_tiers),
             "comprendre_tier_reason": int(self.comprendre_tier == "reason"),

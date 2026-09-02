@@ -79,7 +79,7 @@ async def test_meteo_intent_alone_is_enough_to_decide_the_short_circuit() -> Non
     client, _ = _client([fake_message(text=_sortie(intent="meteo", terms=[], themes=[]), model=HAIKU)])
     parsed, step = await _comprendre(client, question="quel temps fera-t-il demain ?")
     assert parsed.intent == "meteo"
-    assert len(step.calls) == 1  # un seul appel micro : aucune autre étape requise pour le refus
+    assert len(step.calls) == 1  # un seul appel reason : aucune autre étape requise pour le refus
 
 
 async def test_an_irresolvable_anaphora_yields_a_clarification_and_never_a_parsed_question() -> None:
@@ -97,7 +97,7 @@ async def test_an_irresolvable_anaphora_yields_a_clarification_and_never_a_parse
     assert sortie.clarification == "De quelles personnes parlez-vous ?"
     assert sortie.intent == "question" and sortie.language == "fr"
     assert "et pour eux" not in sortie.model_dump_json()  # la question non autonome ne voyage pas
-    assert len(step.calls) == 1  # une clarification coûte un seul appel micro, comme un refus
+    assert len(step.calls) == 1  # une clarification coûte un seul appel reason, comme un refus
     # cas courant : la question se comprend seule, aucune clarification
     client, _ = _client([fake_message(text=_sortie(clarification="   "), model=HAIKU)])
     sortie, _ = await _comprendre(client)

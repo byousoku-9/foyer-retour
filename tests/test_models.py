@@ -30,6 +30,66 @@ def test_documentation_active_aligne_le_plancher_sonnet_des_choix_semantiques() 
     assert "`micro` pour comprendre et vérifier" not in architecture
 
 
+# Formulations qui attribuent un appel **servi** de *comprendre* ou de *vérifier* au tier `micro`.
+# AD-9 amendé (02/09/2026) : Sonnet `reason` est le plancher de tout choix sémantique servi, et
+# `config.py` refuse la descente sans `baseline_tiers=true` hors production. `micro` reste un axe
+# d'évaluation légitime — c'est pourquoi la garde porte sur ces tournures-là, et non sur le mot seul :
+# « matrice baseline (`micro`/`reason`) », « `micro` reste expérimental » ou un `StepTrace` synthétique
+# restent vrais. Ce qui ne peut plus revenir, c'est l'attribution du chemin servi.
+FORMULATIONS_PERIMEES = ("appel micro", "appels micro", "appel est micro",
+                         "contrôle micro", "micro groupé", "micro_call")
+
+# Journaux de mesures datées (`docs/tests-live.md`, `.memlog.md`, baselines d'évals) et tests
+# `*live.py` sont hors garde : ils consignent ce qui a réellement tourné, jamais ce que le produit
+# sert aujourd'hui. `web/` a sa propre surface et son propre cycle.
+SURFACES_ACTIVES_SUFFIXES = {".py", ".md", ".yaml", ".yml"}
+
+# Deux artefacts portent la formulation périmée **et** un verrou d'identité à l'octet ; les réécrire
+# rendrait rouge une porte réservée, pas une dette de lecture :
+#   - `server/evals/cases/guide/g-luxtrust-prix.yaml` consigne une mesure datée du 2026-08-24 et ses
+#     octets sont figés par `test_evals_run.py::test_les_cinq_verticaux_restent_byte_identiques`;
+#   - l'annexe de `docs/choix-et-limites.md`, sous `<details>`, s'annonce « registre historique
+#     conservé à l'identique » et son SHA-256 est figé par
+#     `test_docs_choix_limites.py::test_l_annexe_technique_historique_est_repliable_et_byte_identique`.
+# La garde s'arrête donc à la frontière que ces documents déclarent eux-mêmes.
+ARTEFACTS_FIGES_A_L_OCTET = (Path("server") / "evals" / "cases" / "guide" / "g-luxtrust-prix.yaml",)
+
+
+def _surfaces_actives() -> list[tuple[Path, str]]:
+    """Les surfaces où une mention du chemin servi engage le produit d'aujourd'hui."""
+    chemins = [p for p in sorted((ROOT / "server").rglob("*"))
+               if p.is_file() and p.suffix in SURFACES_ACTIVES_SUFFIXES
+               and p.relative_to(ROOT) not in ARTEFACTS_FIGES_A_L_OCTET]
+    chemins += [ROOT / "docs" / "architecture.md"]
+    chemins += [p for p in sorted((ROOT / "tests").glob("test_*.py"))
+                if not p.name.endswith("live.py") and p.name != Path(__file__).name]
+    surfaces = [(p, p.read_text("utf-8")) for p in chemins]
+
+    # `choix-et-limites.md` déclare lui-même sa frontière : la synthèse active, puis l'annexe figée.
+    limites = (ROOT / "docs" / "choix-et-limites.md").read_text("utf-8")
+    assert "<details>" in limites, "l'annexe historique doit rester repliable et identifiable"
+    surfaces.append((ROOT / "docs" / "choix-et-limites.md", limites[:limites.index("<details>")]))
+    return surfaces
+
+
+def test_aucune_surface_active_nattribue_un_appel_servi_au_tier_micro() -> None:
+    """Le verrou documentaire du plancher Sonnet, étendu aux mentions du chemin servi.
+
+    Une phrase qui décrit *comprendre* ou *vérifier* comme un appel `micro` est fausse depuis
+    l'amendement AD-9 : elle coûte une lecture de plus à qui doit décider sur pièce.
+    """
+    surfaces = _surfaces_actives()
+    assert len(surfaces) > 50  # la garde balaie bien les surfaces actives, pas une liste vide
+
+    fautes = []
+    for chemin, contenu in surfaces:
+        texte = contenu.replace("`", "").replace("*", "").lower()
+        for numero, ligne in enumerate(texte.split("\n"), 1):
+            fautes += [f"{chemin.relative_to(ROOT)}:{numero} — {formulation}"
+                       for formulation in FORMULATIONS_PERIMEES if formulation in ligne]
+    assert fautes == []
+
+
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
     assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low"}
 

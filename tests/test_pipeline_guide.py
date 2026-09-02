@@ -496,7 +496,7 @@ async def test_a_refusal_without_truncation_stays_a_served_answer(index: Index) 
 # --- court-circuits d'AD-5 ---------------------------------------------------
 async def test_an_out_of_scope_intent_never_reaches_the_reason_tier(index: Index) -> None:
     answer, trace, fake = await _run(index, [_comprendre("meteo")])
-    assert fake.remaining_script == 0 and len(fake.requests) == 1  # le seul appel est `micro`
+    assert fake.remaining_script == 0 and len(fake.requests) == 1  # le seul appel est `reason`
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "hors_perimetre" and answer.reason.terms_searched == []
@@ -535,7 +535,7 @@ async def test_a_clarification_short_circuits_and_is_carried_by_the_answer(index
                                      question="Et pour eux, c'est pareil ?")
     assert fake.remaining_script == 0 and [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert "retrouver" not in [s.name for s in trace.steps]
-    assert len(fake.requests) == 1  # le seul appel est `micro` : aucun appel `reason` n'est facturé
+    assert len(fake.requests) == 1  # le seul appel est `reason` : aucun appel de plus n'est facturé
     assert answer.found is False and answer.clarification == "De quelles personnes parlez-vous ?"
     assert answer.reason is not None and answer.reason.kind == "clarification_requise"
     assert answer.reason.terms_searched == [] and answer.reason.blocks_scanned == 0
@@ -560,7 +560,7 @@ async def test_une_langue_forcee_est_demandee_pour_la_clarification_elle_meme(in
 async def test_une_detection_non_servie_pose_quand_meme_la_question_de_clarification(index: Index) -> None:
     """Revue Codex 2.4, tour 2 (NB1) : la détection n'est connue qu'**après** la réponse — la
     clarification est déjà écrite, dans la langue de l'utilisateur, et rien ne peut plus la traduire
-    (AD-5 : « un **seul** appel `micro` » avant le court-circuit). AD-5 exige néanmoins
+    (AD-5 : « un **seul** appel `reason` » avant le court-circuit). AD-5 exige néanmoins
     `Answer.clarification` sur ce chemin, et l'AC 2.2 la reconduit en tour d'historique : elle est
     servie. Ce qui n'est pas tu, c'est la divergence — `lang_fallback` la publie, le refus français
     de *restituer* entoure la question, et *comprendre* la trace (AD-16)."""
@@ -1209,7 +1209,7 @@ async def test_zero_hit_dictionnaire_valide_refuse_avant_retrouver(index: Index,
     answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
                                      dictionnaire=dico)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 1  # le seul appel est `micro`
+    assert fake.remaining_script == 0 and len(fake.requests) == 1  # le seul appel est `reason`
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert "retrouver" not in [s.name for s in trace.steps]
     assert answer.found is False and answer.reason is not None
@@ -1541,7 +1541,7 @@ async def test_le_court_circuit_zero_hit_porte_sur_la_question_resolue_pas_sur_l
     de la question résolue — le mock les pose côte à côte, et il passerait à l'identique avec une
     `question_resolue` vide. Cette autre moitié n'est tenable que sur un appel réel : c'est
     `tests/test_suivi_live.py::test_un_suivi_est_resolu_par_lhistorique` qui la tient, en montrant
-    qu'une question autonome et des `terms` visant le véhicule sortent du **même** appel `micro`.
+    qu'une question autonome et des `terms` visant le véhicule sortent du **même** appel `reason`.
     """
     dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
     # Le prédicat que le pipeline exécute est `court_circuit_pour(doc_id)`, pas `court_circuit_actif`
@@ -1965,7 +1965,7 @@ async def test_un_perimetre_tronque_ne_desarme_pas_une_clarification_neutralisee
 
     La sortie modèle contradictoire porte à la fois l'intention que le périmètre tronqué ne permet
     pas de croire et la seule question de clarification disponible. Cette dernière doit être servie
-    après l'unique appel ``micro`` ; la question brute non autonome ne doit jamais devenir l'entrée
+    après l'unique appel ``reason`` ; la question brute non autonome ne doit jamais devenir l'entrée
     de *retrouver*.
     """
     clarification = "De quelle démarche parlez-vous ?"
