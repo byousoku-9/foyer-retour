@@ -105,30 +105,38 @@ def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> N
     assert_empreinte_committee_declaree(DOC, doc.ingest_fingerprint)
 
 
-def test_baloise_typing_is_transported_and_only_the_relinked_halves_await_a_reading() -> None:
-    """Le typage publié est **transporté**, et ce qu'il ne transporte pas est nommé.
+def test_baloise_typing_is_transported_and_the_relinked_halves_were_reread() -> None:
+    """Le typage publié est **transporté**, et ce qu'il ne transporte pas a été relu.
 
     La campagne du 02/09 (130 messages standard, 4,7695 EUR) a typé l'arbre Opus ; l'ingestion qui
-    la suit retrouve chaque bloc à l'identique et recopie ses décisions sans un appel. Son rapport
-    cesse alors de décrire la campagne — elle parlait de la génération précédente — pour décrire le
-    transport.
-
-    Les 22 blocs qu'il ne transporte pas sont exactement ceux que l'ingestion vient de relier à leur
-    moitié précédente : leur typage avait été décidé sur un fragment de phrase que la mise en page
-    coupait, il doit être relu avec la phrase entière. Ce n'est pas une perte, c'est la conséquence
-    voulue du lien restauré — et la garde qui la produit est la seule qui puisse la voir.
+    relie les phrases coupées retrouve 942 blocs à l'identique et recopie leurs décisions sans un
+    appel. Les 22 blocs qu'elle ne transporte pas sont exactement ceux qu'elle vient de relier à
+    leur moitié précédente : leur typage avait été décidé sur un fragment de phrase, il a été relu
+    avec la phrase entière par une campagne standard de 6 messages (0,1807 EUR). Le rapport publié
+    décrit ce transport et cette relecture, jamais la génération précédente.
     """
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     doc = Document.model_validate_json((REAL / "document.json").read_bytes())
     assert report.stats["blocs_typage_reutilises"] == 942
-    assert report.stats["blocs_typage_a_rejouer"] == 22
+    assert report.stats["blocs_typage_rejoues"] == 22
     assert len(report.stats["ids_typage_reutilises"]) == 942
-    assert all(check.name not in TYPING_CHECKS for check in report.checks)
-    en_attente = [block for block in doc.blocks
-                  if is_citable(block) and block.block_id not in report.stats["ids_typage_reutilises"]]
-    assert len(en_attente) == 22
-    assert all(block.continues and block.kind_source is None for block in en_attente)
-    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 591
+    assert report.stats["typage_transport"] == "standard"
+    assert report.stats["typage_standard_requests"] == 6
+    assert report.stats["typage_standard_cost_eur"] == 0.1807
+    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 3.0
+    assert report.stats["blocs_types_modele"] == 610
+    assert report.stats["blocs_juridiques"] == 602
+    assert report.stats["blocs_juridiques_confirmes"] == 565
+    transport = next(check for check in report.checks if check.name == "typage_transport")
+    assert transport.level == "info" and "aucune API Batch" in transport.detail
+    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 610
+    # Trois moitiés reliées restent sans kind après relecture : la campagne les a lues et n'y a vu
+    # aucune clause (une liste d'intitulés, un fragment d'alinéa, des coordonnées). Tout autre bloc
+    # relié citable porte son kind.
+    sans_kind = sorted(block.block_id for block in doc.blocks
+                       if is_citable(block) and block.continues and block.kind_source is None
+                       and block.structural_kind in {"para", "list"})
+    assert sans_kind == [f"{DOC}:p10:20", f"{DOC}:p15:14", f"{DOC}:p46:14"]
 
 
 def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Document) -> None:
