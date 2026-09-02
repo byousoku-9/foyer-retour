@@ -995,17 +995,6 @@ def _hors_sommaire(page: PageText) -> bool:
         return True
     return False
 
-
-def _preuve_forte_de_sommaire(page: PageText) -> bool:
-    """Preuve qu'un sommaire vit sur cette page : intitulé autonome, ou une entrée prouvée.
-
-    C'est le sous-ensemble de `_has_toc_entries` qu'une prose contractuelle ne peut pas imiter. La
-    forme imprimée en est volontairement absente : mesurée sur un artefact réel, elle apparaît
-    38 fois hors de la page de sommaire.
-    """
-    return _has_toc_title(page) or any(_est_entree_de_sommaire(line, page) for line in page.lines)
-
-
 def _mark_toc_pages(pages: list[PageText]) -> None:
     """Entre par la structure visible, propage tant qu'elle subsiste et ne se réarme jamais après le corps."""
     in_toc = False
