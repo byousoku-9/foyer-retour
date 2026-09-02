@@ -25,6 +25,8 @@ def test_documentation_active_aligne_le_plancher_sonnet_des_choix_semantiques() 
 
     assert "Sonnet au minimum pour tout choix sémantique" in readme
     assert "Sonnet au minimum pour tout choix sémantique" in architecture
+    assert "Un seul appel `reason`, toujours." in readme
+    assert "Un seul appel `micro`, toujours." not in readme
     assert "`micro` pour comprendre et vérifier" not in architecture
 
 
