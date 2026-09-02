@@ -1118,6 +1118,7 @@ def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
     from server.app.api.etat import construire_etat
     from server.app.config import Settings
     from server.app.corpus import racine as rac
+    from server.app.llm.audit import MemoryAuditSink
 
     data, espace = _corpus_sous_racine(tmp_path)
     # Les surfaces lues **après** le corpus doivent elles aussi être couvertes, sans quoi la sonde
@@ -1158,6 +1159,8 @@ def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
     monkeypatch.undo()
 
     assert etat is not None
+    assert isinstance(etat.client.audit_sink, MemoryAuditSink)
+    assert not etat.client.audit_sink.persistent
     assert bascule["faite"], "la bascule concurrente n'a pas eu lieu pendant la passe"
     assert len(generations) > 1, "la passe n'a résolu qu'une seule cible couverte"
     assert set(generations) == {generations[0]}, (

@@ -15,8 +15,8 @@ Codex 1.4, B4) : `ParsedQuestion` quand la question est autonome, `Clarification
 anaphore reste irrésoluble avec l'historique — dans ce second cas aucune `question_resolue` n'est
 construite, ni inventée ni reprise telle quelle, et c'est le schéma de sortie qui l'impose
 (exactement l'un des deux champs renseigné, sinon relance motivée). Le préfixe
-système est statique (instructions décrivant le périmètre du guide — pas le sommaire : `micro` cache
-5 min, seuil de cache Haiku élevé).
+système est statique (instructions décrivant le périmètre du guide — pas le sommaire) et l'appel
+reste sur le plancher sémantique `reason`.
 Question, historique et profil sont chacun délimités par `untrusted()` (AD-15).
 """
 

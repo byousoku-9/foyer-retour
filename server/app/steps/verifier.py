@@ -374,12 +374,12 @@ class DemandeRendue(BaseModel):
 
 
 class SortieVerifierSinistre(SortieVerifier):
-    """Mode sinistre : le **même et unique** appel `micro` rend en plus l'applicabilité (AD-9 amendé).
+    """Mode sinistre : le **même et unique** appel `reason` rend en plus l'applicabilité.
 
     Hérite de `SortieVerifier` — pertinence, phrases soutenues et couverture des facettes sont
     exactement les mêmes questions, posées dans le même appel. La reprise différée de la story 1.5
     demandait littéralement que les champs typés arrivent « dans le même appel, pas dans un second » :
-    un second appel `micro` de plus par requête sinistre pour des faits que le modèle a déjà sous les
+    un second appel de plus par requête sinistre pour des faits que le modèle a déjà sous les
     yeux serait un coût pur (NFR4), et deux lectures indépendantes des mêmes passages pourraient se
     contredire. Le guide, lui, garde `SortieVerifier` et son préfixe inchangés — donc ses fixtures.
     """

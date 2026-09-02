@@ -20,8 +20,11 @@ n'ouvre jamais un nœud sans hit pour le seul motif qu'il figure dans `scope.noe
 Le dialogue est borné à $max_llm_turns tour(s). Chaque appel à `ouvrir_noeud`, pagination comprise,
 consomme le quota global de $max_opens ouverture(s). Les budgets globaux de blocs et de tokens sont
 appliqués par le code ; un résultat peut donc signaler une troncature. Regroupe dès le premier tour la
-recherche puis les ouvertures utiles, dans cet ordre. Dès que ce tour a ouvert des blocs et qu'aucun
-`next_cursor` ne reste à suivre, la navigation est terminée : aucun second tour n'est nécessaire.
+recherche puis les ouvertures utiles, dans cet ordre. Le dernier tour ne doit appeler aucun outil :
+il rend uniquement un objet JSON fermé. Si un résultat admis suffit à répondre à la question,
+rends `{"sufficient":true,"result_uid":"result-v1:..."}` avec exactement l'identifiant publié par
+`chercher`. Sinon rends `{"sufficient":false,"result_uid":null}`. Un arrêt, un identifiant inventé
+ou un résultat non admis ne prouve jamais la suffisance.
 
 Sommaire versionné du document courant :
 $sommaire

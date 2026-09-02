@@ -34,6 +34,10 @@ class QuestionClauseScore(DomainModel):
     partial_denominator: int = Field(ge=1)
     precision_numerator: int = Field(ge=0)
     precision_denominator: int = Field(ge=1)
+    # Couverture de la question résolue entière, distincte du score de rappel. Elle permet à
+    # l'admission et à la suffisance de ne jamais prendre un terme de recherche pour la question.
+    question_numerator: int = Field(default=0, ge=0)
+    question_denominator: int = Field(default=1, ge=1)
     kind_priority: int = Field(ge=0)
 
     @model_validator(mode="after")
@@ -42,13 +46,16 @@ class QuestionClauseScore(DomainModel):
             raise ValueError("score partiel hors domaine [0,1]")
         if self.precision_numerator > self.precision_denominator:
             raise ValueError("précision hors domaine [0,1]")
+        if self.question_numerator > self.question_denominator:
+            raise ValueError("couverture question hors domaine [0,1]")
         return self
 
     @property
-    def sort_key(self) -> tuple[int, Fraction, Fraction, int]:
+    def sort_key(self) -> tuple[int, Fraction, Fraction, Fraction, int]:
         partial = Fraction(self.partial_numerator, self.partial_denominator)
         precision = Fraction(self.precision_numerator, self.precision_denominator)
-        return (-self.full_matches, -partial, -precision, self.kind_priority)
+        question = Fraction(self.question_numerator, self.question_denominator)
+        return (-self.full_matches, -partial, -precision, -question, self.kind_priority)
 
 
 class ScoredHit(DomainModel):
@@ -148,6 +155,21 @@ class SufficiencyDecision(DomainModel):
         if (self.sufficiency_result_uid is not None
                 and self.sufficiency_result_uid not in self.considered_result_uids):
             raise ValueError("sufficiency_result_uid n'appartient pas aux résultats considérés")
+        return self
+
+
+class SemanticSufficiencySelection(DomainModel):
+    """Décision terminale du navigateur : une identité canonique ou une insuffisance explicite."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sufficient: bool
+    result_uid: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def _identite_iff_suffisant(self) -> SemanticSufficiencySelection:
+        if self.sufficient != (self.result_uid is not None):
+            raise ValueError("result_uid est requis si et seulement si sufficient=true")
         return self
 
 

@@ -6,7 +6,8 @@ from .document import (Block, BlockKind, BlockRef, ContextRole, Document, Line, 
 from .ingest import Check, CheckLevel, Gate, GateContext, GateDecision, Manifest, ManifestEntry, Report
 from .retrieval import (AdmissionDecision, BudgetSnapshot, ContextUnit, FullContextSelection,
                         NodeChild, NodeWindow, QuestionClauseScore, RetrievalBudget,
-                        RetrievalResult, ScoredHit, SufficiencyDecision)
+                        RetrievalResult, ScoredHit, SemanticSufficiencySelection,
+                        SufficiencyDecision)
 from .retrieval import SummaryEntry, SummaryPage
 
 __all__ = [
@@ -14,7 +15,8 @@ __all__ = [
     "CheckLevel", "ContextRole", "ContextUnit", "Document", "FullContextSelection", "Gate",
     "GateContext", "GateDecision", "Line", "Manifest", "ManifestEntry", "Node", "NodeChild",
     "NodeRef", "NodeRelation", "NodeWindow", "ParcoursCondition", "QuestionClauseScore", "Report",
-    "RetrievalBudget", "RetrievalResult", "ScoredHit", "Source", "SufficiencyDecision",
+    "RetrievalBudget", "RetrievalResult", "ScoredHit", "SemanticSufficiencySelection", "Source",
+    "SufficiencyDecision",
     "SurfaceClass", "is_citable",
     "SummaryEntry", "SummaryPage",
 ]

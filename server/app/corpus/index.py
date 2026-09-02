@@ -212,12 +212,12 @@ class Index:
         if focus_block_id is not None and cursor is not None:
             raise ValueError("focus_block_id et cursor sont exclusifs")
         doc_id, block_ids = self._nodes[node_id]
+        if focus_block_id is not None and focus_block_id not in block_ids:
+            raise KeyError(f"{focus_block_id} n'est pas un bloc de {node_id}")
         if focus_block_id is not None and len(block_ids) == 1:
-            return self.ouvrir_singleton(focus_block_id, node_window=node_window)
+            return self.ouvrir_singleton(block_ids[0], node_window=node_window)
         start = 0
         if focus_block_id is not None:
-            if focus_block_id not in block_ids:
-                raise KeyError(f"{focus_block_id} n'est pas un bloc de {node_id}")
             start = (block_ids.index(focus_block_id) // node_window) * node_window
         elif cursor is not None:
             if cursor < 0 or cursor >= len(block_ids):
@@ -333,10 +333,13 @@ class Index:
         # contre la question résolue entière : une reformulation de recherche ne devient jamais la
         # question à la place de celle réellement posée.
         question_form = frozenset(words(normalize(question or "")))
-        score_groups = [[question_form]] if question_form else groups
+        # La question entière ajoute un axe au score sans effacer le classement de rappel : les
+        # canoniques/variantes restent mesurés avec leur pondération documentaire, puis le premier
+        # groupe porte la couverture propre à la question résolue.
+        score_groups = [[question_form], *groups] if question_form else None
         canonical_question = [
             [" ".join(sorted(form)) for form in forms]
-            for forms in score_groups
+            for forms in (score_groups or groups)
         ]
         canonical_question.sort(key=lambda forms: tuple(forms))
         question_uid = stable_uid("question-v1", {
@@ -366,7 +369,8 @@ class Index:
                 if not candidate_match:
                     continue
                 public_hit = self._score_entry(
-                    e, groupes_, question_uid_, prioritaires, whole_question=False,
+                    e, score_groups_ or groupes_, question_uid_, prioritaires,
+                    whole_question=score_groups_ is not None,
                 )
                 scored.append(public_hit)
             scored.sort(key=lambda hit: (
@@ -445,8 +449,18 @@ class Index:
         pleins = 0
         precision_plein = Fraction()
         partiels = Fraction()
+        question_coverage = Fraction()
         frequencies = self._block_frequencies[entry.doc_id]
-        for forms in score_groups:
+        recall_groups = score_groups
+        if whole_question and score_groups:
+            question_forms = score_groups[0]
+            if question_forms:
+                question_coverage = max(
+                    Fraction(len(entry.tokens & form), len(form))
+                    for form in question_forms if form
+                )
+            recall_groups = score_groups[1:]
+        for forms in recall_groups:
             formes_pleines = [form for form in forms if form and form <= entry.tokens]
             if formes_pleines:
                 pleins += 1
@@ -458,22 +472,18 @@ class Index:
                     )
                 continue
             if forms:
-                if whole_question:
-                    partiels += max(
-                        Fraction(len(entry.tokens & form), len(form))
-                        for form in forms if form
-                    )
-                else:
-                    partiels += max(self._hit(entry, form, frequencies) for form in forms)
-        rappel = (partiels / len(score_groups)
-                  if pleins == 0 and score_groups else Fraction())
+                partiels += max(self._hit(entry, form, frequencies) for form in forms)
+        rappel = (partiels / len(recall_groups)
+                  if recall_groups and pleins == 0 else Fraction())
         score = QuestionClauseScore(
             question_uid=question_uid, clause_uid=entry.block.block_id,
-            scorer_uid="lexical-question-clause", scorer_version="3-whole-question",
+            scorer_uid="lexical-question-clause", scorer_version="4-question-and-recall",
             full_matches=pleins, partial_numerator=rappel.numerator,
             partial_denominator=rappel.denominator,
             precision_numerator=precision_plein.numerator,
             precision_denominator=precision_plein.denominator,
+            question_numerator=question_coverage.numerator,
+            question_denominator=question_coverage.denominator,
             # Un label modèle ne devient décisionnel qu'après confirmation terminale T2/T3.
             kind_priority=(0 if entry.block.kind_confirmed
                            and entry.block.kind in prioritaires else 1),

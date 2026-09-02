@@ -70,8 +70,8 @@ def test_sommaire_page_expose_deux_pages_et_un_curseur_rejouable() -> None:
 
 def test_question_canonique_est_scoree_sans_confondre_les_termes_de_rappel() -> None:
     blocks = [
-        Block(block_id="d:p1:1", text="Alias incendie.", loc="p1", seq=1),
-        Block(block_id="d:p1:2", text="Alias sans rapport.", loc="p1", seq=2,
+        Block(block_id="d:p1:1", text="Alias incendie habitation.", loc="p1", seq=1),
+        Block(block_id="d:p1:2", text="Alias tempête automobile.", loc="p1", seq=2,
               kind="garantie", kind_source="manual"),
     ]
     document = Document(
@@ -84,12 +84,32 @@ def test_question_canonique_est_scoree_sans_confondre_les_termes_de_rappel() -> 
     hits = index.chercher(["alias"], question="incendie habitation", limit=2)
 
     assert [hit.clause_uid for hit in hits] == ["d:p1:1", "d:p1:2"]
-    assert hits[0].score.full_matches == hits[1].score.full_matches == 1
-    # Le score public est celui qui ordonne le rappel ; l'identité de question reste liée à la
-    # question résolue, dont la pertinence sémantique est tranchée par Sonnet.
+    assert hits[0].score.sort_key < hits[1].score.sort_key
+    # Les formes de rappel rendent les deux candidats éligibles, mais la question résolue
+    # entière porte le score public et doit donc pouvoir renverser leur ordre.
     autres = index.chercher(["alias"], question="tempête automobile", limit=2)
-    assert autres[0].score.sort_key == hits[0].score.sort_key
+    assert [hit.clause_uid for hit in autres] == ["d:p1:2", "d:p1:1"]
+    assert autres[0].score.sort_key < autres[1].score.sort_key
     assert autres[0].score.question_uid != hits[0].score.question_uid
+
+
+def test_ouvrir_noeud_singleton_refuse_un_focus_appartenant_a_un_autre_noeud() -> None:
+    blocks = [
+        Block(block_id="d:p1:1", text="Premier singleton.", loc="p1", seq=1),
+        Block(block_id="d:p2:1", text="Second singleton.", loc="p2", seq=1),
+    ]
+    document = Document(
+        doc_id="d", kind="contrat", title="t", edition="e", blocks=blocks,
+        nodes=[
+            Node(node_id="root", items=[NodeRef(node_id="n1"), NodeRef(node_id="n2")]),
+            Node(node_id="n1", items=[BlockRef(block_id=blocks[0].block_id)]),
+            Node(node_id="n2", items=[BlockRef(block_id=blocks[1].block_id)]),
+        ],
+    )
+    index = Index(Corpus(documents={"d": document}))
+
+    with pytest.raises(KeyError, match="n'est pas un bloc de n1"):
+        index.ouvrir_noeud("n1", focus_block_id="d:p2:1", node_window=1)
 
 
 def test_pdf_summary_never_advertises_a_node_with_no_citable_block() -> None:

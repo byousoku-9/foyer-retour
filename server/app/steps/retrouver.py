@@ -63,7 +63,8 @@ from server.app.corpus.index import Index, reading_order
 from server.app.corpus.loader import Corpus
 from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FullContextSelection,
                                RetrievalBudget, RetrievalResult, ScoredHit,
-                               SufficiencyDecision, QuestionClauseScore, is_citable)
+                               SemanticSufficiencySelection, SufficiencyDecision,
+                               QuestionClauseScore, is_citable)
 from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import BudgetExceeded, LlmParse, PipelineError
 from server.app.domain.question import ParsedQuestion
@@ -139,7 +140,7 @@ _KINDS_CONTEXTUELS = frozenset({"heading", "definition"})
 
 
 def _score_positif(score: QuestionClauseScore) -> bool:
-    return score.full_matches > 0 or score.partial_numerator > 0
+    return score.question_numerator > 0
 _MOTS_OUTILS_LIMITES = frozenset({
     "a", "au", "aux", "avec", "ce", "ces", "d", "dans", "de", "des", "du", "elle", "en",
     "est", "et", "il", "ils", "l", "la", "le", "les", "leur", "leurs", "lui", "ne", "ni", "on", "ou",
@@ -561,10 +562,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # historique ; les complétions décisionnelles peuvent explicitement forcer la priorité.
             focus_hit = hit_by_block.get(focus) if focus is not None else None
             best_id = best_hit_by_node.get(node_id)
-            canonical_focus = (index.score_clause(parsed.question_resolue, focus).score
-                               if focus_hit is not None and focus is not None else None)
-            canonical_best = (index.score_clause(parsed.question_resolue, best_id).score
-                              if best_id is not None else None)
+            canonical_focus = focus_hit.score if focus_hit is not None else None
+            best_hit = hit_by_block.get(best_id) if best_id is not None else None
+            canonical_best = best_hit.score if best_hit is not None else None
             focus_reserve = bool(
                 focus is not None and (
                     prioritize_focus
@@ -701,7 +701,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             and (hit_by_block[block_id].score.full_matches > 0
                  or hit_by_block[block_id].score.partial_numerator > 0)
             and block(block_id).kind not in _KINDS_CONTEXTUELS
-            and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+            and _score_positif(hit_by_block[block_id].score)
             and (kinds_suffisants is None
                  or (block(block_id).kind in kinds_suffisants
                      and block(block_id).kind_confirmed))
@@ -992,10 +992,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             cohorte_precedente = cohorte[1:]
 
     used_tools = False
-    semantic_completion = False
+    semantic_selection: SemanticSufficiencySelection | None = None
+    semantic_selection_invalid = False
 
     async def navigate() -> None:
-        nonlocal truncated, used_tools, semantic_completion
+        nonlocal truncated, used_tools, semantic_selection, semantic_selection_invalid
         # Les candidats FAQ ne deviennent visibles au navigateur qu'une fois le mécanisme FAQ
         # franchi. Cela rend notamment `outils → FAQ` distinct de `FAQ → outils`.
         if faq_candidates and "faq_candidates" in question:
@@ -1031,12 +1032,19 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 b for b in result.message.content if getattr(b, "type", None) == "tool_use"
             ]
             if not tool_uses:
-                # Un `end_turn` au second tour peut conclure honnêtement une recherche sans hit ; la
-                # couverture canonique réellement observée décide alors seule de la complétude.
                 if turn == 0:
                     truncated = True
                 elif used_tools and result.message.stop_reason == "end_turn":
-                    semantic_completion = True
+                    raw = "".join(
+                        str(getattr(block, "text", ""))
+                        for block in result.message.content
+                        if getattr(block, "type", None) == "text"
+                    ).strip()
+                    try:
+                        semantic_selection = SemanticSufficiencySelection.model_validate_json(raw)
+                    except ValueError:
+                        semantic_selection_invalid = True
+                        truncated = True
                 break
             used_tools = True
             tool_results: list[dict[str, Any]] = []
@@ -1113,23 +1121,33 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             admission_by_result[hit.result_uid] = AdmissionDecision(
                 result_uid=hit.result_uid, state="rejected",
                 reason="not_admitted_within_bounded_navigation", snapshot=budget_snapshot())
-    sufficient_hit = next((
-        hit_by_block[block_id]
-        for block_id in admitted
-        if block_id in hit_by_block
-        and (hit_by_block[block_id].score.full_matches > 0
-             or hit_by_block[block_id].score.partial_numerator > 0)
-        and block(block_id).kind not in _KINDS_CONTEXTUELS
-        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+    selected_hit = next((
+        hit for hit in scored_hits
+        if semantic_selection is not None
+        and semantic_selection.sufficient
+        and hit.result_uid == semantic_selection.result_uid
+    ), None)
+    sufficient_hit = (
+        selected_hit
+        if selected_hit is not None
+        and selected_hit.clause_uid in admitted_set
+        and _score_positif(selected_hit.score)
+        and block(selected_hit.clause_uid).kind not in _KINDS_CONTEXTUELS
         and (kinds_suffisants is None
-             or (block(block_id).kind in kinds_suffisants and block(block_id).kind_confirmed))
-    ), None) if semantic_completion else None
+             or (block(selected_hit.clause_uid).kind in kinds_suffisants
+                 and block(selected_hit.clause_uid).kind_confirmed))
+        else None
+    )
+    if semantic_selection is not None and semantic_selection.sufficient and sufficient_hit is None:
+        semantic_selection_invalid = True
+        truncated = True
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in admitted_set)
     sufficiency = SufficiencyDecision(
         complete=sufficient_hit is not None,
-        reason=("relevant_foundation_admitted" if sufficient_hit is not None
-                else "no_relevant_foundation_within_budget"),
+        reason=("semantic_result_uid_admitted" if sufficient_hit is not None
+                else ("invalid_semantic_result_uid" if semantic_selection_invalid
+                      else "explicit_semantic_insufficiency")),
         sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
         considered_result_uids=considered,
     )
@@ -1394,7 +1412,7 @@ async def retrouver_full_context(parsed: ParsedQuestion, *, corpus: Corpus, inde
         if block_id in hit_by_id
         and (hit_by_id[block_id].score.full_matches > 0
              or hit_by_id[block_id].score.partial_numerator > 0)
-        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+        and _score_positif(hit_by_id[block_id].score)
     ), None)
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in set(opened))
@@ -1762,7 +1780,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         if block_id in hit_by_id
         and (hit_by_id[block_id].score.full_matches > 0
              or hit_by_id[block_id].score.partial_numerator > 0)
-        and _score_positif(index.score_clause(parsed.question_resolue, block_id).score)
+        and _score_positif(hit_by_id[block_id].score)
         and (not priorities or (bloc(block_id).kind in priorities
                                 and bloc(block_id).kind_confirmed))
     ), None)

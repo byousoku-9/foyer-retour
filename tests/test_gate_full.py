@@ -1040,7 +1040,7 @@ def _quality_evidence(path: Path, *, red_row: str | None = None) -> None:
             evidence_status={ref: EvidenceStatus.RESOLVED for ref in refs},
             evidence_artifacts={
                 ref: EvidenceArtifact.create(
-                    ref=ref, run_uid="run-quality-main",
+                    ref=ref, gate_uid="gate-quality-main", run_uid="run-quality-main",
                     source=("LIVE_ORCHESTRATOR"
                             if registry[ref].evidence_class == "LIVE"
                             else "HERMETIC_RUNNER"),

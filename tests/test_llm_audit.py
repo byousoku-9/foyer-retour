@@ -53,6 +53,21 @@ def test_jsonl_est_0600_complet_et_verrouille_entre_instances_et_processus(
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_audit_exact_hors_ligne_applique_une_rotation_et_une_retention_bornees(
+        tmp_path: Path) -> None:
+    path = tmp_path / "audit.jsonl"
+    sink = JsonlAuditSink(path, max_bytes=700, retention_files=2)
+
+    for index in range(12):
+        sink.append(_event(index))
+
+    files = sorted(tmp_path.glob("audit.jsonl*"))
+    assert [item.name for item in files] == ["audit.jsonl", "audit.jsonl.1", "audit.jsonl.lock"]
+    assert path.stat().st_size <= 700
+    assert (tmp_path / "audit.jsonl.1").stat().st_size <= 700
+    assert all(stat.S_IMODE(item.stat().st_mode) == 0o600 for item in files)
+
+
 async def test_cache_hit_recrit_un_evenement_exact_sans_fuite_dans_la_trace_publique(
         tmp_path: Path) -> None:
     path = tmp_path / "llm.jsonl"
@@ -104,6 +119,35 @@ async def test_cache_hit_recrit_un_evenement_exact_sans_fuite_dans_la_trace_publ
         step=StepTrace(name="api"),
     )
     assert not memory.call.audit_persisted
+
+
+async def test_client_en_ligne_ne_persiste_ni_question_historique_termes_ni_bloc(
+        tmp_path: Path) -> None:
+    path = tmp_path / "interdit.jsonl"
+    settings = Settings(_env_file=None, anthropic_api_key="", llm_audit_path=path)
+    fake = FakeAnthropic([fake_message(
+        model=TIERS["micro"], text='{"mot":"bonjour"}', input_tokens=20, output_tokens=5,
+    )])
+    client = LlmClient(settings, anthropic_client=fake)
+    secrets = {
+        "question": "QUESTION_CONFIDENTIELLE_7f3d",
+        "historique": "HISTORIQUE_CONFIDENTIEL_4a91",
+        "termes": "TERMES_CONFIDENTIELS_18bc",
+        "bloc": "BLOC_CONFIDENTIEL_d243",
+    }
+
+    result = await client.parse(
+        tier="micro", system_prefix=secrets["bloc"],
+        messages=[{"role": "user", "content": json.dumps(secrets)}],
+        output_model=_Answer,
+        budget=RequestBudget(deadline_s=30, max_attempts=1, max_cost_eur=1),
+        step=StepTrace(name="api"),
+    )
+
+    public = result.call.model_dump_json()
+    assert not path.exists()
+    assert not result.call.audit_persisted
+    assert all(value not in public for value in secrets.values())
 
 
 async def test_reponse_reellement_recue_mais_invalide_conserve_enveloppe_et_erreur(

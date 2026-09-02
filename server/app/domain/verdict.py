@@ -6,7 +6,7 @@ littéral :
 
 (a) `applicable_de_claim()` dérive `ClaimStatus.applicable ∈ {oui, non, humain}` d'une claim retenue,
     à partir du typage des blocs qu'elle cite (`Block.kind`, seule source de typage) et des quatre
-    champs typés rendus par l'unique appel `micro` de *vérifier* ;
+    champs typés rendus par l'unique appel `reason` de *vérifier* ;
 (b) `decider()` applique la table exclusive d'AD-6 aux claims **affichées** et compose le `Verdict`
     — sa valeur, sa raison, le paquet manquant, les questions à poser, les points à escalader.
 

@@ -161,8 +161,13 @@ def _semantic_issues(doc: Document) -> list[str]:
             issues.append(f"{node.node_id}: titre complet absent")
         if node.surface_class == "inconnu":
             issues.append(f"{node.node_id}: classe de surface inconnue")
-        technical_surface = oracle_surface_class(node.title)
-        if technical_surface is not None and node.surface_class != technical_surface:
+        technical_surface = oracle_surface_class(
+            node.title, [doc.block(block_id).text for block_id in node.blocks
+                         if normalize(doc.block(block_id).text) != normalize(node.title)],
+        )
+        if technical_surface is None:
+            issues.append(f"{node.node_id}: classe de surface sans preuve locale")
+        elif node.surface_class != technical_surface:
             issues.append(
                 f"{node.node_id}: surface {technical_surface} lisible dans le titre mais classée "
                 f"{node.surface_class}")

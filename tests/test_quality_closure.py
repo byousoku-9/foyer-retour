@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from server.evals.quality_closure import (DEPENDENCIES, OTHER_ROW_IDS, ROW_IDS, BranchKey,
                                           Closure, ClosureInput, EvidenceArtifact, EvidenceStatus,
                                           QualityClosureRunInput, canonical_registry_hash,
@@ -23,7 +25,9 @@ def _input(row_id: str = "P-01", *, resolved: bool = True) -> ClosureInput:
     registry = canonical_registry()
     artifacts = {
         ref: EvidenceArtifact.create(
-            ref=ref, run_uid="run-hermetique-1",
+            ref=ref, gate_uid="gate-epic5-1",
+            run_uid=("run-live-1" if registry[ref].evidence_class == "LIVE"
+                     else "run-hermetique-1"),
             source=("LIVE_ORCHESTRATOR" if registry[ref].evidence_class == "LIVE"
                     else "HERMETIC_RUNNER"),
             payload=f"preuve:{ref}",
@@ -42,6 +46,28 @@ def _input(row_id: str = "P-01", *, resolved: bool = True) -> ClosureInput:
         registry=registry, registry_hash=canonical_registry_hash(registry),
         hermetic_selection="NON_EMPTY",
     )
+
+
+def test_fermeture_lie_des_runs_producteurs_distincts_au_meme_gate_parent() -> None:
+    rows = tuple(_input(row) for row in ROW_IDS)
+    run = QualityClosureRunInput(dependencies=DEPENDENCIES, rows=rows)
+
+    assert {
+        artifact.run_uid
+        for row in run.rows for artifact in row.evidence_artifacts.values()
+    } == {"run-hermetique-1", "run-live-1"}
+
+    first = rows[0]
+    ref = next(iter(first.evidence_artifacts))
+    foreign = EvidenceArtifact.create(
+        ref=ref, gate_uid="gate-etranger", run_uid="run-hermetique-2",
+        source=first.evidence_artifacts[ref].source, payload="preuve étrangère",
+    )
+    altered = first.model_copy(update={
+        "evidence_artifacts": {**first.evidence_artifacts, ref: foreign},
+    })
+    with pytest.raises(ValueError, match="même gate parent"):
+        QualityClosureRunInput(dependencies=DEPENDENCIES, rows=(altered, *rows[1:]))
 
 
 def test_canonical_dag_has_exactly_30_rows_and_v05_depends_on_the_other_29() -> None:

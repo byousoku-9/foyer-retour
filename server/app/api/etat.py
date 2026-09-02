@@ -38,7 +38,6 @@ from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
 from server.app.llm.client import LlmClient
-from server.app.llm.audit import JsonlAuditSink
 from server.app.llm.models import TIERS
 from server.app.pipelines.guide import repondre_guide
 from server.app.pipelines.sinistre import run as executer_sinistre
@@ -849,7 +848,9 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     _journaliser_dictionnaire(dictionnaire)
     return EtatApp(
         settings=settings, corpus=corpus, index=Index(corpus),
-        client=LlmClient(settings, audit_sink=JsonlAuditSink(settings.llm_audit_path)),
+        # AD-10/AD-15 : l'API ne persiste jamais question, historique ni blocs. Le client garde
+        # seulement l'événement exact en mémoire le temps de projeter hashes, tailles et IDs.
+        client=LlmClient(settings),
         limiter=RateLimiter(settings),
         followup_limiter=RateLimiter(
             settings, per_minute="conversation_rate_limit_per_minute",

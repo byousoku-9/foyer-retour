@@ -94,46 +94,84 @@ class MemoryAuditSink:
 
 
 class JsonlAuditSink:
-    """Sink persistant append-only, permissions utilisateur, flushé à chaque appel."""
+    """Sink exact hors ligne, permissions utilisateur, taille et rétention bornées.
+
+    Le verrou porte sur un inode stable distinct du JSONL : une rotation ne permet donc jamais à
+    deux processus d'écrire chacun dans une génération différente du même chemin.
+    """
 
     persistent = True
     _locks_guard = threading.Lock()
     _locks: dict[str, threading.Lock] = {}
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, max_bytes: int = 16 * 1024 * 1024,
+                 retention_files: int = 4) -> None:
+        if max_bytes < 1:
+            raise ValueError("max_bytes doit être positif")
+        if retention_files < 1:
+            raise ValueError("retention_files doit être positif")
         self.path = path
+        self.lock_path = path.with_name(path.name + ".lock")
+        self.max_bytes = max_bytes
+        self.retention_files = retention_files
         key = str(path.resolve())
         with self._locks_guard:
             self._lock = self._locks.setdefault(key, threading.Lock())
 
     def append(self, event: ExactLlmAuditEvent) -> None:
         payload = _canonical(event.model_dump(mode="json")) + b"\n"
+        if len(payload) > self.max_bytes:
+            raise ValueError(
+                f"événement d'audit ({len(payload)} octets) > borne {self.max_bytes}")
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            descriptor = os.open(self.path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+            lock_descriptor = os.open(
+                self.lock_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
             try:
-                os.fchmod(descriptor, 0o600)
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-                view = memoryview(payload)
-                while view:
-                    written = os.write(descriptor, view)
-                    if written <= 0:
-                        raise OSError("écriture JSONL incomplète")
-                    view = view[written:]
-                os.fsync(descriptor)
+                os.fchmod(lock_descriptor, 0o600)
+                fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+                current_size = self.path.stat().st_size if self.path.exists() else 0
+                if current_size and current_size + len(payload) > self.max_bytes:
+                    oldest = self.path.with_name(
+                        f"{self.path.name}.{self.retention_files - 1}")
+                    if self.retention_files > 1 and oldest.exists():
+                        oldest.unlink()
+                    for index in range(self.retention_files - 2, 0, -1):
+                        source = self.path.with_name(f"{self.path.name}.{index}")
+                        if source.exists():
+                            os.replace(source, self.path.with_name(f"{self.path.name}.{index + 1}"))
+                    if self.retention_files > 1:
+                        os.replace(self.path, self.path.with_name(f"{self.path.name}.1"))
+                    else:
+                        self.path.unlink()
+                descriptor = os.open(
+                    self.path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+                try:
+                    os.fchmod(descriptor, 0o600)
+                    view = memoryview(payload)
+                    while view:
+                        written = os.write(descriptor, view)
+                        if written <= 0:
+                            raise OSError("écriture JSONL incomplète")
+                        view = view[written:]
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
             finally:
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
                 except OSError:
                     pass
-                os.close(descriptor)
+                os.close(lock_descriptor)
 
 
 def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
                         request: dict[str, Any], response: Any | None,
                         trusted_line_uids: tuple[str, ...] = (),
                         artifact_uid: str = "",
-                        error_class: str | None = None) -> dict[str, Any]:
+                        error_class: str | None = None,
+                        max_bytes: int = 16 * 1024 * 1024,
+                        retention_files: int = 4) -> dict[str, Any]:
     """Couture commune aux clients d'ingestion synchrones (Opus/T1/T2/arbitre)."""
     projected = _json_value(response)
     serialized_response = (projected if projected is None or isinstance(projected, dict)
@@ -144,5 +182,7 @@ def append_ingest_audit(path: Path, *, run_uid: str, step: str, model: str,
         model=model, request=request, response=serialized_response,
         trusted_line_uids=trusted_line_uids, error_class=error_class,
     )
-    JsonlAuditSink(path).append(event)
+    JsonlAuditSink(
+        path, max_bytes=max_bytes, retention_files=retention_files,
+    ).append(event)
     return event.public_projection()

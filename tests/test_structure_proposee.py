@@ -35,6 +35,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.domain import Document
 from server.ingest import pdf_to_blocks as p
+from server.ingest import pdf_structure_gate as structure_gate
 from server.ingest import structure as s
 
 DOC = "doc-structure"
@@ -601,6 +602,8 @@ def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
             continuation_line_uids=[], relations=[],
         ),
     ])
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert verdict.accepte
     document, _ = p.build_document(
         pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC,
         title="Contrat", structure=proposition,
@@ -608,6 +611,7 @@ def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
     publies = [line.line_uid for block in document.blocks for line in block.lines]
     assert set(attendus) == set(publies)
     assert len(publies) == len(set(publies))
+    assert structure_gate._semantic_issues(document) == []
     noeud = next(node for node in document.nodes if node.node_id == f"{DOC}:s1")
     assert set(noeud.blocks) == {block.block_id for block in document.blocks}
 
@@ -674,8 +678,13 @@ def test_proposition_v2_transmet_relations_continuations_et_vraies_sections_au_s
 
 @pytest.mark.parametrize(("title", "article_uid", "surface", "detail"), [
     ("Sommaire", None, "substantiel", "table_des_matieres"),
+    ("Table of contents", None, "substantiel", "table_des_matieres"),
+    ("Inhaltsverzeichnis", None, "substantiel", "table_des_matieres"),
     ("Préambule", None, "substantiel", "preliminaire"),
+    ("Preamble", None, "substantiel", "preliminaire"),
+    ("Vorwort", None, "substantiel", "preliminaire"),
     ("Article 12 Garanties", "article:13", "substantiel", "article_uid"),
+    ("Artikel 12 Deckung", None, "substantiel", "article_uid"),
     ("Titre sans article", "article:12", "substantiel", "article_uid"),
 ])
 def test_oracle_independant_refuse_semantique_opus_contredite_par_le_titre(
@@ -696,6 +705,52 @@ def test_oracle_independant_refuse_semantique_opus_contredite_par_le_titre(
 
     assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
     assert detail in verdict.detail
+
+
+def test_oracle_independant_refuse_une_surface_sans_preuve_locale() -> None:
+    pages = [_page(1, ["Documentation"])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    (uid,) = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uid, premiere_line_uid=uid, derniere_line_uid=uid,
+            parent_line_uid=None, title_line_uids=[uid], article_uid=None,
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
+    assert not verdict.accepte and verdict.motif == "affectation_non_prouvee"
+    assert "surface sans preuve" in verdict.detail
+
+
+def test_oracle_independant_refuse_un_parent_semantique_faux_mais_contenant() -> None:
+    pages = [_page(1, [
+        "Article 1 Garanties", "Article 2.1 Risques", "Corps de la sous-section.",
+        "Suite du parent.",
+    ])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    uids = tuple(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        s.NoeudPropose(
+            titre_line_uid=uids[0], premiere_line_uid=uids[0], derniere_line_uid=uids[3],
+            parent_line_uid=None, title_line_uids=[uids[0]], article_uid="article:1",
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+        s.NoeudPropose(
+            titre_line_uid=uids[1], premiere_line_uid=uids[1], derniere_line_uid=uids[2],
+            parent_line_uid=uids[0], title_line_uids=[uids[1]], article_uid="article:2.1",
+            surface_class="substantiel", continuation_line_uids=[], relations=[],
+        ),
+    ])
+
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+
+    assert not verdict.accepte and verdict.motif == "parent_non_contenant"
+    assert "parenté sémantique" in verdict.detail
 
 
 def test_oracle_independant_refuse_une_ligne_de_corps_annexee_au_titre() -> None:

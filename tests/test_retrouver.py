@@ -123,12 +123,24 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
                        kinds_suffisants: frozenset[str] | None = None):
     corpus = corpus or _corpus()
     settings = settings or _s(max_cost_eur_per_request=1.0)
+    # Les anciens scénarios exprimaient une fin nominale par un contenu vide. Le protocole v2
+    # exige maintenant l'insuffisance explicite ; le helper traduit cette intention de fixture,
+    # tandis que les tests de rejet construisent eux-mêmes leurs sorties malformées.
+    script = [
+        (fake_message(
+            model=str(message.get("model", TIERS["reason"])), stop_reason="end_turn",
+            text=json.dumps({"sufficient": False, "result_uid": None}),
+        ) if index > 0 and message.get("stop_reason") == "end_turn"
+        and message.get("content") == [] else message)
+        for index, message in enumerate(script)
+    ]
     # La suffisance est une décision sémantique distincte de l'exploration : les anciens scénarios
     # à un seul tour d'outils reçoivent donc une conclusion Sonnet explicite, sans provider.
     if (script and script[-1].get("stop_reason") == "tool_use"
             and (budget or _budget()).max_llm_turns > 1):
         script = [*script, fake_message(
-            model=TIERS["reason"], stop_reason="end_turn", content=[])]
+            model=TIERS["reason"], stop_reason="end_turn",
+            text=json.dumps({"sufficient": False, "result_uid": None}))]
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
@@ -138,6 +150,49 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
         client=client, request_budget=request_budget, doc_id="d", dictionnaire=dictionnaire,
         kinds_suffisants=kinds_suffisants)
     return result, step, fake, request_budget
+
+
+async def test_outils_clot_sur_le_result_uid_explicitement_choisi_par_sonnet() -> None:
+    corpus = _corpus()
+    parsed = _parsed(["matricule"])
+    index = Index(corpus)
+    hits = index.chercher(
+        parsed.termes_de_recherche(), question=parsed.question_resolue, limit=20, doc_id="d",
+    )
+    by_block = {hit.clause_uid: hit for hit in hits}
+    selected = by_block["d:p2:1"]
+
+    result, _step, _fake, _request = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+            _tool("ouvrir_noeud", "t3", node_id="n2", focus_block_id="d:p2:1"),
+        ),
+        fake_message(
+            model=TIERS["reason"], stop_reason="end_turn",
+            text=json.dumps({"sufficient": True, "result_uid": selected.result_uid}),
+        ),
+    ], corpus=corpus, parsed=parsed)
+
+    assert result.sufficiency is not None and result.sufficiency.complete
+    assert result.sufficiency.sufficiency_result_uid == selected.result_uid
+
+
+async def test_outils_refuse_un_result_uid_terminal_invente_ou_non_admis() -> None:
+    result, _step, _fake, _request = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["matricule"]),
+            _tool("ouvrir_noeud", "t2", node_id="n1", focus_block_id="d:p1:1"),
+        ),
+        fake_message(
+            model=TIERS["reason"], stop_reason="end_turn",
+            text=json.dumps({"sufficient": True, "result_uid": "result-v1:" + "0" * 64}),
+        ),
+    ])
+
+    assert result.sufficiency is not None and not result.sufficiency.complete
+    assert result.sufficiency.sufficiency_result_uid is None
+    assert result.truncated
 
 
 def _corpus_contexte_puis_regle() -> Corpus:

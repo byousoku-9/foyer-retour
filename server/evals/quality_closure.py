@@ -132,7 +132,7 @@ class EvidenceOwner(BaseModel):
 
 
 class EvidenceArtifact(BaseModel):
-    """Preuve liée à une ref, un run et un producteur autoritaire.
+    """Preuve liée à une ref, un gate parent, un run et un producteur autoritaire.
 
     Le digest couvre l'enveloppe entière et l'identifiant est content-addressé : une preuve ne
     peut donc être empruntée à une autre ref/run ni s'auto-déclarer valide avec le hash arbitraire
@@ -142,6 +142,7 @@ class EvidenceArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     ref: str = Field(min_length=1)
+    gate_uid: str = Field(min_length=1)
     run_uid: str = Field(min_length=1)
     source: Literal["HERMETIC_RUNNER", "LIVE_ORCHESTRATOR"]
     artifact_uid: str = Field(pattern=r"^evidence-v1:[0-9a-f]{64}$")
@@ -150,8 +151,8 @@ class EvidenceArtifact(BaseModel):
 
     def _canonical_bytes(self) -> bytes:
         return json.dumps(
-            {"payload": self.payload, "ref": self.ref, "run_uid": self.run_uid,
-             "source": self.source},
+            {"gate_uid": self.gate_uid, "payload": self.payload, "ref": self.ref,
+             "run_uid": self.run_uid, "source": self.source},
             ensure_ascii=False, sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")
 
@@ -166,15 +167,16 @@ class EvidenceArtifact(BaseModel):
         return self.verified and self.ref == ref and self.source == expected_source
 
     @classmethod
-    def create(cls, *, ref: str, run_uid: str,
+    def create(cls, *, ref: str, gate_uid: str, run_uid: str,
                source: Literal["HERMETIC_RUNNER", "LIVE_ORCHESTRATOR"],
                payload: str) -> EvidenceArtifact:
         raw = json.dumps(
-            {"payload": payload, "ref": ref, "run_uid": run_uid, "source": source},
+            {"gate_uid": gate_uid, "payload": payload, "ref": ref,
+             "run_uid": run_uid, "source": source},
             ensure_ascii=False, sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")
         digest = hashlib.sha256(raw).hexdigest()
-        return cls(ref=ref, run_uid=run_uid, source=source,
+        return cls(ref=ref, gate_uid=gate_uid, run_uid=run_uid, source=source,
                    artifact_uid=f"evidence-v1:{digest}", payload=payload, sha256=digest)
 
 
@@ -302,7 +304,7 @@ class QualityClosureRunInput(BaseModel):
         if not registry_is_canonical(registry, registry_hash):
             raise ValueError("REF_OWNERSHIP_REGISTRY incomplet, surnuméraire ou non canonique")
         artifacts_by_uid: dict[str, EvidenceArtifact] = {}
-        run_uids: set[str] = set()
+        gate_uids: set[str] = set()
         for row in self.rows:
             for ref, artifact in row.evidence_artifacts.items():
                 if artifact.ref != ref:
@@ -310,9 +312,9 @@ class QualityClosureRunInput(BaseModel):
                 previous = artifacts_by_uid.setdefault(artifact.artifact_uid, artifact)
                 if previous.ref != ref:
                     raise ValueError("un artefact content-addressé ne peut couvrir plusieurs refs")
-                run_uids.add(artifact.run_uid)
-        if len(run_uids) > 1:
-            raise ValueError("toutes les preuves doivent appartenir au même run")
+                gate_uids.add(artifact.gate_uid)
+        if len(gate_uids) != 1:
+            raise ValueError("toutes les preuves doivent appartenir au même gate parent")
         return self
 
 

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from server.app.llm import models
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_tiers_and_step_assignment() -> None:
@@ -13,6 +17,15 @@ def test_tiers_and_step_assignment() -> None:
     assert models.STEP_TIERS == {"comprendre": "reason", "retrouver": "reason",
                                  "rediger": "reason", "verifier": "reason",
                                  "restituer": None, "ingest": "ingest"}
+
+
+def test_documentation_active_aligne_le_plancher_sonnet_des_choix_semantiques() -> None:
+    readme = (ROOT / "README.md").read_text("utf-8")
+    architecture = (ROOT / "docs" / "architecture.md").read_text("utf-8")
+
+    assert "Sonnet au minimum pour tout choix sémantique" in readme
+    assert "Sonnet au minimum pour tout choix sémantique" in architecture
+    assert "`micro` pour comprendre et vérifier" not in architecture
 
 
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:

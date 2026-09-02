@@ -21,6 +21,7 @@ from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.verifier import (
     BLOC_INCONNU,
@@ -34,6 +35,43 @@ from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
 HAIKU = TIERS["reason"]  # alias historique : le plancher sémantique est désormais Sonnet
+
+
+def test_sortie_sinistre_au_cardinal_maximal_tient_dans_la_borne_configuree() -> None:
+    """B5 : le pire contrat nominal ne doit plus tenir seulement dans son commentaire."""
+    settings = _settings()
+    # Le pire cardinal est huit claims × quatre qualités. Les libellés restent concis comme le
+    # prompt l'exige ; leur longueur est contrôlée séparément avant consommation.
+    qualite = "soudaineté"
+    fait = "fait soudain"
+    sortie = SortieVerifierSinistre.model_validate({
+        "verdicts": [
+            {"claim_id": f"c{i}", "pertinente": True, "raison": None}
+            for i in range(8)
+        ],
+        "facettes": [
+            {"facette": i, "claim_ids": [f"c{i * 2}", f"c{i * 2 + 1}"]}
+            for i in range(4)
+        ],
+        "segments": [{"segment": i, "soutenu": True} for i in range(8)],
+        "applicabilite": [
+            {
+                "claim_id": f"c{i}", "fait_requis_present": True,
+                "option_requise": False, "cp_requise": False, "fait_manquant": None,
+                "qualites_exigees": [qualite] * settings.qualites_exigees_max,
+                "qualites_etablies": [
+                    {"qualite": qualite, "fait_cite": fait}
+                    for _ in range(settings.qualites_exigees_max)
+                ],
+            }
+            for i in range(8)
+        ],
+        "demande_contexte": None,
+    })
+    majorant = estimate_tokens(sortie.model_dump_json(), settings)
+
+    assert majorant > 1536
+    assert majorant <= settings.verifier_sinistre_max_tokens
 
 
 def test_le_prompt_sinistre_generalise_la_frontiere_objet_applicabilite() -> None:

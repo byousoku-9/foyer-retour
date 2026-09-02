@@ -3185,7 +3185,10 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
     response_cache = PersistentResponseCache(cache_dir) if cache_dir is not None else None
     return Contexte(settings=settings, index=Index(corpus),
                     client=LlmClient(settings, cache=response_cache,
-                                     audit_sink=JsonlAuditSink(settings.llm_audit_path),
+                                     audit_sink=JsonlAuditSink(
+                                         settings.llm_audit_path,
+                                         max_bytes=settings.llm_audit_max_bytes,
+                                         retention_files=settings.llm_audit_retention_files),
                                      campaign_budget_eur=campaign_budget_eur,
                                      campaign_accrued_eur=campaign_accrued_eur,
                                      campaign_cost_recorder=campaign_cost_recorder),

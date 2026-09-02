@@ -66,7 +66,7 @@ MODEL = TIERS[TIER]
 # `structure_max_children`). `-2` : la couverture est devenue totale et les lignes d'une table sont
 # entrées au registre. Une proposition acceptée sous les règles précédentes ne l'est plus forcément,
 # et le registre qu'elle adresse a changé : l'empreinte doit le dire (AD-2, lu par le loader).
-STRUCTURE_RULES_VERSION = "5.0-v3-line-uid"
+STRUCTURE_RULES_VERSION = "5.0-v4-semantic-oracle"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
@@ -78,13 +78,18 @@ MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "li
 LINE_UID_MAX = len("line-v1:") + 64
 
 _ARTICLE_TITLE_RE = re.compile(
-    r"^\s*(?:article|art\.)\s+(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
+    r"^\s*(?:article|art\.?|artikel|articulo|artigo|articolo)\s+"
+    r"(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
     re.IGNORECASE,
 )
 _TECHNICAL_SURFACES: tuple[tuple[re.Pattern[str], SurfaceClass], ...] = (
-    (re.compile(r"^(?:table\s+des\s+matieres|sommaire)\b"), "table_des_matieres"),
     (re.compile(
-        r"^(?:preambule|avant-propos|introduction|dispositions?\s+preliminaires?)\b"),
+        r"^(?:table\s+des\s+matieres|sommaire|table\s+of\s+contents|contents|"
+        r"inhaltsverzeichnis|indice(?:\s+general)?|sumario|sommario|inhoudsopgave)\b"),
+     "table_des_matieres"),
+    (re.compile(
+        r"^(?:preambule|preamble|praambule|preambolo|vorwort|foreword|avant-propos|"
+        r"introduction|dispositions?\s+preliminaires?|preliminary\s+provisions?)\b"),
      "preliminaire"),
 )
 
@@ -96,11 +101,24 @@ def _oracle_text(value: str) -> str:
     )
 
 
-def oracle_surface_class(title: str) -> SurfaceClass | None:
-    """Classe technique lisible du titre, indépendante de la proposition Opus."""
+def oracle_surface_class(title: str, supporting_texts: Sequence[str] = ()) -> SurfaceClass | None:
+    """Classe de surface prouvée localement, indépendante de la proposition Opus.
+
+    Les classes techniques sont reconnues dans plusieurs langues. Une surface substantielle doit
+    porter soit une identité d'article lisible, soit du texte de corps observable ; un intitulé
+    isolé sans indice reste inconnu et ferme le gate.
+    """
     normalized = _oracle_text(title)
-    return next((surface for pattern, surface in _TECHNICAL_SURFACES
-                 if pattern.search(normalized)), None)
+    technical = next((surface for pattern, surface in _TECHNICAL_SURFACES
+                      if pattern.search(normalized)), None)
+    if technical is not None:
+        return technical
+    if _ARTICLE_TITLE_RE.search(normalized):
+        return "substantiel"
+    evidence = [text.strip() for text in supporting_texts if text.strip()]
+    if evidence or title.rstrip().endswith((".", ";", ":", "?", "!")):
+        return "substantiel"
+    return None
 
 
 def oracle_article_uid(title: str) -> str | None:
@@ -652,8 +670,20 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                     "affectation_non_prouvee",
                     "title_line_uids contient une ligne de corps selon l'oracle local",
                 )
-            technical_surface = oracle_surface_class(title)
-            if technical_surface is not None and noeud.surface_class != technical_surface:
+            first = registre[noeud.premiere_line_uid].ordre
+            last = registre[noeud.derniere_line_uid].ordre
+            title_set = set(noeud.title_line_uids)
+            supporting_texts = [
+                entry.titre for uid, entry in registre.items()
+                if first <= entry.ordre <= last and uid not in title_set
+            ]
+            technical_surface = oracle_surface_class(title, supporting_texts)
+            if technical_surface is None:
+                return _refus(
+                    "affectation_non_prouvee",
+                    f"surface sans preuve locale indépendante sous {noeud.titre_line_uid!r}",
+                )
+            if noeud.surface_class != technical_surface:
                 return _refus(
                     "affectation_non_prouvee",
                     f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r}",
@@ -812,6 +842,18 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             return _refus("parent_non_contenant",
                           f"{uid!r} [{a_enfant},{b_enfant}] se déclare sous {parent!r} "
                           f"[{a_parent},{b_parent}] sans y être strictement contenu")
+        child_article = titres[uid].article_uid
+        parent_article = titres[parent].article_uid
+        if child_article is not None and parent_article is not None:
+            child_path = tuple(child_article.removeprefix("article:").replace("-", ".").split("."))
+            parent_path = tuple(parent_article.removeprefix("article:").replace("-", ".").split("."))
+            if len(child_path) > 1 and not (
+                    len(child_path) > len(parent_path)
+                    and child_path[:len(parent_path)] == parent_path):
+                return _refus(
+                    "parent_non_contenant",
+                    f"parenté sémantique impossible : {child_article!r} sous {parent_article!r}",
+                )
 
     ordonnes = sorted(titres, key=lambda uid: (bornes[uid][0], bornes[uid][1], uid))
     for index, gauche in enumerate(ordonnes):
@@ -1078,12 +1120,15 @@ def proposer(client: Any, registre: dict[str, Entree], *, doc_id: str,
             settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
             model=MODEL, request=params, response=None,
             trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid,
-            error_class=type(exc).__name__)
+            error_class=type(exc).__name__, max_bytes=settings.llm_audit_max_bytes,
+            retention_files=settings.llm_audit_retention_files)
         raise ValueError(f"appel refusé ({type(exc).__name__}); rien n'a été écrit") from exc
     append_ingest_audit(
         settings.llm_audit_path, run_uid=f"structure:{doc_id}", step="structure",
         model=MODEL, request=params, response=message,
-        trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid)
+        trusted_line_uids=tuple(sorted(registre)), artifact_uid=artifact_uid,
+        max_bytes=settings.llm_audit_max_bytes,
+        retention_files=settings.llm_audit_retention_files)
     raw, cost = _texte(message, settings)
     try:
         return parse_proposition(raw, registre, doc_id, settings=settings), cost

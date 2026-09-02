@@ -224,7 +224,7 @@ class Settings(BaseSettings):
     # faits qui l'établit (`fait_cite`, relu par le code). Un bloc d'applicabilité peut donc rendre
     # jusqu'à `qualites_exigees_max` libellés de plus, chacun borné par `fait_manquant_max_chars` —
     # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072.
-    verifier_sinistre_max_tokens: int = Field(1536, ge=1)
+    verifier_sinistre_max_tokens: int = Field(3072, ge=1)
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -287,9 +287,11 @@ class Settings(BaseSettings):
     retrieval_variant: Literal["deterministe", "outils", "full_context"] = RETRIEVAL_DEFAULT.variant
     retrouver_outils_tier: Literal["reason"] = RETRIEVAL_DEFAULT.tier
     retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
-    # Artefact contrôlé exact, distinct de la trace publique. Le fichier n'est créé qu'au premier
-    # événement et reste hors des surfaces servies par l'API.
+    # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink
+    # mémoire et ne crée jamais ce fichier (AD-10/AD-15). Rotation et rétention bornent le disque.
     llm_audit_path: Path = REPO_ROOT / ".audit" / "llm-calls.jsonl"
+    llm_audit_max_bytes: int = Field(16 * 1024 * 1024, ge=1)
+    llm_audit_retention_files: int = Field(4, ge=1)
     retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
     # Story 4.2b : surcharges de tier **par étape**, pour que la matrice baseline (`micro`/`reason`
     # par étape) soit exécutable à paramètres épinglés au lieu d'exiger une édition de code. Les
@@ -321,7 +323,7 @@ class Settings(BaseSettings):
     # Coût (AD-9, AD-10). Le chemin sinistre `outils` engage 0,0149 € avant une rédaction dont le
     # majorant froid mesuré est 0,0945 €, soit 0,1094 € au total. 0,12 € conserve 0,0106 € de marge
     # (≈ 9,7 %) sans modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
-    max_cost_eur_per_request: float = Field(0.20, ge=0)
+    max_cost_eur_per_request: float = Field(0.12, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
@@ -822,6 +824,8 @@ class Settings(BaseSettings):
             "verifier_tier_reason": int(self.verifier_tier == "reason"),
             "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
             "retrieval_prompt_cache": int(self.retrieval_prompt_cache),
+            "llm_audit_max_bytes": self.llm_audit_max_bytes,
+            "llm_audit_retention_files": self.llm_audit_retention_files,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
             "comprendre_max_tokens": self.comprendre_max_tokens,
