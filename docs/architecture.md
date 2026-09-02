@@ -47,7 +47,7 @@ Chaque sortie normale porte l’`Answer` et la `Trace` des seules étapes réell
 Une réponse est découpée en affirmations et en citations. Le `ClaimStatus` porté par chaque
 affirmation garde quatre champs distincts. `retrouvee` est la preuve, établie par le code, que chaque
 citation existe bien dans le bloc. `pertinente` est un jugement sémantique typé proposé par le
-contrôle `micro` : le passage soutient-il l’affirmation et répond-il à la question ? Pour un
+contrôle `reason` : le passage soutient-il l’affirmation et répond-il à la question ? Pour un
 sinistre, le modèle propose aussi des observations typées sur les clauses et les faits ; le code les
 relit, résout les portées et en dérive `applicable`, qui vaut `oui`, `non` ou `humain`. Enfin,
 `edition` est une métadonnée du document, distincte de ces contrôles, qui rappelle sa version sans la
@@ -56,7 +56,7 @@ différentes (AD-3, AD-4).
 
 La première preuve est mécanique : identifiant connu, bloc citable, citation assez longue, présence
 exacte après normalisation et occurrence non ambiguë. Le passage affiché est ensuite relu dans le
-corpus, jamais repris de la chaîne proposée par le modèle. Le contrôle `micro` groupé propose les
+corpus, jamais repris de la chaîne proposée par le modèle. Le contrôle `reason` groupé propose les
 jugements sémantiques typés de pertinence et de soutien ; le code prouve la présence des citations,
 écarte les sorties incohérentes, dérive l’applicabilité, calcule `found`, `complete` et le verdict,
 puis conserve les rejets pour l’audit. Une citation manquante ne devient jamais une réponse moins
