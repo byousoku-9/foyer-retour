@@ -3970,3 +3970,50 @@ abaissé** — les 99 vérifications enregistrées sont Haiku sans bloc `thinkin
 l'étage d'hier), `rediger_max_tokens` (2 048), `comprendre_max_tokens` et
 `retrouver_outils_max_tokens` (1 024), `retrieval_max_tokens` (3 500), `retrieval_max_blocks` (30),
 `max_opens` (6), `--timeout=60` de Cloud Run (toujours strictement au-dessus de `deadline_s`).
+
+## 02/09/2026 — le schéma de proposition de structure est accepté par l'API (une sonde)
+
+**Un seul appel fournisseur**, `max_tokens=1`, aucune écriture, aucune ingestion, aucune fixture,
+aucune campagne. Objet de la sonde : prouver que la grammaire de sortie de
+`server/ingest/structure.py` est **compilable** par l'API, ce que la version énumérative ne pouvait
+pas être. Les sondes antérieures du même chemin (elles aussi à `max_tokens=1`) avaient toutes rendu
+un 400, donc non facturé : `maxItems`/`minItems`/`maxLength` refusés, puis « Schema is too complex
+for compilation » — y compris avec les `uid` factorisés sous `$defs`/`$ref` et **même réduits à 70
+énumérés**, une empreinte `line-v1:` faisant 72 caractères. Un segment sans ancre rendait en plus
+« Enum must be a non-empty array ». Aucune proposition de structure n'avait donc jamais été soumise.
+
+### La sonde
+
+Requête réelle du **segment 1 de Baloise** (`baloise-lu-home-2-2024`), produite par
+`planifier_segments` sans aucune retouche autre que `max_tokens=1` :
+
+| grandeur | valeur |
+|---|---|
+| segment | `structure-segment-v2:1c35f4e1b2f933c6a3b89ed29b0ad768d143cd437e293c961790152b9134812f` |
+| lignes source du segment | 1 226 (sur 4 599 pour le document, 4 segments) |
+| charge utile | 157 453 caractères |
+| schéma de sortie | **1 540 caractères, constant** — il ne dépend plus du registre |
+| `id` de la réponse | `msg_011Ceea2nj1LicqzXkNVtzhU` |
+| `stop_reason` | `max_tokens` (attendu : la sonde ne veut pas de sortie) |
+| `usage` | `input_tokens=86 394`, `output_tokens=1`, cache 0 en lecture comme en écriture |
+| coût réel | **0,3974 €** |
+
+**Verdict : accepté.** Aucun 400, la grammaire compile. C'est la seule chose que cette sonde prouve
+— elle ne dit rien de la qualité de l'arbre que le modèle proposerait, qui reste à mesurer par une
+ingestion réelle non lancée ici.
+
+### Ce que la mesure dit d'autre
+
+Le coût attendu était « de l'ordre du centime » ; il est de **0,3974 €**, quarante fois plus. La
+cause est mesurée et n'est pas une dérive : le schéma étant devenu petit et constant, l'enveloppe
+d'un segment a fondu, et le planificateur produit désormais **4 segments de ~1 200 lignes** là où
+il en produisait beaucoup plus, de beaucoup plus petits. Le prix d'une sonde suit la taille du
+segment 1, pas celle du schéma. Le majorant du plan complet reste sous le plafond :
+**4,7680 € pour 5,0000 €**.
+
+La fenêtre effective est respectée, et de très loin : le majorant en octets du segment le plus
+lourd est de **183 967 tokens** d'entrée, `+16 000` de sortie, sous les `200 000` de
+`MODEL_CAPS.context_window` — et la mesure réelle rend **86 394** tokens d'entrée, soit 2,1 fois
+moins que le majorant. `context_window` vaut 200 000 dans `server/app/llm/models.py` alors que le
+modèle servi en accepte 1 000 000 : **constaté, délibérément non modifié** dans ce tour, et déposé
+en reprise différée.

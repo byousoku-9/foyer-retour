@@ -3,11 +3,19 @@
     ANTHROPIC_API_KEY= uv run python -m server.ingest.structure --dry-run
     uv run python -m server.ingest.structure <doc_id> [--data data] [--max-cost 5]
 
-La proposition ne porte que des `line_uid` du registre de lignes figé par `pdf_to_blocks` et des
-liens parent/enfant. Elle ne porte **aucun texte** : les titres servis sont relus dans le registre à
-partir du `line_uid` désigné, et les `node_id` sont un chemin positionnel calculé par le code. Le
-schéma fournisseur énumère les `uid` autorisés et `parse_proposition` les revérifie « même si le
-schéma l'impose » (idiome `type_clauses.parse_reading`).
+La proposition ne désigne que des lignes du registre figé par `pdf_to_blocks` et des liens
+parent/enfant. Elle ne porte **aucun texte** : les titres servis sont relus dans le registre à
+partir de la ligne désignée, et les `node_id` sont un chemin positionnel calculé par le code.
+
+Le modèle référence une ligne par son **index entier** dans le segment reçu — `0..N-1` pour les
+lignes à couvrir, `N..N+k-1` pour les ancres de frontière —, jamais par son empreinte. Une grammaire
+contrainte ne peut pas énumérer des empreintes de 72 caractères : l'API refuse le schéma (400
+« Schema is too complex », mesuré dès 70 uid énumérés, et « Enum must be a non-empty array » pour un
+segment sans ancre). `rapprocher_indices` traduit chaque index en `line_uid` avant tout usage et
+refuse par un motif nommé un index hors plage, hors domaine ou répété ; `parse_proposition`
+revérifie ensuite les `uid` obtenus « même si le schéma l'impose » (idiome
+`type_clauses.parse_reading`). Le contrat de sortie change, le contrat d'artefact non :
+`structure.json`, la couture et le vérificateur restent en `line_uid`.
 
 L'appel suit la convention LLM du spine : `messages.parse(..., output_config={"format": …})`
 **sans** `output_format`, puis validation locale par `TypeAdapter`. Avec `output_format`, le SDK
@@ -71,9 +79,9 @@ STRUCTURE_RULES_VERSION = "5.0-v4-semantic-oracle"
 NORMAL_STOPS = frozenset({"end_turn", "stop_sequence", "tool_use"})
 # Vocabulaire fermé des refus : un motif qui n'est pas là ne peut pas sortir du vérificateur.
 MOTIFS = ("proposition_illisible", "proposition_vide", "document_different", "ligne_inconnue",
-          "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive", "largeur_excessive",
-          "ordre_impossible", "intervalles_croises", "parent_non_contenant", "ligne_omise",
-          "affectation_non_prouvee", "noeud_non_construit")
+          "index_invalide", "titre_duplique", "titre_ambigu", "cycle", "profondeur_excessive",
+          "largeur_excessive", "ordre_impossible", "intervalles_croises", "parent_non_contenant",
+          "ligne_omise", "affectation_non_prouvee", "noeud_non_construit")
 # `line-v1:` + SHA-256 hexadécimal. La borne empêche toujours un artefact de concentrer son poids
 # dans un seul identifiant, mais elle décrit désormais la même identité que `Document.Line`.
 LINE_UID_MAX = len("line-v1:") + 64
@@ -546,9 +554,26 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
 
 
 def _lignes_payload(registre: dict[str, Entree]) -> list[dict[str, Any]]:
-    return [{"uid": entree.uid, "page": entree.page, "colonne": entree.colonne,
+    """Lignes du segment adressées par un index positionnel `0..N-1`, dans l'ordre du registre.
+
+    L'empreinte `line_uid` n'est pas publiée : le modèle ne l'écrit plus, et l'exposer coûterait 72
+    caractères par ligne dans une enveloppe déjà bornée par `STRUCTURE_MAX_INPUT_CHARS`.
+    """
+    return [{"index": index, "page": entree.page, "colonne": entree.colonne,
              "ordre": entree.ordre, "bbox": list(entree.bbox), "texte": entree.titre}
-            for entree in sorted(registre.values(), key=lambda e: e.ordre)]
+            for index, entree in enumerate(sorted(registre.values(), key=lambda e: e.ordre))]
+
+
+def table_indices(registre: dict[str, Entree],
+                  anchors: Sequence[AncreStructure] = ()) -> tuple[str, ...]:
+    """Table `index -> line_uid` du segment, exactement telle que la demande la présente.
+
+    Les lignes locales occupent `0..N-1` dans l'ordre de lecture, les ancres de frontière la plage
+    contiguë suivante `N..N+k-1` dans l'ordre où elles sont sérialisées. Une seule fonction la
+    produit pour l'encodage et pour le rapprochement : les deux ne peuvent pas diverger.
+    """
+    locales = tuple(entree.uid for entree in sorted(registre.values(), key=lambda e: e.ordre))
+    return (*locales, *(anchor.line_uid for anchor in anchors))
 
 
 def _encoder_demande(registre: dict[str, Entree], settings: Settings, *,
@@ -560,8 +585,8 @@ def _encoder_demande(registre: dict[str, Entree], settings: Settings, *,
     payload_value: dict[str, Any] = {"lignes": _lignes_payload(registre)}
     if anchors:
         payload_value["ancres_frontiere"] = [
-            {"uid": anchor.line_uid, "ordre": anchor.ordre, "titre": anchor.titre}
-            for anchor in anchors
+            {"index": len(registre) + position, "ordre": anchor.ordre, "titre": anchor.titre}
+            for position, anchor in enumerate(anchors)
         ]
     payload = json.dumps(payload_value, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > settings.structure_max_input_chars:
@@ -573,12 +598,12 @@ def _encoder_demande(registre: dict[str, Entree], settings: Settings, *,
 
 
 def demande(registre: dict[str, Entree], settings: Settings) -> str:
-    """Charge utile : uid, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie.
+    """Charge utile : index, page, colonne, ordre, bbox et texte. Rien d'autre, aucune clé de sortie.
 
     Le `texte` publié est celui de la ligne **portée** — c'est-à-dire ce qu'un lecteur voit à cette
-    position, numéro d'article fusionné compris. Les deux uid d'une ligne fusionnée montrent donc la
-    même chaîne : ils désignent la même ligne visuelle, et désigner l'un ou l'autre comme titre rend
-    le même intitulé.
+    position, numéro d'article fusionné compris. Les deux index d'une ligne fusionnée montrent donc
+    la même chaîne : ils désignent la même ligne visuelle, et désigner l'un ou l'autre comme titre
+    rend le même intitulé.
     """
     return _encoder_demande(registre, settings)
 
@@ -587,40 +612,35 @@ def _prompt() -> str:
     return (PROMPTS_DIR / "structure.md").read_text("utf-8")
 
 
-def _schema(uids: tuple[str, ...], settings: Settings, *,
-            reference_uids: tuple[str, ...] = ()) -> dict[str, Any]:
-    """Le schéma fournisseur énumère les `uid` autorisés : rien d'autre ne peut être écrit.
+def _schema() -> dict[str, Any]:
+    """Grammaire de sortie **constante** : sa taille ne dépend plus du registre du segment.
 
-    Il ne porte aucune borne de cardinalité ni de longueur : la sortie structurée du fournisseur
-    refuse `maxItems`, `minItems` et `maxLength` (400 `invalid_request_error`, mesuré sur le premier
-    segment réel). Les bornes vivent côté code, fail-closed : `STRUCTURE_MAX_NODES` et
-    `STRUCTURE_MAX_CHILDREN` dans `parse_proposition`/`verifier`, `max_length=1` sur
-    `continuations_frontiere`, `max_length=256` sur `article_uid`, et un `title_line_uids` vide est
-    refusé par le validateur du nœud.
+    Les champs de référence sont des `integer` : le modèle désigne une ligne par son index dans la
+    demande. Énumérer les `line_uid` autorisés était impossible à toute cardinalité utile — l'API
+    répond 400 « Schema is too complex » dès 70 empreintes de 72 caractères, et 400 « Enum must be a
+    non-empty array » pour un segment sans ancre de frontière. L'appartenance d'un index à sa plage,
+    et le domaine exact de chaque champ, sont donc prouvés par `rapprocher_indices`, en code.
+
+    Il ne porte aucune borne de cardinalité, de longueur ni d'intervalle : la sortie structurée du
+    fournisseur refuse `maxItems`, `minItems`, `maxLength`, `minimum` et `maximum` (400
+    `invalid_request_error`, mesuré sur le premier segment réel). Les bornes vivent côté code,
+    fail-closed : `STRUCTURE_MAX_NODES` et `STRUCTURE_MAX_CHILDREN` dans
+    `parse_proposition`/`verifier`, `max_length=1` sur `continuations_frontiere`, `max_length=256`
+    sur `article_uid`, et un `title_line_uids` vide est refusé par le validateur du nœud.
     """
-    # Chaque énumération d'uid est définie une seule fois sous `$defs` et référencée par `$ref` :
-    # répétée inline à chaque champ, la même liste de plusieurs centaines d'uid rendait le schéma
-    # « too complex » pour la grammaire du fournisseur (400 mesuré sur le premier segment réel).
-    definitions = {
-        "uid": {"type": "string", "enum": list(uids)},
-        "reference": {"type": "string", "enum": list(dict.fromkeys((*uids, *reference_uids)))},
-        "external_reference": {"type": "string", "enum": list(reference_uids)},
-    }
-    uid_schema = {"$ref": "#/$defs/uid"}
-    reference_schema = {"$ref": "#/$defs/reference"}
-    external_reference_schema = {"$ref": "#/$defs/external_reference"}
+    index = {"type": "integer"}
     noeud = {
         "type": "object",
         "properties": {
-            "titre_line_uid": uid_schema,
-            "premiere_line_uid": uid_schema,
-            "derniere_line_uid": uid_schema,
-            "parent_line_uid": {"anyOf": [reference_schema, {"type": "null"}]},
-            "title_line_uids": {"type": "array", "items": uid_schema},
+            "titre_line_uid": index,
+            "premiere_line_uid": index,
+            "derniere_line_uid": index,
+            "parent_line_uid": {"anyOf": [index, {"type": "null"}]},
+            "title_line_uids": {"type": "array", "items": index},
             "article_uid": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "surface_class": {"type": "string", "enum": [
                 "preliminaire", "table_des_matieres", "substantiel", "inconnu"]},
-            "continuation_line_uids": {"type": "array", "items": uid_schema},
+            "continuation_line_uids": {"type": "array", "items": index},
             "relations": {
                 "type": "array",
                 "items": {
@@ -629,7 +649,7 @@ def _schema(uids: tuple[str, ...], settings: Settings, *,
                         "kind": {"type": "string", "enum": [
                             "same_clause_continuation", "explicit_dependency",
                             "definition_override"]},
-                        "target_line_uid": reference_schema,
+                        "target_line_uid": index,
                     },
                     "required": ["kind", "target_line_uid"],
                     "additionalProperties": False,
@@ -644,16 +664,15 @@ def _schema(uids: tuple[str, ...], settings: Settings, *,
     continuation = {
         "type": "object",
         "properties": {
-            "premiere_line_uid": uid_schema,
-            "derniere_line_uid": uid_schema,
-            "target_line_uid": external_reference_schema,
+            "premiere_line_uid": index,
+            "derniere_line_uid": index,
+            "target_line_uid": index,
         },
         "required": ["premiere_line_uid", "derniere_line_uid", "target_line_uid"],
         "additionalProperties": False,
     }
     schema = {
         "type": "object",
-        "$defs": definitions,
         "properties": {
             "noeuds": {"type": "array", "items": noeud},
             "continuations_frontiere": {"type": "array", "items": continuation},
@@ -673,11 +692,7 @@ def requete(registre: dict[str, Entree], doc_id: str, settings: Settings, *,
         "system": [{"type": "text", "text": _prompt()}],
         "messages": [{"role": "user", "content": _encoder_demande(
             registre, settings, anchors=anchors)}],
-        "output_config": {"format": _schema(tuple(sorted(registre, key=lambda u: registre[u].ordre)),
-                                            settings,
-                                            reference_uids=tuple(anchor.line_uid
-                                                                 for anchor in anchors)),
-                          "effort": EFFORT[TIER]},
+        "output_config": {"format": _schema(), "effort": EFFORT[TIER]},
     }
 
 
@@ -737,9 +752,10 @@ def _empreinte_registre(registre: dict[str, Entree]) -> str:
 def _taille_entree_majorante(params: dict[str, Any], settings: Settings) -> tuple[int, int]:
     """Taille caractères et borne prouvable de tokens de l'enveloppe complète.
 
-    Le schéma répète volontairement l'enum des ``line_uid`` pour plusieurs propriétés. Mesurer
-    seulement ``messages[0].content`` reproduirait précisément le faux préflight monolithique que
-    cette segmentation corrige. La sérialisation comprend donc système, messages et schéma. La
+    Le schéma est constant, mais le prompt système ne l'est pas et la charge utile porte tout le
+    texte du segment. Mesurer seulement ``messages[0].content`` reproduirait précisément le faux
+    préflight monolithique que cette segmentation corrige. La sérialisation comprend donc système,
+    messages et schéma. La
     fenêtre n'utilise pas l'heuristique financière en caractères : le nombre d'octets UTF-8 est une
     borne supérieure du nombre de tokens d'un tokenizer byte-level, y compris sur Unicode dense.
     """
@@ -951,10 +967,118 @@ def _valider_plan(plan: PlanStructure, registre: dict[str, Entree], *, doc_id: s
         raise ValueError("identité ou majorant cumulé du plan incohérent; aucun appel soumis")
 
 
+# Champs de référence du contrat de sortie, par domaine. Une ligne locale seule peut intituler ou
+# borner un nœud ; seule une ancre de frontière peut être la cible d'une continuation ; parents et
+# relations peuvent traverser la frontière. Le schéma fournisseur ne sait plus rien de ces domaines
+# — il ne connaît que `integer` — donc c'est ici, et nulle part ailleurs, qu'ils sont prouvés.
+_CHAMPS_LOCAUX = ("titre_line_uid", "premiere_line_uid", "derniere_line_uid")
+_LISTES_LOCALES = ("title_line_uids", "continuation_line_uids")
+
+
+def rapprocher_indices(raw: str, registre: dict[str, Entree], *,
+                       anchors: Sequence[AncreStructure] = ()) -> str:
+    """Traduit les index entiers d'une réponse en `line_uid`, ou refuse par un motif nommé.
+
+    C'est la seule couche qui connaît la convention d'index : en amont le modèle n'écrit que des
+    entiers, en aval tout est en `line_uid` — modèles Pydantic, couture, `verifier`, `structure.json`
+    et l'audit `trusted_line_uids` sont inchangés. La traduction est **bijective et sans réparation**
+    : un index hors de sa plage, un index d'ancre là où une ligne locale est exigée (ou l'inverse),
+    un index répété dans une liste, une valeur qui n'est pas un entier — chacun est un refus, jamais
+    une correction. C'est ce refus qui porte la garantie que le schéma énumératif portait avant lui :
+    rien d'autre qu'une ligne effectivement présentée au modèle ne peut être désignée.
+    """
+    table = table_indices(registre, anchors)
+    locales = len(registre)
+
+    def uid(valeur: Any, champ: str, *, domaine: str) -> str:
+        # `bool` est un `int` en Python : sans ce filtre, `true` désignerait la ligne d'index 1.
+        if not isinstance(valeur, int) or isinstance(valeur, bool):
+            raise StructureRefusee(
+                "index_invalide", f"{champ}: index entier attendu, reçu {valeur!r}")
+        if not 0 <= valeur < len(table):
+            raise StructureRefusee(
+                "index_invalide",
+                f"{champ}: index {valeur} hors de la plage 0..{len(table) - 1} du segment")
+        if domaine == "locale" and valeur >= locales:
+            raise StructureRefusee(
+                "index_invalide",
+                f"{champ}: index {valeur} désigne une ancre de frontière, pas une ligne du segment")
+        if domaine == "externe" and valeur < locales:
+            raise StructureRefusee(
+                "index_invalide",
+                f"{champ}: index {valeur} désigne une ligne du segment, pas une ancre de frontière")
+        return table[valeur]
+
+    def liste(valeurs: Any, champ: str) -> list[str]:
+        if not isinstance(valeurs, list):
+            raise StructureRefusee("proposition_illisible", f"{champ}: liste attendue")
+        uids: list[str] = []
+        for position, valeur in enumerate(valeurs):
+            traduit = uid(valeur, f"{champ}[{position}]", domaine="locale")
+            if traduit in uids:
+                raise StructureRefusee("index_invalide", f"{champ}: index {valeur!r} répété")
+            uids.append(traduit)
+        return uids
+
+    try:
+        charge = json.loads(raw)
+    except ValueError as exc:
+        raise StructureRefusee(
+            "proposition_illisible", f"réponse non JSON ({type(exc).__name__})") from exc
+    if not isinstance(charge, dict):
+        raise StructureRefusee("proposition_illisible", "réponse JSON qui n'est pas un objet")
+    noeuds = charge.get("noeuds", [])
+    if not isinstance(noeuds, list):
+        raise StructureRefusee("proposition_illisible", "noeuds: liste attendue")
+    for rang, noeud in enumerate(noeuds):
+        if not isinstance(noeud, dict):
+            raise StructureRefusee("proposition_illisible", f"noeuds[{rang}]: objet attendu")
+        prefixe = f"noeuds[{rang}]"
+        for champ in _CHAMPS_LOCAUX:
+            if champ in noeud:
+                noeud[champ] = uid(noeud[champ], f"{prefixe}.{champ}", domaine="locale")
+        if noeud.get("parent_line_uid") is not None:
+            noeud["parent_line_uid"] = uid(
+                noeud["parent_line_uid"], f"{prefixe}.parent_line_uid", domaine="quelconque")
+        for champ in _LISTES_LOCALES:
+            if champ in noeud:
+                noeud[champ] = liste(noeud[champ], f"{prefixe}.{champ}")
+        relations = noeud.get("relations", [])
+        if not isinstance(relations, list):
+            raise StructureRefusee("proposition_illisible", f"{prefixe}.relations: liste attendue")
+        for position, relation in enumerate(relations):
+            if not isinstance(relation, dict):
+                raise StructureRefusee(
+                    "proposition_illisible", f"{prefixe}.relations[{position}]: objet attendu")
+            if "target_line_uid" in relation:
+                relation["target_line_uid"] = uid(
+                    relation["target_line_uid"],
+                    f"{prefixe}.relations[{position}].target_line_uid", domaine="quelconque")
+    continuations = charge.get("continuations_frontiere", [])
+    if not isinstance(continuations, list):
+        raise StructureRefusee(
+            "proposition_illisible", "continuations_frontiere: liste attendue")
+    for rang, continuation in enumerate(continuations):
+        if not isinstance(continuation, dict):
+            raise StructureRefusee(
+                "proposition_illisible", f"continuations_frontiere[{rang}]: objet attendu")
+        prefixe = f"continuations_frontiere[{rang}]"
+        for champ, domaine in (("premiere_line_uid", "locale"), ("derniere_line_uid", "locale"),
+                               ("target_line_uid", "externe")):
+            if champ in continuation:
+                continuation[champ] = uid(
+                    continuation[champ], f"{prefixe}.{champ}", domaine=domaine)
+    return json.dumps(charge, ensure_ascii=False)
+
+
 def parse_proposition(raw: str, registre: dict[str, Entree], doc_id: str, *,
                       settings: Settings | None = None,
                       reference_uids: Sequence[str] = ()) -> StructureProposee:
     """Défense locale, **même si le schéma l'impose** : tout `uid` étranger est refusé avant usage.
+
+    Elle est lue en `line_uid` : `rapprocher_indices` a déjà traduit les index de la réponse, et un
+    `structure.json` relu du disque n'a jamais porté d'index. Le contrôle reste entier — il ne
+    suppose ni la traduction en amont, ni le schéma fournisseur.
 
     Deux temps, dans cet ordre. D'abord la **forme filaire**, validée localement par
     `TypeAdapter(PropositionFilaire).validate_json` — la convention LLM du spine, celle que
@@ -1925,7 +2049,8 @@ def executer_plan(client: Any, plan: PlanStructure, registre: dict[str, Entree],
         try:
             raw, usage = _texte(message, settings)
             proposition = parse_proposition(
-                raw, subset, doc_id, settings=settings, reference_uids=anchor_uids)
+                rapprocher_indices(raw, subset, anchors=segment.anchors),
+                subset, doc_id, settings=settings, reference_uids=anchor_uids)
             verdict = _verifier_segment(
                 proposition, subset, doc_id=doc_id, settings=settings)
             if not verdict.accepte:
