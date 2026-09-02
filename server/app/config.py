@@ -721,6 +721,38 @@ class Settings(BaseSettings):
     # uid et des liens, jamais du texte, et la couture globale reste fail-closed.
     structure_max_input_chars: int = Field(900000, ge=1)
     structure_max_output_tokens: int = Field(16000, ge=1)
+    # Capacité de sortie d'un segment : **dérivée de sa taille**, jamais supposée constante. Le
+    # planificateur ne bornait un segment que par son entrée ; la sortie disponible était le plafond
+    # fixe ci-dessus, qui suffisait par accident tant que le schéma énumératif tenait les segments
+    # petits. Le schéma constant les a fait grossir à ≈ 1 200 lignes et le premier appel réel a été
+    # perdu en entier sur `stop_reason='max_tokens'` — 0,7654 € pour rien.
+    #
+    # Les deux valeurs sont **mesurées** sur cet appel (Baloise, segment 1, 1 226 lignes,
+    # `effort=high`, 02/09/2026, `output_tokens=16 000` dont `thinking_tokens=7 047`) :
+    #
+    # - la réponse a rendu 19 355 caractères de JSON (≈ 8 950 tokens) décrivant 93 nœuds jusqu'à la
+    #   ligne 1 011 du segment, soit **≈ 8,9 tokens de JSON par ligne**. `12.0` majore ce ratio de
+    #   ~35 % : la mesure vient d'un seul segment d'un seul contrat, et une zone dense — plus de
+    #   titres pour le même nombre de lignes — rend davantage de nœuds. Le prix d'un majorant trop
+    #   large est des segments plus petits, pas un appel perdu.
+    # - la réflexion est comptée **dans** `max_tokens` par le fournisseur, et n'est donc jamais
+    #   disponible pour le JSON. Mesurée à 7 047 tokens, réservée à `8000` (~13 % de marge). Sans
+    #   cette réserve, chaque segment est court de la taille de sa propre réflexion.
+    #
+    # Un segment dont la sortie attendue dépasse `structure_max_output_tokens` n'est pas admissible,
+    # même si son entrée tient dans la fenêtre : c'est cette règle, et non le hasard des tailles, qui
+    # décide du découpage.
+    structure_output_tokens_per_line: float = Field(12.0, gt=0)
+    structure_thinking_reserve_tokens: int = Field(8000, ge=0)
+    # Scissions adaptatives autorisées dans un run, toutes causes confondues (contexte refusé par le
+    # fournisseur, ou réponse interrompue). Une réponse interrompue n'est plus un refus terminal : le
+    # segment est scindé en deux aux frontières de portage et resoumis, le coût de l'appel perdu
+    # entrant au cumul. La borne est ce qui empêche un contrat inconnu, dont une zone déborderait
+    # systématiquement, de faire resoumettre le run sans fin en payant à chaque tour. Quatre
+    # scissions divisent au pire un segment par seize, très au-delà du dépassement mesuré (≈ 18 000
+    # tokens attendus pour 16 000 disponibles, soit un facteur 1,13) ; au-delà, le refus est nommé et
+    # dit le coût acquis.
+    structure_max_refinements: int = Field(4, ge=0)
     # Majorant vérifié **avant** toute construction de client (idiome `type_clauses`).
     structure_max_cost_eur: float = Field(5.0, gt=0)
 
@@ -1058,6 +1090,9 @@ class Settings(BaseSettings):
             "structure_min_coverage": self.structure_min_coverage,
             "structure_max_input_chars": self.structure_max_input_chars,
             "structure_max_output_tokens": self.structure_max_output_tokens,
+            "structure_output_tokens_per_line": self.structure_output_tokens_per_line,
+            "structure_thinking_reserve_tokens": self.structure_thinking_reserve_tokens,
+            "structure_max_refinements": self.structure_max_refinements,
             "structure_max_cost_eur": self.structure_max_cost_eur,
             # Story 2.1 : les bornes du dictionnaire enrichi et celle du périmètre dérivé du corpus.
             # Elles sont publiées comme les autres (convention Seuils) — `/api/v1/sante` et
