@@ -931,8 +931,16 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             appels_avant = budget.attempts
             redaction_relancee = False
             try:
-                if budget.remaining() <= settings.llm_retry_margin_s:
-                    raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
+                # C2 : le temps que le **cycle entier** demande, au débit minoré — la somme des
+                # durées majorées de ses deux appels —, et non un nombre de secondes sans rapport
+                # avec ce qu'il va écrire. Mesuré sur A16 : la porte s'ouvrait à 43,3 s restantes
+                # pour un cycle qui en demande 74,8 ; les deux appels sont partis, le second a
+                # expiré sans écrire un token, et il a emporté la marge de la remise.
+                duree_du_cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+                                  + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
+                if budget.remaining() <= duree_du_cycle:
+                    raise Timeout(f"temps insuffisant pour la relance : {duree_du_cycle:.1f} s "
+                                  f"requises au débit minoré, {budget.remaining():.1f} s restantes")
                 if budget.attempts + APPELS_DE_LA_RELANCE > budget.max_attempts:
                     raise BudgetExceeded(
                         f"plafond d'appels trop bas pour la relance et sa vérification "
@@ -1054,8 +1062,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             acquise = verification
             appels_avant = budget.attempts
             place = None
-            if budget.remaining() <= settings.llm_retry_margin_s:
-                place = f"marge insuffisante ({budget.remaining():.1f} s restantes)"
+            # C2 : la reprise ne coûte qu'une vérification (`APPELS_DE_LA_REPRISE`) ; c'est donc sa
+            # seule durée majorée qui décide, au lieu d'une marge fixe.
+            duree_de_la_reprise = settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens)
+            if budget.remaining() <= duree_de_la_reprise:
+                place = (f"temps insuffisant : {duree_de_la_reprise:.1f} s requises au débit "
+                         f"minoré, {budget.remaining():.1f} s restantes")
             elif budget.attempts + APPELS_DE_LA_REPRISE > budget.max_attempts:
                 place = (f"plafond d'appels trop bas ({budget.attempts}/{budget.max_attempts}, "
                          f"{APPELS_DE_LA_REPRISE} requis)")

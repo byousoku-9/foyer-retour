@@ -131,7 +131,7 @@ def _settings_sinistre(prefixe: str, **kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=30.0, max_attempts=6, max_cost_eur=0.20)
+    return RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=0.20)
 
 
 def _comprendre(*, question_resolue: str = QUESTION_INITIALE, terms: list[str] | None = None,

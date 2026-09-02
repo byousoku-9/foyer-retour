@@ -173,7 +173,7 @@ async def _run_outils(script: list[dict[str, object]], *, corpus: Corpus | None 
             text=json.dumps({"sufficient": False, "result_uid": None}))]
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
-    request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
+    request_budget = RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0)
     result, step = await retrouver_outils(
         parsed or _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=budget or _budget(max_blocks=30, max_tokens=6000), settings=settings,
@@ -4139,7 +4139,7 @@ async def test_reason_retrieval_callers_disable_provider_prompt_cache() -> None:
         _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000), settings=settings,
         client=LlmClient(settings, anthropic_client=full_fake),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p2:1"]
     assert "cache_control" not in full_fake.requests[0]["system"][0]
@@ -4162,7 +4162,7 @@ async def test_full_context_places_all_citable_blocks_in_system_and_only_dynamic
         corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000),
         settings=_s(max_cost_eur_per_request=1.0), client=client,
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p1:1"] and result.blocs[0] is corpus.documents["d"].block("d:p1:1")
     assert client.request is not None
@@ -4211,7 +4211,7 @@ async def test_les_trois_variantes_refusent_une_fondatrice_hors_question_rappele
     full, _ = await retrouver_full_context(
         parsed, corpus=corpus, index=Index(corpus), budget=bounded, settings=configured,
         client=FullClient(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d",
     )
 
@@ -4235,7 +4235,7 @@ async def test_full_context_resolves_model_ids_in_canonical_corpus_order() -> No
         _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=30, max_tokens=6000),
         settings=_s(max_cost_eur_per_request=1.0), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert result.opened_block_ids == ["d:p1:1", "d:p2:1"]
     assert [block.block_id for block in result.blocs] == result.opened_block_ids
@@ -4251,14 +4251,14 @@ async def test_full_context_applies_common_atomic_closure_and_block_budget() -> 
     complete, _step = await retrouver_full_context(
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=2, max_tokens=6000), settings=_s(), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert complete.opened_block_ids == ["d:p1:2", "d:p1:5"]
 
     bounded, bounded_step = await retrouver_full_context(
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_blocks=1, max_tokens=6000), settings=_s(), client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d")
     assert bounded.opened_block_ids == [] and bounded.truncated is True
     assert bounded.discarded_block_ids == bounded_step.discarded_block_ids == ["d:p1:2"]
@@ -4277,7 +4277,7 @@ async def test_full_context_limits_primary_nodes_by_max_opens() -> None:
         _parsed(["zorbule"]), corpus=corpus, index=Index(corpus),
         budget=_budget(max_opens=1, max_blocks=30, max_tokens=6000), settings=_s(),
         client=Client(),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="d", candidats_out=candidates)
     assert candidates == ["d:p3:1", "d:p2:1", "d:p1:1"]
     assert result.opened_node_ids == ["n1"]
@@ -4304,7 +4304,7 @@ async def test_full_context_refuses_context_window_before_client(monkeypatch: py
         await retrouver_full_context(
             _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
             budget=_budget(max_blocks=30, max_tokens=6000), settings=_s(), client=client,
-            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
             doc_id="d")
     assert client.called is False
     assert capture.value.step is not None
@@ -4331,7 +4331,7 @@ async def test_full_context_preflight_counts_the_exact_structured_envelope(
         await retrouver_full_context(
             _parsed(["matricule"]), corpus=corpus, index=Index(corpus),
             budget=_budget(max_blocks=30, max_tokens=6000), settings=settings, client=Client(),
-            request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+            request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
             doc_id="d")
     assert capture.value.step is not None
 
@@ -4359,7 +4359,7 @@ async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> N
         _parsed(["déchets"]), corpus=corpus, index=index,
         budget=_budget(max_blocks=30, max_tokens=6000), settings=s,
         client=LlmClient(s, anthropic_client=fake),
-        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        request_budget=RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0),
         doc_id="lux-guide")
 
     prefixe = "".join(bloc["text"] for bloc in fake.requests[0]["system"])

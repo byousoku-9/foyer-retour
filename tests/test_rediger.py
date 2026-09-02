@@ -86,7 +86,7 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 30.0) -> RequestBudget:
+def _budget(deadline_s: float = 100.0) -> RequestBudget:
     # Le plafond suit celui du produit : ces témoins chargent le corpus réel, dont le sommaire
     # entier vit dans le préfixe de *rédiger* ; un plafond épinglé à part vieillit avec l'arbre.
     return RequestBudget(deadline_s=deadline_s, max_attempts=4,
@@ -315,7 +315,7 @@ async def test_le_plafond_unique_2048_demarre_la_redaction_froide_sous_douze_cen
     retrieval = RetrievalResult(blocs=blocks, opened_block_ids=[block.block_id for block in blocks],
                                 truncated=True)
     settings = _settings()
-    budget = RequestBudget(deadline_s=30, max_attempts=4,
+    budget = RequestBudget(deadline_s=100, max_attempts=4,
                            max_cost_eur=settings.max_cost_eur_per_request)
     budget.cost_eur = 0.0143  # coût froid mesuré de comprendre + deux tours de navigation Haiku
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
@@ -525,7 +525,7 @@ async def test_sinistre_borne_les_dependances_exigees_au_budget_de_claims() -> N
     parsed = _parsed(facettes=["dommages", "limites"])
     settings = _settings(draft_max_claims=4)
 
-    budget = RequestBudget(deadline_s=30, max_attempts=4, max_cost_eur=1.0)
+    budget = RequestBudget(deadline_s=100, max_attempts=4, max_cost_eur=1.0)
     await rediger(parsed, retrieval, [], client=client, budget=budget, index=index,
                   doc_id=doc.doc_id, settings=settings, prompt="rediger_sinistre")
 

@@ -74,7 +74,7 @@ async def test_deux_appels_identiques_reutilisent_le_cache_disque_sans_fournisse
     async def appel() -> object:
         return await client.parse(
             tier="micro", system_prefix="préfixe", messages=[{"role": "user", "content": "q"}],
-            output_model=_Mot, budget=RequestBudget(30, 4, 0.1), step=StepTrace(name="test"),
+            output_model=_Mot, budget=RequestBudget(100, 4, 0.1), step=StepTrace(name="test"),
         )
 
     premier = await appel()
@@ -100,7 +100,7 @@ async def test_retry_invalide_puis_valide_cree_un_hit_logique_au_cout_total(
     step = StepTrace(name="test")
     premier = await client.parse(
         tier="micro", system_prefix="préfixe", messages=[{"role": "user", "content": "q"}],
-        output_model=_Mot, budget=RequestBudget(30, 4, 0.1), step=step)
+        output_model=_Mot, budget=RequestBudget(100, 4, 0.1), step=step)
     cout_total = round(sum(call.usage.cost_eur_original for call in step.calls), 4)
     cache.finalize_logical_costs([cout_total])
 
@@ -110,7 +110,7 @@ async def test_retry_invalide_puis_valide_cree_un_hit_logique_au_cout_total(
         Settings(_env_file=None, anthropic_api_key=""), anthropic_client=sans_fournisseur,
         cache=cache_suivant).parse(
             tier="micro", system_prefix="préfixe", messages=[{"role": "user", "content": "q"}],
-            output_model=_Mot, budget=RequestBudget(30, 4, 0.1), step=StepTrace(name="test"))
+            output_model=_Mot, budget=RequestBudget(100, 4, 0.1), step=StepTrace(name="test"))
 
     assert premier.parsed.mot == second.parsed.mot == "valide"
     assert len(fake.requests) == 2 and sans_fournisseur.requests == []

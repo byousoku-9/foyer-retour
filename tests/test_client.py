@@ -29,7 +29,10 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 30.0, max_attempts: int = 4, max_cost: float = 0.10) -> RequestBudget:
+def _budget(deadline_s: float = 100.0, max_attempts: int = 4, max_cost: float = 0.10) -> RequestBudget:
+    """100 s, la deadline servie : depuis le correctif du tour 4, un appel dont la durée majorée
+    dépasse le temps restant est refusé **avant** l'envoi, et 30 s ne laissaient pas écrire les
+    4 096 tokens que ces témoins demandent — le budget serait devenu le sujet de chaque test."""
     return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=max_cost)
 
 
@@ -117,7 +120,7 @@ async def test_tool_turn_applique_le_budget_cumule_de_campagne(
 
 async def test_request_shape_micro_no_effort_temperature_zero() -> None:
     client, fake = _client([fake_message(model=HAIKU)])
-    budget = _budget(deadline_s=40)
+    budget = _budget()
     history = [{"role": "user", "content": "avant"}, {"role": "assistant", "content": "réponse"},
                {"role": "user", "content": "question"}]
     step = StepTrace(name="comprendre")
@@ -132,7 +135,9 @@ async def test_request_shape_micro_no_effort_temperature_zero() -> None:
     assert req["output_config"]["format"]["type"] == "json_schema"
     assert req["output_config"]["format"]["schema"]["required"] == ["mot"]
     assert req["max_tokens"] == _settings().llm_max_output_tokens
-    assert 0 < req["timeout"] <= 40.0  # min(llm_timeout_s=40, restant)
+    # `min(llm_timeout_s, restant)` : le plafond par appel vaut 55 s depuis le tour 3, et le
+    # budget du témoin en laisse 100 — c'est donc le plafond qui borne.
+    assert 0 < req["timeout"] <= _settings().llm_timeout_s
     assert "tools" not in req
 
 
@@ -171,9 +176,15 @@ async def test_request_shape_ingest_effort_high_5m() -> None:
 
 
 async def test_timeout_is_capped_by_remaining_deadline() -> None:
+    """Le délai passé au SDK reste borné par le temps restant.
+
+    La deadline choisie doit laisser écrire la sortie demandée : depuis le correctif du tour 4, un
+    appel qui n'aurait pas le temps d'aboutir est refusé avant l'envoi, et ce témoin-ci mesure le
+    plafonnement du délai, pas ce refus.
+    """
     client, fake = _client([fake_message(model=HAIKU)])
-    await _call(client, budget=_budget(deadline_s=10))
-    assert fake.requests[0]["timeout"] <= 10
+    await _call(client, budget=_budget(deadline_s=60))
+    assert fake.requests[0]["timeout"] <= 60
 
 
 async def test_provider_cache_hit_is_priced_at_cache_read() -> None:
@@ -267,9 +278,9 @@ async def test_effort_explicit_remplace_le_defaut_seulement_sur_un_modele_compat
 
 
 async def test_invalid_parse_without_margin_fails_after_one_call() -> None:
-    settings = _settings(llm_retry_margin_s=50.0)  # restant (≈30) < marge
+    settings = _settings(llm_retry_margin_s=90.0)  # restant (≈80) < marge
     client, fake = _client([fake_message(text="pas du JSON", model=HAIKU)], settings)
-    budget = _budget(deadline_s=30)
+    budget = _budget(deadline_s=80)
     with pytest.raises(LlmParse):
         await _call(client, budget=budget)
     assert budget.attempts == 1 and len(fake.requests) == 1

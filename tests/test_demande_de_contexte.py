@@ -225,7 +225,22 @@ def _settings(identite: Identite, **kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(*, max_attempts: int = 6, deadline_s: float = 30.0) -> RequestBudget:
+class _BudgetQuiSepuise(RequestBudget):
+    """Budget dont le temps restant tombe sous ce qu'un appel demande, après le n-ième appel."""
+
+    def __init__(self, apres_appels: int) -> None:
+        super().__init__(deadline_s=100.0, max_attempts=8, max_cost_eur=0.30)
+        self._restants = apres_appels
+
+    def note_call(self, usage) -> None:
+        super().note_call(usage)
+        self._restants -= 1
+
+    def remaining(self) -> float:
+        return 100.0 if self._restants > 0 else 1.0
+
+
+def _budget(*, max_attempts: int = 6, deadline_s: float = 100.0) -> RequestBudget:
     return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=0.20)
 
 
@@ -653,9 +668,12 @@ async def test_sans_marge_de_deadline_aucune_passe(neutre: CorpusNeutre,
         neutre,
         [_comprendre(neutre), _rediger(neutre),
          _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE))],
-        # Il reste moins que `llm_retry_margin_s` : la reprise ne démarre pas, exactement comme la
-        # relance d'AD-3 dans la même situation.
-        budget=_budget(deadline_s=_settings(neutre.identite).llm_retry_margin_s / 2))
+        # Le temps s'épuise après les trois appels de la chaîne : il ne reste plus de quoi écrire
+        # la vérification de la reprise, qui en demande 45,7 au débit minoré. Depuis le correctif du
+        # tour 4, c'est ce que l'appel va écrire qui décide, pas une marge fixe — et une horloge
+        # figée ne pourrait pas distinguer la première vérification de la seconde, qui coûtent le
+        # même temps.
+        budget=_BudgetQuiSepuise(3))
 
     assert fake.remaining_script == 0
     assert "reprise_sans_place" in _tous_les_checks(trace)

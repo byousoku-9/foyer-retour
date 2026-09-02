@@ -537,10 +537,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             # démarré (revue Codex 1.5, tour 3 — mesuré en live, la chaîne ressortait en 503).
             appels_avant = budget.attempts
             try:
-                if budget.remaining() <= settings.llm_retry_margin_s:
-                    # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
-                    # pas ; la requête, elle, a déjà sa réponse vérifiée.
-                    raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
+                # AD-1, littéralement : « aucun retry ne démarre sans marge ». Le retry ne démarre
+                # pas ; la requête, elle, a déjà sa réponse vérifiée. C2 : la marge est désormais
+                # **ce que le cycle demande** — la somme des durées majorées de ses deux appels au
+                # débit minoré —, et non un nombre fixe sans rapport avec ce qu'il va écrire.
+                duree_du_cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+                                  + settings.duree_majoree_pour(settings.verifier_max_tokens))
+                if budget.remaining() <= duree_du_cycle:
+                    raise Timeout(f"temps insuffisant pour la relance : {duree_du_cycle:.1f} s "
+                                  f"requises au débit minoré, {budget.remaining():.1f} s restantes")
                 if budget.attempts + APPELS_DE_LA_RELANCE > budget.max_attempts:
                     # Même règle, appliquée au **compteur d'appels** : une relance, c'est deux appels
                     # — rédiger puis vérifier — et un draft relancé mais non vérifié n'est jamais

@@ -213,7 +213,7 @@ async def test_les_deux_variantes_completent_les_memes_roles_sous_permutation() 
             # les rend pas lexicalement suffisantes : le second tour borné conclut sans outil.
             fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
         ])
-        request_budget = RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0)
+        request_budget = RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0)
         outils, _ = await retrouver_outils(
             parsed, corpus=corpus, index=index, budget=budget, settings=settings,
             client=LlmClient(settings, anthropic_client=fake),

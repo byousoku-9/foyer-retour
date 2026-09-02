@@ -8,6 +8,7 @@ import time
 import uuid
 
 from server.app.domain.artifact import document_artifact_uid
+from server.app.domain.errors import Timeout
 
 
 class RequestBudget:
@@ -49,6 +50,26 @@ class RequestBudget:
     def timeout_for_call(self, llm_timeout_s: float) -> float:
         """Timeout à passer au SDK : min(llm_timeout_s, deadline restante)."""
         return min(llm_timeout_s, self.remaining())
+
+    def exiger_le_temps_decrire(self, duree_majoree: float, *, etape: str) -> None:
+        """Refuse **avant l'envoi** un appel que le temps restant ne peut pas laisser aboutir.
+
+        Correctif du tour 4 (C2). `timeout_for_call` tronquait le délai au temps restant sans jamais
+        demander si ce temps suffisait. Mesuré sur A16 : un appel a été envoyé avec 24,08 s
+        disponibles pour une sortie qui en demande 45,66 au débit minoré publié. Il ne pouvait pas
+        aboutir. Il a coûté 24 s, **zéro token**, zéro euro — et la totalité de la marge dont la
+        remise de la réponse avait besoin. Un appel dont on sait qu'il expirera n'est pas un appel :
+        c'est une attente payée en temps.
+
+        L'erreur est `Timeout`, typée comme celle que l'appel aurait fini par lever, pour que les
+        appelants qui savent déjà la traiter — la relance et la reprise servent alors l'acquis — la
+        traitent sans rien apprendre de neuf. `attempts` n'est pas incrémenté : rien n'a été envoyé.
+        """
+        restant = self.remaining()
+        if duree_majoree > restant:
+            raise Timeout(
+                f"temps insuffisant pour l'étape {etape} : {duree_majoree:.1f} s requises au débit "
+                f"minoré, {restant:.1f} s restantes — appel non envoyé")
 
     def note_call(self, usage) -> None:
         """Consigne un appel réellement facturé : cumule son coût (les attempts sont comptés à l'envoi)."""
