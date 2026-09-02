@@ -1,0 +1,752 @@
+<!-- axa-lu-optihome-2017 · edition juin 2017 · source_hash 6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c · ingest_fingerprint 917c8d63b5abd968fb95a1cd54cedba5573897e2192e2ac3ce59d75160375f2e -->
+# Conditions d’assurances OptiHome (multirisques habitation)
+
+- `axa-lu-optihome-2017:a1` · 1 Lexique · p. 6
+  - `axa-lu-optihome-2017:a1.1` · 1.1 Accident · p. 6
+  - `axa-lu-optihome-2017:a1.2` · 1.2 Accidentel · p. 6
+  - `axa-lu-optihome-2017:a1.3` · 1.3 Assuré · p. 6
+    - `axa-lu-optihome-2017:a1.3.1` · 1.3.1 Le Preneur d’assurance, · p. 6
+    - `axa-lu-optihome-2017:a1.3.2` · 1.3.2 les personnes vivant à son foyer ; · p. 6
+    - `axa-lu-optihome-2017:a1.3.3` · 1.3.3 son personnel ainsi que celui des personnes vivant à son foyer ; · p. 6
+    - `axa-lu-optihome-2017:a1.3.4` · 1.3.4 toute autre personne que ce contrat qualifierait d’Assuré. · p. 6
+  - `axa-lu-optihome-2017:a1.4` · 1.4 Attentat · p. 6
+    - `axa-lu-optihome-2017:a1.4.1` · 1.4.1 L’émeute · p. 6
+    - `axa-lu-optihome-2017:a1.4.2` · 1.4.2 Le mouvement populaire · p. 6
+    - `axa-lu-optihome-2017:a1.4.3` · 1.4.3 L’acte de terrorisme ou de sabotage · p. 7
+  - `axa-lu-optihome-2017:a1.5` · 1.5 Bâtiment désigné · p. 7
+    - `axa-lu-optihome-2017:a1.5.1` · 1.5.1 les cours ; · p. 7
+    - `axa-lu-optihome-2017:a1.5.2` · 1.5.2 les clôtures et les haies délimitant le terrain où est le bâtiment désigné ; · p. 7
+    - `axa-lu-optihome-2017:a1.5.3` · 1.5.3 les garages ; · p. 7
+    - `axa-lu-optihome-2017:a1.5.4` · 1.5.4 les serres à usage privé ; · p. 7
+    - `axa-lu-optihome-2017:a1.5.5` · 1.5.5 les installations photovoltaïques et panneaux solaires ; · p. 7
+    - `axa-lu-optihome-2017:a1.5.6` · 1.5.6 les aménagements immobiliers attachés au fonds à perpétuelle demeure et qui ne peuvent être · p. 7
+    - `axa-lu-optihome-2017:a1.5.7` · 1.5.7 les matériaux à pied d’oeuvre destinés à être incorporés au bâtiment. · p. 7
+  - `axa-lu-optihome-2017:a1.6` · 1.6 Biens désignés · p. 7
+  - `axa-lu-optihome-2017:a1.7` · 1.7 Bijoux · p. 7
+    - `axa-lu-optihome-2017:a1.7.1` · 1.7.1 en métal précieux c’est-à-dire or, argent, platine et vermeil ; · p. 7
+    - `axa-lu-optihome-2017:a1.7.2` · 1.7.2 comportant soit une ou plusieurs pierres précieuses · p. 7
+  - `axa-lu-optihome-2017:a1.8` · 1.8 Chômage immobilier · p. 8
+    - `axa-lu-optihome-2017:a1.8.1` · 1.8.1 II comprend : · p. 8
+      - `axa-lu-optihome-2017:a1.8.1.1` · 1.8.1.1 la privation de jouissance immobilière subie par le propriétaire ou l’occupant à titre gratuit, · p. 8
+      - `axa-lu-optihome-2017:a1.8.1.2` · 1.8.1.2 la perte de loyer augmenté de ses charges subie par le bailleur si les constructions mentionnées · p. 8
+      - `axa-lu-optihome-2017:a1.8.1.3` · 1.8.1.3 la responsabilité contractuelle de l’Assuré pour les dommages précités. · p. 8
+    - `axa-lu-optihome-2017:a1.8.2` · 1.8.2 Le chômage immobilier est limité · p. 8
+  - `axa-lu-optihome-2017:a1.9` · 1.9 Collection · p. 8
+  - `axa-lu-optihome-2017:a1.10` · 1.10 Compagnie · p. 8
+  - `axa-lu-optihome-2017:a1.11` · 1.11 Conflit du travail · p. 8
+    - `axa-lu-optihome-2017:a1.11.1` · 1.11.1 la grève : · p. 8
+    - `axa-lu-optihome-2017:a1.11.2` · 1.11.2 le lock-out : · p. 8
+  - `axa-lu-optihome-2017:a1.12` · 1.12 Contenu · p. 9
+    - `axa-lu-optihome-2017:a1.12.1` · 1.12.1 le mobilier ; · p. 9
+    - `axa-lu-optihome-2017:a1.12.2` · 1.12.2 les animaux domestiques, d’élevage, ainsi que les animaux d’agrément (à l’exclusion · p. 9
+    - `axa-lu-optihome-2017:a1.12.3` · 1.12.3 les seuls véhicules automoteurs non soumis à immatriculation à deux ou trois roues d’une · p. 9
+  - `axa-lu-optihome-2017:a1.13` · 1.13 Dépendances · p. 9
+  - `axa-lu-optihome-2017:a1.14` · 1.14 Documents constitutifs du contrat · p. 9
+  - `axa-lu-optihome-2017:a1.15` · 1.15 Dommages corporels · p. 9
+  - `axa-lu-optihome-2017:a1.16` · 1.16 Dommages matériels · p. 9
+  - `axa-lu-optihome-2017:a1.17` · 1.17 Dommages immatériels · p. 10
+  - `axa-lu-optihome-2017:a1.18` · 1.18 Equipement d’alarme et de surveillance · p. 10
+  - `axa-lu-optihome-2017:a1.19` · 1.19 Equipement domotique · p. 10
+  - `axa-lu-optihome-2017:a1.20` · 1.20 Frais de conservation · p. 10
+  - `axa-lu-optihome-2017:a1.21` · 1.21 Franchise · p. 10
+  - `axa-lu-optihome-2017:a1.22` · 1.22 Glissement de terrain · p. 10
+  - `axa-lu-optihome-2017:a1.23` · 1.23 Inondation · p. 10
+  - `axa-lu-optihome-2017:a1.24` · 1.24 Locaux · p. 11
+  - `axa-lu-optihome-2017:a1.25` · 1.25 Matériel multimédia · p. 11
+  - `axa-lu-optihome-2017:a1.26` · 1.26 Matériel nomade · p. 11
+  - `axa-lu-optihome-2017:a1.27` · 1.27 Mobilier · p. 11
+  - `axa-lu-optihome-2017:a1.28` · 1.28 Mobilier de jardin · p. 11
+  - `axa-lu-optihome-2017:a1.29` · 1.29 Objets de valeur · p. 11
+  - `axa-lu-optihome-2017:a1.30` · 1.30 Objets personnels · p. 12
+  - `axa-lu-optihome-2017:a1.31` · 1.31 Occupation · p. 12
+    - `axa-lu-optihome-2017:a1.31.1` · 1.31.1 Occupation régulière : · p. 12
+    - `axa-lu-optihome-2017:a1.31.2` · 1.31.2 Occupation irrégulière : · p. 12
+  - `axa-lu-optihome-2017:a1.32` · 1.32 Pluies torrentielles · p. 12
+  - `axa-lu-optihome-2017:a1.33` · 1.33 Préfabriqué (construction de type) · p. 12
+  - `axa-lu-optihome-2017:a1.34` · 1.34 Preneur d’assurance · p. 12
+  - `axa-lu-optihome-2017:a1.35` · 1.35 Recours des locataires ou occupants · p. 12
+    - `axa-lu-optihome-2017:a1.35.1` · 1.35.1 les dégâts matériels ; · p. 12
+    - `axa-lu-optihome-2017:a1.35.2` · 1.35.2 les frais repris aux conditions spéciales “frais annexes”. · p. 13
+  - `axa-lu-optihome-2017:a1.36` · 1.36 Recours des tiers (recours des voisins) · p. 13
+    - `axa-lu-optihome-2017:a1.36.1` · 1.36.1 les dégâts matériels causés par un sinistre garanti se communiquant à des biens qui sont · p. 13
+    - `axa-lu-optihome-2017:a1.36.2` · 1.36.2 les frais repris aux conditions spéciales “frais annexes” lorsqu’ils ont été exposés par lesdits · p. 13
+    - `axa-lu-optihome-2017:a1.36.3` · 1.36.3 le chômage commercial subi par lesdits “tiers”. · p. 13
+  - `axa-lu-optihome-2017:a1.37` · 1.37 Résiliation · p. 13
+  - `axa-lu-optihome-2017:a1.38` · 1.38 Responsabilité locative ou d’occupant · p. 13
+  - `axa-lu-optihome-2017:a1.39` · 1.39 Sanitaires · p. 13
+  - `axa-lu-optihome-2017:a1.40` · 1.40 Séjour temporaire · p. 13
+  - `axa-lu-optihome-2017:a1.41` · 1.41 Serrure de sécurité / Serrure de sûreté · p. 14
+  - `axa-lu-optihome-2017:a1.42` · 1.42 STATEC · p. 14
+  - `axa-lu-optihome-2017:a1.43` · 1.43 Superficie · p. 14
+  - `axa-lu-optihome-2017:a1.44` · 1.44 Tempête · p. 14
+  - `axa-lu-optihome-2017:a1.45` · 1.45 Tremblement de terre · p. 14
+  - `axa-lu-optihome-2017:a1.46` · 1.46 Valeurs · p. 14
+  - `axa-lu-optihome-2017:a1.47` · 1.47 Valeur à neuf · p. 15
+    - `axa-lu-optihome-2017:a1.47.1` · 1.47.1 Pour le bâtiment désigné, · p. 15
+    - `axa-lu-optihome-2017:a1.47.2` · 1.47.2 Pour le mobilier, · p. 15
+  - `axa-lu-optihome-2017:a1.48` · 1.48 Valeur du jour · p. 15
+  - `axa-lu-optihome-2017:a1.49` · 1.49 Valeur réelle · p. 15
+  - `axa-lu-optihome-2017:a1.50` · 1.50 Valeur vénale · p. 15
+  - `axa-lu-optihome-2017:a1.51` · 1.51 Villégiature (bâtiment de -) · p. 15
+  - `axa-lu-optihome-2017:a1.52` · 1.52 Vol · p. 15
+    - `axa-lu-optihome-2017:a1.52.1` · 1.52.1 le vol simple : · p. 15
+    - `axa-lu-optihome-2017:a1.52.2` · 1.52.2 le vol par effraction : · p. 16
+    - `axa-lu-optihome-2017:a1.52.3` · 1.52.3 le vol par agression : · p. 16
+    - `axa-lu-optihome-2017:a1.52.4` · 1.52.4 le vol à la tire : · p. 16
+    - `axa-lu-optihome-2017:a1.52.5` · 1.52.5 le vol à la sauvette : · p. 16
+  - `axa-lu-optihome-2017:a1.53` · 1.53 Voyage · p. 16
+  - `axa-lu-optihome-2017:a1.54` · 1.54 Zone inondable · p. 16
+- `axa-lu-optihome-2017:a2` · 2 Conditions générales communes à toutes les · p. 17
+  - `axa-lu-optihome-2017:a2.1` · 2.1 Objet · p. 17
+  - `axa-lu-optihome-2017:a2.2` · 2.2 Formation du contrat et durée · p. 17
+  - `axa-lu-optihome-2017:a2.3` · 2.3 Déclaration préliminaire · p. 17
+    - `axa-lu-optihome-2017:a2.3.1` · 2.3.1 Murs extérieurs · p. 17
+    - `axa-lu-optihome-2017:a2.3.2` · 2.3.2 Usage · p. 18
+  - `axa-lu-optihome-2017:a2.4` · 2.4 Déclarations de l’Assuré · p. 18
+  - `axa-lu-optihome-2017:a2.5` · 2.5 Estimation des biens · p. 18
+    - `axa-lu-optihome-2017:a2.5.1` · 2.5.1 Bâtiment · p. 18
+    - `axa-lu-optihome-2017:a2.5.2` · 2.5.2 Contenu · p. 18
+      - `axa-lu-optihome-2017:a2.5.2.1` · 2.5.2.1 Mobilier · p. 18
+      - `axa-lu-optihome-2017:a2.5.2.2` · 2.5.2.2 Les animaux sont assurés en valeur du jour, sans tenir compte de leur valeur de concours ou de · p. 19
+      - `axa-lu-optihome-2017:a2.5.2.3` · 2.5.2.3 Les valeurs sont assurées en valeur du jour. · p. 19
+      - `axa-lu-optihome-2017:a2.5.2.4` · 2.5.2.4 Les véhicules automoteurs (tels que précisés au point 1.12.3 du lexique) et les remorques sont · p. 19
+  - `axa-lu-optihome-2017:a2.6` · 2.6 Adaptation automatique des montants assurés, de la prime, des · p. 19
+    - `axa-lu-optihome-2017:a2.6.1` · 2.6.1 Indice applicable · p. 19
+      - `axa-lu-optihome-2017:a2.6.1.1` · 2.6.1.1 Les montants assurés mentionnés aux conditions particulières et la prime sont automatiquement · p. 19
+      - `axa-lu-optihome-2017:a2.6.1.2` · 2.6.1.2 les limites d’indemnité et les franchises mentionnées aux présentes conditions d’assurances · p. 19
+    - `axa-lu-optihome-2017:a2.6.2` · 2.6.2 Détermination des indices · p. 19
+    - `axa-lu-optihome-2017:a2.6.3` · 2.6.3 Adaptation des montants assurés en cas de sinistre · p. 19
+    - `axa-lu-optihome-2017:a2.6.4` · 2.6.4 Modifications à la demande de l’Assuré · p. 19
+  - `axa-lu-optihome-2017:a2.7` · 2.7 Déclarations à la souscription · p. 19
+    - `axa-lu-optihome-2017:a2.7.1` · 2.7.1 Omissions et inexactitudes non intentionnelles · p. 20
+    - `axa-lu-optihome-2017:a2.7.2` · 2.7.2 Omissions et inexactitudes intentionnelles · p. 20
+  - `axa-lu-optihome-2017:a2.8` · 2.8 Déclarations en cours de contrat · p. 20
+    - `axa-lu-optihome-2017:a2.8.1` · 2.8.1 Diminution du risque · p. 20
+    - `axa-lu-optihome-2017:a2.8.2` · 2.8.2 Aggravation du risque · p. 20
+  - `axa-lu-optihome-2017:a2.9` · 2.9 Primes · p. 21
+    - `axa-lu-optihome-2017:a2.9.1` · 2.9.1 Modalités de paiement · p. 21
+    - `axa-lu-optihome-2017:a2.9.2` · 2.9.2 Frais administratifs · p. 22
+  - `axa-lu-optihome-2017:a2.10` · 2.10 Exclusions · p. 22
+  - `axa-lu-optihome-2017:a2.11` · 2.11 Obligations et formalités à respecter en cas de sinistre · p. 22
+    - `axa-lu-optihome-2017:a2.11.1` · 2.11.1 prendre toutes mesures raisonnables pour prévenir et atténuer les conséquences du sinistre ; · p. 22
+    - `axa-lu-optihome-2017:a2.11.2` · 2.11.2 déclarer le sinistre à la Compagnie par écrit (de préférence par lettre recommandée) ou verbalement · p. 22
+      - `axa-lu-optihome-2017:a2.11.2.1` · 2.11.2.1 en cas de sinistre affectant des animaux ; · p. 23
+      - `axa-lu-optihome-2017:a2.11.2.2` · 2.11.2.2 en cas de conflit du travail ou d’attentat ; · p. 23
+      - `axa-lu-optihome-2017:a2.11.2.3` · 2.11.2.3 en cas de vol, de tentative de vol ou d’effraction immobilière, de vandalisme et de malveillance  ; · p. 23
+    - `axa-lu-optihome-2017:a2.11.3` · 2.11.3 indiquer dans la déclaration du sinistre, la date, la nature, les causes, les circonstances, · p. 23
+    - `axa-lu-optihome-2017:a2.11.4` · 2.11.4 dans les assurances de la responsabilité civile, transmettre à la Compagnie, dès leur réception, · p. 23
+    - `axa-lu-optihome-2017:a2.11.5` · 2.11.5 s’abstenir de toute reconnaissance de responsabilité, transaction, fixation de dommage, de tout · p. 23
+    - `axa-lu-optihome-2017:a2.11.6` · 2.11.6 en cas de dommages matériels aux biens désignés : · p. 23
+    - `axa-lu-optihome-2017:a2.11.7` · 2.11.7 fournir à la Compagnie tout moyen de prouver l’existence, l’authenticité et la valeur des biens · p. 24
+  - `axa-lu-optihome-2017:a2.12` · 2.12 Estimation des dommages · p. 24
+    - `axa-lu-optihome-2017:a2.12.1` · 2.12.1 La vétusté d’un bien sinistré ou de la partie sinistrée d’un bien sera déduite en cas d’assurance · p. 24
+    - `axa-lu-optihome-2017:a2.12.2` · 2.12.2 Sans préjudice du recours à la voie judiciaire, les dégâts matériels, les dommages résultant du · p. 24
+  - `axa-lu-optihome-2017:a2.13` · 2.13 Fixation de l’indemnité · p. 25
+    - `axa-lu-optihome-2017:a2.13.1` · 2.13.1 L’indemnisation des dommages assurés s’opère suivant les présentes conditions et compte tenu · p. 25
+    - `axa-lu-optihome-2017:a2.13.2` · 2.13.2 Règles complémentaires relatives à l’indemnisation du bâtiment désigné. · p. 25
+      - `axa-lu-optihome-2017:a2.13.2.1` · 2.13.2.1 Son indemnisation en valeur à neuf est nécessairement subordonnée à sa reconstruction, · p. 25
+      - `axa-lu-optihome-2017:a2.13.2.2` · 2.13.2.2 En cas de non-reconstruction, de non-remplacement, l’indemnité du bâtiment assuré en valeur à · p. 25
+      - `axa-lu-optihome-2017:a2.13.2.3` · 2.13.2.3 Si le coût de la reconstruction ou la valeur de remplacement est inférieur à l’indemnisation · p. 25
+      - `axa-lu-optihome-2017:a2.13.2.4` · 2.13.2.4 En cas de reconstruction ou de remplacement aux mêmes fins du bâtiment sinistré, l’indemnité · p. 25
+      - `axa-lu-optihome-2017:a2.13.2.5` · 2.13.2.5 Chaque tranche d’indemnité est majorée en fonction de l’augmentation éventuelle du dernier · p. 25
+    - `axa-lu-optihome-2017:a2.13.3` · 2.13.3 Règles complémentaires relatives à l’indemnisation du mobilier. · p. 25
+      - `axa-lu-optihome-2017:a2.13.3.1` · 2.13.3.1 Son indemnisation en valeur à neuf est nécessairement subordonnée à sa reconstitution, · p. 25
+      - `axa-lu-optihome-2017:a2.13.3.2` · 2.13.3.2 En cas de non-reconstitution du mobilier sinistré assuré en valeur à neuf, l’indemnité est limitée · p. 25
+      - `axa-lu-optihome-2017:a2.13.3.3` · 2.13.3.3 En cas de dommages aux appareils électriques et électroniques, l’indemnité est calculée selon · p. 26
+      - `axa-lu-optihome-2017:a2.13.3.4` · 2.13.3.4 En cas de dommages à une collection, la dépréciation subie par le fait de la disparition ou de · p. 26
+    - `axa-lu-optihome-2017:a2.13.4` · 2.13.4 Toutes charges fiscales autres que la TVA grevant l’indemnité sont supportées par le bénéficiaire. · p. 26
+  - `axa-lu-optihome-2017:a2.14` · 2.14 Paiement de l’indemnité · p. 26
+    - `axa-lu-optihome-2017:a2.14.1` · 2.14.1 En cas de reconstruction ou de remplacement aux mêmes fins du bâtiment sinistré, la Compagnie · p. 26
+    - `axa-lu-optihome-2017:a2.14.2` · 2.14.2 En cas de reconstitution du mobilier sinistré, la Compagnie s’engage à verser une première · p. 26
+    - `axa-lu-optihome-2017:a2.14.3` · 2.14.3 Après sinistre, la Compagnie et l’Assuré peuvent toutefois convenir ensemble d’une autre · p. 26
+    - `axa-lu-optihome-2017:a2.14.4` · 2.14.4 En cas de non-reconstruction, la Compagnie n’est tenue de payer qu’après avoir pris connaissance · p. 26
+    - `axa-lu-optihome-2017:a2.14.5` · 2.14.5 L’Assuré doit avoir rempli toutes les obligations mises à sa charge par le contrat à la date de · p. 26
+    - `axa-lu-optihome-2017:a2.14.6` · 2.14.6 Par dérogation à ce qui est prévu aux points 2.14.1 à 2.14.4 ci-avant : · p. 27
+      - `axa-lu-optihome-2017:a2.14.6.1` · 2.14.6.1 si des présomptions existent que le sinistre peut être dû à un fait intentionnel dans le chef · p. 27
+      - `axa-lu-optihome-2017:a2.14.6.2` · 2.14.6.2 de plus, si la fixation de l’indemnité ou les responsabilités assurées sont contestées, le paiement · p. 27
+      - `axa-lu-optihome-2017:a2.14.6.3` · 2.14.6.3 la taxe sur la valeur ajoutée n’est indemnisée que dans la mesure où il est justifié de son paiement. · p. 27
+  - `axa-lu-optihome-2017:a2.15` · 2.15 Bénéficiaire de l’indemnité · p. 27
+    - `axa-lu-optihome-2017:a2.15.1` · 2.15.1 L’indemnité est payée à l’Assuré sauf dans les cas où la personne lésée dispose d’un droit propre · p. 27
+    - `axa-lu-optihome-2017:a2.15.2` · 2.15.2 En cas d’assurance souscrite pour le compte de tiers, ou au profit de tiers, le Preneur d’assurance · p. 27
+  - `axa-lu-optihome-2017:a2.16` · 2.16 Réversibilité · p. 27
+    - `axa-lu-optihome-2017:a2.16.1` · 2.16.1 S’il apparaît, au jour du sinistre, que certains montants assurés excèdent ceux qui résultent · p. 27
+    - `axa-lu-optihome-2017:a2.16.2` · 2.16.2 La réversibilité n’est accordée que pour les biens appartenant au même ensemble, et à concurrence · p. 27
+  - `axa-lu-optihome-2017:a2.17` · 2.17 Règle de proportionnalité · p. 27
+    - `axa-lu-optihome-2017:a2.17.1` · 2.17.1 Règle de proportionnalité des montants · p. 27
+    - `axa-lu-optihome-2017:a2.17.2` · 2.17.2 Règle de proportionnalité des primes · p. 28
+    - `axa-lu-optihome-2017:a2.17.3` · 2.17.3 La règle de proportionnalité des montants n’est toutefois pas appliquée : · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.1` · 2.17.3.1 lorsque les montants assurés ont été fixés par la Compagnie ou son mandataire ; · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.2` · 2.17.3.2 en assurance de la responsabilité d’un locataire ou d’un occupant d’une partie du bâtiment · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.3` · 2.17.3.3 aux indemnisations détaillées aux conditions spéciales “frais annexes” ; · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.4` · 2.17.3.4 si l’insuffisance des montants ou des superficies assurés ne dépasse pas 10% du montant ou · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.5` · 2.17.3.5 aux garanties afférentes à la responsabilité civile extracontractuelle ; · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.6` · 2.17.3.6 à l’assurance au premier risque absolu de valeurs ainsi que dans les autres hypothèses · p. 28
+      - `axa-lu-optihome-2017:a2.17.3.7` · 2.17.3.7 aux assurances conclues en valeur agréée. · p. 28
+  - `axa-lu-optihome-2017:a2.18` · 2.18 Subrogation et recours · p. 29
+    - `axa-lu-optihome-2017:a2.18.1` · 2.18.1 un Assuré pour les dégâts matériels aux biens qui lui ont été confiés ou qu’il assure pour compte · p. 29
+    - `axa-lu-optihome-2017:a2.18.2` · 2.18.2 les nus-propriétaires et usufruitiers assurés conjointement par le contrat ; · p. 29
+    - `axa-lu-optihome-2017:a2.18.3` · 2.18.3 les copropriétaires assurés conjointement par le contrat ; · p. 29
+    - `axa-lu-optihome-2017:a2.18.4` · 2.18.4 les hôtes de l’Assuré ; · p. 29
+    - `axa-lu-optihome-2017:a2.18.5` · 2.18.5 le bailleur de l’Assuré lorsque cet abandon de recours est prévu dans le bail ; · p. 29
+    - `axa-lu-optihome-2017:a2.18.6` · 2.18.6 les locataires de l’Assuré lorsque cet abandon de recours est prévu dans le bail ; · p. 29
+    - `axa-lu-optihome-2017:a2.18.7` · 2.18.7 les descendants, ascendants, conjoint et alliés en ligne directe d’un Assuré. · p. 29
+  - `axa-lu-optihome-2017:a2.19` · 2.19 Sort des biens sinistrés · p. 29
+  - `axa-lu-optihome-2017:a2.20` · 2.20 Résiliation du contrat · p. 30
+    - `axa-lu-optihome-2017:a2.20.1` · 2.20.1 Résiliation par le Preneur d’assurance ou la Compagnie · p. 30
+    - `axa-lu-optihome-2017:a2.20.2` · 2.20.2 Résiliation de la couverture RC Chasse · p. 31
+    - `axa-lu-optihome-2017:a2.20.3` · 2.20.3 Résiliation par les ayants droit · p. 31
+    - `axa-lu-optihome-2017:a2.20.4` · 2.20.4 Résiliation par le curateur · p. 31
+  - `axa-lu-optihome-2017:a2.21` · 2.21 Forme de la résiliation · p. 31
+  - `axa-lu-optihome-2017:a2.22` · 2.22 Transmission d’un bien assuré · p. 32
+    - `axa-lu-optihome-2017:a2.22.1` · 2.22.1 En cas de transmission d’un bien assuré par suite du décès du Preneur d’assurance, les droits et · p. 32
+    - `axa-lu-optihome-2017:a2.22.2` · 2.22.2 En cas de cession entre vifs d’un bien assuré, l’assurance prend fin de plein droit : · p. 32
+      - `axa-lu-optihome-2017:a2.22.2.1` · 2.22.2.1 s’il s’agit d’un bien immeuble : trois mois après la date de passation de l’acte authentique, sauf · p. 32
+      - `axa-lu-optihome-2017:a2.22.2.2` · 2.22.2.2 s’il s’agit d’un bien meuble : dès que l’Assuré n’en a plus la possession juridique. · p. 32
+  - `axa-lu-optihome-2017:a2.23` · 2.23 Communication · p. 32
+  - `axa-lu-optihome-2017:a2.24` · 2.24 Protection des données · p. 32
+  - `axa-lu-optihome-2017:a2.25` · 2.25 Autres assurances · p. 33
+  - `axa-lu-optihome-2017:a2.26` · 2.26 Tarif · p. 33
+  - `axa-lu-optihome-2017:a2.27` · 2.27 Contestation · p. 33
+  - `axa-lu-optihome-2017:a2.28` · 2.28 Juridiction compétente · p. 33
+  - `axa-lu-optihome-2017:a2.29` · 2.29 Prescription · p. 33
+  - `axa-lu-optihome-2017:a2.30` · 2.30 Loi applicable · p. 33
+- `axa-lu-optihome-2017:a3` · 3 L’assurance des biens · p. 34
+  - `axa-lu-optihome-2017:a3.1` · 3.1 Garanties de base · p. 34
+    - `axa-lu-optihome-2017:a3.1.1` · 3.1.1 Incendie et périls assimilés · p. 34
+      - `axa-lu-optihome-2017:a3.1.1.1` · 3.1.1.1 Etendue de la garantie · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.1` · 3.1.1.1.1 L’incendie, · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.2` · 3.1.1.1.2 L’explosion ou l’implosion ; · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.3` · 3.1.1.1.3 La chute de la foudre ; · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.4` · 3.1.1.1.4 L’électrocution d’animaux ; · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.5` · 3.1.1.1.5 Les fumées et les suies ; · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.1.6` · 3.1.1.1.6 Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, · p. 34
+      - `axa-lu-optihome-2017:a3.1.1.2` · 3.1.1.2 Garanties complémentaires · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.2.1` · 3.1.1.2.1 à la décongélation de denrées alimentaires · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.2.2` · 3.1.1.2.2 à la dégradation du contenu des sèche-linge · p. 34
+        - `axa-lu-optihome-2017:a3.1.1.2.3` · 3.1.1.2.3 au heurt, sauf : · p. 35
+        - `axa-lu-optihome-2017:a3.1.1.2.4` · 3.1.1.2.4 aux dégradations immobilières causées à l’occasion d’un vol ou d’une tentative de vol dans · p. 35
+        - `axa-lu-optihome-2017:a3.1.1.2.5` · 3.1.1.2.5 aux dommages causés par un acte de vandalisme ou de malveillance au bâtiment désigné pour · p. 35
+        - `axa-lu-optihome-2017:a3.1.1.2.6` · 3.1.1.2.6 aux attentats et conflits du travail : · p. 35
+    - `axa-lu-optihome-2017:a3.1.2` · 3.1.2 Tempête et grêle · p. 36
+      - `axa-lu-optihome-2017:a3.1.2.1` · 3.1.2.1 Etendue de la garantie · p. 36
+      - `axa-lu-optihome-2017:a3.1.2.2` · 3.1.2.2 Exclusions · p. 36
+    - `axa-lu-optihome-2017:a3.1.3` · 3.1.3 Dégâts électriques · p. 37
+      - `axa-lu-optihome-2017:a3.1.3.1` · 3.1.3.1 Etendue de la garantie · p. 37
+      - `axa-lu-optihome-2017:a3.1.3.2` · 3.1.3.2 Exclusions · p. 37
+    - `axa-lu-optihome-2017:a3.1.4` · 3.1.4 Dégâts des eaux · p. 37
+      - `axa-lu-optihome-2017:a3.1.4.1` · 3.1.4.1 Etendue de la garantie · p. 37
+      - `axa-lu-optihome-2017:a3.1.4.2` · 3.1.4.2 Exclusions · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.1` · 3.1.4.2.1 à la toiture du bâtiment ainsi qu’aux revêtements qui en assurent l’étanchéité ; · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.2` · 3.1.4.2.2 aux conduites, aux installations et appareils hydrauliques, aux tuyaux d’évacuation, · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.3` · 3.1.4.2.3 par la condensation ; · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.4` · 3.1.4.2.4 par la porosité des murs sauf si celle-ci trouve son origine dans un ou des bâtiments voisins · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.5` · 3.1.4.2.5 par tous les événements pouvant être pris en charge au titre de la garantie « tempête et grêle » · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.6` · 3.1.4.2.6 par des entrées d’eaux pluviales, de neige ou de glace par des ouvertures fermées ou non, · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.7` · 3.1.4.2.7 par les infiltrations d’eaux souterraines ; · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.8` · 3.1.4.2.8 par les dommages causés par un objet non relié à l’installation hydraulique du bâtiment à · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.9` · 3.1.4.2.9 par des conduites, installations et appareils apparents présentant des points de corrosion · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.10` · 3.1.4.2.10 lorsque le bâtiment désigné est en cours de construction, de transformation ou de rénovation, · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.11` · 3.1.4.2.11 par l’hygrométrie ambiante, même consécutivement à un sinistre couvert ; · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.12` · 3.1.4.2.12 par des champignons ou des moisissures, même consécutivement à un sinistre couvert ; · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.13` · 3.1.4.2.13 par un défaut de réparation ou d’entretien, ou dus à une étanchéité absente, mal conçue ou · p. 38
+        - `axa-lu-optihome-2017:a3.1.4.2.14` · 3.1.4.2.14 lors du remplissage, de travaux de révision ou de réparation des installations et/ou citernes · p. 38
+      - `axa-lu-optihome-2017:a3.1.4.3` · 3.1.4.3 Obligation de prévention · p. 39
+        - `axa-lu-optihome-2017:a3.1.4.3.1` · 3.1.4.3.1 Pendant la période de gel, l’Assuré doit, si les locaux ne sont pas chauffés ou si · p. 39
+        - `axa-lu-optihome-2017:a3.1.4.3.2` · 3.1.4.3.2 L’Assuré doit entretenir, réparer ou remplacer les installations hydrauliques et de chauffage du · p. 39
+    - `axa-lu-optihome-2017:a3.1.5` · 3.1.5 Bris de vitrages · p. 39
+      - `axa-lu-optihome-2017:a3.1.5.1` · 3.1.5.1 Etendue de la garantie · p. 39
+      - `axa-lu-optihome-2017:a3.1.5.2` · 3.1.5.2 Exclusions · p. 39
+        - `axa-lu-optihome-2017:a3.1.5.2.1` · 3.1.5.2.1 aux parties vitrées du matériel multimédia ; · p. 39
+        - `axa-lu-optihome-2017:a3.1.5.2.2` · 3.1.5.2.2 au bâtiment désigné lorsqu’il est en cours de construction, de transformation ou de rénovation, · p. 39
+        - `axa-lu-optihome-2017:a3.1.5.2.3` · 3.1.5.2.3 aux verres optiques et lunettes ; · p. 40
+        - `axa-lu-optihome-2017:a3.1.5.2.4` · 3.1.5.2.4 aux châssis de couche et aux enseignes ; · p. 40
+        - `axa-lu-optihome-2017:a3.1.5.2.5` · 3.1.5.2.5 aux vitrages non encore placés ou pendant leur déplacement ; · p. 40
+        - `axa-lu-optihome-2017:a3.1.5.2.6` · 3.1.5.2.6 aux vitrages relevant des parties communes du bâtiment désigné lorsque l’Assuré est · p. 40
+        - `axa-lu-optihome-2017:a3.1.5.2.7` · 3.1.5.2.7 aux objets en verre, par exemple lustres, vases, vaisselle ; · p. 40
+        - `axa-lu-optihome-2017:a3.1.5.2.8` · 3.1.5.2.8 par un défaut de réparation ou d’entretien des châssis, soubassements et support de vitres, · p. 40
+    - `axa-lu-optihome-2017:a3.1.6` · 3.1.6 Vol · p. 40
+      - `axa-lu-optihome-2017:a3.1.6.1` · 3.1.6.1 Etendue de la garantie · p. 40
+      - `axa-lu-optihome-2017:a3.1.6.2` · 3.1.6.2 Vols exclus · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.1` · 3.1.6.2.1 les vols simples ; · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.2` · 3.1.6.2.2 les vols à la tire ou à la sauvette commis à l’extérieur du bâtiment désigné ; · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.3` · 3.1.6.2.3 les vols dans les locaux à occupation irrégulière ; · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.4` · 3.1.6.2.4 les vols commis par ou avec la complicité de ou du : · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.5` · 3.1.6.2.5 les vols de véhicules automoteurs – à l’exception des engins de jardinage –, des remorques · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.6` · 3.1.6.2.6 les vols des biens se trouvant à l’extérieur, dans les cours, les jardins -à l’exception du mobilier · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.7` · 3.1.6.2.7 si l’Assuré n’occupe que partiellement le bâtiment désigné, le vol des biens se trouvant dans · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.8` · 3.1.6.2.8 le vol des animaux ; · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.9` · 3.1.6.2.9 les vols commis lorsque le bâtiment désigné est en cours de construction, de transformation · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.10` · 3.1.6.2.10 le vol des biens dont l’Assuré n’est pas propriétaire ; · p. 41
+        - `axa-lu-optihome-2017:a3.1.6.2.11` · 3.1.6.2.11 l’abus de confiance. · p. 41
+      - `axa-lu-optihome-2017:a3.1.6.3` · 3.1.6.3 Limites d’indemnité · p. 41
+      - `axa-lu-optihome-2017:a3.1.6.4` · 3.1.6.4 Mesures de sécurité · p. 42
+      - `axa-lu-optihome-2017:a3.1.6.5` · 3.1.6.5 Objets volés retrouvés · p. 42
+    - `axa-lu-optihome-2017:a3.1.7` · 3.1.7 Matériel multimédia · p. 42
+      - `axa-lu-optihome-2017:a3.1.7.1` · 3.1.7.1 Objet de la garantie · p. 42
+      - `axa-lu-optihome-2017:a3.1.7.2` · 3.1.7.2 Exclusions · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.1` · 3.1.7.2.1 le matériel dont l’Assuré n’est pas propriétaire ; · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.2` · 3.1.7.2.2 les pertes liées à l’action d’un virus et tous préjudices consécutifs ; · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.3` · 3.1.7.2.3 les pertes ou dommages dus à des vices ou défauts qui existaient à la date d’effet de · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.4` · 3.1.7.2.4 les pertes ou dommages qui sont la conséquence directe : · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.5` · 3.1.7.2.5 les frais exposés pour réparer des défauts de fonctionnement, sauf si ces défauts sont · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.6` · 3.1.7.2.6 les frais d’entretien des matériels assurés, y compris le coût des pièces remplacées pendant · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.7` · 3.1.7.2.7 les pertes ou dommages dont le fabricant ou le fournisseur est légalement ou contractuellement · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.8` · 3.1.7.2.8 les pertes indirectes de quelque nature que ce soit ; · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.9` · 3.1.7.2.9 les pertes ou dommages causés aux lampes,tubes, bandes transporteuses, fusibles, joints, · p. 43
+        - `axa-lu-optihome-2017:a3.1.7.2.10` · 3.1.7.2.10 les défauts d’ordre esthétique, tels que les bosses, égratignures, rayures ou écaillements ; · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.2.11` · 3.1.7.2.11 les pertes de données ; · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.2.12` · 3.1.7.2.12 les dommages d’origine électrique ; · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.2.13` · 3.1.7.2.13 les dommages d’un montant inférieur à 60 €  ; · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.2.14` · 3.1.7.2.14 les dommages causés au contenu des appareils ; · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.2.15` · 3.1.7.2.15 les vols commis par ou avec la complicité de ou du : · p. 44
+      - `axa-lu-optihome-2017:a3.1.7.3` · 3.1.7.3 Indemnisation · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.1` · 3.1.7.3.1 L’indemnisation se fait par le paiement des frais nécessaires pour la réparation ou · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.2` · 3.1.7.3.2 L’indemnité est calculée selon les règles fixées au point 2.5.2.1 des conditions générales · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.3` · 3.1.7.3.3 On considère qu’il y a sinistre partiel chaque fois que les frais de réparation, augmentés de · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.4` · 3.1.7.3.4 Les frais supplémentaires liés au transport par avion ne sont remboursés que pour autant que · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.5` · 3.1.7.3.5 La Compagnie n’est pas tenue à garantie pour : · p. 44
+        - `axa-lu-optihome-2017:a3.1.7.3.6` · 3.1.7.3.6 Si le matériel assuré est réparé provisoirement, la Compagnie rembourse le montant total · p. 44
+      - `axa-lu-optihome-2017:a3.1.7.4` · 3.1.7.4 Dispositions finales · p. 45
+        - `axa-lu-optihome-2017:a3.1.7.4.1` · 3.1.7.4.1 L’Assuré prendra toutes précautions utiles et donnera suite à toutes recommandations · p. 45
+        - `axa-lu-optihome-2017:a3.1.7.4.2` · 3.1.7.4.2 Lorsque les biens assurés se trouvent à l’intérieur d’un véhicule inoccupé, la garantie intervient · p. 45
+        - `axa-lu-optihome-2017:a3.1.7.4.3` · 3.1.7.4.3 Dès qu’il a connaissance d’un événement susceptible de faire jouer la garantie, l’Assuré doit : · p. 45
+        - `axa-lu-optihome-2017:a3.1.7.4.4` · 3.1.7.4.4 L’Assuré s’engage à prendre ou à faire prendre, aux frais de la Compagnie, toutes mesures · p. 45
+    - `axa-lu-optihome-2017:a3.1.8` · 3.1.8 Extension des garanties à d’autres biens · p. 45
+      - `axa-lu-optihome-2017:a3.1.8.1` · 3.1.8.1 Les garages · p. 46
+      - `axa-lu-optihome-2017:a3.1.8.2` · 3.1.8.2 La résidence de remplacement · p. 46
+      - `axa-lu-optihome-2017:a3.1.8.3` · 3.1.8.3 La résidence de villégiature · p. 46
+      - `axa-lu-optihome-2017:a3.1.8.4` · 3.1.8.4 La chambre d’étudiant · p. 46
+      - `axa-lu-optihome-2017:a3.1.8.5` · 3.1.8.5 La maison de repos · p. 46
+      - `axa-lu-optihome-2017:a3.1.8.6` · 3.1.8.6 Le local occupé à l’occasion d’une fête privée · p. 47
+      - `axa-lu-optihome-2017:a3.1.8.7` · 3.1.8.7 La sépulture · p. 47
+      - `axa-lu-optihome-2017:a3.1.8.8` · 3.1.8.8 La nouvelle adresse · p. 47
+    - `axa-lu-optihome-2017:a3.1.9` · 3.1.9 Frais annexes · p. 47
+      - `axa-lu-optihome-2017:a3.1.9.1` · 3.1.9.1 Frais de sauvetage · p. 47
+      - `axa-lu-optihome-2017:a3.1.9.2` · 3.1.9.2 Frais de déblai et démolition · p. 48
+      - `axa-lu-optihome-2017:a3.1.9.3` · 3.1.9.3 Frais de conservation et d’entreposage · p. 48
+      - `axa-lu-optihome-2017:a3.1.9.4` · 3.1.9.4 Frais de logement provisoire · p. 48
+      - `axa-lu-optihome-2017:a3.1.9.5` · 3.1.9.5 Chômage immobilier · p. 48
+      - `axa-lu-optihome-2017:a3.1.9.6` · 3.1.9.6 Frais de dépollution · p. 48
+      - `axa-lu-optihome-2017:a3.1.9.7` · 3.1.9.7 Frais de remise en état des jardins · p. 49
+      - `axa-lu-optihome-2017:a3.1.9.8` · 3.1.9.8 Frais d’expertise · p. 49
+      - `axa-lu-optihome-2017:a3.1.9.9` · 3.1.9.9 Recours des locataires ou occupants · p. 49
+      - `axa-lu-optihome-2017:a3.1.9.10` · 3.1.9.10 Recours des tiers · p. 49
+    - `axa-lu-optihome-2017:a3.1.10` · 3.1.10 Responsabilité civile immeuble · p. 49
+      - `axa-lu-optihome-2017:a3.1.10.1` · 3.1.10.1 Etendue de la garantie · p. 50
+      - `axa-lu-optihome-2017:a3.1.10.2` · 3.1.10.2 Définitions · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.2.1` · 3.1.10.2.1 Accident · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.2.2` · 3.1.10.2.2 Assuré · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.2.3` · 3.1.10.2.3 Tiers · p. 50
+      - `axa-lu-optihome-2017:a3.1.10.3` · 3.1.10.3 Dommages exclus · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.3.1` · 3.1.10.3.1 à des biens dont l’assuré est locataire ou occupant à titre gratuit, ainsi qu’à ceux qui lui ont · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.3.2` · 3.1.10.3.2 par le fait de l’exercice d’une profession ; · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.3.3` · 3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.3.4` · 3.1.10.3.4 par la présence ou la dispersion d’amiante, de fibres d’amiante ou de produits contenant de · p. 50
+        - `axa-lu-optihome-2017:a3.1.10.3.5` · 3.1.10.3.5 par le fait des terrains non attenant dont l’Assuré est propriétaire. · p. 50
+    - `axa-lu-optihome-2017:a3.1.11` · 3.1.11 Protection juridique immeuble · p. 51
+      - `axa-lu-optihome-2017:a3.1.11.1` · 3.1.11.1 Etendue de la garantie · p. 51
+        - `axa-lu-optihome-2017:a3.1.11.1.1` · 3.1.11.1.1 Défense · p. 51
+        - `axa-lu-optihome-2017:a3.1.11.1.2` · 3.1.11.1.2 Recours · p. 51
+        - `axa-lu-optihome-2017:a3.1.11.1.3` · 3.1.11.1.3 Exclusions · p. 51
+      - `axa-lu-optihome-2017:a3.1.11.2` · 3.1.11.2 Frais pris en charge par la Compagnie · p. 51
+      - `axa-lu-optihome-2017:a3.1.11.3` · 3.1.11.3 Montant des garanties · p. 52
+      - `axa-lu-optihome-2017:a3.1.11.4` · 3.1.11.4 Insolvabilité des tiers · p. 52
+      - `axa-lu-optihome-2017:a3.1.11.5` · 3.1.11.5 Libre choix de l’avocat · p. 52
+        - `axa-lu-optihome-2017:a3.1.11.5.1` · 3.1.11.5.1 en cas de poursuites pénales ; · p. 52
+        - `axa-lu-optihome-2017:a3.1.11.5.2` · 3.1.11.5.2 lorsqu’un recours ne trouvant pas de solution amiable et qu’une procédure judiciaire ou · p. 52
+        - `axa-lu-optihome-2017:a3.1.11.5.3` · 3.1.11.5.3 chaque fois que surgit un conflit d’intérêts entre l’Assuré et la Compagnie ; dans ce cas, · p. 53
+      - `axa-lu-optihome-2017:a3.1.11.6` · 3.1.11.6 Arbitrage · p. 53
+      - `axa-lu-optihome-2017:a3.1.11.7` · 3.1.11.7 Subrogation · p. 53
+    - `axa-lu-optihome-2017:a3.1.12` · 3.1.12 Emergency@Home · p. 53
+      - `axa-lu-optihome-2017:a3.1.12.1` · 3.1.12.1 Définitions · p. 54
+      - `axa-lu-optihome-2017:a3.1.12.2` · 3.1.12.2 Etendue de la garantie · p. 54
+      - `axa-lu-optihome-2017:a3.1.12.3` · 3.1.12.3 Conditions d’attribution des prestations d’assistance et procédures · p. 55
+      - `axa-lu-optihome-2017:a3.1.12.4` · 3.1.12.4 Prestations d’assistance garanties · p. 55
+      - `axa-lu-optihome-2017:a3.1.12.5` · 3.1.12.5 Exclusions · p. 55
+      - `axa-lu-optihome-2017:a3.1.12.6` · 3.1.12.6 Délai de carence · p. 56
+  - `axa-lu-optihome-2017:a3.2` · 3.2 Option “Sérénité + ” · p. 56
+    - `axa-lu-optihome-2017:a3.2.1` · 3.2.1 Tremblement de terre · p. 56
+      - `axa-lu-optihome-2017:a3.2.1.1` · 3.2.1.1 Etendue de la garantie · p. 56
+      - `axa-lu-optihome-2017:a3.2.1.2` · 3.2.1.2 Exclusions · p. 57
+        - `axa-lu-optihome-2017:a3.2.1.2.1` · 3.2.1.2.1 survenus alors que le bâtiment est en cours de construction, transformation ou rénovation · p. 57
+        - `axa-lu-optihome-2017:a3.2.1.2.2` · 3.2.1.2.2 survenus aux objets se trouvant à l’extérieur du bâtiment sauf s’ils sont fixés à demeure ; · p. 57
+        - `axa-lu-optihome-2017:a3.2.1.2.3` · 3.2.1.2.3 aux constructions faciles à déplacer ou à démonter, délabrées ou en cours de démolition de · p. 57
+        - `axa-lu-optihome-2017:a3.2.1.2.4` · 3.2.1.2.4 aux dépendances et abris de jardins qui ne reposent pas sur des fondations, aux jardins et · p. 57
+        - `axa-lu-optihome-2017:a3.2.1.2.5` · 3.2.1.2.5 aux véhicules terrestres à moteur, aériens, maritimes ou fluviaux. · p. 57
+      - `axa-lu-optihome-2017:a3.2.1.3` · 3.2.1.3 Franchise · p. 57
+    - `axa-lu-optihome-2017:a3.2.2` · 3.2.2 Pluies & inondations · p. 57
+      - `axa-lu-optihome-2017:a3.2.2.1` · 3.2.2.1 Etendue de la garantie · p. 57
+      - `axa-lu-optihome-2017:a3.2.2.2` · 3.2.2.2 Biens désignés situés hors zone inondable · p. 57
+      - `axa-lu-optihome-2017:a3.2.2.3` · 3.2.2.3 Biens désignés situés en zone inondable · p. 57
+      - `axa-lu-optihome-2017:a3.2.2.4` · 3.2.2.4 Exclusions · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.1` · 3.2.2.4.1 au contenu se trouvant à l’extérieur des locaux, à l’exception du mobilier de jardin. Dans ce · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.2` · 3.2.2.4.2 lorsque le bâtiment est en cours de construction, transformation ou rénovation et qu’il existe · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.3` · 3.2.2.4.3 par des entrées d’eaux pluviales, de neige ou de glace par des ouvertures non fermées, tels · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.4` · 3.2.2.4.4 par les infiltrations d’eaux souterraines  ; · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.5` · 3.2.2.4.5 par l’hygrométrie ambiante, même consécutivement à un sinistre couvert  ; · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.6` · 3.2.2.4.6 par des champignons ou des moisissures, même consécutivement à un sinistre couvert  ; · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.7` · 3.2.2.4.7 par un défaut de réparation ou d’entretien, ou dus à une étanchéité absente, mal conçue ou · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.8` · 3.2.2.4.8 par l’humidité, la porosité, la condensation, les phénomènes de capillarité  ; · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.9` · 3.2.2.4.9 aux bâtiments situés sur un terrain non constructible  ; · p. 58
+        - `axa-lu-optihome-2017:a3.2.2.4.10` · 3.2.2.4.10 aux bâtiments soumis à l’autorisation de l’Administration de la gestion de l’eau et qui ne · p. 58
+    - `axa-lu-optihome-2017:a3.2.3` · 3.2.3 Pertes indirectes · p. 58
+  - `axa-lu-optihome-2017:a3.3` · 3.3 Option “Confort ” · p. 59
+    - `axa-lu-optihome-2017:a3.3.1` · 3.3.1 Dommages aux biens · p. 59
+      - `axa-lu-optihome-2017:a3.3.1.1` · 3.3.1.1 Objet et étendue de la garantie · p. 59
+        - `axa-lu-optihome-2017:a3.3.1.1.1` · 3.3.1.1.1 le vol de ces objets lorsqu’ils sont sous la surveillance directe et immédiate de l’Assuré ou des · p. 59
+        - `axa-lu-optihome-2017:a3.3.1.1.2` · 3.3.1.1.2 le vol de ces objets lorsqu’ils sont hors de la surveillance directe et immédiate de l’Assuré ou · p. 59
+          - `axa-lu-optihome-2017:a3.3.1.1.2.1` · 3.3.1.1.2.1 dans la(les) résidence(s) secondaire(s) de l’Assuré ou dans ses locaux professionnels ; le vol · p. 59
+          - `axa-lu-optihome-2017:a3.3.1.1.2.2` · 3.3.1.1.2.2 occasionnellement, dans tous autres locaux clos, couverts et fermés à clé. Ne sont pas · p. 59
+          - `axa-lu-optihome-2017:a3.3.1.1.2.3` · 3.3.1.1.2.3 dans une voiture automobile, une caravane, une remorque, une cabine ou un coffre de bateau, · p. 59
+          - `axa-lu-optihome-2017:a3.3.1.1.2.4` · 3.3.1.1.2.4 alors qu’ils sont confiés comme “bagages enregistrés” à une entreprise de transports. · p. 59
+      - `axa-lu-optihome-2017:a3.3.1.2` · 3.3.1.2 Etendue territoriale · p. 59
+      - `axa-lu-optihome-2017:a3.3.1.3` · 3.3.1.3 Exclusions · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.1` · 3.3.1.3.1 les objets et matériels dont l’Assuré n’est pas propriétaire ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.2` · 3.3.1.3.2 les objets et matériels utilisés à des fins professionnelles ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.3` · 3.3.1.3.3 les dommages aux voiles des matériels utilisés dans le cadre de sports nautiques, aériens · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.4` · 3.3.1.3.4 les dommages aux véhicules automoteurs ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.5` · 3.3.1.3.5 les dommages aux vêtements et accessoires (casque, lunettes, gants, bottes, combinaison, …) ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.6` · 3.3.1.3.6 les dommages dus à des vices ou défauts qui existaient à la date d’effet de la présente · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.7` · 3.3.1.3.7 les dommages qui sont la conséquence directe : · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.8` · 3.3.1.3.8 les frais exposés pour réparer des défauts de fonctionnement, sauf si ces défauts sont · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.9` · 3.3.1.3.9 les frais d’entretien des matériels assurés, y compris le coût des pièces remplacées pendant · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.10` · 3.3.1.3.10 les dommages dont le fabricant ou le fournisseur est légalement ou contractuellement · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.11` · 3.3.1.3.11 les pertes indirectes de quelque nature que ce soit ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.12` · 3.3.1.3.12 les vices de sonorité, la casse des cordes ainsi que les dommages aux peaux et aux anches · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.13` · 3.3.1.3.13 les dommages aux instruments de musique survenus en cours de transport et résultant d’une · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.14` · 3.3.1.3.14 les dommages d’ordre purement esthétique ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.15` · 3.3.1.3.15 les dommages d’origine électrique ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.16` · 3.3.1.3.16 les dommages d’un montant inférieur à 100 € ; · p. 60
+        - `axa-lu-optihome-2017:a3.3.1.3.17` · 3.3.1.3.17 les vols commis par ou avec la complicité de ou du : · p. 60
+      - `axa-lu-optihome-2017:a3.3.1.4` · 3.3.1.4 Indemnisation · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.1` · 3.3.1.4.1 Pour les instruments de musique et matériels utilisés dans le cadre d’une activité sportive, · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.2` · 3.3.1.4.2 Pour le matériel d’assistance médicale de type pompe à oxygène ou à insuline, et prothèse · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.3` · 3.3.1.4.3 Pour les bijoux, l’indemnisation se fait par le paiement des frais nécessaires à leur réparation · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.4` · 3.3.1.4.4 On considère qu’il y a sinistre partiel chaque fois que les frais de réparation, augmentés de · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.5` · 3.3.1.4.5 Les frais supplémentaires liés au transport par avion ne sont remboursés que pour autant que · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.6` · 3.3.1.4.6 La Compagnie n’est pas tenue de fournir sa garantie pour : · p. 61
+        - `axa-lu-optihome-2017:a3.3.1.4.7` · 3.3.1.4.7 Si le matériel assuré est réparé provisoirement, la Compagnie rembourse le montant total · p. 61
+      - `axa-lu-optihome-2017:a3.3.1.5` · 3.3.1.5 Mesures obligatoires de sécurité · p. 61
+      - `axa-lu-optihome-2017:a3.3.1.6` · 3.3.1.6 Evacuation : cas de suspension · p. 62
+      - `axa-lu-optihome-2017:a3.3.1.7` · 3.3.1.7 Obligations de l’Assuré en cas de sinistre · p. 62
+      - `axa-lu-optihome-2017:a3.3.1.8` · 3.3.1.8 Disposition spéciale · p. 62
+      - `axa-lu-optihome-2017:a3.3.1.9` · 3.3.1.9 Objets volés retrouvés · p. 62
+        - `axa-lu-optihome-2017:a3.3.1.9.1` · 3.3.1.9.1 En cas de récupération, en totalité ou en partie, d’objets volés, l’Assuré doit en aviser immé­ · p. 62
+        - `axa-lu-optihome-2017:a3.3.1.9.2` · 3.3.1.9.2 Lorsque l’Assuré vient à avoir connaissance qu’une personne détient le bien volé, il doit en · p. 63
+    - `axa-lu-optihome-2017:a3.3.2` · 3.3.2 Assistance Handyman · p. 63
+      - `axa-lu-optihome-2017:a3.3.2.1` · 3.3.2.1 Etendue de la garantie · p. 63
+      - `axa-lu-optihome-2017:a3.3.2.2` · 3.3.2.2 Exclusions · p. 64
+      - `axa-lu-optihome-2017:a3.3.2.3` · 3.3.2.3 Obligations de l’Assuré · p. 64
+      - `axa-lu-optihome-2017:a3.3.2.4` · 3.3.2.4 Satisfaction de l’Assuré · p. 64
+- `axa-lu-optihome-2017:a4` · 4 L’assurance des personnes et de leurs activités · p. 65
+  - `axa-lu-optihome-2017:a4.1` · 4.1 Option “responsabilités civiles, protection juridique et risques liés à · p. 65
+    - `axa-lu-optihome-2017:a4.1.1` · 4.1.1 Responsabilité civile vie privée · p. 65
+      - `axa-lu-optihome-2017:a4.1.1.1` · 4.1.1.1 Objet de la garantie · p. 65
+      - `axa-lu-optihome-2017:a4.1.1.2` · 4.1.1.2 Définitions · p. 65
+        - `axa-lu-optihome-2017:a4.1.1.2.1` · 4.1.1.2.1 Accident · p. 65
+        - `axa-lu-optihome-2017:a4.1.1.2.2` · 4.1.1.2.2 Assuré · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.1` · 4.1.1.2.2.1 le Preneur d’assurance ; · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.2` · 4.1.1.2.2.2 son conjoint cohabitant, y compris lorsque ce dernier est dans l’obligation de vivre à l’année · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.3` · 4.1.1.2.2.3 toutes les personnes vivant en permanence au foyer de l’Assuré, à l’exception des locataires et · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.4` · 4.1.1.2.2.4 les enfants de ce dernier et/ou ceux de son conjoint cohabitant qui vivent ailleurs pour poursuivre · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.5` · 4.1.1.2.2.5 toute personne ayant la garde à titre gratuit d’enfants mineurs de l’une des personnes assurées · p. 65
+          - `axa-lu-optihome-2017:a4.1.1.2.2.6` · 4.1.1.2.2.6 toute personne apportant aux personnes assurées énumérées aux points 4.1.1.2.2.1, · p. 65
+        - `axa-lu-optihome-2017:a4.1.1.2.3` · 4.1.1.2.3 Bâtiments · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.2.4` · 4.1.1.2.4 Tiers · p. 66
+      - `axa-lu-optihome-2017:a4.1.1.3` · 4.1.1.3 Etendue territoriale · p. 66
+      - `axa-lu-optihome-2017:a4.1.1.4` · 4.1.1.4 Adaptation automatique des montants assurés et de la prime · p. 66
+      - `axa-lu-optihome-2017:a4.1.1.5` · 4.1.1.5 Etendue de la garantie · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.5.1` · 4.1.1.5.1 du fait personnel de l’Assuré, de sa négligence, de son imprudence en qualité de simple · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.5.2` · 4.1.1.5.2 du fait de ses enfants mineurs et de ceux dont il a la garde à titre gratuit, tant au cours · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.5.3` · 4.1.1.5.3 du fait de son personnel domestique en service ; · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.5.4` · 4.1.1.5.4 d’un contrat bénévole, c’est-à-dire d’un contrat dans lequel l’une des parties procure à l’autre · p. 66
+        - `axa-lu-optihome-2017:a4.1.1.5.5` · 4.1.1.5.5 du fait des animaux domestiques lui appartenant ou dont il a la garde à titre gratuit ; · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.6` · 4.1.1.5.6 du fait des choses lui appartenant ou dont il a la garde, notamment : · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.1` · 4.1.1.5.6.1 de l’usage de cycles sans moteur et de leurs remorques ; · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.2` · 4.1.1.5.6.2 de l’outillage et des appareils ménagers ; · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.3` · 4.1.1.5.6.3 sous réserve qu’ils ne soient pas assujettis à l’obligation d’assurance automobile : · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.4` · 4.1.1.5.6.4 de l’usage d’armes de chasse, de tir ou de défense, sous réserve de l’exclusion du point · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.5` · 4.1.1.5.6.5 des biens immobiliers servant de résidence principale : · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.6` · 4.1.1.5.6.6 des terrains non bâtis situés à une autre adresse partout en Europe lorsque leur superficie · p. 67
+          - `axa-lu-optihome-2017:a4.1.1.5.6.7` · 4.1.1.5.6.7 des agencements intérieurs ou extérieurs (y compris les antennes de télévision et de radio) · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.7` · 4.1.1.5.7 des chambres d’étudiants ou studios occupés par les enfants assurés ; · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.8` · 4.1.1.5.8 des bâtiments ou parties de bâtiment en cours de construction, reconstruction ou transformation · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.9` · 4.1.1.5.9 d’émanations de gaz provoquées par son installation domestique ; · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.10` · 4.1.1.5.10 de la pollution accidentelle de l’atmosphère, des eaux et du sol et de toutes autres atteintes à · p. 67
+        - `axa-lu-optihome-2017:a4.1.1.5.11` · 4.1.1.5.11 d’incendie, d’explosion, de jets de flammes, d’étincelles ou du fait de l’eau. · p. 68
+        - `axa-lu-optihome-2017:a4.1.1.5.12` · 4.1.1.5.12 de l’intoxication ou de l’empoisonnement causé par les boissons ou aliments servis à la table · p. 68
+        - `axa-lu-optihome-2017:a4.1.1.5.13` · 4.1.1.5.13 du fait d’animaux ou de véhicules quelconques n’appartenant pas à l’Assuré et dont il n’a pas · p. 68
+        - `axa-lu-optihome-2017:a4.1.1.5.14` · 4.1.1.5.14 du fait de l’Assuré ayant pris place dans un véhicule en qualité de passager. · p. 68
+        - `axa-lu-optihome-2017:a4.1.1.5.15` · 4.1.1.5.15 de l’usage, à l’insu du Preneur d’assurance et de son conjoint, par un de leurs enfants ou toute · p. 68
+      - `axa-lu-optihome-2017:a4.1.1.6` · 4.1.1.6 Période de garantie · p. 68
+      - `axa-lu-optihome-2017:a4.1.1.7` · 4.1.1.7 Recours fondé sur l’article 116 du Code des Assurances Sociales · p. 68
+      - `axa-lu-optihome-2017:a4.1.1.8` · 4.1.1.8 Exclusions · p. 69
+        - `axa-lu-optihome-2017:a4.1.1.8.1` · 4.1.1.8.1 les dommages résultant : · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.1` · 4.1.1.8.1.1 de l’exercice de l’activité professionnelle de l’Assuré ; · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.2` · 4.1.1.8.1.2 de la pratique par l’Assuré de sports aériens ; · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.3` · 4.1.1.8.1.3 de la participation de l’Assuré à des concours hippiques. Seuls les dommages résultant de · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.4` · 4.1.1.8.1.4 de la présence ou de la dispersion d’amiante, de fibres d’amiante ou de produits contenant · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.5` · 4.1.1.8.1.5 d’obligations contractuelles de l’Assuré, sauf s’il s’agit d’un contrat bénévole visé au point · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.6` · 4.1.1.8.1.6 de la participation à des paris ou défis ; · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.1.7` · 4.1.1.8.1.7 d’une faute lourde de l’Assuré. · p. 69
+        - `axa-lu-optihome-2017:a4.1.1.8.2` · 4.1.1.8.2 les dommages causés par : · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.2.1` · 4.1.1.8.2.1 les véhicules ou appareils ci-après, si l’assuré ou les personnes dont il est civilement · p. 69
+          - `axa-lu-optihome-2017:a4.1.1.8.2.2` · 4.1.1.8.2.2 les chevaux propriété de l’Assuré ou gardés à titre gratuit par l’Assuré dès que leur nombre · p. 69
+        - `axa-lu-optihome-2017:a4.1.1.8.3` · 4.1.1.8.3 les vols, lorsque l’Assuré responsable est considéré comme auteur, coauteur ou complice ; · p. 69
+        - `axa-lu-optihome-2017:a4.1.1.8.4` · 4.1.1.8.4 les dommages survenant aux objets, immeubles ou animaux qui sont confiés à l’Assuré à un · p. 69
+        - `axa-lu-optihome-2017:a4.1.1.8.5` · 4.1.1.8.5 les dommages subis par une personne apportant une aide à titre gratuit à l’Assuré, lorsque · p. 70
+        - `axa-lu-optihome-2017:a4.1.1.8.6` · 4.1.1.8.6 les dommages matériels et immatériels d’incendie, d’explosion, ou d’eau, lorsque l’événement · p. 70
+        - `axa-lu-optihome-2017:a4.1.1.8.7` · 4.1.1.8.7 les dommages engageant une responsabilité civile soumise à une assurance rendue obligatoire · p. 70
+        - `axa-lu-optihome-2017:a4.1.1.8.8` · 4.1.1.8.8 les dommages causés par les étangs et autres pièces d’eau situés à une autre adresse que · p. 70
+        - `axa-lu-optihome-2017:a4.1.1.8.9` · 4.1.1.8.9 les dommages liés à un glissement, affaissement ou tassement de terrain. · p. 70
+    - `axa-lu-optihome-2017:a4.1.2` · 4.1.2 Responsabilité civile chasse · p. 70
+      - `axa-lu-optihome-2017:a4.1.2.1` · 4.1.2.1 Objet et étendue de la garantie · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.1` · 4.1.2.1.1 par un acte de chasse ; · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.2` · 4.1.2.1.2 par une arme de chasse ou de destruction au cours et à l’occasion de la chasse depuis · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.3` · 4.1.2.1.3 comme organisateur de parties de chasse à raison de dommages causés par les invités ou · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.4` · 4.1.2.1.4 comme propriétaire, détenteur ou usager de matériel de chasse y compris les miradors de chasse ; · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.5` · 4.1.2.1.5 comme propriétaire et détenteurs de chiens de chasse ; · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.6` · 4.1.2.1.6 par le personnel de chasse dans l’exercice de ses fonctions pour compte du Preneur d’assurance · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.7` · 4.1.2.1.7 par le feu ou les explosions ayant pris naissance sur le terrain de chasse à l’occasion de · p. 70
+        - `axa-lu-optihome-2017:a4.1.2.1.8` · 4.1.2.1.8 par l’emploi de produits toxiques autorisé préalablement par les autorités compétentes. · p. 70
+      - `axa-lu-optihome-2017:a4.1.2.2` · 4.1.2.2 Montant de la garantie · p. 71
+      - `axa-lu-optihome-2017:a4.1.2.3` · 4.1.2.3 Extension des risques couverts · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.3.1` · 4.1.2.3.1 la responsabilité civile du Preneur d’assurance encourue en vertu de l’article 1385 du code Civil · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.3.2` · 4.1.2.3.2 la responsabilité civile du Preneur d’assurance en sa qualité de propriétaire, détenteur ou · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.3.3` · 4.1.2.3.3 la responsabilité civile personnelle que peut encourir le personnel de chasse à l’égard de tiers · p. 71
+      - `axa-lu-optihome-2017:a4.1.2.4` · 4.1.2.4 Tiers · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.4.1` · 4.1.2.4.1 le Preneur d’assurance et tous ceux dont la responsabilité civile est couverte par le présent · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.4.2` · 4.1.2.4.2 le conjoint des personnes visées à l’alinéa qui précède, non séparé de corps ou de fait, · p. 71
+        - `axa-lu-optihome-2017:a4.1.2.4.3` · 4.1.2.4.3 les personnes bénéficiant de lois spéciales sur la réparation des dommages résultant d’accidents · p. 71
+      - `axa-lu-optihome-2017:a4.1.2.5` · 4.1.2.5 Limites territoriales · p. 72
+      - `axa-lu-optihome-2017:a4.1.2.6` · 4.1.2.6 Inopposabilité · p. 72
+      - `axa-lu-optihome-2017:a4.1.2.7` · 4.1.2.7 Exclusions · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.1` · 4.1.2.7.1 les dommages causés par des produits ou marchandises après leur livraison ; · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.2` · 4.1.2.7.2 les dommages causés par l’emploi de produits toxiques non autorisé préalablement par · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.3` · 4.1.2.7.3 les dégâts causés par le gibier aux cultures et plantations ; · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.4` · 4.1.2.7.4 la responsabilité civile du Preneur d’assurance comme propriétaire, locataire ou occupant à · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.5` · 4.1.2.7.5 la responsabilité découlant de la propriété, de la garde ou de l’usage d’un véhicule à moteur · p. 72
+        - `axa-lu-optihome-2017:a4.1.2.7.6` · 4.1.2.7.6 les dommages causés aux objets ou animaux confiés au Preneur d’assurance ou Assuré à · p. 72
+    - `axa-lu-optihome-2017:a4.1.3` · 4.1.3 Protection juridique · p. 72
+      - `axa-lu-optihome-2017:a4.1.3.1` · 4.1.3.1 Etendue de la garantie · p. 72
+        - `axa-lu-optihome-2017:a4.1.3.1.1` · 4.1.3.1.1 à assurer la défense pénale de l’Assuré devant les tribunaux répressifs où il est cité à la suite : · p. 72
+        - `axa-lu-optihome-2017:a4.1.3.1.2` · 4.1.3.1.2 à réclamer à l’amiable ou judiciairement la réparation du préjudice subi par l’Assuré à la suite de · p. 73
+        - `axa-lu-optihome-2017:a4.1.3.1.3` · 4.1.3.1.3 Toutefois, en ce qui concerne les animaux, la Compagnie ne couvre pas les sinistres relatifs aux · p. 73
+        - `axa-lu-optihome-2017:a4.1.3.1.4` · 4.1.3.1.4 En ce qui concerne les immeubles, la Compagnie ne couvre que les litiges relatifs : · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.1` · 4.1.3.1.4.1 aux bâtiments ou parties de bâtiments affectés à la résidence principale des Assurés, en ce · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.2` · 4.1.3.1.4.2 aux résidences secondaires sises au Grand-Duché de Luxembourg ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.3` · 4.1.3.1.4.3 aux garages et parkings à usage privé des Assurés ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.4` · 4.1.3.1.4.4 aux jardins et terrains sans que leur superficie totale dépasse 2 hectares ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.5` · 4.1.3.1.4.5 aux chambres d’étudiants ou studios occupés par les enfants assurés ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.4.6` · 4.1.3.1.4.6 aux bâtiments ou parties de bâtiments en cours de construction, reconstruction ou transformation · p. 73
+        - `axa-lu-optihome-2017:a4.1.3.1.5` · 4.1.3.1.5 En ce qui concerne l’environnement, la Compagnie ne couvre pas les dommages subis par · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.5.1` · 4.1.3.1.5.1 d’atteintes à l’environnement (sol, air, eau,…) ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.5.2` · 4.1.3.1.5.2 de pollutions et nuisances notamment par le bruit, les poussières, les ondes et rayonnements, · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.5.3` · 4.1.3.1.5.3 de glissements ou mouvements de terrains ; · p. 73
+          - `axa-lu-optihome-2017:a4.1.3.1.5.4` · 4.1.3.1.5.4 d’une modification du noyau atomique ou de la production de radiations ionisantes, s’agissant · p. 73
+        - `axa-lu-optihome-2017:a4.1.3.1.6` · 4.1.3.1.6 En ce qui concerne les déplacements, la Compagnie ne couvre pas les sinistres résultant de · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.6.1` · 4.1.3.1.6.1 par l’Assuré, de véhicules aériens, sauf en qualité de passager. On entend par véhicule aérien · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.6.2` · 4.1.3.1.6.2 de bateaux à moteur de plus de 10 CV DIN (notamment waterscooters, jetskis …) ou de · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.6.3` · 4.1.3.1.6.3 d’un véhicule automoteur soumis à l’assurance obligatoire au Grand-duché de Luxembourg, · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.7` · 4.1.3.1.7 En ce qui concerne les sinistres découlant de dommages couverts par une assurance · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.8` · 4.1.3.1.8 En ce qui concerne les sinistres découlant d’une faute lourde, la Compagnie ne couvre pas · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.8.1` · 4.1.3.1.8.1 l’intoxication alcoolique dont le taux est supérieur d’au moins 0,30gr/l de sang au seuil · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.8.2` · 4.1.3.1.8.2 les dommages résultants de paris ou défis ; · p. 74
+          - `axa-lu-optihome-2017:a4.1.3.1.8.3` · 4.1.3.1.8.3 les dommages causés à l’occasion de crimes ou délits volontaires. · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.9` · 4.1.3.1.9 En ce qui concerne les sinistres découlant d’un fait intentionnel, la Compagnie ne couvre pas · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.10` · 4.1.3.1.10 De même est exclue la défense pénale de l’Assuré de plus de 16 ans au jour des faits pour les · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.11` · 4.1.3.1.11 En ce qui concerne les sinistres relatifs au décès d’un proche, la Compagnie ne couvre · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.12` · 4.1.3.1.12 En ce qui concerne les sinistres relatifs à des faits exceptionnels, la Compagnie ne couvre pas : · p. 74
+        - `axa-lu-optihome-2017:a4.1.3.1.13` · 4.1.3.1.13 En ce qui concerne les sinistres relatifs aux droits de tiers, la Compagnie ne couvre pas · p. 75
+        - `axa-lu-optihome-2017:a4.1.3.1.14` · 4.1.3.1.14 En ce qui concerne les sinistres relatifs à des faits de récidive et des situations assimilées, · p. 75
+        - `axa-lu-optihome-2017:a4.1.3.1.15` · 4.1.3.1.15 En ce qui concerne les sinistres relatifs à des actions collectives, la Compagnie ne couvre · p. 75
+        - `axa-lu-optihome-2017:a4.1.3.1.16` · 4.1.3.1.16 Sont en outre exclus de la présente garantie, les frais relatifs à tout litige concernant · p. 75
+      - `axa-lu-optihome-2017:a4.1.3.2` · 4.1.3.2 Frais pris en charge par la Compagnie · p. 75
+        - `axa-lu-optihome-2017:a4.1.3.2.1` · 4.1.3.2.1 Frais couverts · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.1.1` · 4.1.3.2.1.1 les frais de constitution et de traitement du dossier par nos soins ; · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.1.2` · 4.1.3.2.1.2 les frais d’expertise ; · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.1.3` · 4.1.3.2.1.3 les frais de procédure judiciaire et extrajudiciaire à charge de l’Assuré ; · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.1.4` · 4.1.3.2.1.4 les frais et honoraires d’huissier ; · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.1.5` · 4.1.3.2.1.5 les frais et honoraires d’avocat selon ce qui est mentionné au point 4.1.3.5 ci-après. · p. 75
+        - `axa-lu-optihome-2017:a4.1.3.2.2` · 4.1.3.2.2 Frais non couverts · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.2.1` · 4.1.3.2.2.1 les frais et honoraires engagés par l’Assuré avant la déclaration de litige ou ultérieurement · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.2.2` · 4.1.3.2.2.2 les pénalités, amendes, transactions avec le Ministère Public ; · p. 75
+          - `axa-lu-optihome-2017:a4.1.3.2.2.3` · 4.1.3.2.2.3 les sommes en principal et accessoires que l’Assuré pourrait être amené à payer dans · p. 75
+      - `axa-lu-optihome-2017:a4.1.3.3` · 4.1.3.3 Montant des garanties · p. 76
+      - `axa-lu-optihome-2017:a4.1.3.4` · 4.1.3.4 Insolvabilité des tiers · p. 76
+      - `axa-lu-optihome-2017:a4.1.3.5` · 4.1.3.5 Liberté de choix de l’avocat · p. 76
+        - `axa-lu-optihome-2017:a4.1.3.5.1` · 4.1.3.5.1 en cas de poursuites pénales ; · p. 76
+        - `axa-lu-optihome-2017:a4.1.3.5.2` · 4.1.3.5.2 lorsque, un recours ne trouvant pas de solution amiable, une procédure judiciaire ou · p. 76
+        - `axa-lu-optihome-2017:a4.1.3.5.3` · 4.1.3.5.3 chaque fois que surgit un conflit d’intérêts entre l’Assuré et la Compagnie ; dans ce cas, · p. 76
+      - `axa-lu-optihome-2017:a4.1.3.6` · 4.1.3.6 Arbitrage · p. 77
+      - `axa-lu-optihome-2017:a4.1.3.7` · 4.1.3.7 Subrogation · p. 77
+    - `axa-lu-optihome-2017:a4.1.4` · 4.1.4 E-protection · p. 77
+      - `axa-lu-optihome-2017:a4.1.4.1` · 4.1.4.1 Définitions · p. 78
+        - `axa-lu-optihome-2017:a4.1.4.1.1` · 4.1.4.1.1 Année d’assurance · p. 78
+        - `axa-lu-optihome-2017:a4.1.4.1.2` · 4.1.4.1.2 Assuré · p. 78
+        - `axa-lu-optihome-2017:a4.1.4.1.3` · 4.1.4.1.3 Atteinte à l’e-réputation · p. 78
+        - `axa-lu-optihome-2017:a4.1.4.1.4` · 4.1.4.1.4 Consigne pénale · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.5` · 4.1.4.1.5 Délai d’attente · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.6` · 4.1.4.1.6 Domicile · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.7` · 4.1.4.1.7 E-commerçant · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.8` · 4.1.4.1.8 Internet · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.9` · 4.1.4.1.9 Objets connectés · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.10` · 4.1.4.1.10 Propriété intellectuelle · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.11` · 4.1.4.1.11 Seuil d’intervention · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.12` · 4.1.4.1.12 Site de ventes aux enchères · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.13` · 4.1.4.1.13 Tiers · p. 79
+        - `axa-lu-optihome-2017:a4.1.4.1.14` · 4.1.4.1.14 Usurpation d’identité · p. 80
+        - `axa-lu-optihome-2017:a4.1.4.1.15` · 4.1.4.1.15 Utilisation frauduleuse des moyens de paiement · p. 80
+        - `axa-lu-optihome-2017:a4.1.4.1.16` · 4.1.4.1.16 Vie privée · p. 80
+      - `axa-lu-optihome-2017:a4.1.4.2` · 4.1.4.2 Appui juridique – E-protection : Objet de l’appui juridique : prévention et information juridique · p. 80
+      - `axa-lu-optihome-2017:a4.1.4.3` · 4.1.4.3 Protection juridique · p. 81
+        - `axa-lu-optihome-2017:a4.1.4.3.1` · 4.1.4.3.1 L’objet de la protection juridique · p. 81
+        - `axa-lu-optihome-2017:a4.1.4.3.2` · 4.1.4.3.2 Couverture en cas d’usurpation d’identité · p. 81
+          - `axa-lu-optihome-2017:a4.1.4.3.2.1` · 4.1.4.3.2.1 Défense amiable des intérêts juridiques · p. 81
+          - `axa-lu-optihome-2017:a4.1.4.3.2.2` · 4.1.4.3.2.2 Défense judiciaire des intérêts · p. 81
+          - `axa-lu-optihome-2017:a4.1.4.3.2.3` · 4.1.4.3.2.3 Indemnisation du préjudice subi · p. 81
+        - `axa-lu-optihome-2017:a4.1.4.3.3` · 4.1.4.3.3 Couverture en cas d’utilisation frauduleuse des moyens de paiement · p. 82
+          - `axa-lu-optihome-2017:a4.1.4.3.3.1` · 4.1.4.3.3.1 Défense amiable des intérêts juridiques · p. 82
+          - `axa-lu-optihome-2017:a4.1.4.3.3.2` · 4.1.4.3.3.2 Défense judiciaire des intérêts · p. 82
+          - `axa-lu-optihome-2017:a4.1.4.3.3.3` · 4.1.4.3.3.3 Indemnisation du préjudice subi · p. 82
+        - `axa-lu-optihome-2017:a4.1.4.3.4` · 4.1.4.3.4 Couverture en cas d’atteinte à l’e-réputation · p. 83
+          - `axa-lu-optihome-2017:a4.1.4.3.4.1` · 4.1.4.3.4.1 Défense amiable des intérêts juridiques · p. 83
+          - `axa-lu-optihome-2017:a4.1.4.3.4.2` · 4.1.4.3.4.2 Défense judiciaire des intérêts · p. 83
+          - `axa-lu-optihome-2017:a4.1.4.3.4.3` · 4.1.4.3.4.3 Prise en charge des frais de nettoyage ou d’un noyage des informations · p. 83
+        - `axa-lu-optihome-2017:a4.1.4.3.5` · 4.1.4.3.5 Couverture en cas d’achat d’un bien mobilier corporel auprès d’un e-commerçant · p. 83
+          - `axa-lu-optihome-2017:a4.1.4.3.5.1` · 4.1.4.3.5.1 Défense amiable des intérêts juridiques · p. 84
+          - `axa-lu-optihome-2017:a4.1.4.3.5.2` · 4.1.4.3.5.2 Indemnisation du préjudice subi · p. 84
+        - `axa-lu-optihome-2017:a4.1.4.3.6` · 4.1.4.3.6 Couverture en cas d’achat d’un service auprès d’un e-commerçant · p. 85
+          - `axa-lu-optihome-2017:a4.1.4.3.6.1` · 4.1.4.3.6.1 Défense amiable des intérêts juridiques · p. 85
+          - `axa-lu-optihome-2017:a4.1.4.3.6.2` · 4.1.4.3.6.2 Défense judiciaire des intérêts · p. 85
+        - `axa-lu-optihome-2017:a4.1.4.3.7` · 4.1.4.3.7 Couverture objet connecté · p. 85
+          - `axa-lu-optihome-2017:a4.1.4.3.7.1` · 4.1.4.3.7.1 Défense amiable des intérêts juridiques · p. 85
+          - `axa-lu-optihome-2017:a4.1.4.3.7.2` · 4.1.4.3.7.2 Défense judiciaire des intérêts · p. 86
+        - `axa-lu-optihome-2017:a4.1.4.3.8` · 4.1.4.3.8 Exclusions générales · p. 86
+        - `axa-lu-optihome-2017:a4.1.4.3.9` · 4.1.4.3.9 Exclusions spécifiques aux garanties «usurpation d’identité», «utilisation frauduleuse des · p. 87
+        - `axa-lu-optihome-2017:a4.1.4.3.10` · 4.1.4.3.10 Exclusions spécifiques aux garanties «atteinte à l’e-réputation» et «objet connecté». · p. 87
+        - `axa-lu-optihome-2017:a4.1.4.3.11` · 4.1.4.3.11 Exclusions spécifiques aux garanties «achat d’un bien mobilier corporel auprès d’un · p. 87
+        - `axa-lu-optihome-2017:a4.1.4.3.12` · 4.1.4.3.12 Exclusions spécifiques aux garanties «achat d’un bien mobilier corporel auprès d’un · p. 88
+      - `axa-lu-optihome-2017:a4.1.4.4` · 4.1.4.4 Dispositions communes · p. 88
+        - `axa-lu-optihome-2017:a4.1.4.4.1` · 4.1.4.4.1 Les conditions de garantie · p. 88
+        - `axa-lu-optihome-2017:a4.1.4.4.2` · 4.1.4.4.2 Obligations du Prestataire en cas de sinistre · p. 88
+        - `axa-lu-optihome-2017:a4.1.4.4.3` · 4.1.4.4.3 Obligations du Preneur d’assurance en cas de sinistre · p. 89
+        - `axa-lu-optihome-2017:a4.1.4.4.4` · 4.1.4.4.4 Libre choix de l’avocat ou de l’expert · p. 89
+        - `axa-lu-optihome-2017:a4.1.4.4.5` · 4.1.4.4.5 Conflit d’intérêts · p. 89
+        - `axa-lu-optihome-2017:a4.1.4.4.6` · 4.1.4.4.6 Arbitrage · p. 89
+        - `axa-lu-optihome-2017:a4.1.4.4.7` · 4.1.4.4.7 Les limitations de garantie · p. 89
+        - `axa-lu-optihome-2017:a4.1.4.4.8` · 4.1.4.4.8 Délais d’attente · p. 90
+        - `axa-lu-optihome-2017:a4.1.4.4.9` · 4.1.4.4.9 Montant de la garantie · p. 90
+        - `axa-lu-optihome-2017:a4.1.4.4.10` · 4.1.4.4.10 Principe de répartition · p. 91
+        - `axa-lu-optihome-2017:a4.1.4.4.11` · 4.1.4.4.11 Subrogation · p. 91
+      - `axa-lu-optihome-2017:a4.1.4.5` · 4.1.4.5 Etendue territoriale · p. 91
+  - `axa-lu-optihome-2017:a4.2` · 4.2 Option “Voyage” · p. 92
+    - `axa-lu-optihome-2017:a4.2.1` · 4.2.1 Annulation · p. 92
+      - `axa-lu-optihome-2017:a4.2.1.1` · 4.2.1.1 Objet de la garantie · p. 92
+      - `axa-lu-optihome-2017:a4.2.1.2` · 4.2.1.2 Evénements couverts · p. 92
+        - `axa-lu-optihome-2017:a4.2.1.2.1` · 4.2.1.2.1 dans le cas d’une maladie grave, · p. 92
+        - `axa-lu-optihome-2017:a4.2.1.2.2` · 4.2.1.2.2 lorsque le transport public avec lequel l’Assuré se rend à son point de départ (aéroport, gare) · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.3` · 4.2.1.2.3 lorsque l’Assuré est victime d’un accident de la circulation ou d’un cas de force majeure survenu · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.4` · 4.2.1.2.4 en cas de licenciement économique de l’Assuré ou d’un des membres de sa famille vivant sous · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.5` · 4.2.1.2.5 lorsque l’Assuré est convoqué pour une greffe d’organe ; · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.6` · 4.2.1.2.6 lorsque l’Assuré est convoqué pour l’adoption d’un enfant ; · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.7` · 4.2.1.2.7 lorsque, pour des raisons médicales, l’Assuré ne peut subir les vaccinations nécessaires pour · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.8` · 4.2.1.2.8 en cas de vol des papiers d’identité ou du visa de l’Assuré dans les 48 heures précédant · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.9` · 4.2.1.2.9 en cas de divorce, pour autant que la procédure ait été introduite devant les tribunaux après · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.10` · 4.2.1.2.10 en cas de séparation de droit ou de fait, pour autant que l’un des conjoints ait changé de · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.11` · 4.2.1.2.11 lorsque la personne chez qui l’Assuré va loger à l’étranger ne peut l’accueillir suite à une · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.12` · 4.2.1.2.12 en cas de dégâts matériels accidentels graves, non réalisés au moment de l’inscription au · p. 93
+        - `axa-lu-optihome-2017:a4.2.1.2.13` · 4.2.1.2.13 en cas de complications ou troubles de la grossesse de l’Assurée ou d’un membre de sa famille · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.2.14` · 4.2.1.2.14 en cas de grossesse de l’Assurée pour autant que le voyage était prévu pendant les 3 derniers · p. 94
+      - `axa-lu-optihome-2017:a4.2.1.3` · 4.2.1.3 Etendue territoriale · p. 94
+      - `axa-lu-optihome-2017:a4.2.1.4` · 4.2.1.4 Exclusions · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.1` · 4.2.1.4.1 les voyages à caractère professionnel ; · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.2` · 4.2.1.4.2 les voyages réservés par l’Assuré avant la date de souscription de la garantie et dont la date · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.3` · 4.2.1.4.3 l’usage abusif de l’alcool (ivresse, alcoolisme), de médicaments, de drogues ou de stupéfiants ; · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.4` · 4.2.1.4.4 les maladies psychotiques, mentales ou nerveuses qui n’entraînent pas d’hospitalisation de · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.5` · 4.2.1.4.5 les actes intentionnels ; · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.6` · 4.2.1.4.6 les accidents et troubles résultant de participation à des paris, crimes, rixes (sauf cas de · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.7` · 4.2.1.4.7 les accidents et troubles résultant de participation, à titre professionnel ou sous contrat avec · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.8` · 4.2.1.4.8 les accidents résultant de la pratique en tant qu’amateur et n’importe quel niveau, des sports · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.9` · 4.2.1.4.9 les épidémies, la pollution du milieu naturel et les catastrophes naturelles ; · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.10` · 4.2.1.4.10 les grèves, les guerres et les guerres civiles, les émeutes, les mouvements populaires, · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.11` · 4.2.1.4.11 tout effet de rayonnement radioactif ainsi que l’inobservation consciente d’interdictions · p. 94
+        - `axa-lu-optihome-2017:a4.2.1.4.12` · 4.2.1.4.12 les annulations et modifications consécutives à une interruption volontaire de grossesse. · p. 94
+      - `axa-lu-optihome-2017:a4.2.1.5` · 4.2.1.5 Obligations en cas de sinistre · p. 94
+    - `axa-lu-optihome-2017:a4.2.2` · 4.2.2 Bagages · p. 95
+      - `axa-lu-optihome-2017:a4.2.2.1` · 4.2.2.1 Objet de la garantie · p. 95
+      - `axa-lu-optihome-2017:a4.2.2.2` · 4.2.2.2 Etendue territoriale · p. 95
+      - `axa-lu-optihome-2017:a4.2.2.3` · 4.2.2.3 Mesures obligatoires de sécurité · p. 95
+      - `axa-lu-optihome-2017:a4.2.2.4` · 4.2.2.4 Exclusions · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.1` · 4.2.2.4.1 les bagages dont l’Assuré n’est pas propriétaire ; · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.2` · 4.2.2.4.2 les bagages laissés sans surveillance dans un lieu public ; · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.3` · 4.2.2.4.3 les bagages oubliés ; · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.4` · 4.2.2.4.4 les pertes et dégâts causés à l’occasion d’une saisie par les autorités publiques (police, · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.5` · 4.2.2.4.5 les dommages qui sont la conséquence directe : · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.6` · 4.2.2.4.6 les frais exposés pour réparer des défauts de fonctionnement, sauf si ces défauts sont · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.7` · 4.2.2.4.7 les pertes indirectes de quelque nature que ce soit ; · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.8` · 4.2.2.4.8 les dommages d’ordre purement esthétique ; · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.9` · 4.2.2.4.9 la casse d’objets fragiles tels pendules, porcelaines, glaces, instruments de musique, · p. 96
+        - `axa-lu-optihome-2017:a4.2.2.4.10` · 4.2.2.4.10 les vols commis par ou avec la complicité de ou du : · p. 96
+      - `axa-lu-optihome-2017:a4.2.2.5` · 4.2.2.5 Franchise · p. 96
+    - `axa-lu-optihome-2017:a4.2.3` · 4.2.3 Assistance voyage · p. 96
+      - `axa-lu-optihome-2017:a4.2.3.1` · 4.2.3.1 Définitions · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.1` · 4.2.3.1.1 Accident corporel · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.2` · 4.2.3.1.2 Autorité médicale compétente · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.3` · 4.2.3.1.3 Domicile · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.4` · 4.2.3.1.4 Evacuation sanitaire · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.5` · 4.2.3.1.5 Frais d’hôtel · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.6` · 4.2.3.1.6 Incident médical · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.7` · 4.2.3.1.7 Maladie · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.1.8` · 4.2.3.1.8 Rapatriement · p. 97
+      - `axa-lu-optihome-2017:a4.2.3.2` · 4.2.3.2 Objet et étendue de l’assistance · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.2.1` · 4.2.3.2.1 Objet · p. 97
+        - `axa-lu-optihome-2017:a4.2.3.2.2` · 4.2.3.2.2 Etendue territoriale · p. 98
+      - `axa-lu-optihome-2017:a4.2.3.3` · 4.2.3.3 Conditions d’octroi du service d’assistance · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.1` · 4.2.3.3.1 AXA Assistance intervient pendant la période de validité du contrat à la suite d’événements · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.2` · 4.2.3.3.2 Ces événements doivent obligatoirement faire l’objet d’une demande d’intervention auprès · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.3` · 4.2.3.3.3 Le choix du moyen de transport le plus approprié appartient à AXA Assistance ; si la distance · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.4` · 4.2.3.3.4 Ne donnent pas, à posteriori, droit à un remboursement ou à une indemnité toutes les prestations · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.5` · 4.2.3.3.5 La garantie de la présente convention est limitée aux déplacements de 90 jours calendaires · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.3.6` · 4.2.3.3.6 La garantie n’est pas acquise lorsque, nonobstant la déclaration officielle du Ministère · p. 98
+      - `axa-lu-optihome-2017:a4.2.3.4` · 4.2.3.4 Assistance aux personnes · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.4.1` · 4.2.3.4.1 Assistance médicale · p. 98
+        - `axa-lu-optihome-2017:a4.2.3.4.2` · 4.2.3.4.2 Frais de recherche et de sauvetage à l’étranger · p. 99
+        - `axa-lu-optihome-2017:a4.2.3.4.3` · 4.2.3.4.3 Remboursement du forfait «Remonte-pentes» · p. 99
+        - `axa-lu-optihome-2017:a4.2.3.4.4` · 4.2.3.4.4 Accident de ski à l’étranger · p. 99
+        - `axa-lu-optihome-2017:a4.2.3.4.5` · 4.2.3.4.5 Remboursement des frais médicaux · p. 99
+          - `axa-lu-optihome-2017:a4.2.3.4.5.1` · 4.2.3.4.5.1 Frais médicaux exclus · p. 99
+          - `axa-lu-optihome-2017:a4.2.3.4.5.2` · 4.2.3.4.5.2 Conditions de prise en charge des frais médicaux · p. 100
+          - `axa-lu-optihome-2017:a4.2.3.4.5.3` · 4.2.3.4.5.3 Modalités de paiement des frais médicaux · p. 100
+        - `axa-lu-optihome-2017:a4.2.3.4.6` · 4.2.3.4.6 Envoi d’un médecin sur place · p. 100
+        - `axa-lu-optihome-2017:a4.2.3.4.7` · 4.2.3.4.7 Hospitalisation de plus de 5 jours de l’Assuré voyageant seul à l’étranger · p. 100
+        - `axa-lu-optihome-2017:a4.2.3.4.8` · 4.2.3.4.8 Frais de prolongation du séjour de l’Assuré à l’étranger · p. 100
+        - `axa-lu-optihome-2017:a4.2.3.4.9` · 4.2.3.4.9 Rapatriement ou transport suite à un incident médical · p. 101
+        - `axa-lu-optihome-2017:a4.2.3.4.10` · 4.2.3.4.10 Rapatriement funéraire au cours d’un voyage à l’étranger · p. 101
+        - `axa-lu-optihome-2017:a4.2.3.4.11` · 4.2.3.4.11 Frais de rapatriement des autres Assurés en cas d’évacuation sanitaire ou décès d’un Assuré · p. 101
+        - `axa-lu-optihome-2017:a4.2.3.4.12` · 4.2.3.4.12 Prise en charge des enfants de moins de 16 ans à l’étranger · p. 102
+        - `axa-lu-optihome-2017:a4.2.3.4.13` · 4.2.3.4.13 Retour anticipé d’un Assuré · p. 102
+      - `axa-lu-optihome-2017:a4.2.3.5` · 4.2.3.5 Assistance «Voyage» à l’étranger · p. 102
+        - `axa-lu-optihome-2017:a4.2.3.5.1` · 4.2.3.5.1 Informations diverses · p. 102
+        - `axa-lu-optihome-2017:a4.2.3.5.2` · 4.2.3.5.2 Assistance en cas de vol, perte ou destruction de bagages ou de retard dans leur acheminement · p. 102
+        - `axa-lu-optihome-2017:a4.2.3.5.3` · 4.2.3.5.3 Transmission de messages urgents vers le Grand-Duché de Luxembourg (Zone de résidence) · p. 103
+        - `axa-lu-optihome-2017:a4.2.3.5.4` · 4.2.3.5.4 Assistance en cas de perte ou vol de documents de voyage et de titres de transport. · p. 103
+        - `axa-lu-optihome-2017:a4.2.3.5.5` · 4.2.3.5.5 Envoi de médicaments indispensables à l’étranger · p. 103
+        - `axa-lu-optihome-2017:a4.2.3.5.6` · 4.2.3.5.6 Assistance linguistique · p. 103
+        - `axa-lu-optihome-2017:a4.2.3.5.7` · 4.2.3.5.7 Avance de fonds · p. 104
+        - `axa-lu-optihome-2017:a4.2.3.5.8` · 4.2.3.5.8 Animal de compagnie · p. 104
+      - `axa-lu-optihome-2017:a4.2.3.6` · 4.2.3.6 Assistance juridique · p. 104
+        - `axa-lu-optihome-2017:a4.2.3.6.1` · 4.2.3.6.1 Avance de caution pénale à l’étranger · p. 104
+        - `axa-lu-optihome-2017:a4.2.3.6.2` · 4.2.3.6.2 Honoraires d’avocat à l’étranger · p. 104
+      - `axa-lu-optihome-2017:a4.2.3.7` · 4.2.3.7 Assistance au domicile · p. 104
+      - `axa-lu-optihome-2017:a4.2.3.8` · 4.2.3.8 Exclusions · p. 105
+        - `axa-lu-optihome-2017:a4.2.3.8.1` · 4.2.3.8.1 Exclusions communes à toutes les garanties · p. 105
+        - `axa-lu-optihome-2017:a4.2.3.8.2` · 4.2.3.8.2 Exclusions relatives à l’assistance aux personnes · p. 105
+      - `axa-lu-optihome-2017:a4.2.3.9` · 4.2.3.9 Dispositions d’ordre juridique · p. 106
+        - `axa-lu-optihome-2017:a4.2.3.9.1` · 4.2.3.9.1 Subrogation et pluralités d’assurances · p. 106
+          - `axa-lu-optihome-2017:a4.2.3.9.1.1` · 4.2.3.9.1.1 Tiers responsables · p. 106
+          - `axa-lu-optihome-2017:a4.2.3.9.1.2` · 4.2.3.9.1.2 Pluralités d’assurances · p. 106
+        - `axa-lu-optihome-2017:a4.2.3.9.2` · 4.2.3.9.2 Les engagements · p. 106
+          - `axa-lu-optihome-2017:a4.2.3.9.2.1` · 4.2.3.9.2.1 Les engagements de l’Assuré · p. 106
+          - `axa-lu-optihome-2017:a4.2.3.9.2.2` · 4.2.3.9.2.2 Obligation de moyen · p. 107
+        - `axa-lu-optihome-2017:a4.2.3.9.3` · 4.2.3.9.3 Intervention non-contractuelle · p. 107
