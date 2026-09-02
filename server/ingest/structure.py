@@ -140,10 +140,60 @@ def oracle_article_uid(title: str) -> str | None:
     return f"article:{match.group('number')}" if match else None
 
 
+def _lignes_de_lintervalle(noeud: NoeudPropose,
+                           registre: dict[str, Entree]) -> list[Entree]:
+    """Lignes du registre couvertes par l'intervalle du nœud, dans l'ordre de lecture."""
+    first = registre[noeud.premiere_line_uid].ordre
+    last = registre[noeud.derniere_line_uid].ordre
+    return sorted((entry for entry in registre.values() if first <= entry.ordre <= last),
+                  key=lambda entry: entry.ordre)
+
+
+def surface_de_provenance(noeud: NoeudPropose, registre: dict[str, Entree]) -> SurfaceClass | None:
+    """Classe technique prouvée par la **provenance** de toutes les lignes de l'intervalle.
+
+    Toutes, sans exception : une seule ligne de corps dans l'intervalle et le nœud n'est plus une
+    surface technique. C'est la même règle que celle qui rendra ces lignes non citables — appeler
+    `preliminaire` un intervalle que la porte de lecture publiera citable serait la contradiction
+    que ce chemin corrige.
+    """
+    lues = {entry.surface_provenance for entry in _lignes_de_lintervalle(noeud, registre)}
+    return lues.pop() if len(lues) == 1 else None
+
+
+def _lignes_lues(noeud: NoeudPropose, registre: dict[str, Entree], limite: int = 6) -> str:
+    """Ce que l'oracle a **lu**, rendu au lecteur : index dans le registre, page, texte tronqué.
+
+    Un refus de surface qui ne dit que la classe attendue et la classe reçue laisse chercher dans
+    un contrat de plusieurs milliers de lignes lesquelles il a jugées.
+    """
+    rangs = {entry.uid: index for index, entry
+             in enumerate(sorted(registre.values(), key=lambda item: item.ordre))}
+    lignes = _lignes_de_lintervalle(noeud, registre)
+    rendu = [
+        f"[{rangs[entry.uid]}] p.{entry.page} "
+        f"{entry.surface_provenance or 'corps'} « {entry.titre.strip()[:60]} »"
+        for entry in lignes[:limite]
+    ]
+    if len(lignes) > limite:
+        rendu.append(f"… {len(lignes) - limite} ligne(s) de plus")
+    return " ; ".join(rendu)
+
+
 def _semantique_locale(noeud: NoeudPropose, registre: dict[str, Entree]) -> tuple[str, SurfaceClass | None]:
-    """Titre relu et classe prouvée sur l'intervalle, communs aux artefacts v1 et v2."""
+    """Titre relu et classe prouvée sur l'intervalle, communs aux artefacts v1 et v2.
+
+    **Une seule source pour la surface technique.** La provenance décide la première : elle vient
+    de la porte de lecture, qui est aussi ce qui rendra ces lignes citables ou non. Ce n'est
+    qu'ensuite, sur du corps, que les mots du titre sont lus. Dans l'autre ordre, une couverture
+    (« HOME / Conditions générales / CG-… / Particuliers ») ne portait aucun mot technique, l'oracle
+    la déclarait `substantiel` faute de mieux — et refusait la seule bonne réponse.
+    """
     title_uids = noeud.title_line_uids or [noeud.titre_line_uid]
     title = " ".join(registre[uid].titre.strip() for uid in title_uids).strip()
+    provenance = surface_de_provenance(noeud, registre)
+    if provenance is not None:
+        return title, provenance
     first = registre[noeud.premiere_line_uid].ordre
     last = registre[noeud.derniere_line_uid].ordre
     title_set = set(title_uids)
@@ -375,6 +425,11 @@ class Entree:
     texte_porte: str = ""
     unite: str = ""
     source_uids: tuple[str, ...] = ()
+    # Classe technique décidée par la **porte de lecture** (`pdf_to_blocks.surfaces_de_provenance`),
+    # ou `None` pour une ligne de corps. C'est la même règle qui rendra ces lignes non citables dans
+    # le document publié : la preuve locale d'un nœud `preliminaire` ou `table_des_matieres` s'y
+    # appuie plutôt que de redevinner la notion à partir de mots de titre.
+    surface_provenance: SurfaceClass | None = None
 
     @property
     def titre(self) -> str:
@@ -518,6 +573,20 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
     texte **est** servi, par le bloc `table`.
     L'ordre de lecture doit avoir été arrêté (`pdf_to_blocks.ordonner_pages`) avant l'appel.
     """
+    # Import tardif : `pdf_to_blocks` dépend de ce module pour vérifier une proposition, l'importer
+    # au chargement fermerait le cycle. La provenance vient de **là-bas** et de nulle part ailleurs.
+    from server.ingest.pdf_to_blocks import surfaces_de_provenance
+    provenances = surfaces_de_provenance(pages)
+
+    def _provenance(uids: Sequence[str]) -> SurfaceClass | None:
+        """Classe technique d'un porteur : celle de ses lignes, **si elles s'accordent toutes**.
+
+        Un porteur à cheval sur la frontière du dernier groupe technique et du premier article
+        n'est prouvé technique par personne ; il retombe sur l'oracle de titre, fail-closed.
+        """
+        lues = {provenances.get(uid) for uid in uids}
+        return lues.pop() if len(lues) == 1 else None
+
     out: dict[str, Entree] = {}
     rang = 0
     for page in pages:
@@ -535,6 +604,7 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 out[uid] = Entree(
                     uid=uid, page=page.page, colonne=colonne, ordre=rang, bbox=bbox_porte,
                     texte=texte_porte, texte_porte=texte_porte, source_uids=tuple(uids),
+                    surface_provenance=_provenance([source.uid for source in sources]),
                 )
                 continue
             # Un porteur **est** une unité de portage : ce que ce bloc-là portera d'un seul tenant.
@@ -549,7 +619,8 @@ def registre_lignes(pages: list[Any], *, document_uid: str | None = None) -> dic
                 unite = unite or uid
                 out[uid] = Entree(uid=uid, page=source.page, colonne=colonne, ordre=rang,
                                   bbox=source.bbox, texte=source.text, texte_porte=texte_porte,
-                                  unite=unite, source_uids=(uid,))
+                                  unite=unite, source_uids=(uid,),
+                                  surface_provenance=_provenance([uid]))
     return out
 
 
@@ -765,6 +836,10 @@ def _empreinte_registre(registre: dict[str, Entree]) -> str:
             "texte_porte": entree.texte_porte,
             "unite": entree.unite,
             "source_uids": list(entree.source_uids),
+            # La provenance décide du verdict de surface : si elle changeait entre la planification
+            # et la couture, la même proposition serait jugée autrement. Elle appartient donc à
+            # l'empreinte, au même titre que le texte.
+            "surface_provenance": entree.surface_provenance,
         }
         for entree in sorted(registre.values(), key=lambda item: item.ordre)
     ]
@@ -1324,12 +1399,14 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
             if technical_surface is None:
                 return _refus(
                     "affectation_non_prouvee",
-                    f"surface sans preuve locale indépendante sous {noeud.titre_line_uid!r}",
+                    f"surface sans preuve locale indépendante sous {noeud.titre_line_uid!r} ; "
+                    f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
             if noeud.surface_class != technical_surface:
                 return _refus(
                     "affectation_non_prouvee",
-                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r}",
+                    f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r} ; "
+                    f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
             readable_article = oracle_article_uid(title)
             if noeud.article_uid != readable_article:

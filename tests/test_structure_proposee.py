@@ -2151,6 +2151,147 @@ def test_la_borne_de_scission_est_configuree_et_arrete_le_run(
     assert "coût réel cumulé acquis" in detail and "rien n'a été écrit" in detail
 
 
+# --- 2 bis. La surface technique n'a qu'une source : la provenance ------------------------------
+
+def _page_numerotee(page_no: int, entrees: list[Any], *, depart: float = 100.0) -> p.PageText:
+    """Page synthétique dont certaines lignes portent le numéro que le parseur leur a lu.
+
+    C'est ce numéro — et lui seul — qui fait exister une « première ancre » : la porte de lecture
+    en déduit que ce qui la précède est préliminaire. Aucune règle de position n'entre ici.
+    """
+    registre = p.SourceRegistry()
+    lignes = []
+    for index, entree in enumerate(entrees):
+        texte, numero = entree if isinstance(entree, tuple) else (entree, None)
+        bbox = [56.0, depart + index * 20.0, 356.0, depart + index * 20.0 + 12.0]
+        source = registre.add(page=page_no, text=texte, bbox=bbox)
+        lignes.append(p.PageLine(texte, bbox, 10.0, source_uids=[source.uid], number=numero))
+    return p.PageText(page=page_no, width=595, height=842, lines=lignes, source=registre)
+
+
+_COUVERTURE = ["HOME", "Conditions générales", "CG-HOME(2)-LUFR-09-24", "Particuliers"]
+_CORPS = [("1 Objet du contrat", "1"), "Le present contrat couvre le logement.",
+          ("2 Exclusions", "2"), "Les dommages volontaires sont exclus."]
+
+
+def _noeud(ordonnees: list[s.Entree], titre: int, premiere: int, derniere: int, *,
+           surface: str, article: str | None = None) -> s.NoeudPropose:
+    return s.NoeudPropose(
+        titre_line_uid=ordonnees[titre].uid, premiere_line_uid=ordonnees[premiere].uid,
+        derniere_line_uid=ordonnees[derniere].uid, parent_line_uid=None,
+        title_line_uids=[ordonnees[titre].uid], article_uid=article, surface_class=surface,
+        continuation_line_uids=[], relations=[])
+
+
+def _ordonnees(registre: dict[str, s.Entree]) -> list[s.Entree]:
+    return sorted(registre.values(), key=lambda entree: entree.ordre)
+
+
+def test_une_couverture_est_preliminaire_par_provenance_et_par_rien_dautre() -> None:
+    """La cause du refus mesuré sur le premier segment réel accepté par le fournisseur.
+
+    Une couverture ne porte aucun mot de titre technique — ni « préambule », ni « introduction ».
+    L'oracle de titre y lisait « du texte de corps observable » (« Particuliers » en est) et rendait
+    `substantiel` : la seule bonne réponse était refusée, et une couverture déclarée citable aurait
+    été acceptée. La provenance de la porte de lecture, elle, sait exactement ce que c'est.
+
+    Les deux corpus ne diffèrent que par une chose : le second ne porte aucun numéro d'article, donc
+    aucune première ancre, donc aucune page préliminaire. La couverture y est mot pour mot la même.
+    """
+    avec = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS)]
+    p.ordonner_pages(avec)
+    registre = s.registre_lignes(avec, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    assert [entree.surface_provenance for entree in lignes[:4]] == ["preliminaire"] * 4
+    assert all(entree.surface_provenance is None for entree in lignes[4:])
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, 7, surface="substantiel"),
+    ])
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert verdict.accepte, verdict.detail
+
+    # Sans numéro d'article, la porte de lecture ne classe plus rien : la même couverture, mot pour
+    # mot, redevient du corps et l'oracle de titre reprend la main — le refus est donc conservé.
+    sans = [_page_numerotee(1, _COUVERTURE),
+            _page_numerotee(2, [texte for texte, *_ in
+                                (item if isinstance(item, tuple) else (item,) for item in _CORPS)])]
+    p.ordonner_pages(sans)
+    registre_nu = s.registre_lignes(sans, document_uid=DOC)
+    lignes_nues = _ordonnees(registre_nu)
+    assert all(entree.surface_provenance is None for entree in lignes_nues)
+    refusee = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes_nues, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes_nues, 4, 4, 7, surface="substantiel"),
+    ])
+    refus = s.verifier(refusee, registre_nu, doc_id=DOC, settings=get_settings())
+    assert not refus.accepte and refus.motif == "affectation_non_prouvee"
+    # Le refus dit ce que l'oracle a lu : index, page, provenance et texte tronqué.
+    assert "[0] p.1 corps « HOME »" in refus.detail
+    assert "« Particuliers »" in refus.detail
+
+
+def test_une_quatrieme_de_couverture_est_preliminaire_par_la_meme_regle() -> None:
+    """Aucune règle « dernière page » : c'est la même provenance, sur la queue du document.
+
+    La porte de lecture sort la queue du corps lorsqu'une page physiquement blanche la sépare d'un
+    article déjà observé et qu'aucun article ne s'y ouvre. Les coordonnées d'un agent n'ont pas plus
+    de mot de titre technique qu'une couverture.
+    """
+    blanche = p.PageText(page=3, width=595, height=842, native_text=False)
+    pages = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS), blanche,
+             _page_numerotee(4, ["Votre agence", "12 rue de la Gare", "L-1234 Luxembourg"])]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    queue = [entree for entree in lignes if entree.page == 4]
+    assert queue and all(entree.surface_provenance == "preliminaire" for entree in queue)
+    debut = lignes.index(queue[0])
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, debut - 1, surface="substantiel"),
+        _noeud(lignes, debut, debut, len(lignes) - 1, surface="preliminaire"),
+    ])
+    verdict = s.verifier(proposition, registre, doc_id=DOC, settings=get_settings())
+    assert verdict.accepte, verdict.detail
+    # Déclarée citable, la même queue est refusée : la provenance tranche dans les deux sens.
+    citable = s.StructureProposee(
+        schema_version="2", doc_id=DOC,
+        noeuds=[*proposition.noeuds[:-1],
+                _noeud(lignes, debut, debut, len(lignes) - 1, surface="substantiel")])
+    refus = s.verifier(citable, registre, doc_id=DOC, settings=get_settings())
+    assert not refus.accepte and refus.motif == "affectation_non_prouvee"
+    assert "preliminaire" in refus.detail and "Votre agence" in refus.detail
+
+
+def test_le_document_publie_et_sa_porte_de_certification_lisent_la_meme_provenance() -> None:
+    """Une seule source, de bout en bout : sans quoi le refus se déplace d'un cran, c'est tout.
+
+    Le vérificateur accepte la couverture, le document bâti la rend non citable, et le gate ne la
+    contredit plus. Avant, le gate rejouait l'oracle de titre sur le nœud publié et rougissait
+    exactement là où le vérificateur venait d'accepter.
+    """
+    pages = [_page_numerotee(1, _COUVERTURE), _page_numerotee(2, _CORPS)]
+    p.ordonner_pages(pages)
+    registre = s.registre_lignes(pages, document_uid=DOC)
+    lignes = _ordonnees(registre)
+    proposition = s.StructureProposee(schema_version="2", doc_id=DOC, noeuds=[
+        _noeud(lignes, 0, 0, 3, surface="preliminaire"),
+        _noeud(lignes, 4, 4, 5, surface="substantiel"),
+        _noeud(lignes, 6, 6, 7, surface="substantiel"),
+    ])
+    assert s.verifier(proposition, registre, doc_id=DOC, settings=get_settings()).accepte
+    document, _meta = p.build_document(
+        pages, edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+        structure=proposition)
+    couverture = next(node for node in document.nodes if node.title == "HOME")
+    assert couverture.surface_class == "preliminaire"
+    assert not any(p.is_citable(document.block(block_id)) for block_id in couverture.blocks)
+    assert structure_gate._semantic_issues(document) == []
+
+
 # --- 3. Rejet : une famille invalide, un refus nommé --------------------------------------------
 
 @pytest.mark.parametrize("noeuds,motif", [
