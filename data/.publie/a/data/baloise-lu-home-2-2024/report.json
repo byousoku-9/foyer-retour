@@ -4,17 +4,22 @@
     {
       "name": "invariants_arbre",
       "level": "info",
-      "detail": "arbre atteste document_hash=6c0518c3a996c3952791325fd97d33f09aafee960baae710cd1f0415e0015be9 ingest_fingerprint=a6f0e57bc52af4455e3b5f263ea252ad258e9156b5af2cb47229af15c1ff5129 ; ok"
+      "detail": "arbre atteste document_hash=daae55053798992a3aee442b8af0db5d454aefb01e9961c89f3ffc18bcc8cd02 ingest_fingerprint=30acbcd4386eb5fe90edfb595ea111ed76033d45487d66c441c003eec39189e7 ; ok"
+    },
+    {
+      "name": "structure_proposee",
+      "level": "info",
+      "detail": "structure acceptee document_hash=daae55053798992a3aee442b8af0db5d454aefb01e9961c89f3ffc18bcc8cd02 structure_hash=62747a8205a65b5d14b3adb7f91c642696f9ada3771c1c0f32657dc5865114b6 ; proposition vérifiée : 252 nœud(s) sur lignes source"
     },
     {
       "name": "blocs_non_citables",
       "level": "alerte",
-      "detail": "3 bloc(s) sur 2 page(s) exclus du rappel ; pages : 1, 2 ; preliminaire=1, tdm=2"
+      "detail": "41 bloc(s) sur 2 page(s) exclus du rappel ; pages : 1, 2 ; kind=heading=3, kind=para=38"
     },
     {
       "name": "tdm_imprimee",
       "level": "alerte",
-      "detail": "numéros annoncés absents de l'arbre : 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15"
+      "detail": "numéros de l'arbre absents de la TdM : 8 ; titres différents : 1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14, 15"
     },
     {
       "name": "tdm_pdf",
@@ -25,6 +30,11 @@
       "name": "couverture",
       "level": "info",
       "detail": "48/48 page(s) éligible(s), soit 100.0% ; seuil indicatif 80%"
+    },
+    {
+      "name": "ids_disparus",
+      "level": "alerte",
+      "detail": "baloise-lu-home-2-2024:p1:1, baloise-lu-home-2-2024:p2:1, baloise-lu-home-2-2024:p2:2, baloise-lu-home-2-2024:p11:15, baloise-lu-home-2-2024:p11:16, baloise-lu-home-2-2024:p11:17, baloise-lu-home-2-2024:p11:18, baloise-lu-home-2-2024:p11:19, baloise-lu-home-2-2024:p11:20, baloise-lu-home-2-2024:p12:9, baloise-lu-home-2-2024:p12:10, baloise-lu-home-2-2024:p12:11, baloise-lu-home-2-2024:p12:12, baloise-lu-home-2-2024:p12:13, baloise-lu-home-2-2024:p12:14, baloise-lu-home-2-2024:p12:15, baloise-lu-home-2-2024:p12:16, baloise-lu-home-2-2024:p12:17, baloise-lu-home-2-2024:p12:18, baloise-lu-home-2-2024:p13:9, baloise-lu-home-2-2024:p13:10, baloise-lu-home-2-2024:p13:11, baloise-lu-home-2-2024:p13:12, baloise-lu-home-2-2024:p13:13, baloise-lu-home-2-2024:p13:14, baloise-lu-home-2-2024:p13:15, baloise-lu-home-2-2024:p13:16, baloise-lu-home-2-2024:p13:17, baloise-lu-home-2-2024:p13:18, baloise-lu-home-2-2024:p13:19, baloise-lu-home-2-2024:p13:20, baloise-lu-home-2-2024:p13:21, baloise-lu-home-2-2024:p14:2, baloise-lu-home-2-2024:p14:3, baloise-lu-home-2-2024:p14:4, baloise-lu-home-2-2024:p14:5, baloise-lu-home-2-2024:p14:6, baloise-lu-home-2-2024:p14:7, baloise-lu-home-2-2024:p14:8, baloise-lu-home-2-2024:p14:9, baloise-lu-home-2-2024:p14:10, baloise-lu-home-2-2024:p14:11, baloise-lu-home-2-2024:p14:12"
     }
   ],
   "stats": {
@@ -39,12 +49,12 @@
     "couverture": 1.0,
     "pages_sans_texte_dessinees": 3,
     "pages_tdm": 1,
-    "noeuds": 2,
-    "blocs": 962,
+    "noeuds": 253,
+    "blocs": 1006,
     "blocs_par_kind": {
-      "autre": 3,
-      "list": 203,
-      "para": 745,
+      "heading": 3,
+      "list": 209,
+      "para": 783,
       "table": 11
     },
     "continues": 7,
@@ -53,13 +63,13 @@
     "numeros_articles": 0,
     "tables": 11,
     "pages_charabia": {},
-    "blocs_non_citables": 3,
+    "blocs_non_citables": 41,
     "pages_non_citables": 2,
-    "sommaire_chars": 255,
-    "ids_disparus": 0,
-    "ids_nouveaux": 0,
+    "sommaire_chars": 18444,
+    "ids_disparus": 43,
+    "ids_nouveaux": 44,
     "ids_typage_reutilises": {},
     "blocs_typage_reutilises": 0,
-    "blocs_typage_a_rejouer": 959
+    "blocs_typage_a_rejouer": 965
   }
 }
