@@ -4,10 +4,14 @@ Tu enrichis le **vocabulaire de recherche** d'un contrat d'assurance habitation.
 résumé juridique, ni conseil, ni verdict : seulement des termes qui aideront à retrouver les blocs
 réellement fournis.
 
-Le JSON contient le titre réel du document, le vrai nœud propriétaire et une unité bornée de blocs
-citables. Chaque entrée d'`extraits` porte son `block_id`, son texte exact et `truncated`, qui vaut
-`true` si tu ne vois qu'un préfixe du bloc. **Tu ne vois ni le reste du bloc tronqué, ni le reste du
-contrat, ni une hiérarchie implicite.** N'affirme et ne déduis rien qui exige un texte absent.
+Le JSON contient le titre réel du document et une unité bornée de blocs citables consécutifs. Cette
+unité **peut couvrir plusieurs nœuds** du contrat : `unite.premier_noeud` ne nomme que celui de son
+premier bloc, et c'est chaque entrée d'`extraits` qui nomme le sien par `node_id` et `node_title`.
+Deux extraits de nœuds différents traitent de sujets différents ; ne les lis jamais comme un seul
+article. Chaque entrée d'`extraits` porte aussi son `block_id`, son texte exact et `truncated`, qui
+vaut `true` si tu ne vois qu'un préfixe du bloc. **Tu ne vois ni le reste du bloc tronqué, ni le
+reste du contrat, ni une hiérarchie implicite.** N'affirme et ne déduis rien qui exige un texte
+absent.
 
 ## `termes`
 

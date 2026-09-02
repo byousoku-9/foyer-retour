@@ -332,6 +332,77 @@ def test_le_cli_enrichit_et_valide_seulement_le_dictionnaire_du_contrat(tmp_path
             if p.is_file() and p != cible and REPERTOIRE_ESPACE not in p.parts} == fichiers_avant
 
 
+def _contrat_une_feuille_par_noeud(nombre: int) -> Corpus:
+    """Un contrat dont **chaque nœud ne porte qu'un bloc citable** — la forme d'un arbre par article.
+
+    C'est la forme mesurée sur `axa-lu-optihome-2017` : 1 392 blocs citables répartis sur 750 nœuds
+    porteurs. Une unité par nœud y rend 750 requêtes là où les bornes en admettent vingt fois moins.
+    """
+    blocs = [Block(block_id=f"{DOC_ID}:p{i}:1", text=f"Article {i} : le texte de ce bloc.",
+                   loc=f"p{i}", seq=1) for i in range(nombre)]
+    articles = [Node(node_id=f"{DOC_ID}:art{i}", level=2, title=f"Article {i}",
+                     items=[BlockRef(block_id=blocs[i].block_id)]) for i in range(nombre)]
+    racine = Node(node_id=f"{DOC_ID}:root", title="Contrat",
+                  items=[NodeRef(node_id=article.node_id) for article in articles])
+    doc = Document(doc_id=DOC_ID, kind="contrat", title="Contrat", edition="git:test",
+                   source_hash=SOURCE_HASH, ingest_fingerprint="fp",
+                   nodes=[racine, *articles], blocks=blocs)
+    for bloc in doc.blocks:
+        bloc.text_norm = normalize(bloc.text)
+    return Corpus(documents={DOC_ID: doc},
+                  manifest={DOC_ID: ManifestEntry(status="servi", source_hash=SOURCE_HASH,
+                                                  ingest_fingerprint="fp", document_hash="d",
+                                                  edition="git:test")})
+
+
+def test_une_unite_de_contrat_enchaine_les_noeuds_jusqu_a_ses_bornes() -> None:
+    """Ce sont les **bornes** qui coupent une unité, jamais la frontière d'un nœud.
+
+    Sans cela, un contrat d'une feuille par article ouvre une requête par article : mesuré à 751
+    requêtes et 81,53 € de majorant sur `axa-lu-optihome-2017`, contre un plafond de 8 €. La borne
+    par nombre de blocs existait déjà et n'était jamais atteinte.
+    """
+    settings = _settings()
+    par_requete = settings.dictionary_flat_max_blocks_per_request
+    nombre = 3 * par_requete + 7
+    corpus = _contrat_une_feuille_par_noeud(nombre)
+    unites = ed.categories(corpus, DOC_ID, settings)
+
+    assert len(unites) == -(-nombre // par_requete) < nombre
+    assert [extrait.block_id for unite in unites for extrait in unite.extraits] \
+        == [bloc.block_id for bloc in corpus.documents[DOC_ID].blocks]
+    for unite in unites:
+        assert len(unite.extraits) <= par_requete
+        assert sum(len(extrait.text) for extrait in unite.extraits) \
+            <= settings.dictionary_flat_max_input_chars
+        # L'unité nomme son **premier** bloc et son **premier** nœud ; chaque extrait porte le sien.
+        assert unite.unit_id == unite.extraits[0].block_id
+        assert (unite.node_id, unite.node_title) == (unite.extraits[0].node_id,
+                                                     unite.extraits[0].node_title)
+        for extrait in unite.extraits:
+            assert extrait.node_id == corpus.documents[DOC_ID].node_of(extrait.block_id)
+    # Une unité pleine couvre donc **plusieurs** nœuds : c'est précisément ce que le payload doit
+    # dire, sans quoi le modèle lirait vingt articles comme un seul.
+    assert len({extrait.node_id for extrait in unites[0].extraits}) == par_requete
+
+
+def test_le_payload_de_contrat_nomme_le_premier_noeud_et_le_noeud_de_chaque_extrait() -> None:
+    """Le payload et le prompt doivent dire la vérité de l'unité : plusieurs nœuds, chacun nommé."""
+    settings = _settings()
+    corpus = _contrat_une_feuille_par_noeud(settings.dictionary_flat_max_blocks_per_request + 1)
+    unites = ed.categories(corpus, DOC_ID, settings)
+    reqs = ed.requetes(corpus, DOC_ID, settings)
+
+    contenu = json.loads(reqs[0]["params"]["messages"][0]["content"])
+    assert contenu["unite"] == {
+        "premier_bloc": unites[0].unit_id,
+        "premier_noeud": {"node_id": unites[0].node_id, "node_title": unites[0].node_title}}
+    assert contenu["extraits"] == [extrait.model_dump() for extrait in unites[0].extraits]
+    assert all(extrait["node_id"] and extrait["node_title"] for extrait in contenu["extraits"])
+    systeme = reqs[0]["params"]["system"][0]["text"]
+    assert "plusieurs nœuds" in systeme and "node_title" in systeme
+
+
 def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
     from server.app.config import REPO_ROOT
     from server.app.corpus.loader import load_corpus
@@ -349,12 +420,16 @@ def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
     assert all(unite.extraits for unite in unites)
     # Les unités suivent l'arbre (un nœud, ses blocs directs, puis ses enfants) : depuis que Baloise
     # porte une structure Opus, leur concaténation n'est plus l'ordre plat du document. Ce qui doit
-    # tenir : chaque bloc citable est extrait **exactement une fois**, et chaque unité est en ordre.
+    # tenir : chaque bloc citable est extrait **exactement une fois**, et la concaténation des unités
+    # est **une seule** suite — les nœuds dans l'ordre de leur premier bloc, leurs blocs dans l'ordre
+    # du document — simplement découpée par les bornes. C'est la propriété d'ordre depuis qu'une
+    # unité enchaîne les nœuds : un nœud n'est plus une frontière, il reste un rang.
     extraits = [extrait.block_id for unite in unites for extrait in unite.extraits]
     assert sorted(extraits) == sorted(attendus) and len(extraits) == len(set(extraits))
-    rang = {block_id: index for index, block_id in enumerate(attendus)}
-    assert all([rang[e.block_id] for e in unite.extraits] == sorted(rang[e.block_id] for e in unite.extraits)
-               for unite in unites)
+    suite: dict[str, list[str]] = {}
+    for block_id in attendus:
+        suite.setdefault(document.node_of(block_id), []).append(block_id)
+    assert extraits == [block_id for blocs in suite.values() for block_id in blocs]
     for unite in unites:
         assert len(unite.extraits) <= settings.dictionary_flat_max_blocks_per_request
         assert sum(len(extrait.text) for extrait in unite.extraits) \
@@ -369,7 +444,9 @@ def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
     assert len(reqs) == len(unites) + 1
     for requete, unite in zip(reqs[:-1], unites, strict=True):
         contenu = json.loads(requete["params"]["messages"][0]["content"])
-        assert contenu["unite"] == {"node_id": unite.node_id, "node_title": unite.node_title}
+        assert contenu["unite"] == {
+            "premier_bloc": unite.unit_id,
+            "premier_noeud": {"node_id": unite.node_id, "node_title": unite.node_title}}
         assert contenu["extraits"] == [extrait.model_dump() for extrait in unite.extraits]
         assert requete["params"]["max_tokens"] == settings.dictionary_flat_max_output_tokens
 

@@ -16,8 +16,10 @@ partagé, parce qu'il n'y a qu'une autorité pour ça : la table des tiers (`llm
 des prix (`llm/pricing.py`), lues sans être modifiées.
 
 **Une requête par unité documentaire** : pour le guide structuré, l'unité historique reste sa
-catégorie et ses fiches. Pour un contrat, l'unité est un groupe borné de blocs citables appartenant
-à un même vrai nœud ; les extraits envoyés sont exactement ceux de ces blocs (un bloc individuel
+catégorie et ses fiches. Pour un contrat, l'unité est un groupe de blocs citables consécutifs borné
+par `dictionary_flat_max_blocks_per_request` et `dictionary_flat_max_input_chars` — et par elles
+seules : elle enchaîne les nœuds du document tant que les bornes ne sont pas atteintes, chaque
+extrait nommant le sien. Les extraits envoyés sont exactement ceux de ces blocs (un bloc individuel
 trop long est préfixé et signalé comme tel). Aucune fiche ni hiérarchie n'est inventée. Une requête
 de plus porte les déclencheurs d'intention.
 
@@ -144,7 +146,11 @@ class ExtraitContrat(BaseModel):
 
 
 class UniteContrat(BaseModel):
-    """Une unité de transport, identifiée par son premier bloc réel et son vrai propriétaire."""
+    """Une unité de transport, identifiée par son **premier** bloc réel et le nœud de ce bloc.
+
+    Elle peut enchaîner plusieurs nœuds consécutifs : `node_id` / `node_title` nomment donc le
+    premier, pas un propriétaire commun, et chaque `ExtraitContrat` porte le sien.
+    """
 
     unit_id: str
     node_id: str
@@ -174,9 +180,18 @@ def categories(corpus: Corpus, doc_id: str, settings: Settings | None = None) \
     """Unités honnêtes du document, sans modifier la projection historique du guide.
 
     Le guide conserve strictement ses catégories de niveau 1 et leurs fiches directes. Tout autre
-    document est projeté depuis ses blocs citables, groupés par leur véritable nœud propriétaire,
-    puis bornés en nombre et en caractères. `unit_id` est le premier `block_id` du groupe : c'est
-    une identité source existante, pas un nœud synthétique.
+    document est projeté depuis ses blocs citables, rangés sous leur véritable nœud propriétaire,
+    puis découpés **par les seules bornes** de configuration. `unit_id` est le premier `block_id` du
+    groupe : c'est une identité source existante, pas un nœud synthétique.
+
+    **La frontière d'un nœud ne coupe pas une unité** : elle décide de l'ordre et de l'étiquette de
+    chaque extrait, jamais du nombre de requêtes. Couper à chaque nœud faisait dépendre le coût de
+    la finesse de l'arbre et non de la taille du texte : mesuré le 03/09/2026, `axa-lu-optihome-2017`
+    — 1 392 blocs citables sur 750 nœuds porteurs, une feuille par article — ouvrait 750 unités pour
+    un majorant de 81,53 € contre un plafond de 8 €, alors que `dictionary_flat_max_blocks_per_request`
+    valait 20 et n'était jamais atteinte. Une unité enchaîne donc les nœuds consécutifs, dans l'ordre
+    du document, tant qu'aucune des deux bornes n'est atteinte ; le payload reste honnête parce que
+    chaque `ExtraitContrat` nomme son propre nœud.
     """
     doc = corpus.documents[doc_id]
     if doc.kind != "guide":
@@ -194,19 +209,19 @@ def categories(corpus: Corpus, doc_id: str, settings: Settings | None = None) \
             groupes[node_id].append(bloc)
 
         unites: list[UniteContrat] = []
+        courants: list[ExtraitContrat] = []
+        caracteres = 0
+
+        def fermer() -> None:
+            nonlocal courants, caracteres
+            if courants:
+                unites.append(UniteContrat(
+                    unit_id=courants[0].block_id, node_id=courants[0].node_id,
+                    node_title=courants[0].node_title, extraits=courants))
+            courants, caracteres = [], 0
+
         for node_id in ordre_noeuds:
             node = par_noeud[node_id]
-            courants: list[ExtraitContrat] = []
-            caracteres = 0
-
-            def fermer() -> None:
-                nonlocal courants, caracteres
-                if courants:
-                    unites.append(UniteContrat(
-                        unit_id=courants[0].block_id, node_id=node_id,
-                        node_title=node.title, extraits=courants))
-                courants, caracteres = [], 0
-
             for bloc in groupes[node_id]:
                 texte = bloc.text[:s.dictionary_flat_max_input_chars]
                 if courants and (
@@ -217,7 +232,7 @@ def categories(corpus: Corpus, doc_id: str, settings: Settings | None = None) \
                     block_id=bloc.block_id, node_id=node_id, node_title=node.title,
                     text=texte, truncated=len(texte) < len(bloc.text)))
                 caracteres += len(texte)
-            fermer()
+        fermer()
         return unites
 
     par_id = {n.node_id: n for n in doc.nodes}
@@ -398,9 +413,15 @@ def requetes(corpus: Corpus, doc_id: str, settings: Settings, *,
             cle = cat.node_id
             max_tokens = None
         else:
+            # `premier_bloc` / `premier_noeud`, et non « le nœud de l'unité » : depuis que les
+            # bornes seules coupent, une unité couvre plusieurs nœuds consécutifs, et un payload qui
+            # n'en nommerait qu'un ferait lire vingt articles comme un seul. Le nœud de **chaque**
+            # extrait est dans `extraits`, où il est vrai.
             contenu = json.dumps({
                 "document": {"kind": document.kind, "title": document.title},
-                "unite": {"node_id": cat.node_id, "node_title": cat.node_title},
+                "unite": {"premier_bloc": cat.unit_id,
+                          "premier_noeud": {"node_id": cat.node_id,
+                                            "node_title": cat.node_title}},
                 "extraits": [extrait.model_dump() for extrait in cat.extraits],
             }, ensure_ascii=False, indent=2, sort_keys=True)
             cle = cat.unit_id
