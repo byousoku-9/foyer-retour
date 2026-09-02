@@ -38,6 +38,7 @@ from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.llm.pricing import PRICES
 from server.app.corpus.dictionary import Dictionnaire
 from server.app.pipelines.commun import dictionnaire_de, domine
 from server.app.pipelines.guide import repondre_guide
@@ -2096,59 +2097,99 @@ async def _preflights_de_la_chaine(index: Index, settings: Settings,
     return releves
 
 
-async def test_le_plafond_de_verifier_tient_sous_le_budget_par_requete(
+REFLEXION_MESUREE = 1024
+"""Ce que la réflexion étendue de Sonnet a **réellement** dépensé sur l'appel de *vérifier*.
+
+Relevé sur les fixtures du worktree de preuve : quatre réponses du schéma de sortie de *vérifier*
+guide portent `stop_reason: max_tokens`, `output_tokens = 1024`, et pour tout contenu un bloc
+`thinking` — pas un caractère de JSON. L'effort `medium` du tier `reason` compte la réflexion dans
+le **même** `max_tokens` que la sortie : un plafond inférieur ou égal à cette dépense ne laisse rien
+pour le contrat.
+"""
+
+
+def _verifier_tronque() -> dict:
+    """La forme exacte des quatre réponses tronquées : un bloc `thinking`, aucun texte."""
+    return fake_message(model=TIERS[_settings().verifier_tier], stop_reason="max_tokens",
+                        output_tokens=REFLEXION_MESUREE,
+                        content=[{"type": "thinking", "thinking": "…", "signature": "sig"}])
+
+
+def _verifier_sous_plafond(settings: Settings, *paires: tuple[str, bool]) -> dict:
+    """Ce que l'API rend vraiment : la réponse tronquée si la réflexion remplit le plafond.
+
+    C'est le seul point du témoin où une décision est prise, et elle est celle du fournisseur :
+    `max_tokens` borne réflexion **plus** sortie, donc un plafond que la réflexion mesurée remplit
+    à elle seule ne rend aucun JSON.
+    """
+    if REFLEXION_MESUREE >= settings.verifier_max_tokens:
+        return _verifier_tronque()
+    return _verdicts(*paires)
+
+
+async def test_le_plafond_retenu_ecarte_la_troncature_mesuree(index: Index) -> None:
+    """Le témoin décisif du recalibrage : rouge au plafond d'avant, vert au plafond retenu.
+
+    À 1 024, la réflexion mesurée remplit le plafond, la relance motivée d'AD-16 se fait tronquer à
+    son tour, et la chaîne finit en `LlmParse` — un 503 sur une question parfaitement nominale, ce
+    qu'AD-16 refuse. Au plafond retenu, le même scénario rend sa réponse vérifiée.
+
+    Ce témoin ne mesure pas un coût : il mesure **la panne que le recalibrage supprime**. La moitié
+    coût est mesurée séparément, et dit ce qu'elle prouve.
+    """
+    ancien = _settings(verifier_max_tokens=REFLEXION_MESUREE)
+    script_ancien = [_comprendre(), _rediger(BONNE),
+                     _verifier_sous_plafond(ancien, ("c1", True)),
+                     _verifier_sous_plafond(ancien, ("c1", True))]
+    with pytest.raises(LlmParse, match="tronquée"):
+        await _run(index, script_ancien, settings=ancien)
+
+    retenu = _settings()
+    assert retenu.verifier_max_tokens > REFLEXION_MESUREE, (
+        "le plafond retenu doit laisser de la place au contrat après la réflexion mesurée")
+    answer, trace, fake = await _run(
+        index, [_comprendre(), _rediger(BONNE), _verifier_sous_plafond(retenu, ("c1", True))],
+        settings=retenu)
+    assert answer.found and fake.remaining_script == 0
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+
+
+async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La moitié du recalibrage de `verifier_max_tokens` qui se prouve **sans réseau** (AD-1, NFR4).
+    """La moitié **coût** du recalibrage, et rien de plus que ce qu'elle démontre.
 
-    `max_tokens` ne facture pas, il borne : ce qui est payé est la sortie réellement produite. Le
-    seul risque d'un plafond plus large est donc le **majorant de préflight**, celui qu'`estimate_cost`
-    confronte au coût déjà engagé avant d'envoyer l'appel — et il se prouve ici, sur la chaîne
-    entière, à froid, avec les prompts, les schémas, les outils et les plafonds réels.
+    Le majorant de préflight est la seule dépense qu'un plafond de sortie plus large engage :
+    `max_tokens` ne facture pas, il borne. Ce témoin mesure ce delta sur la chaîne entière et exige
+    qu'il vaille **exactement** les tokens ajoutés au tarif de sortie du tier servi — il rougit donc
+    si le plafond change, si le tier de *vérifier* change, ou si la tarification change.
 
-    Ce que le témoin ne prouve pas, et que seul le réenregistrement dira : qu'aucune réponse ne se
-    tronque plus à ce plafond. La passation du 02/09 le nomme.
+    Ce qu'il **ne** prouve **pas**, et que la revue a eu raison de relever : que le plafond retenu
+    soit le seul admissible. Sur ce corpus, tout l'intervalle légal tient sous le budget par requête ;
+    la garde ci-dessous vaut donc comme garde-fou, pas comme preuve du chiffre. Ce qui justifie le
+    chiffre est `test_le_plafond_retenu_ecarte_la_troncature_mesuree`.
     """
     settings = _settings()
+
+    async def majorant_de_verifier(plafond: int) -> float:
+        reglages = _settings(verifier_max_tokens=plafond)
+        preflights = await _preflights_de_la_chaine(index, reglages, monkeypatch)
+        return max(majorant for _engage, majorant, tokens in preflights if tokens == plafond)
+
+    ancien = await majorant_de_verifier(REFLEXION_MESUREE)
+    retenu = await majorant_de_verifier(settings.verifier_max_tokens)
+
+    sortie_usd = PRICES[TIERS[settings.verifier_tier]]["output"]
+    attendu = ((settings.verifier_max_tokens - REFLEXION_MESUREE)
+               * sortie_usd / 1_000_000 * settings.usd_eur)
+    # Comparé à la précision où le majorant est publié : `estimate_cost` arrondit au centième de
+    # centime, et deux majorants arrondis ne peuvent pas rendre un delta plus fin que leur pas.
+    assert round(retenu - ancien, 4) == round(attendu, 4), (
+        f"delta mesuré {retenu - ancien:.4f} € ; attendu {attendu:.4f} €")
+
+    # Garde-fou, explicitement pas une preuve du chiffre : aucun préflight de la chaîne ne déborde.
     preflights = await _preflights_de_la_chaine(index, settings, monkeypatch)
-
-    assert settings.verifier_max_tokens in {tokens for _, _, tokens in preflights}
-    depassements = [(engage, majorant, tokens) for engage, majorant, tokens in preflights
-                    if engage + majorant > settings.max_cost_eur_per_request]
-    assert depassements == [], depassements
-
-
-async def test_le_temoin_de_cout_rougirait_si_le_plafond_montait_trop_haut(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Le témoin précédent n'est pas vert par construction : il mord, et voici exactement où.
-
-    `verifier_max_tokens` pèse sur le majorant de préflight au tarif de sortie du tier servi — le
-    delta mesuré est celui que le commentaire de `config.py` publie. On le montre en calant le
-    budget par requête **entre** ce que demande le plafond retenu et ce que demanderait le plus haut
-    plafond légal (`llm_max_output_tokens`) : le premier passe, le second est refusé avant l'envoi
-    (`BudgetExceeded`, AD-1 — « le garde-fou du coût s'applique **avant** qu'un appel démarre »).
-
-    Aucun seuil n'est écrit ici : les deux bornes sont **mesurées** sur la chaîne, et le budget serré
-    est leur milieu.
-    """
-    settings = _settings()
-
-    def total_verifier(preflights: list[tuple[float, float, int]], plafond: int) -> float:
-        return max(engage + majorant for engage, majorant, tokens in preflights
-                   if tokens == plafond)
-
-    retenu = total_verifier(
-        await _preflights_de_la_chaine(index, settings, monkeypatch), settings.verifier_max_tokens)
-    au_plus_haut = _settings(verifier_max_tokens=settings.llm_max_output_tokens)
-    maximal = total_verifier(
-        await _preflights_de_la_chaine(index, au_plus_haut, monkeypatch),
-        au_plus_haut.verifier_max_tokens)
-    # Le plafond de sortie **est** un poste du majorant : le relever le fait monter, mesurablement.
-    assert maximal > retenu
-
-    serre = (retenu + maximal) / 2
-    await _preflights_de_la_chaine(index, _settings(max_cost_eur_per_request=serre), monkeypatch)
-    with pytest.raises(BudgetExceeded, match="coût"):
-        await _preflights_de_la_chaine(
-            index, _settings(max_cost_eur_per_request=serre,
-                             verifier_max_tokens=settings.llm_max_output_tokens), monkeypatch)
+    assert settings.verifier_max_tokens in {tokens for _e, _m, tokens in preflights}
+    assert [(e, m, t) for e, m, t in preflights
+            if e + m > settings.max_cost_eur_per_request] == []
 

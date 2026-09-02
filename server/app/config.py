@@ -200,11 +200,18 @@ class Settings(BaseSettings):
     # cet appel. Les deux champs restent **distincts** parce que leurs contrats le sont : si le paquet
     # d'applicabilité du sinistre grandit, le guide n'a pas à suivre.
     # **Coût.** `max_tokens` ne facture pas, il borne — ce qui est payé est la sortie réellement
-    # produite. Le seul risque est le majorant de préflight : +2 048 tokens de sortie au tarif Sonnet 5
-    # (15 USD/MTok, `usd_eur` 0,92) = **+0,0283 €**. Sur la chaîne guide entière préflightée à froid,
-    # le pire total passe de 0,0606 € à 0,0889 €, contre `max_cost_eur_per_request` = 0,18 € : la
-    # marge reste de 0,091 €. Prouvé hors réseau par
-    # `tests/test_pipeline_guide.py::test_le_plafond_de_verifier_tient_sous_le_budget_par_requete`.
+    # produite. Le seul risque est le majorant de préflight, et il vaut exactement les tokens ajoutés
+    # au tarif de sortie du tier servi : +2 048 tokens à 15 USD/MTok (`usd_eur` 0,92) = **+0,0283 €**,
+    # quel que soit le corpus. C'est cette identité-là qui est prouvée hors réseau, par
+    # `tests/test_pipeline_guide.py::test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes` ;
+    # elle rougit si le plafond, le tier de *vérifier* ou la tarification changent.
+    # **Ce que la mesure de coût ne dit pas.** Les totaux de bout en bout du témoin sont relevés sur
+    # le corpus de fixtures (« Mini guide », 4 blocs) : ils montrent que la chaîne tient, ils ne
+    # transposent pas en production, où le préfixe est le guide entier. La marge réelle sous
+    # `max_cost_eur_per_request` se mesure en ligne, pas ici.
+    # **Ce qui justifie le chiffre**, lui, est la panne supprimée :
+    # `test_le_plafond_retenu_ecarte_la_troncature_mesuree` rejoue la troncature enregistrée et finit
+    # en `LlmParse` — donc en 503 — tant que le plafond ne dépasse pas la réflexion mesurée.
     # Ce qui reste à confirmer au réenregistrement : qu'aucune réponse ne se tronque plus ici.
     verifier_max_tokens: int = Field(3072, ge=1)
 
