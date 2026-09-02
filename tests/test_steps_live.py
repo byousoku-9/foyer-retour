@@ -31,6 +31,7 @@ from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.retrouver import retrouver_deterministe
 from tests.fixtures import LLMRecorder
+from tests.helpers_tiers import verifier_etage
 from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,8 +91,9 @@ async def test_famille_profile_widens_the_scope_to_school_and_allocations(llm_re
     assert parsed.terms and all(t.strip() for t in parsed.terms)
     assert _covers(parsed.scope.themes, "ecole", "scolar"), parsed.scope.themes
     assert _covers(parsed.scope.themes, "allocation"), parsed.scope.themes
-    assert step.name == "comprendre" and step.tier == "micro"
-    assert len(step.calls) == 1 and step.calls[0].model.startswith("claude-haiku")
+    # AD-9 : l'étage de *comprendre* est celui que la configuration lui affecte — lu, jamais recopié.
+    assert step.name == "comprendre"
+    verifier_etage(step, _settings(), appels=1)
     assert step.usage.cost_eur > 0
 
 
@@ -101,7 +103,8 @@ async def test_meteo_question_is_settled_by_the_intent_alone(llm_recorder: LLMRe
                                     client=_client(llm_recorder), budget=budget, settings=_settings())
     assert isinstance(parsed, ParsedQuestion)
     assert parsed.intent == "meteo"  # l'intent seul décide le refus : aucune autre étape n'est requise
-    assert len(step.calls) == 1 and step.tier == "micro"  # jamais d'appel `reason`
+    # L'intent seul tranche : un unique appel, à l'étage configuré, et aucune étape au-delà.
+    verifier_etage(step, _settings(), appels=1)
     assert budget.attempts == 1
 
 
