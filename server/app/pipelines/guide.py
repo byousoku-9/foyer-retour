@@ -27,6 +27,7 @@ from typing import Any
 from server.app.config import RETRIEVAL_DEFAULT, Settings
 from server.app.domain.answer import AbsenceProof, Answer
 from server.app.domain.errors import (
+    ErrorCode,
     BudgetExceeded,
     # `TruncatedRead` n'est plus levée ici (story 4.2f) : une lecture bornée sans claim survivante est
     # désormais une réponse 200 typée. Le type reste dans `domain/errors.py` — il est le contrat du
@@ -638,3 +639,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         if exc.trace is None:
             exc.trace = tracer()
         raise
+    except Exception as exc:  # noqa: BLE001 — la garde d'AD-16, pas un avalement
+        # Correctif du tour 2 : la même garde qu'au sinistre, et pour la même raison — l'étape
+        # partagée `retrouver_outils` est celle qui a laissé échapper une `ValidationError` en réel.
+        # L'erreur reste terminale et `internal` ; seule sa trace partielle cesse de disparaître.
+        interne = PipelineError(ErrorCode.internal, f"{type(exc).__name__} dans la chaîne guide")
+        interne.trace = tracer()
+        raise interne from exc

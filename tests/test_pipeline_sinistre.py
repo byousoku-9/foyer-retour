@@ -26,6 +26,7 @@ from server.app.domain.answer import (AnswerDraft, ClaimStatus, Quote, RejectedC
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import (
     BudgetExceeded,
+    PipelineError,
     Timeout,
     CorpusUnavailable,
     InvalidRequest,
@@ -2989,3 +2990,34 @@ def test_laudit_exact_suit_lenvironnement_et_reste_reglable() -> None:
                     llm_audit_exact=True)
     desarme = Settings(_env_file=None, anthropic_api_key="", env="dev", llm_audit_exact=False)
     assert arme.audit_exact_actif and not desarme.audit_exact_actif
+
+
+async def test_aucune_exception_ne_sort_nue_de_la_chaine(index: Index, monkeypatch) -> None:
+    """Rapport citations B3 — un défaut interne rendait un 500 sans rien pour le situer.
+
+    L'incident réel : une `ValidationError` échappée de *retrouver*, qui n'est pas un
+    `PipelineError`, remontait jusqu'à la couche HTTP. L'utilisateur recevait « erreur interne »
+    après une minute payée, **sans trace partielle**, et aucun diagnostic n'était possible — la
+    trace n'avait même jamais été construite. AD-16 exige une trace partielle sur tout échec
+    terminal ; la règle ne peut pas dépendre du type qu'un défaut interne aura pris.
+    """
+    def exploser(*_args, **_kw):
+        raise ValueError("un défaut interne qui n'est pas un PipelineError")
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", exploser)
+    fake = FakeAnthropic([_comprendre()])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    with pytest.raises(PipelineError) as erreur:
+        await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+                           settings=settings, request_id="req-sinistre", budget=_budget(),
+                           variant="deterministe")
+
+    assert erreur.value.code.value == "internal"
+    assert erreur.value.trace is not None
+    # Ce qui a déjà tourné voyage avec l'erreur : l'étape payée, et ce que *comprendre* a décidé.
+    assert [s.name for s in erreur.value.trace.steps] == ["comprendre"]
+    assert erreur.value.trace.total_cost_eur > 0
+    # AD-15 : rien du message d'origine n'est publié — le type suffit à situer, pas à divulguer.
+    assert "défaut interne qui n'est pas" not in erreur.value.message

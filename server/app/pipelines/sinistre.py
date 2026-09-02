@@ -42,6 +42,7 @@ from server.app.domain.answer import (
 )
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
+    ErrorCode,
     BudgetExceeded,
     # `TruncatedRead` n'est plus levée ici (story 4.2f) : voir le commentaire de `pipelines/guide.py`.
     CorpusUnavailable,
@@ -1192,6 +1193,20 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         if exc.trace is None:
             exc.trace = tracer()
         raise
+    except Exception as exc:  # noqa: BLE001 — la garde d'AD-16, pas un avalement
+        # Correctif du tour 2 (rapport citations, B3). **Aucune exception ne sort nue de la
+        # chaîne.** Une `ValidationError` échappée d'une étape — l'incident réel du 02/09/2026 —
+        # remontait jusqu'à la couche HTTP sans être un `PipelineError` : l'utilisateur recevait un
+        # 500 « erreur interne », **sans trace partielle**, après une minute payée, et aucun
+        # diagnostic n'était possible. AD-16 exige une trace partielle sur tout échec terminal ; la
+        # règle ne peut pas dépendre du type d'exception qu'un défaut interne aura pris.
+        #
+        # Ce n'est pas un avalement : l'erreur reste terminale et le code publié reste `internal`
+        # (donc un 500, et `MESSAGE_INTERNE` côté client — rien du message d'origine n'est publié,
+        # AD-15). Ce qui change est que la trace part avec, comme pour toute autre panne.
+        interne = PipelineError(ErrorCode.internal, f"{type(exc).__name__} dans la chaîne sinistre")
+        interne.trace = tracer()
+        raise interne from exc
 
 
 def _verdict_par_defaut(verification: Verification,
