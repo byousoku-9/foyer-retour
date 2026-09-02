@@ -109,20 +109,20 @@ réelle ou nominative de sinistre.
 
 ## Baseline et état courant
 
-La règle de décision reste simple : **si la baseline gagne, elle devient la variante par défaut**.
-Un chiffre n'accompagne cette règle que lorsqu'une campagne comparable, complète et reliée à son SHA
-existe. Ce n'est pas le cas de 4.4, qui n'a laissé aucune baseline ; aucun vainqueur ne peut en être
-tiré.
+La règle reste simple : **si la baseline gagne, elle devient la variante par défaut**. Un chiffre
+ne l'accompagne que si une campagne complète, reliée à son SHA, existe : 4.4 n'en a laissé aucune.
 
-Le gate 4.5 du candidat `cf5c1ba…` s'est arrêté en **incident** : AXA est **partiel** à `25/42`, le
-guide est **partiel** à `53/102`, Baloise est indisponible, pour un coût fournisseur cumulé réel de
-`2,1127 EUR`. Ces éléments rendent ce candidat **rouge et non promouvable** ; ils ne sont ni un
-verdict sur les variantes ni une validation experte. Le dernier produit servi reste `6abd3d0…`.
+Le gate 4.5 du candidat `cf5c1ba…` s'est arrêté en **incident**, le 30/08/2026 : AXA est
+**partiel** à `25/42`, le guide est **partiel** à `53/102`, Baloise est indisponible, pour un coût
+fournisseur cumulé réel de `2,1127 EUR`. Il est **rouge et non promouvable**, et **c'est une mesure
+datée, pas l'état courant** : **le gate et le verdict courants sont en cours de renouvellement**,
+corpus réingérés et gates à rejouer derrière. **L'état servi se lit sur `GET /api/v1/sante`**,
+jamais ici.
 
 **Ce que Sonnet coûte** *(02/09/2026)*. Un sinistre nominal facture ≈ 0,19 €, ≈ 0,21 € avec
-relance, contre 0,10 et 0,18 € visés ; le plafond par requête passe à 0,45 €. Les deux tiers
-(0,128 €) sont l'écriture de cache 1 h, au double tarif pour trois préfixes : prochain gisement,
-décision de spine (AD-9). Mesures : `docs/tests-live.md`.
+relance ; le plafond par requête passe à 0,45 €. Les deux tiers (0,128 €) sont l'écriture de cache
+1 h, au double tarif pour trois préfixes : prochain gisement, décision de spine (AD-9). Mesures :
+`docs/tests-live.md`.
 
 ## Limites honnêtes
 

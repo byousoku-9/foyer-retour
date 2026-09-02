@@ -96,12 +96,21 @@ def test_les_mesures_courantes_restent_rouges_partielles_et_non_promouvables() -
         "si la baseline gagne, elle devient la variante par défaut",
         "gate 4.5 du candidat `cf5c1ba…`",
         "rouge et non promouvable",
-        "dernier produit servi reste `6abd3d0…`",
+        # La campagne 4.5 reste publiée **datée** : c'est une mesure, elle ne s'efface pas.
+        "le 30/08/2026",
+        "c'est une mesure datée, pas l'état courant",
+        # …et ce qui change ne se fige plus ici : la révision servie se lit sur l'API.
+        "le gate et le verdict courants sont en cours de renouvellement",
+        "l'état servi se lit sur `get /api/v1/sante`",
     ):
         assert attendu in synthese
+    # **Aucune révision servie affirmée au présent.** Le fichier portait « le dernier produit servi
+    # reste `6abd3d0…` » longtemps après que ce ne fût plus vrai. Une révision servie est un fait
+    # qui change ; un document qui la fige ment dès la promotion suivante.
+    assert "dernier produit servi reste" not in synthese
 
     assert (
-        "le gate 4.5 du candidat `cf5c1ba…` s'est arrêté en incident : "
+        "le gate 4.5 du candidat `cf5c1ba…` s'est arrêté en incident, le 30/08/2026 : "
         "axa est partiel à `25/42`, le guide est partiel à `53/102`, "
         "baloise est indisponible, pour un coût fournisseur cumulé réel de `2,1127 eur`"
     ) in synthese
