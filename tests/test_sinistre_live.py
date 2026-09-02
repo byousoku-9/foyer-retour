@@ -116,6 +116,9 @@ def _budget() -> RequestBudget:
 def _demarrages_de_rediger(fournisseur: FakeAnthropic, settings: Settings) -> int:
     """Combien de fois *rédiger* a démarré, d'après les requêtes réellement envoyées.
 
+    Le nombre est rendu tel quel, jamais comparé à 1 par le helper : la relance d'AD-3 est un chemin
+    normal, et c'est à l'appelant de dire s'il attend « au moins un » démarrage ou « aucun ».
+
     `rediger_max_tokens` est l'unique plafond de rédaction des deux pipelines et de toutes leurs
     variantes (`steps/rediger.py`) : c'est donc lui, et non un rang dans la liste ni un identifiant
     de modèle partagé par plusieurs étapes, qui identifie l'appel dont l'AC parle.
@@ -163,12 +166,14 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
                  "input": {"node_id": node_id}},
             ],
         )
-        # AD-1, `max_llm_turns = 2` : un premier tour qui rend `tool_use` **impose** ce second appel
-        # — la navigation doit conclure (`sufficient: false`, aucun `result_uid`) avant que
-        # *rédiger* démarre. Sans lui, le script s'épuisait et l'échec accusait le pipeline.
+        # AD-1 : un premier tour qui rend `tool_use` impose un appel de plus par tour restant — la
+        # navigation doit conclure (`sufficient: false`, aucun `result_uid`) avant que *rédiger*
+        # démarre. Le nombre de tours n'est **pas** recopié ici : il se lit sur le budget, si bien
+        # qu'abaisser `max_llm_turns` raccourcit le script au lieu de le laisser trop long et muet.
         conclusion = fake_message(
             model=modele_attendu("retrouver_outils", settings), stop_reason="end_turn",
             text=json.dumps({"sufficient": False, "result_uid": None}))
+        navigation = [outils, *[conclusion] * (settings.max_llm_turns - 1)]
         rediger = fake_message(model=modele_attendu("rediger", settings), text=json.dumps({
             "segments": [{"text": "La garantie vise l'action subite de la chaleur.",
                           "kind": "factuel", "claim_ids": ["c1"]}],
@@ -190,7 +195,7 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
                 "qualites_etablies": [],
             }],
         }))
-        return [comprendre, outils, conclusion, rediger, verifier]
+        return [comprendre, *navigation, rediger, verifier]
 
     original = client_module.estimate_cost
     budget = _budget()
@@ -205,7 +210,7 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     monkeypatch.setattr(client_module, "estimate_cost", relever)
     fournisseur = FakeAnthropic(script())
     client = LlmClient(settings, anthropic_client=fournisseur)
-    answer, _trace = await sinistre.run(
+    answer, trace = await sinistre.run(
         DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
         settings=settings, request_id="preflight-outils-reel", budget=budget)
 
@@ -214,15 +219,23 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     # ajouté) : c'est le **démarrage de *rédiger***, et ce qui le désigne sans ambiguïté est son
     # plafond de sortie, unique dans la chaîne du sinistre.
     redactions = [p for p in preflights if p[3] == settings.rediger_max_tokens]
-    assert len(redactions) == 1
+    # **Au moins un** démarrage, et c'est le premier que l'AC décrit : la relance d'AD-3 est un
+    # chemin normal, pas un incident, et exiger `== 1` ferait rougir ce test sur une chaîne
+    # parfaitement conforme qui relance *rédiger* (c'est la correction déjà faite plus bas sur les
+    # étapes de la trace, restée à faire ici).
+    assert redactions, "*rédiger* n'a jamais démarré sur le chemin nominal"
     engage, majorant, model, _tokens = redactions[0]
     assert model == modele_attendu("rediger", settings)
-    # Coût réellement engagé avant *rédiger* : *comprendre* et les **deux** tours de navigation, tous
-    # facturés au tier que la configuration sert. La valeur d'avant (0,0149 €) était celle de la même
-    # chaîne facturée à l'étage `micro` — c'est le tier qui a changé, pas le scénario.
-    assert engage == pytest.approx(0.0488, abs=0.0001)
-    assert engage + majorant <= settings.max_cost_eur_per_request == 0.18
-    assert _demarrages_de_rediger(fournisseur, settings) == 1
+    # Ce que le coût engagé doit valoir n'est **pas** un littéral en euros : une constante de coût
+    # est le même défaut qu'un littéral de tier, déplacé du modèle vers l'euro — elle n'est vraie que
+    # pour l'affectation d'étages du jour. La propriété est que ce coût est celui des étapes qui ont
+    # réellement tourné avant *rédiger*, quel que soit le tier qui les sert.
+    avant_rediger = [pas for pas in trace.steps
+                     if pas.name in ("comprendre", "retrouver") and pas.calls]
+    assert [pas.name for pas in avant_rediger] == ["comprendre", "retrouver"]
+    assert engage == pytest.approx(sum(pas.usage.cost_eur for pas in avant_rediger), abs=1e-4)
+    assert engage + majorant <= settings.max_cost_eur_per_request
+    assert _demarrages_de_rediger(fournisseur, settings) >= 1
     assert answer.verdict is not None
 
     fournisseur_bloque = FakeAnthropic(script())
@@ -241,7 +254,7 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     # La chaîne est allée au bout de la navigation (les deux tours d'AD-1) puis s'est arrêtée
     # **avant** de payer *rédiger* : c'est le refus que l'AC demande, et c'est le démarrage de
     # *rédiger* qui le dit — pas le tier, que la navigation partage désormais avec la rédaction.
-    assert len(fournisseur_bloque.requests) == 3
+    assert len(fournisseur_bloque.requests) == 1 + settings.max_llm_turns  # comprendre + navigation
     assert _demarrages_de_rediger(fournisseur_bloque, settings) == 0
 
 
