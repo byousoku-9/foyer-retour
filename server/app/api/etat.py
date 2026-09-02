@@ -509,7 +509,12 @@ def _alertes_dictionnaire(
                   "(la recherche se poursuit vers *retrouver*)")
         if dictionnaire.charge:
             # Le fichier est là et se lit : ce qui manque est une signature, et rien d'autre.
-            detail += " — lancer `python -m server.ingest.enrich_dictionary --valider \"Nom\"`"
+            # **Ce détail est lu par un utilisateur**, sur la page d'accueil et dans « Pourquoi
+            # cette réponse » : il dit donc ce qui manque et à qui cela incombe, jamais une commande
+            # de terminal — un message d'utilisateur ne donne pas d'ordre de shell. La commande
+            # exacte, elle, appartient au journal de démarrage (`_journaliser_dictionnaire`) et à
+            # `docs/`, que lit celui qui peut l'exécuter.
+            detail += " — cette validation reste à faire par l'équipe"
         else:
             # Absent, illisible ou non conforme : `raison` décrit **cet** échec-là, c'est bien le sien.
             raison = dictionnaire.raison or "dictionnaire non chargé"
@@ -521,19 +526,23 @@ def _alertes_dictionnaire(
             doc_id="*", alerte="dictionnaire_corpus_perime",
             detail=f"{DICTIONARY_FILE} décrit un autre corpus que celui qui est servi : ni variantes, ni "
                    f"court-circuit — {raison_publiable(raison, max_chars=raison_max_chars)}. "
-                   "Relancer `python -m server.ingest.enrich_dictionary`."))
+                   "L'enrichissement du dictionnaire doit être relancé par l'équipe."))
     return alertes
 
 
 def _journaliser_dictionnaire(dictionnaire: Dictionnaire) -> None:
     """Journalise une fois l'état interne complet ; la projection d'alertes reste une fonction pure."""
     if not dictionnaire.validated:
+        # La **commande** vit ici, pas dans l'alerte : le journal de démarrage est lu par celui qui
+        # peut l'exécuter, l'alerte est lue par l'utilisateur du produit.
         LOG.warning(
-            "dictionnaire_non_valide : le refus « zéro hit » d'AD-5 est désactivé — %s",
+            "dictionnaire_non_valide : le refus « zéro hit » d'AD-5 est désactivé — %s "
+            "— correctif : python -m server.ingest.enrich_dictionary --valider \"Nom\"",
             dictionnaire.raison or "aucune validation humaine")
     if dictionnaire.charge and not dictionnaire.corpus_ok:
         LOG.warning(
-            "dictionnaire_corpus_perime : %s",
+            "dictionnaire_corpus_perime : %s "
+            "— correctif : python -m server.ingest.enrich_dictionary",
             dictionnaire.raison or "empreintes différentes du manifest")
 
 

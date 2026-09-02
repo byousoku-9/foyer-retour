@@ -1554,9 +1554,14 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     contre le corpus (AD-3), tandis que refuser est une affirmation négative qui, elle, demande une
     signature humaine.
 
-    `index.definitions()` continue de recevoir `terms` **seuls** : son appariement `defines`/terme se
-    fait déjà dans les deux sens, et lui donner les variantes multiplierait un faux positif connu et
-    non corrigé (reprise différée `target_story: 4.2`, à border avec une mesure).
+    `index.definitions()` continue de recevoir `terms` **seuls**, et la raison a changé : le faux
+    positif que cette ligne invoquait — l'appariement `defines`/terme dans les deux sens, où
+    « assurance habitation » ramenait une définition « habitation » — a été **corrigé par la story
+    3.3**. `definitions()` n'apparie plus que dans un sens, de la question vers le terme défini
+    (`de_la_question`, `corpus/index.py`). Ce qui reste vrai est plus simple : donner les 1 178
+    variantes du dictionnaire à `definitions()` élargirait le rappel de définitions sans qu'aucune
+    mesure ne dise ce qu'il y gagne, et cette étape ne change pas son entrée sans mesure. La reprise
+    différée qui portait le faux positif est **fermée** (`spec-2-1-…`, `target_story: 3.3`).
 
     **Le pipeline sinistre ne passe rien ici, et c'est un choix de périmètre, pas un oubli** (revue
     coordonnée 2.1). L'AC de la story 2.1 nomme littéralement le corpus `lux-guide` : le dictionnaire
