@@ -82,7 +82,14 @@
 
   // ---------- Navigation ----------
 
-  var PANNEAUX = ["accueil", "fiches", "parcours", "faq", "simulateur", "comparateur", "carte", "assistant", "admin"];
+  var PANNEAUX = ["accueil", "fiches", "parcours", "faq", "simulateur", "comparateur", "carte", "assistant"];
+  // `admin` n'est **pas** dans la liste : c'est un outil de maintenance, pas une section du guide.
+  // Un visiteur ne doit pas l'atteindre — ni par un bouton, ni en tapant `#admin`, où son bouton
+  // « Supprimer » lui retirerait une fiche de sa propre lecture. Celui qui maintient la copie
+  // l'arme depuis la console de son navigateur : `localStorage.setItem("foyer.admin", "1")`.
+  function adminArme() {
+    try { return window.localStorage.getItem("foyer.admin") === "1"; } catch (e) { return false; }
+  }
 
   var pagePrecedente = null;
 
@@ -123,9 +130,11 @@
     // Le logo ramene a l'accueil : c'est ce que tout le monde essaie.
     var marque = $("#brand");
     if (marque) marque.addEventListener("click", function () { ouvrir("accueil"); });
-    // L'administration n'est pas une section du guide, c'est un outil.
+    // L'administration n'est pas une section du guide, c'est un outil de maintenance. Il n'a plus de
+    // bouton public ; s'il en existe un dans une copie locale, il ne s'arme que sous le drapeau.
     var adm = $("#admin-btn");
-    if (adm) adm.addEventListener("click", function () { ouvrir("admin"); });
+    if (adm && adminArme()) adm.addEventListener("click", function () { ouvrir("admin"); });
+    else if (adm) adm.hidden = true;
 
     var nav = $("#tabs");
     if (!nav) return;
@@ -163,7 +172,8 @@
   }
 
   function ouvrir(nom, sansHash) {
-    if (PANNEAUX.indexOf(nom) === -1) nom = "accueil";
+    if (nom === "admin" && !adminArme()) nom = "accueil";
+    if (PANNEAUX.indexOf(nom) === -1 && nom !== "admin") nom = "accueil";
     // Retenue pour revenir au contenu quand on rebascule en panneau lateral.
     var courante = $$(".panel").filter(function (p) { return !p.hidden; })[0];
     if (courante) pagePrecedente = courante.id.replace("panel-", "");

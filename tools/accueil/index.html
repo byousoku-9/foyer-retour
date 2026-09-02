@@ -43,13 +43,6 @@
   #etat ul { padding-left: 20px; margin: 6px 0 0; font-size: 14px; }
   #etat h3 { margin: 12px 0 2px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em;
              opacity: .7; }
-  .separation-etats { display: grid; gap: 16px; }
-  .preuve-candidate, .etat-servi {
-    border: 1px solid var(--trait); border-radius: 12px; padding: 18px;
-  }
-  .preuve-candidate h3, .etat-servi h3 { margin-top: 0; font-size: 17px; }
-  .verdict { padding: 12px 14px; border-left: 5px solid currentColor; background: var(--trait); }
-  .tableau-defilement { overflow-x: auto; margin: 14px 0; }
   table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 14px; }
   th, td { padding: 9px 10px; border-bottom: 1px solid var(--trait); text-align: left;
            vertical-align: top; }
@@ -64,8 +57,6 @@
     body { padding: 24px 14px 44px; }
     h1 { font-size: 24px; }
     h2 { margin-top: 30px; }
-    .preuve-candidate, .etat-servi { padding: 14px; }
-    .tableau-defilement { margin-right: -14px; padding-right: 14px; }
   }
 </style>
 </head>
@@ -143,59 +134,22 @@ porte.</p>
 </section>
 
 <section class="bloc">
-<h2>Preuves disponibles — deux états à ne pas confondre</h2>
-<div class="separation-etats">
-  <article class="preuve-candidate" aria-labelledby="titre-candidat-45">
-    <h3 id="titre-candidat-45">Snapshot du 30 août 2026 — campagne candidate full 4.5</h3>
-    <p>Ce snapshot éditorial décrit le candidat
-      <code>cf5c1babbed8fc348d9d3be1eea3b8a1db925344</code>. Il ne décrit pas le produit encore
-      servi et ses progressions ne sont pas des taux de réussite.</p>
-    <p class="verdict"><strong>Verdict&nbsp;: rouge — campagne interrompue, candidat
-      non promouvable.</strong> Aucun résultat final, « dernier vert » ou promotion n'est déduit des
-      mesures partielles.</p>
-    <div class="tableau-defilement" tabindex="0" aria-label="Progression des témoins de la campagne 4.5">
-      <table>
-        <thead>
-          <tr><th scope="col">Témoin</th><th scope="col">Cas mesurés</th>
-              <th scope="col">Exécutions</th><th scope="col">Incident ou limite</th>
-              <th scope="col">Coût réel</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">AXA</th><td class="nombre">8/14 cas</td>
-              <td class="nombre">25/42 exécutions</td>
-              <td>Timeout API sans <code>request_id</code>&nbsp;; campagne interrompue.</td>
-              <td class="nombre">0,7726 EUR</td></tr>
-          <tr><th scope="row">Guide</th><td class="nombre">17/34 cas</td>
-              <td class="nombre">53/102 exécutions</td>
-              <td>Sortie <code>llm_parse</code> tronquée
-                (<code>stop_reason=max_tokens</code>)&nbsp;; campagne interrompue.</td>
-              <td class="nombre">1,3401 EUR</td></tr>
-          <tr><th scope="row">Baloise</th><td class="nombre">Non exécuté</td>
-              <td class="nombre">Non exécuté</td><td>Source indisponible&nbsp;: HTTP 406 / GCS 403.</td>
-              <td class="nombre">0 EUR</td></tr>
-          <tr><th scope="row" colspan="4">Total live cumulé réellement dépensé</th>
-              <td class="nombre"><strong>2,1127 EUR</strong></td></tr>
-        </tbody>
-      </table>
-    </div>
-  </article>
+<h2>Ce que le produit vaut aujourd'hui</h2>
+<p>Ce que vous lisez ci-dessous n'est pas écrit dans cette page&nbsp;: c'est lu à l'instant sur
+<code>/api/v1/sante</code>. Les documents servis, leur niveau de validation et les alertes qui pèsent
+sur eux viennent du serveur, jamais d'un texte figé — un niveau annoncé qu'aucun document ne porte
+serait exactement la faute que ce produit cherche à ne pas commettre.</p>
+<p class="reserve">Si la sonde échoue, l'état est dit <strong>inconnu</strong>&nbsp;: aucun chiffre
+n'est affiché à la place. L'historique des campagnes de mesure — y compris celles qui se sont
+arrêtées en rouge, avec leurs incidents et leur coût — vit dans le dépôt
+(<code>docs/tests-live.md</code>, <code>docs/evals/</code>)&nbsp;: c'est là qu'il se lit, daté et
+recoupable, plutôt que sur une page d'accueil où il vieillirait sans le dire.</p>
+<!-- Rempli par `accueil.js` après la sonde : `role="status"` + `aria-live="polite"`
+     pour qu'un lecteur d'écran entende apparaître le niveau de validation. -->
+<div id="etat" role="status" aria-live="polite"></div>
+<noscript><p class="reserve">JavaScript est désactivé&nbsp;: l'état courant n'a pas pu être lu.
+  Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
 
-  <article class="etat-servi" aria-labelledby="titre-etat-servi">
-    <h3 id="titre-etat-servi">État servi maintenant</h3>
-    <p>Au lancement de cette campagne, le produit servi était
-      <code>6abd3d0c8681428ce8373de34164b7eb9ac4220d</code>. Ce point de comparaison historique
-      reste séparé du candidat mesuré ci-dessus&nbsp;; l'état actuellement servi est lu dynamiquement
-      ci-dessous.</p>
-    <p class="reserve">Le détail ci-dessous est lu à l'instant sur <code>/api/v1/sante</code>,
-      jamais écrit dans cette page. Si la sonde échoue, l'état courant est explicitement inconnu&nbsp;;
-      le snapshot et l'identifiant du dernier produit servi restent lisibles.</p>
-    <!-- Rempli par `accueil.js` après la sonde : `role="status"` + `aria-live="polite"`
-         pour qu'un lecteur d'écran entende apparaître le niveau de validation. -->
-    <div id="etat" role="status" aria-live="polite"></div>
-    <noscript><p class="reserve">JavaScript est désactivé&nbsp;: l'état courant n'a pas pu être lu.
-      Il se lit directement sur <code>/api/v1/sante</code>.</p></noscript>
-  </article>
-</div>
 
 <h2>Résultats des questions-témoins</h2>
 <p class="reserve">Le dernier run publié, lu à l'instant sur <code>/api/v1/evals/latest</code> —

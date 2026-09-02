@@ -600,9 +600,8 @@ def test_le_pied_dit_la_traduction_et_le_repli_sans_les_confondre(cas: dict[str,
         "langue non prise en charge ou non détectée : réponse en français"
     ]
     assert repli["repli_langue"] == repli["mentions_langue"][0]
-    assert traduction["pied"] == ["etat etat-sur", "etat-phrase", "langue-mention", "cout"]
-    assert repli["pied"] == [
-        "etat etat-sur", "etat-phrase", "langue-mention langue-repli", "cout"]
+    assert traduction["pied"] == ["etat etat-sur", "etat-phrase", "langue-mention"]
+    assert repli["pied"] == ["etat etat-sur", "etat-phrase", "langue-mention langue-repli"]
 
 
 def test_les_langues_du_front_sont_amarrees_a_celles_du_serveur(cas: dict[str, Any]) -> None:
@@ -886,8 +885,25 @@ def test_le_cout_vient_de_la_trace(cas: dict[str, Any]) -> None:
     """NFR4 : le coût affiché est celui que l'usage rendu par l'API a produit, pas une estimation."""
     couts = cas["cout_textes"]
     assert couts["nominal"] == "cette réponse a coûté 0,0278 €"
-    assert cas["reponse_lue"]["cout"] == "cette réponse a coûté 0,0278 €"
     assert couts["absent"] == "" and couts["sans_champ"] == ""
+
+
+def test_le_cout_nest_plus_sous_la_reponse_mais_dans_le_panneau(cas: dict[str, Any]) -> None:
+    """Ce qui explique une réponse est montré ; ce qui la comptabilise ne l'est qu'à la demande.
+
+    « cette réponse a coûté 0,0278 € » était affiché sous **chaque** réponse. C'est de la
+    comptabilité d'équipe posée sous les yeux de quelqu'un qui demande dans quel délai se déclarer à
+    la commune. Le chiffre n'est pas retiré du produit — il est dans « Pourquoi cette réponse », avec
+    les seuils, les compteurs et le gate, c'est-à-dire là où l'on va pour savoir **comment** la
+    réponse a été faite.
+    """
+    assert cas["vue_nominale"]["cout"] is None, "le coût est encore rendu dans la réponse"
+    assert "cout" not in cas["vue_nominale"]["pied"]
+    # `reponse_lue.cout` est la sortie de la fonction pure, pas ce que la vue rend : elle reste vraie.
+    assert cas["reponse_lue"]["cout"] == "cette réponse a coûté 0,0278 €"
+    entier = cas["pourquoi_texte_entier"]
+    assert "Ce que la requête a coûté" in entier, "la rubrique de coût a disparu du panneau"
+    assert "coûté" in entier
 
 
 def test_le_comparateur_du_serveur_est_relaye(cas: dict[str, Any]) -> None:
@@ -1001,10 +1017,9 @@ def test_chaque_segment_factuel_est_suivi_de_ses_citations(cas: dict[str, Any]) 
     assert vue["citations_plates"] == [] and vue["degrade"] is None
 
 
-def test_le_pied_porte_letat_et_le_cout(cas: dict[str, Any]) -> None:
+def test_le_pied_porte_letat(cas: dict[str, Any]) -> None:
     vue = cas["vue_nominale"]
     assert vue["etat"] == "etat etat-sur" and vue["etat_texte"] == "sûr"
-    assert vue["cout"] == "cette réponse a coûté 0,0278 €"
     # Le pied vient après le corps, et le panneau « Pourquoi cette réponse » après le pied : il
     # n'explique rien qui ne soit déjà écrit.
     assert vue["ordre_des_blocs"][-3] == "pied"
@@ -2352,7 +2367,7 @@ def test_la_vue_dune_lecture_partielle_montre_le_chiffre_et_les_affirmations_eca
     assert vue["etat_texte"] == "lecture partielle"
     assert vue["preuve"] is None  # aucune absence n'est affirmée
     assert vue["inconnus"] and vue["actions"] == []  # aucun bouton de repli
-    assert vue["pied"] == ["etat etat-lecture-partielle", "etat-phrase", "cout"]
+    assert vue["pied"] == ["etat etat-lecture-partielle", "etat-phrase"]
     # Les affirmations écartées deviennent enfin visibles : le bloc était écrit, jamais atteint.
     assert [r["texte"] for r in vue["pourquoi"]["rejetees"]] == [
         "Une affirmation que la vérification a écartée."]

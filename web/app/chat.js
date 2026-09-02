@@ -1198,8 +1198,14 @@ window.CHAT = (function () {
       pied.push(noeud("span", "langue-mention langue-repli",
         "langue non prise en charge ou non détectée : réponse en français"));
     }
-    var cout = coutTexte(r && r.trace);
-    if (cout) pied.push(noeud("span", "cout", cout));
+    // **Ce qui explique une réponse est montré ; ce qui la comptabilise ne l'est qu'à la demande.**
+    // Le prix en euros a quitté le pied de la réponse : quelqu'un qui lit « dans quel délai dois-je
+    // me déclarer à la commune » n'a rien à faire de « cette réponse a coûté 0,0278 € » — c'est de
+    // la comptabilité d'équipe, posée sous les yeux de l'utilisateur. Il n'a pas disparu pour
+    // autant : il est dans « Pourquoi cette réponse », rubrique « Ce que la requête a coûté », avec
+    // les seuils, les compteurs et le gate — c'est-à-dire à l'endroit où l'on va quand on demande
+    // **comment** la réponse a été faite. Même règle sur les pages d'audit d'ingestion, qui gardent
+    // empreintes et identifiants de modèles : elles existent pour être recoupées.
     enfants.push(noeud("div", "pied", null, pied));
 
     // AD-10 : la trace est consultable. Le panneau vient **après** le pied — il explique ce qui

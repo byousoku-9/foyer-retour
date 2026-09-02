@@ -857,40 +857,35 @@ def test_la_page_porte_la_reponse_ecrite_au_sujet_3(page: str) -> None:
         assert point in page, f"la réponse au sujet 3 ne dit rien de {point!r}"
 
 
-def test_le_snapshot_45_reste_factuel_rouge_et_distinct_du_servi(page: str) -> None:
-    trouve = re.search(r'<article class="preuve-candidate".*?</article>', page, re.DOTALL)
-    assert trouve, "le snapshot candidat 4.5 est absent"
-    snapshot = trouve.group(0)
-    for preuve in ("30 août 2026", "full 4.5",
+def test_laccueil_naffiche_ni_verdict_de_campagne_perime_ni_comptabilite_interne(page: str) -> None:
+    """Une page d'accueil dit ce que le produit fait et ce qu'il vaut **aujourd'hui**.
+
+    Elle ouvrait sur « Verdict : rouge — campagne interrompue, candidat non promouvable », un
+    tableau d'incidents daté du 30 août et « Total live cumulé réellement dépensé : 2,1127 EUR ».
+    Trois choses fausses à cet endroit : un verdict qui ne porte pas sur ce qui est servi, une date
+    qui vieillit sans le dire, et une comptabilité qui regarde l'équipe et non le lecteur.
+
+    Ce qui les remplace n'est pas un silence : l'état servi est **lu sur l'API** à chaque
+    chargement, et l'historique des campagnes — rouges comprises — est renvoyé au dépôt, où il est
+    daté et recoupable. Publier une mesure reste la règle ; la publier au bon endroit en fait partie.
+    """
+    for perime in ("Verdict&nbsp;: rouge", "non promouvable", "campagne interrompue",
+                   "2,1127 EUR", "0,7726 EUR", "1,3401 EUR",
+                   "8/14 cas", "25/42 exécutions", "17/34 cas",
                    "cf5c1babbed8fc348d9d3be1eea3b8a1db925344",
-                   "8/14 cas", "25/42 exécutions", "0,7726 EUR",
-                   "17/34 cas", "53/102 exécutions", "1,3401 EUR",
-                   "Baloise", "Non exécuté", "HTTP 406 / GCS 403", "0 EUR",
-                   "2,1127 EUR", "rouge", "non promouvable", "campagne interrompue"):
-        assert preuve in snapshot, f"preuve 4.5 absente : {preuve!r}"
-    ligne_axa = re.search(r'<tr><th scope="row">AXA</th>.*?</tr>', snapshot, re.DOTALL)
-    ligne_guide = re.search(r'<tr><th scope="row">Guide</th>.*?</tr>', snapshot, re.DOTALL)
-    assert ligne_axa and "Timeout API sans <code>request_id</code>" in ligne_axa.group(0)
-    assert ligne_guide and "Sortie <code>llm_parse</code> tronquée" in ligne_guide.group(0)
-    assert "<code>stop_reason=max_tokens</code>" in ligne_guide.group(0)
-    assert "llm_parse" not in ligne_axa.group(0)
-    assert "Timeout API" not in ligne_guide.group(0)
-    assert "ne sont pas des taux de réussite" in snapshot
-    assert "Aucun résultat final" in snapshot and "dernier vert" in snapshot
-    assert 'id="etat"' not in snapshot, "l'état dynamique a été mêlé au candidat éditorial"
+                   "6abd3d0c8681428ce8373de34164b7eb9ac4220d"):
+        assert perime not in page, f"l'accueil affiche encore {perime!r}"
+    # …et l'état courant reste lu sur l'API, pas écrit ici.
+    assert 'id="etat"' in page and "/api/v1/sante" in page
+    assert "lu à l'instant sur" in page
+    assert "docs/tests-live.md" in page, "l'historique doit rester joignable, pas disparaître"
 
 
 def test_le_dernier_servi_reste_lisible_meme_si_la_sonde_echoue(page: str) -> None:
-    trouve = re.search(r'<article class="etat-servi".*?</article>', page, re.DOTALL)
-    assert trouve, "le bloc servi est absent"
-    servi = trouve.group(0)
-    assert "6abd3d0c8681428ce8373de34164b7eb9ac4220d" in servi
-    assert "Au lancement de cette campagne" in servi
-    assert "point de comparaison historique" in servi
-    assert "l'état actuellement servi est lu dynamiquement" in servi
-    assert "Il reste distinct du candidat rouge" not in servi
-    assert "explicitement inconnu" in servi
-    assert re.search(r'<div id="etat"[^>]*>\s*</div>', servi)
+    """La page n'invente aucun niveau quand la sonde échoue : elle dit « inconnu »."""
+    assert "l'état est dit <strong>inconnu</strong>" in page
+    assert "aucun chiffre" in page and "affiché à la place" in page
+
 
 
 def test_la_mini_demo_est_annoncee_comme_bonus_et_aucune_page_excel_nest_promise(page: str) -> None:
@@ -910,17 +905,15 @@ def test_la_page_porte_les_quatre_liens_de_lecture(page: str) -> None:
     assert "Pourquoi cette réponse" in page
 
 
-def test_le_tableau_de_preuve_reste_lisible_sur_mobile(page: str) -> None:
-    assert re.search(r"\.tableau-defilement\s*\{[^}]*overflow-x:\s*auto", page, re.DOTALL)
+def test_laccueil_reste_lisible_sur_mobile(page: str) -> None:
+    """Ce qui reste de la règle mobile après le retrait du tableau de campagne : la page s'adapte.
+
+    L'assertion précédente portait entièrement sur la région défilante du tableau d'incidents
+    (`aria-label="Progression des témoins de la campagne 4.5"`). Ce tableau n'est plus affiché ; la
+    garder aurait été un test qui décrit un écran que personne ne voit.
+    """
     assert re.search(r"@media\s*\(max-width:\s*600px\)", page)
-    assert 'aria-label="Progression des témoins de la campagne 4.5"' in page
-    assert re.search(
-        r'<div(?=[^>]*class="tableau-defilement")'
-        r'(?=[^>]*aria-label="Progression des témoins de la campagne 4\.5")[^>]*>'
-        r'\s*<table>.*?</table>\s*</div>',
-        page,
-        re.DOTALL,
-    ), "le tableau n'est pas contenu dans sa région mobile accessible"
+    assert 'name="viewport"' in page and "width=device-width" in page
 
 
 def test_le_bloc_detat_est_vide_dans_le_html(page: str) -> None:

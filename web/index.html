@@ -34,12 +34,6 @@
            l'en-tête, en ligne pour ne pas toucher à styles.css. -->
       <a id="retour-projet" class="outil" href="/" style="width:auto;padding:0 10px;font-size:13px;text-decoration:none;white-space:nowrap;" title="Retour à l'accueil du projet" aria-label="Retour à l'accueil du projet">&#8592; retour</a>
       <button id="theme-btn" class="outil" title="Changer de thème" aria-label="Changer de thème"></button>
-      <button id="admin-btn" class="outil" data-panel="admin" title="Administration du contenu" aria-label="Administration du contenu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-          <circle cx="12" cy="12" r="3.1"/>
-          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.11a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.08A1.7 1.7 0 0 0 10.13 3V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.05 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.08a1.7 1.7 0 0 0 1.56 1.05H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49 1z"/>
-        </svg>
-      </button>
     </div>
   </div>
 </header>
@@ -512,9 +506,17 @@
   </section>
 
   <!-- Administration -->
+  <!-- **Outil de maintenance, pas une surface publique.** Il édite le contenu du guide dans le
+       `localStorage` du navigateur qui l'ouvre, et son bouton « Supprimer » y retire une fiche : un
+       visiteur qui tombait dessus pouvait casser sa propre lecture du site sans comprendre pourquoi.
+       Il n'a plus ni bouton dans l'en-tête ni entrée par `#admin` (`ui.js::PANNEAUX`) ; celui qui
+       maintient la copie l'arme explicitement, depuis la console de son propre navigateur :
+       `localStorage.setItem("foyer.admin", "1")`. -->
   <section class="panel" id="panel-admin" hidden>
     <h1>Administration</h1>
-    <p class="lead">Modifier le contenu des fiches, les questions fréquentes et les paramètres du simulateur.</p>
+    <p class="lead">Outil de maintenance du contenu. Les modifications restent dans <strong>ce
+      navigateur</strong> et ne changent rien pour les autres visiteurs&nbsp;: pour les rendre
+      permanentes, il faut exporter le fichier et le replacer dans le dépôt.</p>
 
     <div class="notice small">
       Les modifications sont enregistrées dans ce navigateur. Utilisez <strong>Exporter</strong> pour
