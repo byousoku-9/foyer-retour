@@ -42,9 +42,11 @@ les dettes mesurées, et l'accueil publie l'état de validation réel plutôt qu
 
 Le correctif Story 4.5 remplace ce dernier arbitrage historique : `rediger_max_tokens=2048` est
 maintenant l'unique plafond de rédaction du guide, pour `outils` comme pour `deterministe`, sous le
-plafond courant de **0,45 € par requête** (`max_cost_eur_per_request`). Ce plafond a été relevé le
-02/09/2026 après la promotion des étapes sur `reason` : les mesures sont dans
-`docs/tests-live.md`. Il n'est cité ici que depuis `config.py`, et un test l'y amarre.
+plafond courant de **0,75 € par requête** (`max_cost_eur_per_request`). Ce plafond a été relevé le
+02/09/2026, d'abord après la promotion des étapes sur `reason`, puis après la réingestion d'AXA à
+751 nœuds : son sommaire entier vit dans le préfixe cacheable, et une requête sinistre nominale coûte
+0,42 € à froid contre 0,09 € à chaud (mesures dans `docs/tests-live.md` et `config.py`). Il n'est
+cité ici que depuis `config.py`, et un test l'y amarre.
 
 ## Lancer
 

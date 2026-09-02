@@ -33,7 +33,7 @@ def test_defaults_match_spine_hypotheses() -> None:
         "reason", "reason", "reason")
     assert s.rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in Settings.model_fields
-    assert s.max_cost_eur_per_request == 0.45 and s.cost_alert_eur == 0.25
+    assert s.max_cost_eur_per_request == 0.75 and s.cost_alert_eur == 0.25
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
     assert s.evals_max_cost_eur == 7.0
@@ -85,7 +85,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
-    assert t.thresholds["max_cost_eur_per_request"] == 0.45
+    assert t.thresholds["max_cost_eur_per_request"] == 0.75
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",

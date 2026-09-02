@@ -405,7 +405,19 @@ class Settings(BaseSettings):
     # réellement anormale, il ne devient pas décoratif. Le témoin
     # `tests/test_sinistre_live.py::test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse`
     # tient les deux moitiés — le nominal passe, un plafond d'un centième de centime trop bas refuse.
-    max_cost_eur_per_request: float = Field(0.45, ge=0)
+    # **0,75 €, et non 0,45 (02/09/2026, 16 h 35, après réingestion d'AXA).** Le chiffrage ci-dessus
+    # datait d'un arbre AXA d'environ 300 nœuds. Réingéré avec le parseur courant, AXA porte 751
+    # nœuds et son sommaire — qui vit **entier** dans le préfixe cacheable de *rédiger* et de
+    # *vérifier* (FR13) — pèse 82 000 caractères. Mesure live, `s-bougie-canape`, chaîne complète :
+    # **0,4245 € à froid** (préfixe jamais relu), 0,0925 € à chaud. Le nominal froid passait donc à
+    # 0,03 € du plafond : un sommaire à peine plus long (Baloise structuré) ou une sortie un peu plus
+    # longue refusait une requête parfaitement nominale, précisément le 503 de configuration qu'AD-16
+    # interdit. 0,75 € couvre le froid mesuré avec 77 % de marge et reste sous le double du majorant
+    # froid rigoureux recalculé à l'échelle du préfixe (≈ 0,5059 × 82 000 / 43 000 ≈ 0,96 € si tout
+    # saturait) : le garde-fou mord encore sur une requête anormale. La cause durable — un préfixe
+    # qui grandit avec l'arbre — est consignée en reprise différée (`prefixe-sommaire-borne`) : borner
+    # ou trancher le sommaire du préfixe ramènera le froid vers 0,15 € et ce plafond pourra redescendre.
+    max_cost_eur_per_request: float = Field(0.75, ge=0)
     # **0,25 €, et non 0,05.** `cout_eleve` est de l'**observabilité** (AD-10), pas un garde-fou : il
     # doit désigner une requête anormale. À 0,05 € il se levait au sortir de *retrouver* — 0,0427 € à
     # son second tour, 0,0548 € avant *rédiger* — c'est-à-dire sur toutes les requêtes, ce qui n'est

@@ -120,16 +120,15 @@ corpus réingérés et gates à rejouer derrière. **L'état servi se lit sur `G
 jamais ici.
 
 **Ce que Sonnet coûte** *(02/09/2026)*. Un sinistre nominal facture ≈ 0,19 €, ≈ 0,21 € avec
-relance ; le plafond par requête passe à 0,45 €. Les deux tiers (0,128 €) sont l'écriture de cache
-1 h, au double tarif pour trois préfixes : prochain gisement, décision de spine (AD-9). Mesures :
-`docs/tests-live.md`.
+relance ; le plafond par requête passe à 0,75 € (0,42 € à froid après la réingestion d'AXA à 751
+nœuds, dont le sommaire entier vit dans le préfixe cacheable ; 0,09 € à chaud). Prochain gisement :
+borner ce sommaire, décision de spine (AD-9). Mesures : `docs/tests-live.md`.
 
 ## Limites honnêtes
 
-La porte de lecture change l'identité publiée. Un artefact committé non réingéré est explicitement
-périmé jusqu'à la réingestion orchestrée, par une déclaration `empreinte-committee-perimee: <doc>`
-dans ce document. Au 02/09/2026, les deux contrats ont été réingérés avec le parseur courant :
-aucune déclaration n'est active.
+La porte de lecture change l'identité publiée. Un artefact committé non réingéré est déclaré périmé
+ici (`empreinte-committee-perimee: <doc>`) jusqu'à sa réingestion. Au 02/09/2026, les deux contrats
+sont réingérés avec le parseur courant : aucune déclaration active.
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
   réseau forgée empêchent d'en faire un quota global.
