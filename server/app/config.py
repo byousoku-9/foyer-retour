@@ -774,6 +774,15 @@ class Settings(BaseSettings):
     # Majorant des **deux** lectures, vérifié avant la première soumission avec le pire cas où tous
     # les blocs seraient juridiques. Le coût publié après exécution vient toujours de l'usage API.
     type_clauses_max_cost_eur: float = Field(12.0, gt=0)
+    # Confiance minimale exigée de l'**arbitre**, et d'elle seule, dans le seul cas où il départage
+    # un vrai désaccord : deux lectures qui se contredisent sur le `kind`, et un arbitre qui tranche
+    # contre l'une d'elles. Ce seuil n'est **pas** une garde d'admission des lectures 1 et 2 : deux
+    # lectures indépendantes qui s'accordent confirment quelle que soit leur confiance, et trois
+    # lectures concordantes confirment aussi sous le seuil. Un flottant que le modèle se donne à
+    # lui-même, que rien n'a calibré, ne peut pas annuler un accord ; il peut seulement refuser de
+    # faire foi quand il est le dernier mot. L'observabilité de la confiance vit ailleurs :
+    # `kind_confidence` publié par bloc et l'alerte `confiance_typage_faible` à
+    # `kind_confidence_min`.
     type_clauses_arbitration_confidence_min: float = Field(0.8, ge=0, le=1)
     # Écart de confiance toléré entre deux lectures indépendantes avant de parler de désaccord. Le
     # défaut `1.0` — l'écart maximal possible — dit qu'aucun écart de confiance ne fait à lui seul

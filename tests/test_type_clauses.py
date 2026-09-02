@@ -981,10 +981,11 @@ def test_lecture_2_batch_echec_ou_timeout_termine_et_audite_chaque_identite(
 
 def test_seul_un_desaccord_de_la_surface_contractuelle_arbitre_et_les_effets_sont_projetes(
         tmp_path: Path) -> None:
-    """Deux blocs arbitrés sur quatre : le `kind` et le seuil de confiance, jamais les métadonnées.
+    """Un seul bloc arbitré sur quatre : le désaccord de `kind`, et rien d'autre.
 
-    Les deux autres blocs ne divergent que sur `scope_articles` et `article_refs` — que les prompts
-    des lectures 2 et 3 ne demandent pas. Ils se confirment sans arbitre, donc sans dépense.
+    Deux blocs ne divergent que sur `scope_articles` et `article_refs`, que les prompts des lectures
+    2 et 3 ne demandent pas ; le quatrième s'accorde sur le `kind` à une confiance de 0,7. Aucun des
+    trois n'est un désaccord : ils se confirment sans arbitre, donc sans dépense.
     """
     doc_dir, doc = write_data(tmp_path)
     audit_path = tmp_path / "audit" / "typing.jsonl"
@@ -1037,14 +1038,13 @@ def test_seul_un_desaccord_de_la_surface_contractuelle_arbitre_et_les_effets_son
     )
 
     third_calls = [call for call in messages.calls if call["system"][0]["text"] == tc._prompt(3)]
-    arbitres = {block.block_id for position, block in enumerate(doc.blocks) if position in (0, 3)}
-    assert len(third_calls) == 2
+    assert len(third_calls) == 1
     assert {json.loads(call["messages"][0]["content"])["blocks"][0]["block_id"]
-            for call in third_calls} == arbitres
+            for call in third_calls} == {doc.blocks[0].block_id}
     # La troisième lecture se nomme dans le journal comme les deux premières.
-    assert "arbitrage : 2 appel(s), coût cumulé acquis " in journal.getvalue()
+    assert "arbitrage : 1 appel(s), coût cumulé acquis " in journal.getvalue()
     report = Report.model_validate_json((doc_dir / "report.json").read_bytes())
-    assert report.stats["arbitration_request_count"] == 2
+    assert report.stats["arbitration_request_count"] == 1
     decisions = report.stats["t2_terminal_decisions"]
     assert all(decision["state"] == "CONFIRMED" for decision in decisions)
     assert all((decision["retrieval_effect"], decision["citation_effect"],
@@ -1092,7 +1092,6 @@ def test_une_confirmation_limitee_aux_champs_de_son_prompt_confirme_le_kind() ->
     # Aucun arbitrage n'est même planifié : il n'y a pas de désaccord à trancher.
     assert not [block for block in blocks if tc._critical_disagreement(
         first[block.block_id], second[block.block_id],
-        confidence_min=configured.type_clauses_arbitration_confidence_min,
         confidence_tolerance=configured.type_clauses_confidence_tolerance)]
 
 
@@ -1124,6 +1123,105 @@ def test_aucun_champ_absent_des_prompts_2_et_3_n_entre_dans_la_surface_comparee(
         relations=[{"kind": "specialise", "article": "1"}])
     assert tc._same_critical_payload(label("contrat:p1:1", "garantie"), divergent)
     assert not tc._critical_disagreement(label("contrat:p1:1", "garantie"), divergent)
+
+
+def _decision(first: tc.ClauseLabel, second: tc.ClauseLabel, *,
+              arbitre: tc.ClauseLabel | None = None, arbitrage_en_echec: bool = False,
+              ) -> tc.T2TerminalDecision:
+    """Une identité, deux lectures, éventuellement un arbitre — et sa décision terminale."""
+    doc = miniature()
+    block = doc.blocks[0]
+    configured = settings(type_clauses_max_blocks_per_request=1)
+    plans = tc.requests_for(doc, [block], 2, configured)
+    arbitration_plans = tc.requests_for(doc, [block], 3, configured)
+    decisions = tc.terminal_t2_decisions(
+        {block.block_id: first}, {block.block_id: second}, plans,
+        arbitration={block.block_id: arbitre} if arbitre is not None else {},
+        arbitration_plans=arbitration_plans if (arbitre is not None or arbitrage_en_echec) else [],
+        failed_arbitration_plan_ids=({arbitration_plans[0].custom_id} if arbitrage_en_echec
+                                     else set()),
+        confidence_min=configured.type_clauses_arbitration_confidence_min,
+        confidence_tolerance=configured.type_clauses_confidence_tolerance)
+    return decisions[0]
+
+
+def test_un_accord_de_deux_lectures_confirme_quelle_que_soit_sa_confiance() -> None:
+    """Un accord peu assuré reste un accord : c'est la parole de deux lectures indépendantes.
+
+    Le seuil `type_clauses_arbitration_confidence_min` valait admission : deux lectures d'accord à
+    0,62 et 0,55 partaient en arbitrage puis en `ARBITRATION_LOW_CONFIDENCE`. Un flottant que le
+    modèle se donne à lui-même, et que rien n'a calibré, n'annule pas un accord.
+    """
+    bloc = "contrat:p1:1"
+    premiere = label(bloc, "condition", confidence=0.62)
+    seconde = label(bloc, "condition", confidence=0.55)
+    # Aucun arbitrage n'est même planifié : il n'y a rien à départager.
+    assert not tc._critical_disagreement(premiere, seconde)
+    decision = _decision(premiere, seconde)
+    assert (decision.state, decision.reason, decision.kind_t2) == (
+        "CONFIRMED", "KIND_MATCH", "condition")
+
+
+def test_un_desaccord_de_kind_reste_arbitre_et_l_arbitre_qui_tranche_doit_etre_sur() -> None:
+    """L'arbitrage garde exactement le rôle que le contrat lui donne : départager un désaccord."""
+    bloc = "contrat:p1:1"
+    premiere = label(bloc, "garantie", confidence=0.9)
+    contre = label(bloc, "exclusion", confidence=0.9)
+    assert tc._critical_disagreement(premiere, contre)
+
+    # L'arbitre rejoint la première lecture contre la seconde : c'est là, et seulement là, que le
+    # seuil retient un verdict trop peu assuré.
+    sous_le_seuil = _decision(premiere, contre, arbitre=label(bloc, "garantie", confidence=0.6))
+    assert (sous_le_seuil.state, sous_le_seuil.reason) == (
+        "NON_CONFIRMED", "ARBITRATION_LOW_CONFIDENCE")
+    assert sous_le_seuil.kind_t2 == "exclusion"
+    au_dessus = _decision(premiere, contre, arbitre=label(bloc, "garantie", confidence=0.9))
+    assert (au_dessus.state, au_dessus.reason, au_dessus.kind_t2) == (
+        "CONFIRMED", "KIND_MATCH", "garantie")
+
+
+def test_un_arbitrage_declenche_par_defines_ne_revoque_pas_l_accord_sur_le_kind() -> None:
+    """Toute la surface déclenche l'arbitrage ; seul le `kind` le tranche.
+
+    La divergence porte sur `defines`, que le code prend de T1 seul : elle mérite une troisième
+    lecture, mais l'arbitre n'a pas voix sur ce que les deux premières ont déjà accordé. Ni sa
+    confiance sous le seuil, ni son propre `defines`, ne défont cet accord.
+    """
+    bloc = "contrat:p2:1"
+    premiere = label(bloc, "definition", confidence=0.9, defines="contenu")
+    seconde = label(bloc, "definition", confidence=0.9, defines="biens meubles")
+    assert tc._critical_disagreement(premiere, seconde)  # l'arbitrage est bien déclenché
+    for arbitre in (label(bloc, "definition", confidence=0.55, defines="contenu"),
+                    label(bloc, "definition", confidence=0.55, defines="tierce valeur")):
+        decision = _decision(premiere, seconde, arbitre=arbitre)
+        assert (decision.state, decision.reason, decision.kind_t2) == (
+            "CONFIRMED", "KIND_MATCH", "definition")
+    # Un arbitre qui contredit le `kind` des deux lectures ne le fait pas davantage.
+    contre = _decision(premiere, seconde, arbitre=label(bloc, "renvoi", confidence=0.95))
+    assert (contre.state, contre.reason) == ("CONFIRMED", "KIND_MATCH")
+
+
+def test_un_arbitrage_en_echec_ne_defait_pas_l_accord_des_deux_lectures() -> None:
+    """Une panne de transport sur la troisième lecture n'efface pas ce que les deux ont dit."""
+    bloc = "contrat:p2:1"
+    accord = _decision(
+        label(bloc, "definition", confidence=0.7, defines="contenu"),
+        label(bloc, "definition", confidence=0.7, defines="biens meubles"),
+        arbitrage_en_echec=True)
+    assert (accord.state, accord.reason) == ("CONFIRMED", "KIND_MATCH")
+    # Même accord, arbitrage jamais planifié : la conclusion ne dépend pas de la cause de l'absence.
+    jamais_planifie = _decision(
+        label(bloc, "definition", confidence=0.7, defines="contenu"),
+        label(bloc, "definition", confidence=0.7, defines="biens meubles"))
+    assert (jamais_planifie.state, jamais_planifie.reason) == ("CONFIRMED", "KIND_MATCH")
+    # Un vrai désaccord privé d'arbitre, lui, demeure non confirmé.
+    desaccord = _decision(label(bloc, "definition", confidence=0.9),
+                          label(bloc, "exclusion", confidence=0.9), arbitrage_en_echec=True)
+    assert (desaccord.state, desaccord.reason, desaccord.kind_t2) == (
+        "NON_CONFIRMED", "ARBITRATION_FAILED", "exclusion")
+    sans_plan = _decision(label(bloc, "definition", confidence=0.9),
+                          label(bloc, "exclusion", confidence=0.9))
+    assert (sans_plan.state, sans_plan.reason) == ("NON_CONFIRMED", "KIND_MISMATCH")
 
 
 def test_causes_echec_et_timeout_t3_restent_terminales_et_sans_effet() -> None:

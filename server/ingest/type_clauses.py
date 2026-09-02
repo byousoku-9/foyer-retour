@@ -187,7 +187,26 @@ def terminal_t2_decisions(
     timeout_arbitration_plan_ids: set[str] | None = None,
     model_run_uid: str = "typing:t1",
 ) -> tuple[T2TerminalDecision, ...]:
-    """Une décision terminale par identité T1 ; toute absence conserve cinq effets à zéro."""
+    """Une décision terminale par identité T1 ; toute absence conserve cinq effets à zéro.
+
+    Deux lectures indépendantes qui s'accordent sur la surface contractuelle **confirment**, quelle
+    que soit leur confiance : un accord n'est pas un désaccord, et l'arbitrage est ciblé sur les
+    désaccords. La confiance reste publiée dans `kind_confidence` et alertée par
+    `confiance_typage_faible` — c'est de l'observabilité, pas une garde d'admission.
+
+    Toute la surface contractuelle **déclenche** l'arbitrage — une divergence de `defines` mérite
+    une troisième lecture — mais seul le `kind` le **tranche** : c'est la seule chose qu'une lecture
+    de confirmation décide, le reste des métadonnées venant de T1 et de ses gardes propres. Un
+    arbitre consulté sur un point qu'il ne décide pas ne révoque donc pas l'accord des deux
+    premières lectures.
+
+    `confidence_min` ne mord que là où il a un sens : quand l'arbitre doit **départager** deux
+    lectures qui se contredisent sur le `kind`, c'est-à-dire trancher contre l'une d'elles.
+
+    Et quand l'arbitre manque — plan en échec, en dépassement, ou jamais planifié — l'accord des
+    deux premières lectures sur le `kind` reste une preuve : il confirme sans lui. Seul un vrai
+    désaccord privé d'arbitre demeure non confirmé.
+    """
     failed_plan_ids = failed_plan_ids or set()
     timeout_plan_ids = timeout_plan_ids or set()
     arbitration = arbitration or {}
@@ -210,24 +229,34 @@ def terminal_t2_decisions(
             reason, kind_t2 = "FAILED", None
         elif confirmation is None:
             reason, kind_t2 = "FAILED", None
-        elif _critical_disagreement(label, confirmation, confidence_min=confidence_min,
+        elif _critical_disagreement(label, confirmation,
                                     confidence_tolerance=confidence_tolerance):
             arbiter = arbitration.get(entry.block_id)
             kind_t2 = confirmation.kind
             arbitration_plan_id = arbitration_plan_by_block.get(entry.block_id)
+            # Les deux lectures peuvent diverger sur `defines` tout en nommant le même `kind` :
+            # cet accord-là survit à l'absence d'arbitre, et dispense l'arbitre présent du seuil.
+            meme_kind = confirmation.kind == label.kind
             if arbitration_plan_id in timeout_arbitration_plan_ids:
-                reason = "ARBITRATION_TIMEOUT"
+                reason = "KIND_MATCH" if meme_kind else "ARBITRATION_TIMEOUT"
             elif arbitration_plan_id in failed_arbitration_plan_ids:
-                reason = "ARBITRATION_FAILED"
+                reason = "KIND_MATCH" if meme_kind else "ARBITRATION_FAILED"
             elif arbiter is None:
-                reason = ("KIND_MISMATCH" if confirmation.kind != label.kind
-                          else "ARBITRATION_MISMATCH")
-            elif not _same_critical_payload(arbiter, label):
+                reason = "KIND_MATCH" if meme_kind else "KIND_MISMATCH"
+            elif meme_kind:
+                # L'arbitre n'a rien à départager : les deux lectures se sont déjà accordées sur le
+                # `kind`, et c'est la seule chose qu'une lecture de confirmation décide. Il a été
+                # consulté sur `defines`, que le code prend de T1 seul et dont l'ancrage dans le
+                # corpus a sa propre garde. Un troisième avis ne révoque pas un accord.
+                reason, kind_t2 = "KIND_MATCH", confirmation.kind
+            elif arbiter.kind != label.kind:
                 reason = "ARBITRATION_MISMATCH"
-            elif arbiter.confidence < confidence_min:
-                reason = "ARBITRATION_LOW_CONFIDENCE"
-            else:
+            elif arbiter.confidence >= confidence_min:
                 reason, kind_t2 = "KIND_MATCH", arbiter.kind
+            else:
+                # L'arbitre tranche contre la seconde lecture : c'est le seul verdict que
+                # `confidence_min` a vocation à retenir.
+                reason = "ARBITRATION_LOW_CONFIDENCE"
         else:
             reason, kind_t2 = "KIND_MATCH", confirmation.kind
         state = "CONFIRMED" if reason == "KIND_MATCH" else "NON_CONFIRMED"
@@ -327,23 +356,24 @@ def _same_critical_payload(first: ClauseLabel, second: ClauseLabel) -> bool:
 
 
 def _critical_disagreement(
-        first: ClauseLabel, second: ClauseLabel | None, *, confidence_min: float = 0.0,
+        first: ClauseLabel, second: ClauseLabel | None, *,
         confidence_tolerance: float = 1.0) -> bool:
-    """Le désaccord est **sémantique**, jamais l'inégalité de deux flottants de confiance.
+    """Le désaccord est **sémantique**, jamais un flottant de confiance auto-déclaré.
 
     Exiger le même `confidence` de deux lectures indépendantes n'était pas un test de désaccord :
-    0,88 contre 0,85 arbitrait des blocs sur lesquels les deux lectures disaient la même chose. Le
-    « pas assez sûr » est déjà dit par `confidence_min` ; un écart qui doit compter s'exprime par la
-    tolérance nommée `type_clauses_confidence_tolerance`, jamais par une égalité stricte.
+    0,88 contre 0,85 arbitrait des blocs sur lesquels les deux lectures disaient la même chose. Une
+    confiance basse ne l'était pas davantage : un accord peu assuré reste un accord, et le faire
+    arbitrer puis rejeter annulait la parole de deux lectures indépendantes au nom d'un nombre que
+    le modèle se donne à lui-même et que rien n'a calibré.
+
+    Ce qui doit compter le dit ici, et nulle part ailleurs : la surface contractuelle des lectures
+    2 et 3, et un écart de confiance au-delà de la tolérance nommée
+    `type_clauses_confidence_tolerance`. La confiance elle-même reste publiée et alertée.
     """
     if second is None:
         return True
-    return any((
-        not _same_critical_payload(first, second),
-        abs(first.confidence - second.confidence) > confidence_tolerance,
-        first.confidence < confidence_min,
-        second.confidence < confidence_min,
-    ))
+    return (not _same_critical_payload(first, second)
+            or abs(first.confidence - second.confidence) > confidence_tolerance)
 
 
 class MigrationBlock(StrictModel):
@@ -1906,7 +1936,6 @@ def _run_locked(doc_dir: Path, *, settings: Settings, client: Any = None, dry_ru
             if t2_confirmable(label) and second.get(block_id) is not None
             and _critical_disagreement(
                 label, second.get(block_id),
-                confidence_min=settings.type_clauses_arbitration_confidence_min,
                 confidence_tolerance=settings.type_clauses_confidence_tolerance)
         ]
         third_plans = requests_for(
