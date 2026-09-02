@@ -110,7 +110,8 @@ SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{
                       "|sans_style_accole|premiere_section)&famille_EuroMono&span_un_glyphe=>euro;"
                       "mixte:union_aire_images/page>=mixed_page_image_density;numero_para+ligne_minuscule=>meme_para;"
                       "dedent:dernier_frere_reel+item_num_compact+alignement_corps_parent=>parent;"
-                      "continues:page_suivante&meme_kind(para|list)&sans_numero&prec!~[.;:]$;"
+                      "continues:rupture_de_mise_en_page(page|colonne|bande)&bloc_precedent_immediat"
+                      "&substantiel&sans_numero&list_ne_poursuit_qu_une_list&prec!~[.;:]$;"
                       "toc:get_toc()=>titres manquants+tdm_pdf_ecart;"
                       "colonnes:gouttiere>=column_gutter_min_pt"
                       "&cotes>=column_min_lines(lignes+rangees_de_table)"
@@ -2339,6 +2340,44 @@ def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
     return surfaces
 
 
+def _position_de_lecture(page: int, lines: list[PageLine]) -> tuple[int, int, int]:
+    """Où la porte de lecture a posé un groupe : page, bande, colonne.
+
+    Les trois sont la **même** rupture. `_segment_page` refuse déjà de continuer un groupe à travers
+    une colonne ou une bande, et `build_document` repart à chaque page : trois formes d'un seul fait,
+    « la mise en page s'arrête ici ». Les réunir dans une position, c'est pouvoir dire d'un couple de
+    blocs si c'est la mise en page qui les sépare, ou le texte lui-même.
+    """
+    return (page, lines[0].bande, lines[0].colonne)
+
+
+def _poursuit_la_phrase(precedent: Block | None, kind: str) -> bool:
+    """Le groupe `kind` reprend-il la phrase que `precedent` laisse ouverte ?
+
+    Deux faits, et rien d'autre : la phrase précédente n'est pas close (`_TERMINAL`), et le nouveau
+    bloc ne **rouvre** rien. Un bloc `list` rouvre un item — sa puce le dit — et ne poursuit donc que
+    la liste dont il vient ; un `para` ne rouvre rien et reprend aussi bien un paragraphe qu'un item
+    dont la mise en page a rejeté la fin plus loin.
+
+    Exiger l'égalité des `kind` manquait ce dernier cas, et c'est celui du contrat Baloise : sept
+    phrases s'y arrêtent au bas d'une page sur un item à puce et reprennent en tête de la suivante
+    sans puce, donc en `para` — dont une (`p15:19→p16:1`) dont le sens s'inverse quand on lit les
+    deux blocs séparément, l'exigence « ce contrat doit être en vigueur » tombant dans le second.
+
+    Hors du corps, il n'y a pas de phrase à poursuivre : `continues` existe pour qu'une clause que la
+    mise en page coupe reste une clause. Une entrée de sommaire est une ligne complète, close par son
+    renvoi de page et non par une ponctuation — la lire comme ouverte accrochait la dernière entrée
+    d'une colonne à la première de la suivante.
+    """
+    if precedent is None or kind not in ("para", "list") or precedent.kind not in ("para", "list"):
+        return False
+    if precedent.surface_class != "substantiel":
+        return False
+    if kind == "list" and precedent.kind != "list":
+        return False
+    return not precedent.text.rstrip().endswith(_TERMINAL)
+
+
 def projeter_les_titres(spec: NoeudVerifie, direct_blocks: list[str], registre: dict[str, Entree],
                         block_uids: dict[str, list[str]], blocks_by_id: dict[str, Block]) -> None:
     """Rend `heading` aux blocs qui ne portent que les lignes de titre de leur nœud.
@@ -2403,7 +2442,10 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
         } if structure.schema_version == "2" else canonical_node_of_uid)
     b = _Builder(doc_id, title, plan=plan)
     toc_node: Node | None = None
-    last_text_block: Block | None = None  # dernier bloc para|list de la page précédente
+    # Le bloc **immédiatement** précédent quand c'est du texte, et où la porte de lecture l'a posé.
+    # « Immédiatement » est la condition : une phrase ne reprend pas par-dessus un titre ou une table.
+    precedent_texte: Block | None = None
+    precedent_position: tuple[int, int, int] | None = None
     precedent_noeud: str | None = None  # nœud proposé qui le portait, pour ne pas continuer à travers
     future_numbers = [line.number for page in pages for line in page.lines
                       if line.number is not None]
@@ -2474,43 +2516,39 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 add_preliminary_groups(pt, groupes_techniques, table_source=table_source)
                 b.current = saved
             if rompre:
-                last_text_block = None
+                precedent_texte = None
         if structure is not None:
             # Une proposition vérifiée gouverne **tout** le rattachement. Les branches TdM et
             # « préliminaire » sont écrites pour l'heuristique numérique : elles rattachent à la
             # racine ou au nœud `:tdm` des lignes que la proposition place ailleurs, et faisaient
             # disparaître des nœuds pourtant acceptés — jusqu'à trouer le chemin positionnel servi.
-            page_last = None
-            for index, (kind, lines) in enumerate(groups):
+            for kind, lines in groups:
                 node_id = _noeud_de_groupe(lines, node_of_uid, page=pt.page)
                 b.current = b.node_propose(node_id)
+                position = _position_de_lecture(pt.page, lines)
                 continues = None
-                # Scission de page (AD-2), inchangée, mais jamais à travers un nœud : deux sections
-                # différentes ne se continuent pas l'une l'autre.
-                if index == 0 and kind in ("para", "list") and last_text_block is not None \
-                        and last_text_block.kind == kind and node_id == precedent_noeud \
-                        and not last_text_block.text.rstrip().endswith(_TERMINAL):
-                    continues = last_text_block.block_id
+                # Scission de mise en page (AD-2) : c'est la page, la colonne ou la bande qui a
+                # rompu ici, jamais le texte — et jamais à travers un nœud, deux sections ne se
+                # continuent pas l'une l'autre.
+                if position != precedent_position and node_id == precedent_noeud \
+                        and _poursuit_la_phrase(precedent_texte, kind):
+                    continues = precedent_texte.block_id
                 blk = b.add_block(pt.page, lines, kind, continues=continues,
                                   source_field="ocr" if pt.ocr_succeeded else None)
-                if kind in ("para", "list"):
-                    page_last = blk
-                    precedent_noeud = node_id
-            if page_last is not None:
-                last_text_block = page_last
-            elif groups:
-                last_text_block = None
+                texte = kind in ("para", "list")
+                precedent_texte = blk if texte else None
+                precedent_noeud = node_id if texte else None
+                precedent_position = position
             continue
-        first = True
-        page_last: Block | None = None
         for kind, lines in groups:
+            position = _position_de_lecture(pt.page, lines)
             continues = None
-            # Scission de page (AD-2) : le premier bloc de la page, de même kind que le dernier bloc texte de la page
-            # précédente, sans numéro d'article, alors que ce dernier ne finit pas une phrase (structure, pas casse).
-            if first and kind in ("para", "list") and lines[0].number is None and last_text_block is not None \
-                    and last_text_block.kind == kind and not last_text_block.text.rstrip().endswith(_TERMINAL):
-                continues = last_text_block.block_id
-            first = False
+            # Scission de mise en page (AD-2) : le bloc que la page, la colonne ou la bande sépare du
+            # précédent, sans numéro d'article, alors que celui-ci ne finit pas une phrase
+            # (structure, pas casse).
+            if position != precedent_position and lines[0].number is None \
+                    and _poursuit_la_phrase(precedent_texte, kind):
+                continues = precedent_texte.block_id
             if lines[0].number is not None:
                 if future_numbers and future_numbers[0] == lines[0].number:
                     future_numbers.pop(0)
@@ -2528,11 +2566,10 @@ def build_document(pages: list[PageText], *, edition: str, source_hash: str, toc
                 )
             blk = b.add_block(pt.page, lines, kind, continues=continues,
                               source_field="ocr" if pt.ocr_succeeded else None)
-            if kind in ("para", "list"):
-                page_last = blk
+            precedent_texte = blk if kind in ("para", "list") else None
+            precedent_position = position
             if lines[0].number is not None and kind == "para":
                 b.current.title = lines[0].text
-        last_text_block = page_last
     anomalies = anomalies_registre(pages, b.block_uids)
     if anomalies:
         raise ValueError("registre de lignes source incohérent : " + " ; ".join(anomalies[:20]))

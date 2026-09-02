@@ -2875,6 +2875,76 @@ def test_page_split_links_uppercase_continuation(tmp_path: Path) -> None:
     assert by[f"{DOC}:p3:1"].continues is None and report.stats["continues"] == 1
 
 
+def test_un_item_coupe_par_la_page_se_poursuit_dans_le_paragraphe_sans_puce(tmp_path: Path) -> None:
+    """AD-2 : sept phrases du contrat Baloise s'arrêtaient là, et l'une inversait son sens.
+
+    Le bas d'une page laisse un item à puce ouvert ; le haut de la suivante le termine, sans puce —
+    donc en `para`. Exiger l'égalité des `kind` refusait le lien : les deux moitiés étaient servies
+    comme deux clauses, et `p15:19→p16:1` reléguait dans la seconde l'exigence « ce contrat doit
+    être en vigueur » que la première semblait alors ne pas poser.
+    """
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    p1: list = [(122, 80, "• Les dommages et les frais de remise en etat", 10.0, FONT_BODY)]
+    p2: list = []
+    _para(p2, 80, ["des installations qui sont a l'origine du sinistre."])
+    build_pdf(d / "source.pdf", pages=[p1, p2])
+    _run(d)
+    doc = Document.model_validate_json((d / "document.json").read_bytes())
+    item, suite = doc.blocks[0], doc.blocks[1]
+    assert (item.kind, suite.kind) == ("list", "para")
+    assert suite.continues == item.block_id
+
+
+def test_une_phrase_coupee_par_une_colonne_porte_continues(tmp_path: Path) -> None:
+    """La page, la colonne et la bande sont la **même** rupture de mise en page.
+
+    `_segment_page` refuse déjà de continuer un groupe à travers une colonne — c'est ce qui empêche
+    de recoller deux colonnes en un bloc. Mais la scission n'était nommée qu'au changement de page :
+    seize phrases du contrat Baloise passaient d'une colonne à l'autre sans que rien ne le dise.
+    """
+    d = tmp_path / "data" / DOC
+    d.mkdir(parents=True)
+    items: list = []
+    for i in range(6):
+        items.append((56.0, 120.0 + i * 14.0, f"G{i} texte continu de la colonne de gauche, suite", 10.0, FONT_BODY))
+        items.append((310.0, 120.0 + i * 14.0, f"D{i} suite de la colonne de droite, encore", 10.0, FONT_BODY))
+    build_pdf(d / "source.pdf", pages=[items])
+    _run(d)
+    doc = Document.model_validate_json((d / "document.json").read_bytes())
+    gauche = next(b for b in doc.blocks if b.text.startswith("G0"))
+    droite = next(b for b in doc.blocks if b.text.startswith("D0"))
+    # Les deux colonnes restent deux blocs — jamais recollées — mais le lien est nommé.
+    assert gauche.block_id != droite.block_id and not gauche.text.rstrip().endswith(p._TERMINAL)
+    assert droite.continues == gauche.block_id
+
+
+def test_une_entree_de_sommaire_close_par_son_renvoi_ne_poursuit_rien() -> None:
+    """`continues` existe pour qu'une clause coupée par la mise en page reste une clause.
+
+    Hors du corps, il n'y a pas de phrase à poursuivre. Une entrée de sommaire est close par son
+    renvoi de page, jamais par une ponctuation : la lire comme ouverte accrochait la dernière entrée
+    d'une colonne à la première de la suivante.
+    """
+    def bloc(seq: int, texte: str, *, kind: str = "para",
+             surface: str = "substantiel") -> Block:
+        return Block(block_id=f"{DOC}:p1:{seq}", text=texte, loc="p1", seq=seq, page=1,
+                     kind=kind, structural_kind=kind, surface_class=surface,  # type: ignore[arg-type]
+                     bbox=[0.0, 0.0, 1.0, 1.0])
+
+    ouvert = bloc(1, "Les dommages et les frais de remise en etat")
+    assert p._poursuit_la_phrase(ouvert, "para")
+    # Un bloc `list` rouvre un item : il ne poursuit que la liste dont il vient.
+    assert not p._poursuit_la_phrase(ouvert, "list")
+    assert p._poursuit_la_phrase(bloc(2, "• premier item,", kind="list"), "para")
+    assert p._poursuit_la_phrase(bloc(3, "• premier item,", kind="list"), "list")
+    # Une phrase close ne se poursuit pas ; un sommaire non plus.
+    assert not p._poursuit_la_phrase(bloc(4, "Une phrase terminee."), "para")
+    assert not p._poursuit_la_phrase(
+        bloc(5, "c. Defense recours 24", surface="table_des_matieres"), "para")
+    assert not p._poursuit_la_phrase(None, "para")
+
+
 def test_page_split_requires_same_kind_and_no_article_number(tmp_path: Path) -> None:
     d = tmp_path / "data" / DOC
     d.mkdir(parents=True)
