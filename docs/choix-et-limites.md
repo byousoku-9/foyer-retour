@@ -542,8 +542,9 @@ Structure proposée puis vérifiée :
 - `STRUCTURE_MAX_INPUT_CHARS=900000` — la charge utile est le registre du document entier et part en
   une seule requête : aucun découpage n'est possible pour un arbre qui porte sur tout le document.
 - `STRUCTURE_MAX_OUTPUT_TOKENS=16000` — la réponse ne porte que des `uid` et des liens.
-- `STRUCTURE_MAX_COST_EUR=5.0` — majorant du seul appel, vérifié **avant** toute construction de
-  client ; `--max-cost` le surcharge pour un run.
+- `STRUCTURE_MAX_COST_EUR=8.0` — majorant du run (somme des segments), vérifié **avant** toute
+  construction de client ; `--max-cost` le surcharge pour un run. Mesuré le 2026-09-02 avec la
+  sortie dérivée : Baloise 5,99 €, AXA 6,28 € de majorant, pour un coût réel attendu bien inférieur.
 
 ### Limite assumée : les artefacts committés attendent une réingestion
 

@@ -776,7 +776,14 @@ class Settings(BaseSettings):
     # dit le coût acquis.
     structure_max_refinements: int = Field(4, ge=0)
     # Majorant vérifié **avant** toute construction de client (idiome `type_clauses`).
-    structure_max_cost_eur: float = Field(5.0, gt=0)
+    # **Valeur.** Mesuré le 2026-09-02 sur les deux contrats réels avec la sortie dérivée
+    # (7 segments de ≤ 666 lignes) : majorant Baloise **5,99 €**, AXA **6,28 €** — le 5,0 € initial
+    # avait été posé avant toute exécution réelle et refusait les deux documents avant le premier
+    # appel. 8,0 € couvre le plus lourd des deux avec ≈ 27 % de marge (une scission adaptative ajoute
+    # au plus le coût d'un appel interrompu) et reste un plafond, pas une dépense : le coût réel d'un
+    # run entier Baloise est attendu ≈ 3,5 € (réflexion mesurée 3 500-7 000 tokens contre 16 000
+    # majorés). `--max-cost` le surcharge ponctuellement.
+    structure_max_cost_eur: float = Field(8.0, gt=0)
 
     # Dictionnaire enrichi (story 2.1, AD-5 / AD-7). Toutes ces bornes s'appliquent **par le code**
     # à ce que le modèle d'ingestion rend : AD-5 et AD-7 disent qu'il ne renvoie jamais de texte de

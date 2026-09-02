@@ -317,7 +317,7 @@ def test_les_seuils_des_colonnes_et_de_la_structure_sont_bornes_publies_et_docum
         "structure_min_coverage": (1.0, -0.1),
         "structure_max_input_chars": (900000, 0),
         "structure_max_output_tokens": (16000, 0),
-        "structure_max_cost_eur": (5.0, 0),
+        "structure_max_cost_eur": (8.0, 0),
     }
     thresholds = s.thresholds()
     for nom, (valeur, refuse) in attendus.items():
