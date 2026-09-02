@@ -183,7 +183,30 @@ class Settings(BaseSettings):
     relance_sur_non_pertinence: bool = False
     historique_max_turns: int = Field(6, ge=0)
     verifier_max_claims: int = Field(8, ge=1)
-    verifier_max_tokens: int = Field(1024, ge=1)
+    # 1 024 → 3 072 (02/09/2026), et voici la mesure qui déplace ce seuil.
+    # **Cause.** Depuis que *vérifier* est servi par le tier `reason` (`verifier_tier`), son appel
+    # part avec `EFFORT["reason"] = "medium"` : la réflexion étendue de Sonnet 5 est comptée **dans
+    # le même `max_tokens`** que la sortie. Un plafond calibré sur le seul contrat JSON du guide
+    # (≈ 440 tokens : 8 verdicts, 8 phrases soutenues, 4 facettes) est donc partagé avec une dépense
+    # de réflexion **intermittente**. Mesuré sur les 12 appels enregistrés de ce schéma de sortie :
+    # 8 aboutissent (174 → 820 tokens de sortie, dont 3 avec un bloc `thinking`) et **4 sont tronqués
+    # à exactement 1 024**, avec pour tout contenu un bloc `thinking` et **zéro caractère de JSON** —
+    # c'est-à-dire un `LlmParse`, donc un 503 sur une question parfaitement nominale, ce qu'AD-16
+    # refuse. Le témoin de non-troncature est l'étage voisin : `rediger_max_tokens = 2048`, même tier
+    # et même effort, 86 appels enregistrés, **aucun** tronqué, maximum observé 1 509.
+    # **Valeur.** 3 072, la même que `verifier_sinistre_max_tokens` : ce plafond-là sert déjà le même
+    # tier au même effort pour un contrat strictement plus grand. Il laisse au contrat du guide plus
+    # de 2 600 tokens de réflexion, soit plus du triple de la plus forte dépense jamais observée sur
+    # cet appel. Les deux champs restent **distincts** parce que leurs contrats le sont : si le paquet
+    # d'applicabilité du sinistre grandit, le guide n'a pas à suivre.
+    # **Coût.** `max_tokens` ne facture pas, il borne — ce qui est payé est la sortie réellement
+    # produite. Le seul risque est le majorant de préflight : +2 048 tokens de sortie au tarif Sonnet 5
+    # (15 USD/MTok, `usd_eur` 0,92) = **+0,0283 €**. Sur la chaîne guide entière préflightée à froid,
+    # le pire total passe de 0,0606 € à 0,0889 €, contre `max_cost_eur_per_request` = 0,18 € : la
+    # marge reste de 0,091 €. Prouvé hors réseau par
+    # `tests/test_pipeline_guide.py::test_le_plafond_de_verifier_tient_sous_le_budget_par_requete`.
+    # Ce qui reste à confirmer au réenregistrement : qu'aucune réponse ne se tronque plus ici.
+    verifier_max_tokens: int = Field(3072, ge=1)
 
     # Pipeline sinistre (story 1.8, AD-6) : contrat servi par `pipelines/sinistre.py` — un slug, pas un
     # seuil numérique, donc absent de `thresholds()` comme `guide_doc_id`.
