@@ -245,10 +245,13 @@ def _dans_cases(cases_dir: Path, cible: Path, *, objet: str) -> Path:
 class _ErreurInterneFacturee(Exception):
     """Exception inattendue après démarrage d'un cas, avec le coût réellement engagé."""
 
-    def __init__(self, type_erreur: str, cout_eur: float) -> None:
+    def __init__(self, type_erreur: str, cout_eur: float, trace_texte: str = "") -> None:
         super().__init__(type_erreur)
         self.type_erreur = type_erreur
         self.cout_eur = cout_eur
+        # La trace Python complète : un incident interne qui ne dit que sa classe (« internal
+        # (ValidationError) ») ne se corrige pas — mesuré le 02/09/2026 sur une série d'ancrage.
+        self.trace_texte = trace_texte
 
 
 # --- le schéma des cas (AD-14, définition partagée d'`epics.md`) ---------------------------------
@@ -1561,7 +1564,8 @@ async def executer_cas(cas: Cas, ctx: Contexte, *, doc_id: str,
         # Une faute interne n'a pas la couture ``PipelineError.trace`` mais elle peut survenir après
         # un appel facturé. Ne pas la laisser sortir brute (ni remettre son coût à zéro) : le runner
         # la convertira en incident, sans inventer de verdict.
-        raise _ErreurInterneFacturee(type(exc).__name__, round(budget.cost_eur, 4)) from exc
+        raise _ErreurInterneFacturee(type(exc).__name__, round(budget.cost_eur, 4),
+                                     traceback.format_exc()) from exc
     # La même source que partout ailleurs (`DEFAUT_PAR_SUITE`, via `variante_du_cas`) : une table
     # recopiée ici vieillirait seule, et cette garde-là refuse **après** les appels facturés — elle
     # jetterait alors la namespace de cache d'une trace pourtant conforme. `variante_du_cas` sait
@@ -1682,6 +1686,11 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                     c, ctx, doc_id=doc_id, budget_restant_eur=restant, variant=variante)
             except _ErreurInterneFacturee as exc:
                 cout_total = round(cumul + exc.cout_eur, 4)
+                # La trace complète part sur stderr : le rapport ne garde que la classe, mais
+                # l'opérateur doit pouvoir corriger la cause sans repayer le cas.
+                if exc.trace_texte:
+                    print(f"trace interne du cas {c.id} (répétition {repetition}) :\n"
+                          f"{exc.trace_texte}", file=sys.stderr)
                 # Story 4.2b : l'incident n'efface plus les acquis — les résultats terminés et le
                 # plan restant partent avec l'exception, et le rapport partiel est écrit.
                 raise IncidentTechnique(

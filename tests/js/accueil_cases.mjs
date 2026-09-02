@@ -94,7 +94,7 @@ function sante(extra) {
     // celui que la route rend réellement.
     dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
     alerts: [],
-    thresholds: { deadline_s: 75.0 },
+    thresholds: { deadline_s: 100.0 },
   }, extra || {});
 }
 

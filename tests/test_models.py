@@ -96,7 +96,10 @@ def test_aucune_surface_active_nattribue_un_appel_servi_au_tier_micro() -> None:
 
 
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
-    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low"}
+    # Les deux étapes sinistre qui n'ont pas à raisonner longuement : la rédaction transcrit des
+    # clauses retrouvées, le vérificateur extrait des valeurs typées (mesuré sur A16, 02/09/2026).
+    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {
+        "rediger_sinistre": "low", "verifier_sinistre": "low"}
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
