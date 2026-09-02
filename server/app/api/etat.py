@@ -433,6 +433,29 @@ def _alertes(corpus: Corpus, *, raison_max_chars: int = RAISON_PUBLIABLE_MAX_DEF
     return alertes
 
 
+def _alerte_fournisseur(settings: Settings) -> list[Alerte]:
+    """Sans clé fournisseur, le service ne peut répondre à **aucune** question — et il le dit.
+
+    `/sante` ne consultait que le corpus : clé absente, révoquée ou hors crédit, il répondait
+    `ok: true` pendant que chaque question rendait 503 ou 500. Le front ne lit que `ok` ; la panne
+    aurait donc duré jusqu'à ce qu'un humain la voie.
+
+    Ce que cette alerte couvre est ce qui se vérifie **sans appeler personne** : la clé est-elle
+    configurée. Une clé présente mais révoquée, ou sans crédit, ne se distingue d'une clé valide
+    que par un appel facturé — le dire ici demanderait une sonde périodique vers le fournisseur,
+    qui est une décision de déploiement et non de code (reprise différée
+    `sonde-fournisseur-post-promotion-epic5-D3`). Ne pas pouvoir tout dire n'autorise pas à taire
+    ce qu'on sait.
+
+    `doc_id="*"` : l'alerte porte sur le service, pas sur un document. C'est la même convention que
+    la quarantaine d'un identifiant non publiable.
+    """
+    if settings.anthropic_api_key.strip():
+        return []
+    return [Alerte(doc_id="*", alerte="cle_fournisseur_absente",
+                   detail="aucune clé fournisseur configurée : toute question sera refusée")]
+
+
 def _alerte_ungated(settings: Settings) -> list[Alerte]:
     """`ENV=prod` + `ALLOW_UNGATED=true` : la dérogation est **refusée**, et le dire est le reste (D7).
 
@@ -865,7 +888,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         reports=rapports, report_errors=erreurs_rapports, source_urls=sources,
         pdf_sources=pdf_sources, page_renderer=page_renderer,
         publication_evals=surfaces.publication,
-        alerts=_alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
+        alerts=_alerte_fournisseur(settings)
+        + _alertes(corpus, raison_max_chars=settings.raison_publiable_max_chars)
         + alertes_rapports + alertes_ungated
         + _alertes_dictionnaire(
             dictionnaire, raison_max_chars=settings.raison_publiable_max_chars))

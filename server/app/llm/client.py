@@ -226,9 +226,23 @@ class LlmClient:
         self.campaign_budget_eur = campaign_budget_eur
         self.campaign_cost_eur = campaign_accrued_eur
         self._campaign_cost_recorder = campaign_cost_recorder
+        # **Sans clé, le refus est local et typé.** Le SDK, lui, lève un `TypeError` nu
+        # (« Could not resolve authentication method ») *avant* toute requête ; `map_provider_error`
+        # ne l'avale pas — à raison, il ne doit pas gober ce qui n'est pas une erreur du SDK — et
+        # aucun `except` de pipeline ne l'attrape : la question sortait en **500**, sans enveloppe,
+        # alors que la cause est une indisponibilité du fournisseur, c'est-à-dire un 503.
+        # Le drapeau est posé ici et nulle part ailleurs : un client à qui l'on **injecte** son
+        # transport (tests, fixtures, runners) n'a pas de clé à avoir, et n'est jamais concerné.
+        self._sans_cle = anthropic_client is None and not settings.anthropic_api_key.strip()
         if anthropic_client is None:
             anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0)
         self._anthropic = anthropic_client
+
+    def _exiger_un_fournisseur(self) -> None:
+        """Refuse avant l'envoi si aucune clé n'est configurée — jamais un appel, jamais un 500."""
+        if self._sans_cle:
+            raise LlmUnavailable(
+                "aucune clé fournisseur n'est configurée (ANTHROPIC_API_KEY absente ou vide)")
 
     def _audit_call(self, *, step: StepTrace, tier: Tier, model: str,
                     request: dict[str, Any], response: dict[str, Any] | None,
@@ -390,6 +404,7 @@ class LlmClient:
                 kwargs["extra_body"] = extra_body
 
             tool_names = [t.get("name", "") for t in tools] if tools else []
+            self._exiger_un_fournisseur()
             budget.attempts += 1
             t0 = time.monotonic()
             try:
@@ -581,6 +596,7 @@ class LlmClient:
         if extra_body is not None:
             kwargs["extra_body"] = extra_body
         tool_names = [str(t.get("name", "")) for t in tools]
+        self._exiger_un_fournisseur()
         budget.attempts += 1
         t0 = time.monotonic()
         try:
@@ -630,6 +646,7 @@ class LlmClient:
                                   "timeout": self._settings.count_tokens_timeout_s}
         if system is not None:
             kwargs["system"] = system
+        self._exiger_un_fournisseur()
         try:
             counted = await self._anthropic.messages.count_tokens(**kwargs)
         except Exception as exc:  # noqa: BLE001

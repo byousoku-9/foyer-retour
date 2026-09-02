@@ -9,6 +9,8 @@ réellement servis, à quel niveau de validation (`gate_profile` et `gate_cases`
 document servi n'a pas de gate — AD-11 interdit d'annoncer un profil qu'aucun document ne porte),
 quelles alertes pèsent sur eux (`sans_gate`, `gate_perime`, `source_absente`, `bloquant_statique`,
 quarantaine, `ungated_refuse_en_production`, `dictionnaire_non_valide`, `dictionnaire_corpus_perime`),
+si le **fournisseur** est configuré (`cle_fournisseur_absente` — sans clé, aucune question ne peut
+aboutir, et `ok` le dit),
 où en est le dictionnaire des variantes — validé, décrivant bien le corpus servi, et **le refus
 « zéro hit » d'AD-5 est-il armé** (la règle est calculée ici, jamais par un front) —, et les seuils
 actifs, les mêmes que ceux de `Trace.thresholds`, pour qu'une réponse et l'état du serveur se lisent
@@ -29,8 +31,14 @@ async def sante(request: Request) -> SanteResponse:
     etat = request.app.state.foyer
     return SanteResponse(
         # `ok` répond à la seule question que le front pose : « puis-je poser ma question ? ». Le
-        # guide en quarantaine, la réponse est non, même si le serveur tourne parfaitement.
-        ok=etat.settings.guide_doc_id in etat.corpus.documents,
+        # guide en quarantaine, la réponse est non, même si le serveur tourne parfaitement — et
+        # **sans clé fournisseur, la réponse est non aussi**, même si tout le corpus est servi.
+        # `ok` ne dépendait que du corpus : clé absente, `/sante` répondait `true` pendant que
+        # chaque question rendait une erreur. Le front ne lit que `ok` ; la sonde mentait donc à la
+        # seule question qu'elle sait poser, et rien d'autre n'aurait signalé la panne.
+        # L'alerte `cle_fournisseur_absente` dit à côté **pourquoi** (`etat.alerts`).
+        ok=(etat.settings.guide_doc_id in etat.corpus.documents
+            and bool(etat.settings.anthropic_api_key.strip())),
         # AD-11 : `version: sha7`. C'est une **projection** de `git_sha`, qui porte la
         # révision complète depuis la story 4.5 — une seule source de vérité.
         version=etat.settings.version_publiee,

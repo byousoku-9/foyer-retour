@@ -427,6 +427,8 @@
     sans_gate: "aucune question-témoin ne valide ce document",
     gate_perime: "le gate a été obtenu avec un autre code, d'autres prompts ou d'autres modèles",
     source_absente: "le fichier source n'est pas présent à côté des artefacts",
+    cle_fournisseur_absente:
+      "aucune clé fournisseur n'est configurée : le service ne peut répondre à aucune question",
     rapport_illisible: "le rapport d'ingestion est présent mais illisible",
     rapport_etranger: "le rapport d'ingestion décrit un autre document",
     quarantaine: "document écarté au chargement",

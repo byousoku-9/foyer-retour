@@ -134,7 +134,7 @@ class Double:
 # --- fixtures -------------------------------------------------------------
 
 def _settings(**kw: Any) -> Settings:
-    return Settings(_env_file=None, anthropic_api_key="", **kw)
+    return Settings(_env_file=None, **({"anthropic_api_key": ""} | kw))
 
 
 def _serveur(settings: Settings) -> Any:
@@ -159,6 +159,19 @@ def prod() -> Any:
 @pytest.fixture(scope="module")
 def dev() -> Any:
     yield from _serveur(_settings(env="dev"))
+
+
+@pytest.fixture(scope="module")
+def prod_configure() -> Any:
+    """Le service tel qu'il est déployé : corpus servi **et** clé fournisseur configurée.
+
+    Les autres fixtures laissent `anthropic_api_key=""` parce qu'elles n'appellent personne. C'est
+    une configuration légitime pour un test, et c'est aussi une **panne** pour le service : depuis
+    que `/sante` en rend compte, `ok` y est faux. Les tests qui décrivent un service en état de
+    répondre demandent donc explicitement cette fixture-ci.
+    """
+    yield from _serveur(_settings(env="prod", allow_ungated=True,
+                                  anthropic_api_key="cle-de-test"))
 
 
 @pytest.fixture(autouse=True)
@@ -764,12 +777,13 @@ def test_un_bug_non_prevu_rend_500_generique(prod: TestClient) -> None:
 
 # --- /sante (AD-11, FR12) -------------------------------------------------
 
-def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod: TestClient) -> None:
-    r = prod.get("/api/v1/sante", headers=XFF)
+def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod_configure: TestClient) -> None:
+    r = prod_configure.get("/api/v1/sante", headers=XFF)
 
     assert r.status_code == 200
     j = r.json()
     assert j["ok"] is True
+    assert "cle_fournisseur_absente" not in [a["alerte"] for a in j["alerts"]]
     assert j["version"] == "dev"
     assert j["documents_servis"] == [
         "axa-lu-optihome-2017", "baloise-lu-home-2-2024", "lux-guide"]
@@ -781,6 +795,45 @@ def test_sante_dit_ce_qui_est_servi_et_ce_qui_ne_lest_pas(prod: TestClient) -> N
     assert "sans_gate" not in [a["alerte"] for a in j["alerts"]]
     assert j["dictionary"]["validated"] is False  # AD-5 : le court-circuit « zéro hit » dort
     assert j["thresholds"]["rate_limit_per_minute"] == 10
+
+
+def test_sante_dit_non_quand_aucune_cle_fournisseur_nest_configuree(prod: TestClient) -> None:
+    """La panne invisible : corpus parfait, aucune clé, et `/sante` répondait `ok: true`.
+
+    `ok` ne dépendait que du corpus. Clé absente — ou révoquée, ou sans crédit — le service
+    répondait qu'il allait bien pendant que **chaque** question rendait une erreur. Le front ne lit
+    que `ok` : rien n'aurait signalé la panne, et il n'existe ni sonde post-promotion ni retour
+    arrière automatique. Elle aurait duré jusqu'à ce qu'un humain la voie.
+    """
+    j = prod.get("/api/v1/sante", headers=XFF).json()
+
+    assert prod.app.state.foyer.settings.anthropic_api_key == ""
+    assert j["ok"] is False, "sans clé, aucune question ne peut aboutir"
+    # Le corpus, lui, va parfaitement bien : ce n'est pas lui que `ok` signale ici.
+    assert j["documents_servis"] == [
+        "axa-lu-optihome-2017", "baloise-lu-home-2-2024", "lux-guide"]
+    alerte = next(a for a in j["alerts"] if a["alerte"] == "cle_fournisseur_absente")
+    assert alerte["doc_id"] == "*" and "clé fournisseur" in alerte["detail"]
+
+
+def test_sans_cle_une_question_est_un_503_enveloppe_et_jamais_un_500(prod: TestClient) -> None:
+    """Sans clé, le SDK lève un `TypeError` nu **avant tout réseau** — et il sortait en 500.
+
+    `map_provider_error` ne l'avale pas, et il a raison : il ne doit pas gober ce qui n'est pas une
+    erreur du SDK. Mais aucun `except` de pipeline ne l'attrapait non plus, si bien qu'une cause
+    parfaitement connue — pas de clé — devenait une erreur interne nue. Le client refuse maintenant
+    **avant** d'appeler, avec l'erreur typée qui dit la vraie cause : le fournisseur est
+    indisponible, c'est-à-dire 503.
+    """
+    r = prod.post("/api/v1/chat", headers=XFF,
+                  json={"question": "Dans quel délai dois-je me déclarer à la commune ?"})
+
+    assert r.status_code == 503, r.text
+    erreur = r.json()["error"]
+    assert erreur["code"] == "llm_unavailable"
+    assert erreur["request_id"] == r.headers["X-Request-Id"]
+    # AD-16 : aucune trace technique, et surtout pas la classe d'exception du SDK ni la clé.
+    assert "TypeError" not in r.text and "api_key" not in r.text
 
 
 def test_sante_publie_les_seuils_ajoutes_par_la_story(prod: TestClient) -> None:
