@@ -31,6 +31,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from server.app.config import get_settings
 from server.app.domain.evals import REVISION, SHA256
 from server.evals.cache import empreinte_canonique
 
@@ -417,8 +418,13 @@ def _main(argv: list[str] | None = None) -> int:
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             print(f"refus : rapport illisible ({type(exc).__name__}: {exc})", file=sys.stderr)
             return 2
-        plan = plan_de_relecture(Index(corpus), blocs_cles_du_rapport(rapport),
-                                 candidate_revision=args.candidate_revision)
+        settings = get_settings()
+        plan = plan_de_relecture(
+            Index(corpus, excerpt_max_chars=settings.excerpt_max_chars,
+                  summary_page_max_chars=settings.summary_page_max_chars,
+                  summary_apercu_max_chars=settings.summary_apercu_max_chars),
+            blocs_cles_du_rapport(rapport),
+            candidate_revision=args.candidate_revision)
     except RelectureInvalide as exc:
         # **Un rapport corrompu est un refus dit**, jamais une trace de pile : `blocs_cles_du_rapport`
         # levait un `TypeError` non rattrapé sur un `results`/`proofs` mal typé (revue B5).

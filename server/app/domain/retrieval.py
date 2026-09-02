@@ -279,6 +279,13 @@ class SummaryEntry(DomainModel):
     node_id: str
     title: str
     level: int = Field(ge=0)
+    # Correctif G2 : le signal de navigation que le document porte lui-même — le texte du premier
+    # bloc citable du nœud, tronqué. Aucune donnée nouvelle, aucune règle propre à un document :
+    # pour le guide c'est le résumé de la fiche, pour un contrat la première clause de la section.
+    # Vide quand le nœud n'a pas de bloc direct citable, ou quand le budget de la page ne le porte
+    # pas. Un titre seul ne dit pas de quoi une section parle : sans lui, le navigateur d'un
+    # document plat choisissait entre 87 titres nus.
+    apercu: str = ""
 
 
 class SummaryPage(DomainModel):
@@ -289,6 +296,11 @@ class SummaryPage(DomainModel):
     cursor: int = Field(ge=0)
     next_cursor: int | None = Field(default=None, ge=0)
     truncated: bool = False
+    # Correctif G2 : la mise en page **dérivée** pour ce document, publiée avec la page. Le
+    # navigateur sait ainsi combien d'entrées une page porte et si un aperçu lui est servi ; la
+    # trace et les tests lisent la dérivation au lieu de la recalculer.
+    page_size: int = Field(default=0, ge=0)
+    total_entries: int = Field(default=0, ge=0)
 
 
 class NodeWindow(DomainModel):

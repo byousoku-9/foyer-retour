@@ -4295,3 +4295,39 @@ async def test_full_context_preflight_counts_the_exact_structured_envelope(
             request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
             doc_id="d")
     assert capture.value.step is not None
+
+
+# --- Correctif G2 : ce que le navigateur reçoit vraiment du guide réel -------------------------
+
+async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> None:
+    """G2, sur le corpus servi et hors réseau : la carte envoyée porte les fiches d'au-delà de p.1.
+
+    Le témoin lit la **requête réellement envoyée** — pas l'index. Servi par pages de 40 entrées
+    réduites à `{node_id, title, level}`, le préfixe de navigation ne nommait ni `fdechets`, ni
+    `ftransport`, ni les 41 nœuds de FAQ, et ne disait de personne de quoi il parlait ; avec un seul
+    tour outillé (`max_llm_turns = 2`) pour paginer, chercher et ouvrir, ces fiches n'étaient plus
+    atteignables. Elles sont dans le préfixe, avec leur résumé, et le préfixe reste dans le budget.
+    """
+    s = _s(max_cost_eur_per_request=1.0)
+    corpus = load_corpus(ROOT / "data", allow_ungated=True)
+    index = Index(corpus, excerpt_max_chars=s.excerpt_max_chars,
+                  summary_page_max_chars=s.summary_page_max_chars,
+                  summary_apercu_max_chars=s.summary_apercu_max_chars)
+    fake = FakeAnthropic([
+        _tool_message(_tool("chercher", "t1", termes=["déchets"])),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": False, "result_uid": None})),
+    ])
+    await retrouver_outils(
+        _parsed(["déchets"]), corpus=corpus, index=index,
+        budget=_budget(max_blocks=30, max_tokens=6000), settings=s,
+        client=LlmClient(s, anthropic_client=fake),
+        request_budget=RequestBudget(deadline_s=30, max_attempts=8, max_cost_eur=1.0),
+        doc_id="lux-guide")
+
+    prefixe = "".join(bloc["text"] for bloc in fake.requests[0]["system"])
+    for node_id in ("lux-guide:fdechets", "lux-guide:ftransport", "lux-guide:ftelecom",
+                    "lux-guide:flangues", "lux-guide:fnationalite", "lux-guide:q41"):
+        assert node_id in prefixe, node_id
+    assert "La commune fournit les bacs" in prefixe  # le résumé de `fdechets`, son signal propre
+    assert prefixe.count("lux-guide:f") >= 36  # les 36 fiches, aucune laissée hors de la carte

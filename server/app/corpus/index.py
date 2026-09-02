@@ -9,13 +9,25 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from fractions import Fraction
 
-from server.app.domain import (Block, BlockRef, ContextUnit, Document, NodeChild, NodeRef,
+from server.app.domain import (Block, BlockRef, ContextUnit, Document, Node, NodeChild, NodeRef,
                                NodeWindow, QuestionClauseScore, ScoredHit, SummaryEntry,
                                SummaryPage, is_citable)
 from server.app.domain.retrieval import stable_uid
 
 from .loader import Corpus
 from .text import normalize
+
+def _couper(text: str, limite: int) -> str:
+    """Aperçu borné, coupé sur un mot et marqué — jamais au milieu d'un mot (comme `summary.md`)."""
+    if limite <= 0 or not text:
+        return ""
+    if len(text) <= limite:
+        return text
+    coupe = text[:limite]
+    if " " in coupe:
+        coupe = coupe.rsplit(" ", 1)[0]
+    return coupe.rstrip(" ,;:.") + "…"
+
 
 _WORD = re.compile(r"[a-z0-9]+")
 def words(text_norm: str) -> list[str]:
@@ -54,11 +66,28 @@ def reading_order(doc: Document) -> list[tuple[str, str]]:
 
 
 class Index:
-    def __init__(self, corpus: Corpus, *, excerpt_max_chars: int = 1000) -> None:
-        if excerpt_max_chars < 1:
+    """Projection déterministe du corpus. **Aucun seuil ne vit ici** (convention Seuils du spine).
+
+    Les trois budgets ci-dessous arrivent de l'appelant, comme `node_window` et `limit` : la couche
+    `corpus` n'importe que `domain` (table des couches), elle ne peut donc pas lire `config.py`, et
+    y recopier un nombre le ferait diverger en silence de celui que `thresholds()` publie. `None`
+    veut dire « cet appelant n'a pas borné » — l'index ne tronque alors rien et ne pagine pas.
+    Le chemin servi (API, runner d'évals, relecture) passe toujours les valeurs de `Settings`.
+    """
+
+    def __init__(self, corpus: Corpus, *, excerpt_max_chars: int | None = None,
+                 summary_page_max_chars: int | None = None,
+                 summary_apercu_max_chars: int | None = None) -> None:
+        if excerpt_max_chars is not None and excerpt_max_chars < 1:
             raise ValueError("excerpt_max_chars doit être ≥ 1")
+        if summary_page_max_chars is not None and summary_page_max_chars < 1:
+            raise ValueError("summary_page_max_chars doit être ≥ 1")
+        if summary_apercu_max_chars is not None and summary_apercu_max_chars < 0:
+            raise ValueError("summary_apercu_max_chars doit être ≥ 0")
         self.corpus = corpus
         self.excerpt_max_chars = excerpt_max_chars
+        self.summary_page_max_chars = summary_page_max_chars
+        self.summary_apercu_max_chars = summary_apercu_max_chars
         self._entries: list[_Entry] = []
         self._by_block: dict[str, _Entry] = {}
         self._block_frequencies: dict[str, dict[str, int]] = {}
@@ -118,21 +147,91 @@ class Index:
     def sommaire(self, doc_id: str) -> str:
         return self.corpus.summaries[doc_id]
 
-    def sommaire_page(self, doc_id: str, *, cursor: int = 0, page_size: int = 40) -> SummaryPage:
-        """Navigation complète, paginée en profondeur, sans injection de l'arbre entier."""
-        if page_size < 1 or cursor < 0:
+    def _apercu_source(self, doc: Document, node: Node) -> str:
+        """Le signal que le nœud porte lui-même : le texte de son premier bloc **citable** direct.
+
+        Aucune règle propre à un document : c'est la même projection pour une fiche de guide (dont
+        le premier bloc utile est son résumé) et pour une section de contrat (sa première clause).
+        Un nœud sans bloc direct citable — une catégorie, un intertitre — n'en a pas, et le dit en
+        rendant la chaîne vide plutôt qu'en empruntant celui d'un enfant.
+
+        Un bloc qui **redit le titre** est sauté : le titre est déjà servi à côté, et un aperçu qui
+        le recopie ne dit rien de plus au navigateur. C'est le cas du bloc `heading` qui ouvre
+        chaque fiche du guide comme chaque section de contrat, et de tout premier bloc dont le
+        texte normalisé est celui du nœud.
+        """
+        titre = normalize(node.title)
+        for block_id in node.blocks:
+            block = doc.block(block_id)
+            if not is_citable(block):
+                continue
+            texte = " ".join(block.text.split())
+            if block.kind == "heading" or (titre and normalize(texte) == titre):
+                continue
+            return texte
+        return ""
+
+    def _mise_en_page_du_sommaire(self, apercus: list[tuple[str, str, str]]) -> tuple[int, int]:
+        """(entrées par page, longueur d'aperçu), dérivées de la forme du document et du budget.
+
+        Deux quantités, une seule règle, et **rien de constant qui décide seul** :
+
+        1. Le coût fixe moyen d'une entrée de *ce* document (identifiant + titre + enveloppe JSON)
+           est mesuré, pas supposé — un contrat aux titres de 51 caractères et aux identifiants de
+           30 ne coûte pas ce que coûte un guide aux titres de 32 et aux identifiants de 17.
+        2. L'aperçu est servi à la longueur qui laisse **le document entier** tenir dans le budget,
+           plafonnée par `summary_apercu_max_chars`. Un document plat et large reçoit donc sa carte
+           complète avec son signal ; un document vaste n'a pas la place et reçoit des titres seuls.
+        3. La page est ce qui tient dans le budget une fois cet aperçu décidé.
+
+        C'est pourquoi le guide (87 fiches courtes) tient désormais sur une page avec ses résumés,
+        alors que le contrat AXA (750 nœuds longs) reste paginé — sans qu'aucune ligne ne connaisse
+        l'un ni l'autre.
+        """
+        if not apercus:
+            return 1, 0
+        if self.summary_page_max_chars is None:
+            # Appelant sans budget : rien à répartir, donc rien à couper.
+            return len(apercus), self.summary_apercu_max_chars or 0
+        # Enveloppe JSON d'une entrée sérialisée par `model_dump` : les quatre clés, leurs guillemets,
+        # les deux-points, les virgules et les accolades. Majorée, et comptée une fois pour toutes.
+        enveloppe = 48
+        fixe = sum(len(node_id) + len(title) for node_id, title, _ in apercus) // len(apercus)
+        fixe += enveloppe
+        place = self.summary_page_max_chars // len(apercus) - fixe
+        plafond = place if self.summary_apercu_max_chars is None else self.summary_apercu_max_chars
+        apercu_max = max(0, min(plafond, place))
+        page_size = max(1, self.summary_page_max_chars // (fixe + apercu_max))
+        return page_size, apercu_max
+
+    def sommaire_page(self, doc_id: str, *, cursor: int = 0,
+                      page_size: int | None = None) -> SummaryPage:
+        """Navigation complète, paginée sur le budget de contexte, sans injection de l'arbre entier.
+
+        `page_size` reste surchargeable pour qu'un appelant exprime une borne explicite ; laissé à
+        `None` — le cas servi — il est **dérivé** de la forme du document et du budget (G2).
+        """
+        if cursor < 0 or (page_size is not None and page_size < 1):
             raise ValueError("cursor et page_size doivent être positifs")
         if doc_id not in self.corpus.documents:
             raise KeyError(doc_id)
         doc = self.corpus.documents[doc_id]
-        entries = [SummaryEntry(node_id=node.node_id, title=node.title, level=node.level)
-                   for node in doc.nodes if node.node_id != doc_id]
+        noeuds = [node for node in doc.nodes if node.node_id != doc_id]
+        apercus = [(node.node_id, node.title, self._apercu_source(doc, node)) for node in noeuds]
+        derive, apercu_max = self._mise_en_page_du_sommaire(apercus)
+        entries = [
+            SummaryEntry(node_id=node.node_id, title=node.title, level=node.level,
+                         apercu=_couper(apercu, apercu_max))
+            for node, (_node_id, _title, apercu) in zip(noeuds, apercus, strict=True)
+        ]
         if cursor > len(entries):
             raise ValueError("cursor hors sommaire")
-        page = tuple(entries[cursor:cursor + page_size])
+        taille = derive if page_size is None else page_size
+        page = tuple(entries[cursor:cursor + taille])
         next_cursor = cursor + len(page) if cursor + len(page) < len(entries) else None
         return SummaryPage(document_uid=doc_id, entries=page, cursor=cursor,
-                           next_cursor=next_cursor, truncated=next_cursor is not None)
+                           next_cursor=next_cursor, truncated=next_cursor is not None,
+                           page_size=taille, total_entries=len(entries))
 
     def ouvrir_singleton(self, block_id: str, *, node_window: int) -> NodeWindow:
         """Cible et contexte typé, bornés au document et à la section propriétaire."""
@@ -488,7 +587,8 @@ class Index:
             kind_priority=(0 if entry.block.kind_confirmed
                            and entry.block.kind in prioritaires else 1),
         )
-        excerpt = entry.block.text[:self.excerpt_max_chars]
+        excerpt = (entry.block.text if self.excerpt_max_chars is None
+                   else entry.block.text[:self.excerpt_max_chars])
         payload = {
             "question_uid": score.question_uid, "clause_uid": entry.block.block_id,
             "scorer_uid": score.scorer_uid, "scorer_version": score.scorer_version,

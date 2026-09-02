@@ -847,7 +847,12 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # alertes HTTP reste pur et ne duplique plus la ligne.
     _journaliser_dictionnaire(dictionnaire)
     return EtatApp(
-        settings=settings, corpus=corpus, index=Index(corpus),
+        settings=settings, corpus=corpus,
+        # Convention Seuils : les trois budgets de projection de l'index viennent de la
+        # configuration publiée, jamais d'un nombre recopié dans la couche `corpus`.
+        index=Index(corpus, excerpt_max_chars=settings.excerpt_max_chars,
+                    summary_page_max_chars=settings.summary_page_max_chars,
+                    summary_apercu_max_chars=settings.summary_apercu_max_chars),
         # AD-10/AD-15 : le sink par défaut de l'API ne conserve jamais question, historique ni
         # blocs ; l'enveloppe exacte est détruite dès que hashes, tailles et IDs sont projetés.
         client=LlmClient(settings),

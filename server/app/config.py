@@ -537,7 +537,27 @@ class Settings(BaseSettings):
     summary_max_tags: int = Field(5, ge=1)
     summary_resume_max_chars: int = Field(90, ge=10)
     summary_max_level: int = Field(2, ge=1)
-    summary_page_size: int = Field(40, ge=1)
+    # Correctif G2 — **la carte servie au navigateur se dérive du document et du budget, jamais
+    # d'un nombre d'entrées fixe.** Une taille de page constante (40) traitait de la même façon un
+    # contrat profond de 750 nœuds longs et un guide plat de 87 fiches courtes : le second n'était
+    # plus vu qu'aux 40 premières entrées, et les suivantes n'étaient plus atteignables que par
+    # `chercher` — avec un seul tour outillé pour paginer, chercher et ouvrir (`max_llm_turns`).
+    # Ces deux seuils sont un **budget**, pas une taille : `Index.sommaire_page` en déduit, pour
+    # chaque document, combien d'entrées tiennent dans une page et quelle longueur d'aperçu chacune
+    # peut porter. Un document plat et large reçoit donc sa carte entière avec son signal ; un
+    # document vaste reçoit une carte compacte paginée.
+    #
+    # `summary_page_max_chars` est la part du préfixe **cacheable** de navigation allouée à la
+    # carte : ~4 000 tokens à l'heuristique du dépôt (`estimate_chars_per_token`), loin sous la
+    # fenêtre de tout tier servi, et payée une fois par le cache de prompt.
+    summary_page_max_chars: int = Field(16000, ge=200)
+    # Longueur maximale de l'aperçu d'une entrée — le texte du premier bloc citable de son nœud,
+    # c'est-à-dire le signal de navigation que le document porte lui-même (pour le guide, le résumé
+    # de la fiche). Plafond, pas valeur servie : la longueur réelle est dérivée par document.
+    summary_apercu_max_chars: int = Field(90, ge=0)
+    # Longueur maximale d'un extrait de `chercher` (`ScoredHit.excerpt`). Vivait en dur dans
+    # `Index.__init__` : convention Seuils — un nombre vit ici et se publie.
+    excerpt_max_chars: int = Field(1000, ge=1)
 
     # Limiteur best-effort par instance (AD-13)
     rate_limit_per_minute: int = Field(10, ge=1)
@@ -988,7 +1008,9 @@ class Settings(BaseSettings):
             "summary_max_tags": self.summary_max_tags,
             "summary_resume_max_chars": self.summary_resume_max_chars,
             "summary_max_level": self.summary_max_level,
-            "summary_page_size": self.summary_page_size,
+            "summary_page_max_chars": self.summary_page_max_chars,
+            "summary_apercu_max_chars": self.summary_apercu_max_chars,
+            "excerpt_max_chars": self.excerpt_max_chars,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "rate_limit_per_day": self.rate_limit_per_day,
             "rate_limit_max_clients": self.rate_limit_max_clients,

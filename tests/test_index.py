@@ -714,3 +714,128 @@ def test_chercher_on_real_corpus_uses_config_thresholds() -> None:
     assert all(b in both for b, _ in hits[: len(both)])
     w = ix.ouvrir_noeud("lux-guide:farrivee", node_window=s.node_window)
     assert w.blocks[0].block_id == "lux-guide:farrivee:1"
+
+
+# --- Correctif G2 : la carte du navigateur, dérivée du document et du budget -------------------
+
+def _index_servi(corpus: Corpus, **surcharges: int) -> Index:
+    """L'index tel que le chemin servi le construit : les trois budgets viennent de `Settings`."""
+    s = Settings(_env_file=None)
+    budgets: dict[str, int] = {
+        "excerpt_max_chars": s.excerpt_max_chars,
+        "summary_page_max_chars": s.summary_page_max_chars,
+        "summary_apercu_max_chars": s.summary_apercu_max_chars,
+    }
+    budgets.update(surcharges)
+    return Index(corpus, **budgets)
+
+
+def test_le_guide_reel_tient_sur_une_page_avec_son_signal_de_navigation() -> None:
+    """G2 : une fiche au-delà de la 1re page d'hier reste atteignable, et dit de quoi elle parle.
+
+    Le guide est **plat et large** : 87 entrées courtes, sans profondeur utile. Servi par pages de
+    40 entrées et réduit à `{node_id, title, level}`, le navigateur n'en voyait que les 40
+    premières et sans aucun signal — transport, télécom, langues, nationalité, déchets et les 41
+    nœuds de FAQ n'étaient plus atteignables que par `chercher`, avec un seul tour outillé
+    (`max_llm_turns = 2`) pour paginer, chercher **et** ouvrir. La taille de page et l'aperçu sont
+    maintenant dérivés de la forme du document et du budget de contexte : le guide tient en une
+    page, résumés compris.
+    """
+    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
+    page = index.sommaire_page("lux-guide")
+
+    assert page.total_entries == 87
+    assert page.next_cursor is None and not page.truncated
+    assert len(page.entries) == page.total_entries
+    par_id = {entry.node_id: entry for entry in page.entries}
+    # Les six fiches et la FAQ que la page de 40 laissait dehors.
+    for node_id in ("lux-guide:ftransport", "lux-guide:ftelecom", "lux-guide:flangues",
+                    "lux-guide:fnationalite", "lux-guide:fdechets", "lux-guide:q41"):
+        assert node_id in par_id, node_id
+    # Le signal de navigation propre au document : pour une fiche, son résumé — pas son titre redit.
+    arrivee = par_id["lux-guide:farrivee"]
+    assert arrivee.title == "Les huit premiers jours"
+    assert arrivee.apercu.startswith("Tout part de la commune")
+    assert arrivee.apercu != arrivee.title
+    assert par_id["lux-guide:fdechets"].apercu.startswith("La commune fournit les bacs")
+    # Une catégorie n'a aucun bloc direct : elle n'emprunte pas l'aperçu d'un enfant.
+    assert par_id["lux-guide:cat:administratif"].apercu == ""
+
+
+def test_la_page_de_sommaire_tient_dans_le_budget_de_contexte_sur_les_deux_formes_reelles() -> None:
+    """La dérivation est un **budget** : elle borne les deux documents servis, pas un seul.
+
+    Le contrat AXA a 750 nœuds aux titres longs — il n'y a pas de place pour un aperçu, et la carte
+    reste paginée. Le guide en a 87 courts — la place existe, l'aperçu est servi, et tout tient.
+    Aucune ligne ne connaît l'un ni l'autre : seule leur forme mesurée décide.
+    """
+    import json
+
+    s = Settings(_env_file=None)
+    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
+    for doc_id in ("lux-guide", "axa-lu-optihome-2017"):
+        page = index.sommaire_page(doc_id)
+        octets = len(json.dumps(page.model_dump(mode="json"), ensure_ascii=False))
+        assert octets <= s.summary_page_max_chars, (doc_id, octets)
+    axa = index.sommaire_page("axa-lu-optihome-2017")
+    guide = index.sommaire_page("lux-guide")
+    assert axa.total_entries == 750 and axa.next_cursor is not None
+    assert axa.page_size < axa.total_entries
+    assert all(entry.apercu == "" for entry in axa.entries)  # pas la place, donc pas servi
+    assert guide.page_size >= guide.total_entries
+    assert any(entry.apercu for entry in guide.entries)
+    # La mise en page n'est pas la même des deux côtés : elle se dérive, elle n'est pas constante.
+    assert axa.page_size != guide.page_size
+
+
+def test_une_entree_au_dela_de_la_premiere_page_reste_atteignable_par_le_curseur() -> None:
+    """Quand le budget force vraiment la pagination, le curseur rend la suite atteignable.
+
+    Même document réel, budget rétréci : `lux-guide:fdechets` sort de la première page, et la
+    navigation par `next_cursor` la retrouve. La borne dit ce qu'elle borne (`truncated`), et
+    `page_size` publie la dérivation au lieu de la laisser deviner.
+    """
+    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True),
+                         summary_page_max_chars=3000)
+    premiere = index.sommaire_page("lux-guide")
+
+    assert premiere.truncated and premiere.next_cursor is not None
+    assert premiere.page_size < premiere.total_entries
+    assert not any(e.node_id == "lux-guide:fdechets" for e in premiere.entries)
+
+    vus: list[str] = []
+    cursor: int | None = 0
+    while cursor is not None:
+        page = index.sommaire_page("lux-guide", cursor=cursor)
+        vus += [entry.node_id for entry in page.entries]
+        cursor = page.next_cursor
+    assert "lux-guide:fdechets" in vus
+    assert len(vus) == len(set(vus)) == premiere.total_entries
+
+
+def test_un_index_sans_budget_ne_tronque_rien_et_ne_pagine_pas() -> None:
+    """`None` veut dire « cet appelant n'a pas borné » — jamais un seuil recopié dans `corpus`.
+
+    La couche `corpus` n'importe que `domain` : elle ne peut pas lire `config.py`, et y recopier
+    `excerpt_max_chars = 1000` le faisait diverger en silence de ce que `thresholds()` publie.
+    """
+    corpus = load_corpus(ROOT / "data", allow_ungated=True)
+    nu = Index(corpus)
+    page = nu.sommaire_page("axa-lu-optihome-2017")
+    assert page.next_cursor is None and len(page.entries) == 750
+    long_texte = max((b.text for b in corpus.documents["axa-lu-optihome-2017"].blocks), key=len)
+    assert len(long_texte) > 1000
+    s = Settings(_env_file=None)
+    borne = Index(corpus, excerpt_max_chars=s.excerpt_max_chars)
+    assert borne.excerpt_max_chars == s.excerpt_max_chars == 1000
+    with pytest.raises(ValueError, match="excerpt_max_chars"):
+        Index(corpus, excerpt_max_chars=0)
+
+
+def test_les_trois_budgets_de_lindex_sont_publies_par_thresholds() -> None:
+    """Convention Seuils : un nombre vit dans `config.py` **et** se publie."""
+    s = Settings(_env_file=None)
+    seuils = s.thresholds()
+    for nom in ("excerpt_max_chars", "summary_page_max_chars", "summary_apercu_max_chars"):
+        assert seuils[nom] == getattr(s, nom), nom
+    assert "summary_page_size" not in seuils  # remplacé par un budget, plus une taille constante

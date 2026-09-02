@@ -319,8 +319,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     summary_ready = False
 
     def navigation_prompt() -> str:
-        summary_page = index.sommaire_page(
-            doc_id, page_size=settings.summary_page_size) if summary_ready else None
+        # G2 : la taille de page et l'aperçu servi sont dérivés par l'index de la forme du
+        # document et du budget de contexte ; aucun nombre d'entrées n'est imposé ici.
+        summary_page = index.sommaire_page(doc_id) if summary_ready else None
         return render_prompt(
             "retrouver", doc_id=doc_id, max_llm_turns=budget.max_llm_turns,
             max_opens=budget.max_opens, profil_max_opens=budget.profil_max_opens,
@@ -446,8 +447,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if isinstance(cursor, bool) or not isinstance(cursor, int):
                 return invalid()
             try:
-                page = index.sommaire_page(
-                    doc_id, cursor=cursor, page_size=settings.summary_page_size)
+                page = index.sommaire_page(doc_id, cursor=cursor)
             except ValueError:
                 return invalid()
             return page.model_dump(mode="json"), False
