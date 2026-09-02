@@ -842,6 +842,7 @@ window.CHAT = (function () {
     segments_retires: "des phrases ont été retirées de la réponse",
     verdict: "verdict rendu sur les affirmations affichées",
     verdict_contradictoire: "deux verdicts opposés pour une même affirmation",
+    verdict_semantique: "la navigation n'a pas conclu dans la forme attendue (la lecture, elle, n'a pas été bornée)",
     reponse_liee: "réponse liée à la question active",
     corpus_reutilise: "corpus vérifié du premier tour réutilisé sans nouvelle recherche",
     sans_modele: "suivi déterministe sans appel modèle",
