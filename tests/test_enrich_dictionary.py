@@ -347,7 +347,14 @@ def test_le_shape_plat_reel_produit_des_unites_bornees_de_blocs_reels() -> None:
 
     assert unites and all(isinstance(unite, ed.UniteContrat) for unite in unites)
     assert all(unite.extraits for unite in unites)
-    assert [extrait.block_id for unite in unites for extrait in unite.extraits] == attendus
+    # Les unités suivent l'arbre (un nœud, ses blocs directs, puis ses enfants) : depuis que Baloise
+    # porte une structure Opus, leur concaténation n'est plus l'ordre plat du document. Ce qui doit
+    # tenir : chaque bloc citable est extrait **exactement une fois**, et chaque unité est en ordre.
+    extraits = [extrait.block_id for unite in unites for extrait in unite.extraits]
+    assert sorted(extraits) == sorted(attendus) and len(extraits) == len(set(extraits))
+    rang = {block_id: index for index, block_id in enumerate(attendus)}
+    assert all([rang[e.block_id] for e in unite.extraits] == sorted(rang[e.block_id] for e in unite.extraits)
+               for unite in unites)
     for unite in unites:
         assert len(unite.extraits) <= settings.dictionary_flat_max_blocks_per_request
         assert sum(len(extrait.text) for extrait in unite.extraits) \

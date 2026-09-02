@@ -12,7 +12,7 @@ import pytest
 from server.app.domain import BlockRef, Document, NodeRef, Report, is_citable
 from server.ingest import pdf_structure_gate as structure_gate
 from server.ingest import pdf_to_blocks as p
-from server.ingest.report import (attester_arbre, build_pdf_report,
+from server.ingest.report import (attester_arbre, attester_structure, build_pdf_report,
                                   canoniser_transition_apres_typage)
 from tests.helpers_reports import assert_stats_structurelles_exactes
 from tests.test_porte_de_lecture import mesure_de_la_porte
@@ -62,7 +62,9 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
         "document_hash": hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
         "edition": EDITION,
         "overlay_hash": None,
-        "structure_hash": None,
+        # La proposition de structure Opus appliquée (02/09/2026) : le manifest porte l'empreinte
+        # des octets réellement lus par l'ingestion.
+        "structure_hash": hashlib.sha256((REAL / "structure.json").read_bytes()).hexdigest(),
     }
     assert gate is not None
     assert gate["profile"] == "vertical" and gate["evals_ok"] is True
@@ -108,20 +110,22 @@ def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> N
 def test_baloise_typing_used_only_standard_messages_under_the_ceiling(doc: Document) -> None:
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.stats["typage_transport"] == "standard"
-    assert report.stats["typage_standard_requests"] == 117
+    # Campagne du 02/09/2026 sur l'arbre Opus final (274 nœuds) : 76 lectures 1 + 50 lectures 2 +
+    # 4 arbitrages en Messages standard, aucun échec, 587/626 kinds juridiques confirmés.
+    assert report.stats["typage_standard_requests"] == 130
     assert report.stats["typage_batch_cost_eur"] == 0.0
-    assert report.stats["typage_standard_cost_eur"] == 3.8035
-    assert report.stats["typage_prior_cost_eur"] == 3.3689
-    assert report.stats["typage_cumulative_cost_eur"] == 7.1724
-    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 16.25
-    assert report.stats["blocs_types_modele"] == 737
-    assert report.stats["blocs_juridiques"] == 728
-    assert report.stats["blocs_juridiques_confirmes"] == 636
-    assert report.stats["blocs_typage_reutilises"] == 368
-    assert report.stats["blocs_typage_rejoues"] == 668
+    assert report.stats["typage_standard_cost_eur"] == 4.7695
+    assert report.stats["typage_prior_cost_eur"] == 0.0
+    assert report.stats["typage_cumulative_cost_eur"] == 4.7695
+    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 22.0
+    assert report.stats["blocs_types_modele"] == 635
+    assert report.stats["blocs_juridiques"] == 626
+    assert report.stats["blocs_juridiques_confirmes"] == 587
+    assert report.stats["blocs_typage_reutilises"] == 210
+    assert report.stats["blocs_typage_rejoues"] == 754
     transport = next(check for check in report.checks if check.name == "typage_transport")
     assert transport.level == "info" and "aucune API Batch" in transport.detail
-    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 737
+    assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 635
 
 
 def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Document) -> None:
@@ -130,8 +134,16 @@ def test_baloise_has_citable_contract_passages_for_the_three_witnesses(doc: Docu
     assert "arrêt accidentel du congélateur" in corpus
     assert "responsabilité civile vie privée" in corpus
     assert all(block.lines and block.bbox and block.loc == f"p{block.page}" for block in doc.blocks)
+    # Arbre Opus (02/09/2026) : la racine porte les 18 nœuds de niveau 1 — couverture, sommaire,
+    # les quinze sections numérotées, cartouche — et chaque autre nœud est référencé exactement
+    # une fois, par son parent.
     nested = [item for node in doc.nodes for item in node.items if isinstance(item, NodeRef)]
-    assert nested == [NodeRef(node_id=f"{DOC}:tdm")]
+    root = next(node for node in doc.nodes if node.node_id == DOC)
+    assert [item.node_id for item in root.items if isinstance(item, NodeRef)] == [
+        node.node_id for node in doc.nodes if node.level == 1]
+    assert len({node.node_id for node in doc.nodes if node.level == 1}) == 18
+    assert sorted(item.node_id for item in nested) == sorted(
+        node.node_id for node in doc.nodes if node.node_id != DOC)
     assert all(
         isinstance(item, (BlockRef, NodeRef)) for node in doc.nodes for item in node.items
     )
@@ -216,7 +228,14 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(
     from tests.test_pdf_to_blocks import exiger_comparaison_aux_artefacts_committes
 
     exiger_comparaison_aux_artefacts_committes(DOC, doc.ingest_fingerprint)
-    built, meta, pages, toc = regeneration
+    _built_sans_structure, _meta, pages, toc = regeneration
+    # L'artefact servi applique la proposition de structure Opus publiée à côté du PDF : la
+    # régénération la lit comme l'ingestion (mêmes octets, même empreinte) avant de comparer.
+    structure, octets_structure = p.charger_octets(REAL / "structure.json")
+    built, meta = p.build_document(
+        pages, edition=EDITION, source_hash=SOURCE_HASH, toc=toc, doc_id=DOC, title=TITLE,
+        source_url=(REAL / "source.url").read_text("utf-8").strip(), structure=structure,
+    )
     identity = lambda block: (  # noqa: E731
         block.block_id, block.text, block.lang, block.loc, block.seq, block.page, block.bbox,
         block.structural_kind, block.source_field, block.continues,
@@ -230,12 +249,16 @@ def test_real_baloise_pdf_regenerates_the_committed_structural_identity(
         built, doc, pages=pages, numbers=meta["numbers"], duplicates=meta["duplicates"],
         continues=meta["continues"], toc=toc, toc_gaps=meta["toc_gaps"],
         printed_toc=meta["printed_toc"], summary=p.build_summary(built),
+        structure=f"proposition vérifiée : {len(structure.noeuds)} nœud(s) sur lignes source",
     )
     report = canoniser_transition_apres_typage(report)
+    document_hash = hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest()
+    report = attester_structure(
+        report, document_hash=document_hash,
+        structure_hash=hashlib.sha256(octets_structure).hexdigest(),
+    )
     report = attester_arbre(
-        report,
-        document_hash=hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
-        ingest_fingerprint=doc.ingest_fingerprint,
+        report, document_hash=document_hash, ingest_fingerprint=doc.ingest_fingerprint,
     )
     committed = Report.model_validate_json((REAL / "report.json").read_bytes())
     assert report.checks == [check for check in committed.checks if check.name not in TYPING_CHECKS]
