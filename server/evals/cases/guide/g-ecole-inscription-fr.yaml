@@ -1,0 +1,14 @@
+id: g-ecole-inscription-fr
+suite: guide
+profile: full
+question: "Comment inscrire mes enfants à l'école au Luxembourg ?"
+lang: fr
+scenario: "parcours réel — scolarisation en français"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:fecole"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Trou de couverture comblé : la fiche fecole n'était interrogée qu'en anglais et en portugais (g-lang-en-ecole, g-lang-pt-ecole), jamais en français direct. La fiche porte les trois voies et l'ordre des démarches ; la contresignature humaine reste due."

@@ -1,0 +1,14 @@
+id: g-emploi-adem-fr
+suite: guide
+profile: full
+question: "À quoi sert l'inscription à l'ADEM quand on cherche un emploi ?"
+lang: fr
+scenario: "parcours réel — recherche d'emploi en français"
+famille: parcours
+expected: {found: true, fiche_ids: ["lux-guide:femploi"], refusal: false}
+mode_attendu: bonne_reponse
+truth:
+  source: lecture_humaine
+  countersigned_by: null
+  validated_by_expert: false
+  note: "Trou de couverture comblé : le guide n'avait aucun cas emploi/ADEM en français — seul g-lang-de-adem couvrait la fiche, et en allemand. La fiche femploi porte la réponse (accompagnement, formations, offres non publiées ailleurs) ; la contresignature humaine reste due."

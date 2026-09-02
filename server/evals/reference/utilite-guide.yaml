@@ -205,3 +205,15 @@ references:
     interlocuteur: "Commune de résidence, employeur ou CCSS, puis service chèque-service"
     provenance: "Repro exact campagne 3.3 dans docs/tests-live.md et fiches farrivee, fmatricule, fgarde relues"
     countersigned_by: null
+  - case_id: g-emploi-adem-fr
+    ordre_juste: ["Identifier le service public de l'emploi", "S'inscrire à l'ADEM", "Accéder à l'accompagnement, aux formations et aux offres non publiées"]
+    documents_cites: ["Fiche Chercher un emploi"]
+    interlocuteur: "ADEM"
+    provenance: "Fiche femploi relue dans le dépôt ; le guide n'avait aucun cas emploi en français"
+    countersigned_by: null
+  - case_id: g-ecole-inscription-fr
+    ordre_juste: ["Engager la démarche scolaire avant le logement", "Choisir la voie et la section linguistique", "Inscrire à la commune puis à l'école"]
+    documents_cites: ["Fiche Scolariser ses enfants"]
+    interlocuteur: "Commune de résidence puis établissement scolaire"
+    provenance: "Fiche fecole relue dans le dépôt ; le guide n'avait aucun cas école en français direct"
+    countersigned_by: null

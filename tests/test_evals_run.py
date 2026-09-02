@@ -269,7 +269,8 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
     guide = [c for c in cas if c.suite == "guide"]
     sinistre = [c for c in cas if c.suite == "sinistre"]
     parsing = [c for c in cas if c.suite == "parsing"]
-    assert len(guide) == 34
+    # 36 depuis les deux trous de couverture comblés : `g-emploi-adem-fr` et `g-ecole-inscription-fr`.
+    assert len(guide) == 36
     assert len(sinistre) == 16
     assert len(parsing) == 11
     assert sum(c.profile == "vertical" for c in cas) == 5
@@ -284,6 +285,15 @@ def test_les_cas_livres_du_depot_sont_valides() -> None:
     }
     meteo = [c for c in guide if c.famille == "meteo"]
     assert {c.lang for c in meteo} == {"fr", "en", "de"}
+    # **Deux fiches n'étaient interrogées que dans une langue étrangère.** `femploi` ne l'était
+    # qu'en allemand (`g-lang-de-adem`) et `fecole` qu'en anglais et en portugais
+    # (`g-lang-en-ecole`, `g-lang-pt-ecole`) : le français, la langue de travail du produit et
+    # celle de la démonstration, n'avait aucun cas sur ni l'une ni l'autre. Un cas multilingue
+    # mesure la retraduction, pas le rappel en français — les deux ne se remplacent pas.
+    for fiche in ("lux-guide:femploi", "lux-guide:fecole"):
+        en_francais = [c for c in guide
+                       if c.lang == "fr" and fiche in (c.expected.fiche_ids or [])]
+        assert en_francais, fiche
     assert any(c.famille == "telephone_vacances" for c in sinistre)
     assert any("non_couvert" in c.expected.verdict for c in sinistre)
     assert {c.doc_id for c in parsing} == {
