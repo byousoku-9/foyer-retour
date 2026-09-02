@@ -196,7 +196,18 @@ def blocs_cites(verification: Verification) -> set[str]:
     return {q.block_id for c in verification.claims for q in c.quotes}
 
 
-def domine(seconde: Verification, acquise: Verification) -> bool:
+def preuves_citees(verification: Verification) -> set[tuple[str, str]]:
+    """Les **passages** sur lesquels repose ce qui est affiché, pas seulement leurs blocs.
+
+    `blocs_cites` compare des ensembles de `block_id` : deux vérifications qui citent le même bloc
+    par deux passages différents y sont indistinguables, et une relance qui n'a fait que reformuler
+    y paraît aussi fondée que l'acquise. Le passage canonique tranche (`Claim.preuve`).
+    """
+    return {preuve for claim in verification.claims for preuve in claim.preuve}
+
+
+def domine(seconde: Verification, acquise: Verification, *,
+           redaction_nouvelle: bool = False) -> bool:
     """La seconde vérification est-elle au moins aussi bonne que l'acquise, sur **tous** les axes ?
 
     AD-3 relance pour *améliorer*. Compter les seules claims laissait passer une relance qui, à
@@ -221,6 +232,31 @@ def domine(seconde: Verification, acquise: Verification) -> bool:
     clauses affichées, sur au moins les mêmes blocs). Classer les valeurs entre elles reviendrait à
     préférer une réponse pour ce qu'elle conclut.
     """
+    couvre_plus = set(seconde.facettes_couvertes) > set(acquise.facettes_couvertes)
+    # Correctif du tour 2 (rapport citations, A1). **Une rédaction relancée qui n'apporte aucun
+    # passage neuf n'apporte rien.** Le compte de claims est le seul axe gonflable — `blocs_cites`
+    # et `facettes_couvertes` sont des ensembles —, et une paraphrase dupliquée le gonflait : la
+    # relance « dominait » et remplaçait l'acquis par lui-même, dit deux fois.
+    #
+    # `redaction_nouvelle` dit que la seconde vérification juge une **ébauche réécrite**, seul cas
+    # où « mêmes passages » signifie « rien de neuf ». La reprise après demande de contexte (4.2e)
+    # relit **la même ébauche** avec plus de contexte : ses passages sont identiques par
+    # construction, et l'y appliquer reviendrait à interdire par principe ce que la story a
+    # construit. Et sans aucune preuve d'un côté comme de l'autre — deux ébauches entièrement
+    # rejetées —, il n'y a rien à dupliquer : les autres axes décident, comme avant.
+    if (redaction_nouvelle and preuves_citees(acquise)
+            and preuves_citees(seconde) == preuves_citees(acquise) and not couvre_plus):
+        return False
+    # Correctif du tour 2 (rapport retrouver, correctif 8). **Répondre à une sous-question de plus
+    # vaut plus que déclarer une réserve de moins.** L'axe des manques est le seul qui puisse faire
+    # écarter une relance strictement meilleure sur la couverture : un `unknown` de plus, une limite
+    # honnêtement nommée, et une réponse qui traitait enfin les deux moitiés de la question était
+    # rejetée — c'est ce qui s'est produit sur A16 #2 (`manques=4 contre 3`). L'exception est
+    # **fermée** : elle exige une couverture **strictement** plus large et des passages qui
+    # contiennent au moins ceux de l'acquise. Rien n'est perdu, et une sous-question de plus est
+    # rendue.
+    manques_admis = (seconde.nb_manques <= acquise.nb_manques
+                     or (couvre_plus and preuves_citees(seconde) >= preuves_citees(acquise)))
     return (seconde.found >= acquise.found
             and len(seconde.claims) >= len(acquise.claims)
             and set(seconde.facettes_couvertes) >= set(acquise.facettes_couvertes)
@@ -230,7 +266,7 @@ def domine(seconde: Verification, acquise: Verification) -> bool:
             # dans deux canaux — ce que le modèle a déclaré, ce que le code a constaté —, et ne
             # comparer que le premier laisserait passer une relance qui a lu moins, couvert moins ou
             # perdu plus de phrases, pourvu qu'elle se taise autant.
-            and seconde.nb_manques <= acquise.nb_manques)
+            and manques_admis)
 
 
 def relance_abandonnee(verification: Verification) -> Verification:

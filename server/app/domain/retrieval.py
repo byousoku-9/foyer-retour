@@ -158,6 +158,28 @@ class SufficiencyDecision(DomainModel):
         return self
 
 
+class FacetteSuffisance(DomainModel):
+    """Ce que le navigateur déclare pour **une** sous-question : une identité, ou une absence.
+
+    Correctif du tour 2 (cause R2). Le verdict terminal ne connaissait qu'un `result_uid` — un seul,
+    pour toute la question —, et le prompt ne mentionnait même pas les facettes alors qu'elles lui
+    étaient envoyées. Un navigateur qui avait couvert la première sous-question n'avait donc aucun
+    moyen de **dire** qu'il n'avait rien trouvé pour la seconde : son verdict était vrai, et muet
+    sur la moitié de la demande.
+
+    `result_uid = None` est une **déclaration d'absence**, pas une abstention : c'est le navigateur
+    qui dit « je n'ai rien trouvé de décisionnel pour cette sous-question ». Elle ne décide de rien
+    à elle seule — le code mesure la couverture de son côté (`FacetteCouverture`) et c'est lui qui
+    fait autorité (AD-1 : le modèle propose, le code vérifie). Elle est publiée, et l'écart entre
+    les deux lectures est nommé en trace.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    facette: int = Field(ge=0)
+    result_uid: str | None = Field(default=None, max_length=80)
+
+
 class SemanticSufficiencySelection(DomainModel):
     """Décision terminale du navigateur : une identité canonique ou une insuffisance explicite."""
 
@@ -165,11 +187,17 @@ class SemanticSufficiencySelection(DomainModel):
 
     sufficient: bool
     result_uid: str | None = Field(default=None, max_length=80)
+    # Une entrée par sous-question quand la question en pose plusieurs ; vide sinon. Le défaut vide
+    # garde inchangés le schéma de sortie des appelants sans facette et les verdicts déjà écrits.
+    facettes: tuple[FacetteSuffisance, ...] = ()
 
     @model_validator(mode="after")
     def _identite_iff_suffisant(self) -> SemanticSufficiencySelection:
         if self.sufficient != (self.result_uid is not None):
             raise ValueError("result_uid est requis si et seulement si sufficient=true")
+        rangs = [facette.facette for facette in self.facettes]
+        if len(rangs) != len(set(rangs)):
+            raise ValueError("une sous-question ne reçoit qu'un verdict")
         return self
 
 
@@ -243,10 +271,15 @@ class RetrievalBudget(DomainModel):
     node_window: int
     search_limit: int
     # Ce plafond de sûreté appartient au budget lui-même : les tests, évals et appels directs ne
-    # passent pas nécessairement par `Settings`, et la livraison 2.6 interdit un troisième tour.
-    # La valeur opérationnelle reste une hypothèse de configuration portée aussi par `Settings` ;
-    # la story 4.1 pourra rediscuter ce plafond et le contrat de domaine ensemble si sa mesure le demande.
-    max_llm_turns: int = Field(ge=1, le=2)
+    # passent pas nécessairement par `Settings`. La livraison 2.6 l'avait fixé à deux tours ; la
+    # mesure l'a rediscuté, comme son commentaire d'origine le prévoyait. **À deux tours, le
+    # verdict terminal est structurellement inatteignable** : le tour 0 cherche, le tour 1 ouvre, et
+    # les résultats du tour 1 ne sont jamais réinjectés — le navigateur ne voit donc jamais ce qu'il
+    # a ouvert, ne peut constater aucun manque, et ne rend aucun verdict. Les trois runs A16 le
+    # confirment : deux appels dans *retrouver*, suffisance toujours refusée, donc bandeau « je n'ai
+    # pas pu tout lire » sur une réponse parfaitement sourcée. Le troisième tour est celui de la
+    # conclusion ; ce qu'il peut ouvrir reste borné par `max_opens`, les blocs et les tokens.
+    max_llm_turns: int = Field(ge=1, le=3)
     max_blocks: int | None = None
     max_tokens: int | None = None
     # Story 2.3 : les places réservées, **parmi** `max_opens`, aux nœuds que le profil désigne. Elle

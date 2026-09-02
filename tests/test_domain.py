@@ -296,12 +296,24 @@ def test_draft_digest_is_canonical_and_content_sensitive() -> None:
     assert len(draft().digest()) == 64
 
 
-def test_claim_requires_one_quote_per_block() -> None:
+def test_claim_refuse_la_meme_citation_deux_fois_mais_pas_deux_extraits() -> None:
+    """Correctif du tour 2 — « une quote par bloc » n'est plus une violation de schéma.
+
+    La règle vivait ici, donc son non-respect était **terminal** : le parse échouait, le retry
+    unique d'AD-16 était consommé, le modèle rejouait la même faute, et l'utilisateur recevait un
+    503 sur une question nominale. Ce qu'elle protégeait — deux extraits disjoints se faisant passer
+    pour deux preuves — est obtenu par le code, qui les fusionne en un passage contigu
+    (`steps.rediger`). Deux citations **identiques**, elles, n'ajoutent rien et restent refusées.
+    """
     with pytest.raises(ValidationError):
         answer.Claim(claim_id="c1", text="t", quotes=[])
-    with pytest.raises(ValidationError, match="une seule quote par bloc"):
+    with pytest.raises(ValidationError, match="deux citations identiques"):
         answer.Claim(claim_id="c1", text="t", quotes=[{"block_id": "d:p1:1", "quote": "a"},
-                                                      {"block_id": "d:p1:1", "quote": "b"}])
+                                                      {"block_id": "d:p1:1", "quote": "a"}])
+    deux = answer.Claim(claim_id="c1", text="t",
+                        quotes=[{"block_id": "d:p1:1", "quote": "a"},
+                                {"block_id": "d:p1:1", "quote": "b"}])
+    assert len(deux.quotes) == 2
 
 
 def test_answer_draft_coherence() -> None:
@@ -344,7 +356,7 @@ def test_draft_validators_never_quote_a_value_produced_by_the_model() -> None:
     messages = erreurs(lambda: answer.AnswerDraft(
         segments=[], claims=[{"claim_id": piege, "text": "t",
                               "quotes": [{"block_id": "d:p1:1", "quote": "a"},
-                                         {"block_id": "d:p1:1", "quote": "b"}]}]))
+                                         {"block_id": "d:p1:1", "quote": "a"}]}]))
     messages += erreurs(lambda: answer.AnswerDraft(
         segments=[], claims=[claim(piege), claim(piege)]))
     messages += erreurs(lambda: answer.AnswerDraft(
@@ -507,9 +519,12 @@ def test_verdict_models() -> None:
 def test_trace_models() -> None:
     assert {"request_id", "pipeline", "variant", "steps", "total_cost_eur", "source_hash", "ingest_fingerprint",
             "pipeline_digest", "prompts_digest", "thresholds", "retries", "truncations", "deadline_remaining_s"} <= fields(trace.Trace)
+    # `budget_lecture` (correctif du tour 2) : ce que l'étape a consommé de son budget de lecture.
+    # `Trace.thresholds` publiait le plafond, jamais la consommation — trois runs A16 frôlaient la
+    # saturation sans que rien dans la trace ne le dise.
     assert fields(trace.StepTrace) == {
         "name", "tier", "prompt_cache", "mechanism_order", "ms", "usage",
-        "opened_block_ids", "discarded_block_ids", "checks", "calls"}
+        "opened_block_ids", "discarded_block_ids", "budget_lecture", "checks", "calls"}
     assert fields(trace.Usage) == {"input", "cached", "output", "cost_eur", "cached_response", "cost_eur_original"}
     assert {"name", "ok", "detail"} == fields(trace.CheckResult)
     # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`

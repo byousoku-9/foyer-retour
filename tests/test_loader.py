@@ -1159,8 +1159,15 @@ def test_construire_etat_compose_toutes_ses_surfaces_dans_une_seule_generation(
     monkeypatch.undo()
 
     assert etat is not None
-    assert not etat.client.audit_sink.persistent
-    assert not hasattr(etat.client.audit_sink, "events")
+    # AD-15 : l'enveloppe exacte n'est jamais **publiée**. Elle est en revanche **conservée** hors
+    # production depuis le correctif du tour 2 — le témoin qui portait le plancher était le seul
+    # chemin sans audit exact, et trois enquêtes ont dû déduire ce qu'un fichier aurait dit. En
+    # production, le sink reste projeté, et c'est ce que ce témoin tient désormais.
+    assert etat.client.audit_sink.persistent  # env dev
+    prod = construire_etat(
+        Settings(env="prod", allow_ungated=False, anthropic_api_key=""), data_dir=data)
+    assert not prod.client.audit_sink.persistent
+    assert not hasattr(prod.client.audit_sink, "events")
     assert bascule["faite"], "la bascule concurrente n'a pas eu lieu pendant la passe"
     assert len(generations) > 1, "la passe n'a résolu qu'une seule cible couverte"
     assert set(generations) == {generations[0]}, (

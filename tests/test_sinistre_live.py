@@ -254,7 +254,9 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     # La chaîne est allée au bout de la navigation (les deux tours d'AD-1) puis s'est arrêtée
     # **avant** de payer *rédiger* : c'est le refus que l'AC demande, et c'est le démarrage de
     # *rédiger* qui le dit — pas le tier, que la navigation partage désormais avec la rédaction.
-    assert len(fournisseur_bloque.requests) == 1 + settings.max_llm_turns  # comprendre + navigation
+    # `max_llm_turns` borne la navigation ; le navigateur peut conclure avant (le scénario nominal
+    # rend son verdict au deuxième tour), donc le compte est un **majorant**, pas une égalité.
+    assert 2 <= len(fournisseur_bloque.requests) <= 1 + settings.max_llm_turns
     assert _demarrages_de_rediger(fournisseur_bloque, settings) == 0
 
 

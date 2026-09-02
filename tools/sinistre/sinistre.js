@@ -349,6 +349,7 @@
   // Les `CheckResult.name` du serveur, en français — **la même table** que `web/app/chat.js`. Un nom
   // inconnu n'est jamais masqué : il s'affiche tel quel.
   var CONTROLES = {
+    acquis_reconduits: "affirmations de la relance qui ne citent rien de neuf : non dupliquées",
     applicabilite_contradictoire: "deux jeux de champs d'applicabilité pour une même affirmation",
     applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
     applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",
@@ -391,6 +392,7 @@
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
     raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
     refus: "refus composé, avec sa preuve d'absence",
@@ -412,6 +414,7 @@
     segments_retires: "des phrases ont été retirées de la réponse",
     verdict: "verdict rendu sur les affirmations affichées",
     verdict_contradictoire: "deux verdicts opposés pour une même affirmation",
+    verdict_par_facette: "verdict du navigateur, sous-question par sous-question",
     verdict_semantique: "la navigation n'a pas conclu dans la forme attendue (la lecture, elle, n'a pas été bornée)",
     reponse_liee: "réponse liée à la question active",
     corpus_reutilise: "corpus vérifié du premier tour réutilisé sans nouvelle recherche",

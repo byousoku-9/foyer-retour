@@ -31,6 +31,7 @@ from pydantic import ValidationError
 
 from server.app.config import Settings
 from server.app.domain.answer import (
+    RAISONS_CORRIGEABLES,
     AbsenceProof,
     Answer,
     AnswerDraft,
@@ -41,6 +42,7 @@ from server.app.domain.answer import (
 )
 from server.app.domain.conversation import ConversationAction, ContinuationState, appliquer
 from server.app.domain.errors import (
+    ErrorCode,
     BudgetExceeded,
     # `TruncatedRead` n'est plus levée ici (story 4.2f) : voir le commentaire de `pipelines/guide.py`.
     CorpusUnavailable,
@@ -164,6 +166,18 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     for claim in verification.rejected_claims:
         if claim.rejection_kind != "non_pertinente":
             continue
+        if claim.rejection_reason is not None and claim.rejection_reason not in RAISONS_CORRIGEABLES:
+            # Correctif du tour 2 (rapport rédiger F). **Une relance n'est due que si elle peut
+            # changer quelque chose.** Une citation `non_soutenue` ou une `conclusion_ajoutee` sont
+            # des défauts de rédaction qu'une reformulation corrige. Un `hors_objet` est un jugement
+            # de périmètre : il porte sur ce que la clause vise, pas sur la façon dont elle est
+            # rapportée, et le relancer est une dépense sûre — deux appels, ~30 s et ~0,07 € mesurés
+            # — pour un gain nul. C'est le cas nominal dès que le retrieval ramène une exclusion
+            # hors périmètre, et l'audit montre le modèle ré-émettant la même claim à l'octet près.
+            # Le vrai manque, lui, est visé par la couverture des sous-questions.
+            continue
+        # Sans raison fermée rendue par le contrôle, on ne sait pas laquelle des deux natures on a :
+        # le doute profite à la relance, comme avant ce correctif.
         for quote in claim.quotes:
             try:
                 document = corpus.documents[index.doc_of(quote.block_id)]
@@ -175,8 +189,8 @@ def _fondatrice_rejetee(verification: Verification, *, corpus: Any, index: Any) 
     return False
 
 
-def _fondatrices_omises(verification: Verification, retrieval: Any,
-                        settings: Settings) -> list[str]:
+def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Settings,
+                        parsed: ParsedQuestion) -> list[str]:
     """Blocs `garantie|exclusion` confirmés retrouvés dont aucune claim survivante ne cite un seul.
 
     Preuve finale 4.2a : la rédaction peut ne rendre qu'une définition et un segment limite —
@@ -184,8 +198,9 @@ def _fondatrices_omises(verification: Verification, retrieval: Any,
     décisionnelle confirmée. Le témoin d'AD-6 exige qu'une règle retrouvée soit rendue vérifiable,
     son applicabilité étant **calculée par le code** : une portée contraire vaut `applicable="non"`,
     jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs du retrieval ; aucun
-    vocabulaire de la question n'entre dans la décision. Dès qu'une seule fondatrice est citée par
-    une claim survivante, rien n'est signalé : la base décisionnelle existe. Ce déclencheur est
+    vocabulaire de la question n'entre dans la décision. La lecture est faite **par sous-question**
+    dès que la couverture par facette a été mesurée : une fondatrice citée pour l'une ne dit rien
+    de l'autre. Ce déclencheur est
     complémentaire de `_fondatrice_rejetee` (clause citée mais rejetée) : il couvre la clause
     jamais citée, que l'autre ne voit pas. L'adoption de la seconde vérification, elle, passe par
     la dominance générique seule (revue Codex 4.2a, B3).
@@ -195,9 +210,43 @@ def _fondatrices_omises(verification: Verification, retrieval: Any,
     if not fondatrices:
         return []
     citees = {quote.block_id for claim in verification.claims for quote in claim.quotes}
-    if citees & set(fondatrices):
-        return []
-    return fondatrices[:settings.draft_max_claims]
+    if not retrieval.facettes:
+        # Aucune couverture par facette mesurée (variante guide, repli déterministe, question à une
+        # seule sous-question) : la question **est** la sous-question, et la règle historique vaut
+        # telle quelle — une fondatrice citée quelque part prouve que la base décisionnelle existe.
+        if citees & set(fondatrices):
+            return []
+        return fondatrices[:settings.draft_max_claims]
+    # Correctif du tour 2 : la règle historique se désarmait à la **première** fondatrice citée,
+    # quel que soit le nombre de sous-questions ouvertes. Sur A16 #2, la lecture portait les deux
+    # règles, la rédaction n'en citait qu'une, et ce garde-fou se taisait parce que « une »
+    # suffisait. La base décisionnelle existe **par sous-question**, ou elle n'existe pas : une
+    # fondatrice confirmée retrouvée pour une facette que rien n'a couverte, et qu'aucune claim ne
+    # cite, est exactement la clause que la relance doit faire rendre.
+    fondatrices_confirmees = set(fondatrices)
+    omises: list[str] = []
+    for rang in _facettes_non_couvertes(verification, parsed):
+        couverture = retrieval.facette(rang)
+        if couverture is None:
+            continue
+        omises.extend(block_id for block_id in couverture.block_ids
+                      if block_id in fondatrices_confirmees and block_id not in citees
+                      and block_id not in omises)
+    return omises[:settings.draft_max_claims]
+
+
+def _blocs_juges_hors_objet(verification: Verification) -> list[str]:
+    """Les blocs qu'une affirmation rejetée `hors_objet` citait, à ne pas redemander à la relance.
+
+    Le motif de relance dit « appuie-toi sur un passage qui répond à cet objet » ; la consigne
+    permanente de la story 3.3 dit, dans le **même** message, « rends une claim courte pour ce bloc,
+    même si sa portée semble différente du cas ». Les deux se contredisent, et l'audit montre le
+    modèle ré-émettant la claim rejetée à l'octet près. La contradiction se ferme ici, avec le seul
+    fait typé qui la distingue : la raison fermée du rejet.
+    """
+    return list(dict.fromkeys(
+        quote.block_id for claim in verification.rejected_claims
+        if claim.rejection_reason == "hors_objet" for quote in claim.quotes))
 
 
 def _facettes_non_couvertes(verification: Verification, parsed: ParsedQuestion) -> list[int]:
@@ -271,13 +320,23 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
                              settings.draft_max_segments - len(limites_acquises)))
 
     ecartees = 0
+    reconduites = 0
+    # Ce que les acquis prouvent déjà, passage par passage. Une claim de relance n'est retenue que
+    # si elle **apporte un passage nouveau** : c'est ce qui distingue une correction (une citation
+    # mieux recopiée, une autre clause) d'une reconduction reformulée, que la comparaison
+    # byte-exacte laissait passer et qui dédoublait la réponse servie.
+    preuves = set().union(*(claim.preuve for claim in claims)) if claims else set()
     for claim in relance.claims:
+        apport = claim.preuve - preuves
+        if not apport:
+            # Aucun passage que les acquis ne portent déjà : c'est une reconduction, quelle que
+            # soit sa formulation. Une affirmation réellement neuve sur un passage déjà cité est le
+            # prix de cette règle, et il est assumé : la place est comptée (`draft_max_claims`), et
+            # une réponse qui se répète coûte plus cher à qui la lit qu'une nuance perdue.
+            reconduites += 1
+            continue
         if claim.claim_id in utilises:
-            # Même contenu : le modèle a bien reconduit l'acquis, ne le duplique pas. Contenu
-            # différent : sa correction reste contrôlable sous un identifiant non ambigu.
-            ancienne = next(c for c in claims if c.claim_id == claim.claim_id)
-            if ancienne.text == claim.text and ancienne.quotes == claim.quotes:
-                continue
+            # La correction reste contrôlable sous un identifiant non ambigu.
             if len(claims) >= borne_factuels:
                 ecartees += 1
                 continue
@@ -287,6 +346,12 @@ def _reconduire_acquis(draft: AnswerDraft, relance: AnswerDraft, acquise: Verifi
             continue
         utilises.add(claim.claim_id)
         claims.append(claim)
+        preuves |= apport
+    if reconduites:
+        step.checks.append(CheckResult(
+            name="acquis_reconduits", ok=True,
+            detail=f"{reconduites} affirmation(s) de la relance n'apportent aucun passage que les "
+                   "acquis ne citent déjà : reconduction, non dupliquée dans la réponse"))
     if ecartees:
         step.checks.append(CheckResult(
             name="corrections_non_retenues", ok=False,
@@ -439,6 +504,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     relances = 0
     truncated = False
     intent: str | None = None
+    # La question comprise, dès qu'elle existe : `tracer()` en publie les termes et le
+    # découpage, y compris sur les chemins d'erreur où seule la trace partielle sort.
+    question_comprise: ParsedQuestion | None = None
 
     def echeance(avant: str) -> None:
         """AD-1/AD-9 : la deadline monotone est vérifiée **avant** chaque étape, jamais après coup."""
@@ -469,6 +537,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             dictionnaire=dictionnaire_de(
                 dictionnaire, doc_id,
                 court_circuit_autorise=False),
+            # Correctif du tour 2 : ce que *comprendre* a décidé, et dont tout le reste
+            # dépend. Sans ces deux listes, trois réponses différentes à la même question
+            # ne se rejouent pas — même avec l'audit.
+            termes=(question_comprise.termes_de_recherche()
+                    if question_comprise is not None else []),
+            facettes=(list(question_comprise.facettes)
+                      if question_comprise is not None else []),
         )
 
     def absence(kind: str, parsed: ParsedQuestion | None) -> AbsenceProof:
@@ -523,7 +598,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
 
     async def chaine() -> tuple[Answer, Trace]:
         """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
-        nonlocal relances, truncated, intent
+        nonlocal relances, truncated, intent, question_comprise
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
         # Ni historique ni profil : un dossier de sinistre n'est pas une conversation, et le profil du
@@ -534,6 +609,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                    prompt="comprendre_sinistre", faits=faits)
         steps.append(step_comprendre)
         intent = parsed.intent
+        if isinstance(parsed, ParsedQuestion):
+            question_comprise = parsed
 
         if isinstance(parsed, ClarificationRequise):
             # Seul refus qui ne publie **aucun** fait compris, et ce n'est pas un oubli (revue 1.9) :
@@ -654,6 +731,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         rangs_non_couverts = _facettes_non_couvertes(verification, parsed)
         retrieval_relance = retrieval
         consigne_facette: str | None = None
+        blocs_des_facettes: list[str] = []
         if rangs_non_couverts:
             complement_facettes, step_facettes = couvrir_facettes(
                 parsed, retrieval=retrieval, corpus=corpus, index=index, budget=borne_retrieval,
@@ -674,23 +752,11 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 "truncated": truncated,
                 "discarded_block_ids": list(complement_facettes.discarded_block_ids)})
             retrieval_relance = complement_facettes.model_copy(update={"truncated": truncated})
-            blocs_des_facettes = list(dict.fromkeys(
+            blocs_des_facettes[:] = list(dict.fromkeys(
                 block_id for rang in rangs_non_couverts
                 for block_id in (complement_facettes.facette(rang).block_ids
                                  if complement_facettes.facette(rang) is not None else ())))
-            if blocs_des_facettes:
-                # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du
-                # corpus typé, jamais de la question ni du libellé de la facette — la consigne
-                # nomme des blocs à rendre vérifiables, exactement comme celle de la story 3.3.
-                consigne_facette = (
-                    f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
-                    "affirmation affichée, alors que la lecture porte pour elles des clauses "
-                    "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
-                    "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
-                    "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
-                    "applicabilité au dossier — le code la calcule. Conserve les affirmations "
-                    "déjà acquises.")
-            elif complement_facettes.facettes:
+            if not blocs_des_facettes and complement_facettes.facettes:
                 # Fin de chaîne honnête : rien de décisionnel n'existe dans le contrat lu pour ces
                 # sous-questions, et aucune relance de *rédiger* ne peut le fabriquer. La réponse
                 # le dit — *vérifier* dépose la lacune `facettes_sans_clause` sur la déclaration
@@ -707,7 +773,37 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                            "aucune relance de rédiger ne peut les couvrir, l'absence est dite"))
 
         # --- relance unique (AD-3) ------------------------------------------
-        omises = _fondatrices_omises(verification, retrieval, settings)
+        omises = _fondatrices_omises(verification, retrieval_relance, settings, parsed)
+        # Les deux consignes disent deux choses différentes et ne doivent pas dire la même deux
+        # fois : `omises` nomme les **fondatrices** qu'aucune claim ne cite (leur consigne est celle
+        # de la story 3.3, la plus précise) ; ce qui reste des blocs décisionnels d'une facette non
+        # couverte — conditions, franchises, fondatrices déjà citées ailleurs — relève de la
+        # consigne de facette. Un identifiant n'apparaît donc que dans l'une des deux.
+        blocs_des_facettes = [block_id for block_id in blocs_des_facettes
+                              if block_id not in set(omises)]
+        # Correctif du tour 2 : **la sous-question restée sans réponse est nommée.** Le motif ne
+        # savait dire que « telle claim a été rejetée » ; il ne disait jamais « il te reste cette
+        # sous-question à traiter », et le rédacteur ne recevait pas non plus le découpage. La ligne
+        # est composée par le code (AD-15), depuis les libellés que *comprendre* a arrêtés avant
+        # tout retrieval, déjà bornés en nombre et en longueur ; elle voyage sous `untrusted()`
+        # comme tout le motif.
+        libelles_manquants = [parsed.facettes[rang] for rang in rangs_non_couverts
+                              if 0 <= rang < len(parsed.facettes) and parsed.facettes[rang].strip()]
+        consigne_facettes_nommees = (
+            "Sous-question(s) de la demande restée(s) sans affirmation affichée, à traiter "
+            "explicitement : " + " ; ".join(libelles_manquants) + "."
+        ) if libelles_manquants else None
+        if blocs_des_facettes:
+            # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du corpus
+            # typé, jamais de la question — la consigne nomme des blocs à rendre vérifiables.
+            consigne_facette = (
+                f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
+                "affirmation affichée, alors que la lecture porte pour elles des clauses "
+                "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
+                "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
+                "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
+                "applicabilité au dossier — le code la calcule. Conserve les affirmations "
+                "déjà acquises.")
         if omises and len(verification.claims) >= settings.draft_max_claims:
             # Revue Codex 4.2a (B1) : la fusion doit reconduire **tous** les acquis et au moins une
             # correction fondatrice. Quand les affirmations retenues occupent déjà
@@ -776,11 +872,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     "déclaré.")
                 motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
                                  else consigne_fondatrice)
-            if consigne_facette is not None:
-                motif_relance = (f"{motif_relance}\n{consigne_facette}" if motif_relance
-                                 else consigne_facette)
+            for consigne in (consigne_facettes_nommees, consigne_facette):
+                if consigne is not None:
+                    motif_relance = (f"{motif_relance}\n{consigne}" if motif_relance
+                                     else consigne)
             acquise = verification
             appels_avant = budget.attempts
+            redaction_relancee = False
             try:
                 if budget.remaining() <= settings.llm_retry_margin_s:
                     raise Timeout(f"marge insuffisante pour la relance ({budget.remaining():.1f} s restantes)")
@@ -797,11 +895,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                                                         index=index, doc_id=doc_id, settings=settings,
                                                         motif=motif_relance,
                                                         blocs_a_conserver=sorted(blocs_cites(acquise)),
+                                                        blocs_hors_objet=_blocs_juges_hors_objet(acquise),
                                                         prompt="rediger_sinistre")
                 draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings,
                                              step=step_rediger_2)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
+                redaction_relancee = True
                 relances += 1
                 if draft_2.digest() == draft.digest():
                     step_rediger_2.checks.append(CheckResult(
@@ -825,7 +925,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     # peut reculer, ce qui est exactement le vide qu'une lecture tronquée
                     # transformait en 503.
                     relance_trouve_clause = seconde.found and not acquise.found
-                    if relance_trouve_clause or domine(seconde, acquise):
+                    if relance_trouve_clause or domine(seconde, acquise,
+                                                       redaction_nouvelle=True):
                         verification = seconde
                         # La lecture servie est celle que cette vérification-là a réellement vue :
                         # le complément de facettes n'est adopté qu'avec elle.
@@ -850,19 +951,42 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             except (BudgetExceeded, Timeout, LlmParse, LlmUnavailable) as exc:
                 # Même partage qu'au guide (AD-16, revue Codex 1.5, B5) : un appel **commencé** qui
                 # échoue reste terminal, une relance qui n'a jamais démarré laisse l'acquis servir.
-                commence = budget.attempts > appels_avant or (exc.step is not None and bool(exc.step.calls))
-                if commence:
+                #
+                # **Amendement d'AD-16 (correctif du tour 2, rapport rédiger B), écrit comme tel.**
+                # Une exception : quand la **rédaction relancée a abouti** et que seule sa
+                # vérification échoue, la première vérification existe et elle est servable. La
+                # relance est discrétionnaire — le pipeline l'a décidée, l'utilisateur ne l'a pas
+                # demandée — et jeter une réponse acquise, vérifiée et complète parce qu'une
+                # amélioration facultative a expiré est le contraire de ce que la règle protège. Le
+                # cas est réel : un `APITimeoutError` sur un second *vérifier* mesuré à 26,3 s
+                # (A16 #2) transforme un 200 valide en 503, à 34 % de marge sous `llm_timeout_s`.
+                # La réponse acquise est donc servie, **jamais donnée pour complète** (même lacune
+                # typée que la relance non démarrée), et l'échec reste nommé dans la trace avec son
+                # étape et son coût. Si l'acquis n'a **rien** trouvé, il n'y a rien à servir : la
+                # règle d'origine s'applique sans exception.
+                if redaction_relancee and acquise.found:
                     if exc.step is not None:
                         steps.append(exc.step)
-                    exc.trace = tracer()
-                    raise
-                verification = relance_abandonnee(acquise)
-                step_verifier.checks.append(CheckResult(
-                    name="relance_abandonnee", ok=False,
-                    detail=f"relance de rédiger non démarrée ({exc.code.value}) : "
-                           f"la première vérification fait foi — {exc.message}"))
-                if not verification.found:
-                    step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
+                    verification = relance_abandonnee(acquise)
+                    step_verifier.checks.append(CheckResult(
+                        name="relance_abandonnee", ok=False,
+                        detail=f"la vérification de la relance a échoué ({exc.code.value}) : la "
+                               f"première vérification, servable, fait foi — {exc.message}"))
+                else:
+                    commence = (budget.attempts > appels_avant
+                                or (exc.step is not None and bool(exc.step.calls)))
+                    if commence:
+                        if exc.step is not None:
+                            steps.append(exc.step)
+                        exc.trace = tracer()
+                        raise
+                    verification = relance_abandonnee(acquise)
+                    step_verifier.checks.append(CheckResult(
+                        name="relance_abandonnee", ok=False,
+                        detail=f"relance de rédiger non démarrée ({exc.code.value}) : "
+                               f"la première vérification fait foi — {exc.message}"))
+                    if not verification.found:
+                        step_verifier.checks[-1].detail += " ; aucune affirmation n'avait survécu"
 
         # --- demande de contexte typée (story 4.2e) --------------------------
         # **Après** la relance d'AD-3, et jamais dans son chemin : ce sont deux mécanismes distincts.
@@ -1069,6 +1193,20 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         if exc.trace is None:
             exc.trace = tracer()
         raise
+    except Exception as exc:  # noqa: BLE001 — la garde d'AD-16, pas un avalement
+        # Correctif du tour 2 (rapport citations, B3). **Aucune exception ne sort nue de la
+        # chaîne.** Une `ValidationError` échappée d'une étape — l'incident réel du 02/09/2026 —
+        # remontait jusqu'à la couche HTTP sans être un `PipelineError` : l'utilisateur recevait un
+        # 500 « erreur interne », **sans trace partielle**, après une minute payée, et aucun
+        # diagnostic n'était possible. AD-16 exige une trace partielle sur tout échec terminal ; la
+        # règle ne peut pas dépendre du type d'exception qu'un défaut interne aura pris.
+        #
+        # Ce n'est pas un avalement : l'erreur reste terminale et le code publié reste `internal`
+        # (donc un 500, et `MESSAGE_INTERNE` côté client — rien du message d'origine n'est publié,
+        # AD-15). Ce qui change est que la trace part avec, comme pour toute autre panne.
+        interne = PipelineError(ErrorCode.internal, f"{type(exc).__name__} dans la chaîne sinistre")
+        interne.trace = tracer()
+        raise interne from exc
 
 
 def _verdict_par_defaut(verification: Verification,

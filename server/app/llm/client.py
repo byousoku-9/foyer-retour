@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import time
 import uuid
@@ -53,7 +54,7 @@ PROVIDER_ERRORS: dict[type[Exception], ErrorCode] = {
     anthropic.DeadlineExceededError: ErrorCode.llm_unavailable,  # 504
     anthropic.AuthenticationError: ErrorCode.llm_unavailable,  # 401
     anthropic.PermissionDeniedError: ErrorCode.llm_unavailable,  # 403
-    anthropic.BadRequestError: ErrorCode.internal,  # 400 : notre requête est fausse
+    anthropic.BadRequestError: ErrorCode.internal,  # 400 : notre requête est fausse (sauf compte)
     anthropic.NotFoundError: ErrorCode.internal,  # 404
     anthropic.UnprocessableEntityError: ErrorCode.internal,  # 422
     anthropic.RequestTooLargeError: ErrorCode.internal,  # 413
@@ -65,10 +66,79 @@ PROVIDER_ERRORS: dict[type[Exception], ErrorCode] = {
 }
 
 
+# Correctif du tour 2 (rapport citations, C1). **Tous les 400 ne disent pas la même chose.** Un 400
+# « notre requête est fausse » est bien un défaut interne : il se reproduira à l'identique, et le
+# corriger nous incombe. Un 400 qui dit que le **compte** ne peut pas servir — crédit épuisé,
+# facturation suspendue — n'a rien à voir avec la requête : c'est une indisponibilité du
+# fournisseur, exactement comme un 429 ou un 503, et les deux fronts servent déjà la bonne phrase
+# pour ce cas-là. Le classer `internal` faisait lire « le serveur n'a pas pu traiter cette demande »
+# à l'utilisateur et ne laissait à l'exploitant qu'un nom de classe : la phrase du fournisseur
+# n'existait **nulle part** — ni en réponse, ni en log, ni en audit. C'est le défaut qui a déjà
+# coûté une démonstration.
+#
+# Les marqueurs sont le **vocabulaire du fournisseur**, lu dans le corps de sa propre erreur —
+# jamais du texte de document. La liste est fermée et fail-closed : un 400 qu'elle ne reconnaît pas
+# reste `internal`, c'est-à-dire le comportement d'avant ce correctif.
+MARQUEURS_COMPTE_FOURNISSEUR: tuple[str, ...] = ("credit balance", "billing", "quota")
+# Borne de **forme** du diagnostic journalisé : au-delà, ce n'est plus un message d'erreur destiné à
+# un humain, c'est un corps de réponse qui inonde le journal. Ce n'est pas un seuil de produit
+# — rien ne s'y règle, aucune mesure ne le déplace —, il vit donc avec le seul code qui l'emploie,
+# comme `LISTE_MAX_ITEMS` vit avec le schéma qu'il borne.
+DIAGNOSTIC_LOG_MAX_CHARS = 500
+
+
+def _diagnostic_fournisseur(exc: Exception) -> tuple[str, str]:
+    """`(type, message)` tels que le fournisseur les a écrits, ou deux chaînes vides.
+
+    Rien de ceci n'est **publié** (AD-15) : ni dans l'enveloppe d'erreur, ni dans la trace. C'est
+    l'exploitant qui doit pouvoir lire « credit balance is too low » dans son journal, au lieu d'un
+    nom de classe qui ne dit rien de ce qui s'est passé.
+    """
+    corps = getattr(exc, "body", None)
+    erreur = corps.get("error") if isinstance(corps, dict) else None
+    if not isinstance(erreur, dict):
+        return "", ""
+    type_ = erreur.get("type")
+    message = erreur.get("message")
+    return (type_ if isinstance(type_, str) else "",
+            message if isinstance(message, str) else "")
+
+
+def _compte_fournisseur_indisponible(exc: Exception) -> bool:
+    """Ce 400 dit-il que le **compte** ne peut pas servir, plutôt que que notre requête est fausse ?"""
+    _type, message = _diagnostic_fournisseur(exc)
+    return any(marqueur in message.casefold() for marqueur in MARQUEURS_COMPTE_FOURNISSEUR)
+
+
+_logger = logging.getLogger("foyer.llm")
+
+
+def journaliser_diagnostic(exc: Exception) -> None:
+    """Écrit le diagnostic du fournisseur **dans le journal du serveur**, jamais dans la réponse.
+
+    AD-15 interdit de *publier* ce que le fournisseur renvoie ; il n'interdit pas de le
+    *conserver* — c'est la même distinction que pour l'audit exact. Sans cette ligne, « credit
+    balance is too low » n'existait nulle part : ni en réponse, ni en log, ni en audit, et
+    l'exploitant ne lisait qu'un nom de classe. Le message est borné pour qu'un corps volumineux
+    n'inonde pas le journal ; le corps lui-même n'est jamais écrit, seulement les deux champs que le
+    fournisseur destine à un humain.
+    """
+    type_, message = _diagnostic_fournisseur(exc)
+    if not type_ and not message:
+        return
+    request_id = getattr(exc, "request_id", None)
+    _logger.warning("diagnostic fournisseur (request_id=%s) %s: %s",
+                    request_id or "absent", type_ or "sans type",
+                    message[:DIAGNOSTIC_LOG_MAX_CHARS] or "sans message")
+
+
 def map_provider_error(exc: Exception) -> PipelineError:
     """Erreur SDK → erreur typée du domaine ; message = classe SDK + request_id, jamais la clé ni le corps."""
+    journaliser_diagnostic(exc)
     request_id = getattr(exc, "request_id", None)
     message = f"{type(exc).__name__} (request_id={request_id or 'absent'})"
+    if isinstance(exc, anthropic.BadRequestError) and _compte_fournisseur_indisponible(exc):
+        return LlmUnavailable(message, code=ErrorCode.llm_unavailable)
     for cls in type(exc).__mro__:
         code = PROVIDER_ERRORS.get(cls)
         if code is None:

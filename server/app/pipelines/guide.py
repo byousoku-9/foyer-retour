@@ -27,6 +27,7 @@ from typing import Any
 from server.app.config import RETRIEVAL_DEFAULT, Settings
 from server.app.domain.answer import AbsenceProof, Answer
 from server.app.domain.errors import (
+    ErrorCode,
     BudgetExceeded,
     # `TruncatedRead` n'est plus levée ici (story 4.2f) : une lecture bornée sans claim survivante est
     # désormais une réponse 200 typée. Le type reste dans `domain/errors.py` — il est le contrat du
@@ -190,6 +191,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
     # (`ParsedQuestion` ou `ClarificationRequise` : les deux portent un `intent`), et reste `None` si
     # l'étape n'a pas abouti.
     intent: str | None = None
+    # La question comprise, dès qu'elle existe : `tracer()` en publie les termes et le
+    # découpage, y compris sur les chemins d'erreur où seule la trace partielle sort.
+    question_comprise: ParsedQuestion | None = None
     # Politique par requête, publiée par `DictionnaireTrace` autant qu'appliquée au pré-contrôle.
     # Initialisée avant `tracer()` pour que les traces partielles précédant *comprendre* restent sûres.
     hors_perimetre_desarme = False
@@ -226,6 +230,13 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             dictionnaire=dictionnaire_de(
                 dictionnaire, doc_id,
                 court_circuit_autorise=not hors_perimetre_desarme),
+            # Correctif du tour 2 : ce que *comprendre* a décidé, et dont tout le reste
+            # dépend. Sans ces deux listes, trois réponses différentes à la même question
+            # ne se rejouent pas — même avec l'audit.
+            termes=(question_comprise.termes_de_recherche()
+                    if question_comprise is not None else []),
+            facettes=(list(question_comprise.facettes)
+                      if question_comprise is not None else []),
         )
 
     def refuser(kind: str, parsed: ParsedQuestion | None, *, language: str,
@@ -241,7 +252,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
     async def chaine() -> tuple[Answer, Trace]:
         """Les cinq étapes. Sortie normale : un `Answer` et sa `Trace`. Échec terminal : `PipelineError`."""
-        nonlocal relances, truncated, intent, hors_perimetre_desarme
+        nonlocal relances, truncated, intent, hors_perimetre_desarme, question_comprise
         # --- comprendre -----------------------------------------------------
         echeance("comprendre")
         # Le périmètre annoncé à *comprendre* vient du **corpus** (story 2.1) : `Corpus.perimetres`
@@ -262,6 +273,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                                                    parcours=corpus.documents[doc_id].parcours)
         steps.append(step_comprendre)
         intent = parsed.intent  # AD-10 : les deux sorties de *comprendre* en portent un
+        if isinstance(parsed, ParsedQuestion):
+            question_comprise = parsed
 
         # AD-5 : deux sorties typées exclusives. Une question non autonome n'atteint jamais *retrouver*.
         if isinstance(parsed, ClarificationRequise):
@@ -626,3 +639,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         if exc.trace is None:
             exc.trace = tracer()
         raise
+    except Exception as exc:  # noqa: BLE001 — la garde d'AD-16, pas un avalement
+        # Correctif du tour 2 : la même garde qu'au sinistre, et pour la même raison — l'étape
+        # partagée `retrouver_outils` est celle qui a laissé échapper une `ValidationError` en réel.
+        # L'erreur reste terminale et `internal` ; seule sa trace partielle cesse de disparaître.
+        interne = PipelineError(ErrorCode.internal, f"{type(exc).__name__} dans la chaîne guide")
+        interne.trace = tracer()
+        raise interne from exc

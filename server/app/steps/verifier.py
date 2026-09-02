@@ -806,15 +806,16 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             claims.append(VerifiedClaim(claim_id=claim.claim_id, text=claim.text, quotes=quotes,
                                         status=status, line_ids=line_ids))
             continue
-        motif = (MOTIFS_NON_PERTINENCE.get(
-            raisons.get(claim.claim_id, ""), MOTIF_NON_PERTINENCE_GENERIQUE)
+        raison_fermee = raisons.get(claim.claim_id) if pertinente is False else None
+        motif = (MOTIFS_NON_PERTINENCE.get(raison_fermee or "", MOTIF_NON_PERTINENCE_GENERIQUE)
                  if pertinente is False else
                  "pertinence non rendue par le contrôle groupé : l'affirmation est écartée plutôt que devinée")
         # Ces quotes **ont** été retrouvées : leurs offsets et `line_ids` sont conservés, c'est ce qui
         # rend la claim « affichable par le front » comme AD-3 le demande.
         rejetees.append(RejectedClaim(
             claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), status=status,
-            line_ids=line_ids, rejection_kind="non_pertinente", motif=motif))
+            line_ids=line_ids, rejection_kind="non_pertinente",
+            rejection_reason=raison_fermee, motif=motif))
     # Une claim que la borne `verifier_max_claims` a laissée hors du contrôle groupé n'a rien à
     # corriger : elle n'a pas été jugée. La faire figurer dans le motif de relance demanderait au
     # modèle de réparer une décision qui est la nôtre (revue 1.5).

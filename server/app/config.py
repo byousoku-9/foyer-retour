@@ -295,8 +295,43 @@ class Settings(BaseSettings):
     # Revue Codex 1.8 (B3, tour 2) : une qualité établie porte désormais **avec elle** le fragment des
     # faits qui l'établit (`fait_cite`, relu par le code). Un bloc d'applicabilité peut donc rendre
     # jusqu'à `qualites_exigees_max` libellés de plus, chacun borné par `fait_manquant_max_chars` —
-    # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072.
-    verifier_sinistre_max_tokens: int = Field(3072, ge=1)
+    # ~90 tokens de plus par qualité établie, soit ~1 200 tokens de plus au pire : 3 072 de **JSON**.
+    #
+    # **Correctif du tour 2 (rapport rédiger C) : ce calcul ne réservait rien pour la réflexion.**
+    # La réflexion étendue de Sonnet 5 est comptée par le fournisseur **dans le même `max_tokens`**
+    # que la sortie — c'est exactement pour cela que `verifier_max_tokens` a été corrigé le matin du
+    # 02/09/2026, sans que la dérivation sinistre soit reprise. Mesuré sur les 20 appels
+    # `verifier_sinistre` audités : la réflexion représente 55 à 91 % de la sortie, **1 904 tokens
+    # au maximum observé**, pour 300 à 1 100 caractères de JSON utile. La borne « tenait » par
+    # accident : `draft_max_claims = 4` rend inatteignables les 8 claims du calcul, et la moitié de
+    # budget ainsi libérée absorbait la réflexion. Elle ne tiendrait plus si `draft_max_claims`
+    # montait, et une sortie tronquée est un `LlmParse` terminal — donc un 503 sur un sinistre
+    # nominal. La borne est donc `contrat JSON + réserve de réflexion`, sur le patron de
+    # `structure_thinking_reserve_tokens`, avec une réflexion **mesurée** et non déduite.
+    #
+    # `max_tokens` ne facture pas : seul le majorant de préflight bouge.
+    #
+    # Le contrat JSON est **redimensionné sur ce que le sinistre peut réellement produire** :
+    # `draft_max_claims` (4), et non `verifier_max_claims` (8) qu'il ne peut pas atteindre — c'est
+    # cette confusion qui donnait 3 072 et qui masquait l'absence de réserve. À quatre claims :
+    # 4 verdicts (~25), 4 phrases soutenues (~15), 4 facettes (~30), et 4 blocs d'applicabilité
+    # portant chacun jusqu'à `qualites_exigees_max` qualités avec leur `fait_cite` borné par
+    # `fait_manquant_max_chars` (~90 tokens la qualité) ≈ 1 880, plus la ponctuation JSON : 2 048.
+    verifier_sinistre_json_tokens: int = Field(2048, ge=1)
+    # 2 048 pour 1 904 mesurés : ~7 % de marge, sur une mesure qui ne couvre qu'un contrat et un
+    # cas-témoin. `[HYPOTHÈSE]`, à resserrer quand d'autres cas décisoires auront été joués.
+    #
+    # La somme vaut **exactement** `llm_max_output_tokens` (4 096), et c'est voulu : le contrôle de
+    # cohérence mord désormais. Toute croissance future de `draft_max_claims`, de
+    # `qualites_exigees_max` ou de la réflexion mesurée exigera de relever d'abord le plafond du
+    # client — au lieu de rogner en silence sur la réflexion, ce qui tronque la sortie et rend un
+    # `LlmParse` terminal sur un sinistre nominal.
+    verifier_thinking_reserve_tokens: int = Field(2048, ge=0)
+
+    @property
+    def verifier_sinistre_max_tokens(self) -> int:
+        """Le plafond réellement envoyé : le contrat JSON **plus** la réflexion qu'il faut payer."""
+        return self.verifier_sinistre_json_tokens + self.verifier_thinking_reserve_tokens
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
@@ -324,6 +359,20 @@ class Settings(BaseSettings):
     # et la dire absente est alors la réponse honnête. `[HYPOTHÈSE]`, à régler aux témoins comme
     # `max_opens` lui-même.
     facette_max_opens: int = Field(2, ge=1)
+    # Correctif du tour 2 (R1) : la part du budget de lecture que la couverture par facette peut
+    # **garder** avant la navigation, pour que l'unité décisionnelle de chaque sous-question ne soit
+    # pas mangée par les voisins de fenêtre et les définitions suivies automatiquement — mesuré sur
+    # les trois runs A16 : 99,8 % du budget de tokens consommé, dont 39 % de lexique, quand la clause
+    # manquante en coûtait 210.
+    #
+    # C'est une **réallocation bornée**, jamais une capacité de plus : `retrieval_max_blocks` et
+    # `retrieval_max_tokens` ne bougent pas. La borne existe pour la même raison que
+    # `profil_max_opens < max_opens` — une réserve qui prendrait tout le budget ne classerait plus
+    # la lecture, elle la remplacerait, et le navigateur ne rapporterait plus rien de son propre
+    # choix. La moitié laisse largement la place : quatre unités décisionnelles du contrat servi
+    # coûtent ~1 000 tokens sur 3 500 (29 %), et une seule ~210 (6 %). `[HYPOTHÈSE]`, à régler aux
+    # témoins comme les autres bornes de l'étape.
+    facette_reserve_max_part: float = Field(0.5, gt=0, le=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses
@@ -362,16 +411,30 @@ class Settings(BaseSettings):
     # est servie sans être donnée pour complète. Le mécanisme reste fail-closed ; ce qu'il perd, ce
     # n'est jamais une garantie, c'est une chance de relire. Relever ce plafond est une décision de
     # coût, mesurable par l'orchestrateur, qui appartient au gate 4.5.
-    # **9, et non 8 (02/09/2026, tour « budgets Sonnet »).** La séquence la plus longue en consomme
-    # exactement huit — *comprendre*, les deux tours de navigation, *rédiger*, *vérifier*, la relance
-    # d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e (`APPELS_DE_LA_REPRISE` = 1) — si
-    # bien qu'à 8 le premier retry motivé d'un parse invalide (AD-16, « 1 retry ») n'avait plus de
-    # place : il ressortait en `BudgetExceeded` terminal sur un chemin conforme. 9 est le **minimum**
-    # qui rend ce retry survivable, et c'est délibérément le minimum : une unité de plus autoriserait
-    # un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste ailleurs et
-    # s'applique avant chaque envoi (`max_cost_eur_per_request`).
-    max_llm_attempts: int = Field(9, ge=1)
-    max_llm_turns: int = Field(2, ge=1, le=2)
+    # **10, et non 9 (02/09/2026, correctif du tour 2).** La séquence la plus longue en consomme
+    # exactement neuf — *comprendre*, les **trois** tours de navigation (`max_llm_turns`, dont le
+    # tour de conclusion sans lequel aucun verdict de suffisance n'est atteignable), *rédiger*,
+    # *vérifier*, la relance d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e
+    # (`APPELS_DE_LA_REPRISE` = 1). Le plafond est donc `9 + 1`, et ce `+1` est le premier retry
+    # motivé d'un parse invalide (AD-16, « 1 retry ») : sans lui, il ressortait en `BudgetExceeded`
+    # terminal sur un chemin conforme. C'est délibérément le **minimum** : une unité de plus
+    # autoriserait un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste
+    # ailleurs et s'applique avant chaque envoi (`max_cost_eur_per_request`).
+    max_llm_attempts: int = Field(10, ge=1)
+    # Correctif du tour 2 (cause R2/R5). **À deux tours, le verdict terminal de la navigation est
+    # inatteignable** : le tour 0 cherche, le tour 1 ouvre, et les résultats du tour 1 ne sont
+    # jamais réinjectés (le dialogue s'arrête). Le navigateur ne voit donc jamais ce qu'il a ouvert,
+    # ne peut constater aucun manque par sous-question, et ne rend aucun verdict — les trois runs
+    # A16 montrent deux appels et une suffisance toujours refusée, donc le bandeau « je n'ai pas pu
+    # lire tout ce qui pouvait concerner votre question » sur une réponse parfaitement sourcée.
+    #
+    # Coût du troisième tour : **un appel `reason` de plus, et seulement quand le navigateur a
+    # encore appelé un outil au deuxième**. Mesuré sur les traces A16, l'étape *retrouver* coûte
+    # 0,047 € et 8,5-9,9 s pour deux appels ; le tour de conclusion en ajoute donc ~0,015-0,024 € et
+    # ~2-5 s, sur une requête à 0,17-0,20 € et 60-74 s — soit ~+10 % de coût et ~+5 % de latence au
+    # pire, sur une deadline de 100 s dont 26 à 40 restaient libres. Ce tour n'ouvre pas plus : il
+    # reste borné par `max_opens`, `retrieval_max_blocks` et `retrieval_max_tokens`.
+    max_llm_turns: int = Field(3, ge=1, le=3)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
     # Le triplet servi vient d'un artefact versionné unique. Les champs restent surchargeables par
@@ -385,6 +448,19 @@ class Settings(BaseSettings):
     # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink
     # mémoire et ne crée jamais ce fichier (AD-10/AD-15). Rotation et rétention bornent le disque.
     llm_audit_path: Path = REPO_ROOT / ".audit" / "llm-calls.jsonl"
+    # Correctif du tour 2 (défaut 9 des trois rapports). **Le témoin qui porte le plancher était le
+    # seul chemin sans audit exact.** Le sink `JsonlAuditSink` n'était câblé que dans le runner
+    # d'évals ; le service HTTP prenait le défaut `ProjectionAuditSink`, qui n'écrit rien. Les trois
+    # runs A16 portent donc `audit_persisted: false` sur chacun de leurs appels, et aucune des trois
+    # enquêtes n'a pu produire les termes réellement cherchés, les nœuds ouverts tour par tour ni le
+    # verdict du navigateur — tout a dû être déduit ou rejoué hors ligne.
+    #
+    # L'enveloppe exacte contient question, historique et blocs : elle ne doit jamais quitter la
+    # machine (AD-10/AD-15), et le fichier est écrit en 0600 avec taille et rétention bornées. Le
+    # défaut suit donc l'environnement — actif hors production, désarmé en production — et reste
+    # réglable explicitement dans les deux sens. Ce n'est pas de la donnée publiée : c'est de la
+    # donnée **conservée**, et la distinction est exactement celle qu'AD-15 fait déjà.
+    llm_audit_exact: bool | None = None
     llm_audit_max_bytes: int = Field(16 * 1024 * 1024, ge=1)
     llm_audit_retention_files: int = Field(4, ge=1)
     retrieval_mechanism_order: str = "dictionnaire,faq,sommaire,outils"
@@ -1072,6 +1148,19 @@ class Settings(BaseSettings):
         """
         return bool(self.allow_ungated) or self.env == "dev"
 
+    @property
+    def audit_exact_actif(self) -> bool:
+        """L'audit exact est-il écrit sur disque pour cette configuration ?
+
+        `None` — le défaut — suit l'environnement : actif partout sauf en production, où l'enveloppe
+        exacte (question, historique, blocs) n'a rien à faire sur un disque partagé. Un booléen
+        explicite tranche dans les deux sens, y compris pour l'armer en production le temps d'un
+        diagnostic — c'est une décision d'exploitation, elle se prend, elle ne se devine pas.
+        """
+        if self.llm_audit_exact is not None:
+            return self.llm_audit_exact
+        return self.env != "prod"
+
     def thresholds(self) -> dict[str, float | int]:
         """Seuils actifs, tels qu'exposés dans `Trace.thresholds`."""
         return {
@@ -1084,6 +1173,7 @@ class Settings(BaseSettings):
             "max_opens": self.max_opens,
             "profil_max_opens": self.profil_max_opens,
             "facette_max_opens": self.facette_max_opens,
+            "facette_reserve_max_part": self.facette_reserve_max_part,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,
@@ -1114,6 +1204,7 @@ class Settings(BaseSettings):
             "retrouver_outils_tier_reason": int(self.retrouver_outils_tier == "reason"),
             "retrieval_prompt_cache": int(self.retrieval_prompt_cache),
             "llm_audit_max_bytes": self.llm_audit_max_bytes,
+            "llm_audit_exact": int(self.audit_exact_actif),
             "llm_audit_retention_files": self.llm_audit_retention_files,
             "llm_max_output_tokens": self.llm_max_output_tokens,
             "llm_retry_margin_s": self.llm_retry_margin_s,
@@ -1122,6 +1213,8 @@ class Settings(BaseSettings):
             "verifier_max_tokens": self.verifier_max_tokens,
             "verifier_max_claims": self.verifier_max_claims,
             "verifier_sinistre_max_tokens": self.verifier_sinistre_max_tokens,
+            "verifier_sinistre_json_tokens": self.verifier_sinistre_json_tokens,
+            "verifier_thinking_reserve_tokens": self.verifier_thinking_reserve_tokens,
             "fait_manquant_max_chars": self.fait_manquant_max_chars,
             "ask_client_max": self.ask_client_max,
             "conversation_rate_limit_per_minute": self.conversation_rate_limit_per_minute,

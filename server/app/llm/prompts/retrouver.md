@@ -17,6 +17,11 @@ pas le profil brut. Quand ces nœuds apparaissent parmi les candidats de `cherch
 priorité, dans la limite de $profil_max_opens place(s) du quota global. Ils ordonnent les candidats :
 n'ouvre jamais un nœud sans hit pour le seul motif qu'il figure dans `scope.noeuds`.
 
+`facettes` liste les sous-questions déjà extraites de la question, dans l'ordre : leur position dans
+cette liste est leur rang, à partir de 0. Elles ne sont pas un style de réponse, ce sont des besoins
+distincts : une sous-question dont aucun passage décisionnel n'a été ouvert reste sans réponse même
+si une autre est parfaitement couverte. Cherche et ouvre pour **chacune**.
+
 Le dialogue est borné à $max_llm_turns tour(s). Chaque appel à `ouvrir_noeud`, pagination comprise,
 consomme le quota global de $max_opens ouverture(s). Les budgets globaux de blocs et de tokens sont
 appliqués par le code ; un résultat peut donc signaler une troncature. Regroupe dès le premier tour la
@@ -25,6 +30,12 @@ il rend uniquement un objet JSON fermé. Si un résultat admis suffit à répond
 rends `{"sufficient":true,"result_uid":"result-v1:..."}` avec exactement l'identifiant publié par
 `chercher`. Sinon rends `{"sufficient":false,"result_uid":null}`. Un arrêt, un identifiant inventé
 ou un résultat non admis ne prouve jamais la suffisance.
+
+Quand la question porte plusieurs sous-questions, ajoute `"facettes"` à ce même objet : **une entrée
+par rang**, dans l'ordre, `{"facette":0,"result_uid":"result-v1:..."}` pour celle qu'un résultat admis
+couvre, `{"facette":1,"result_uid":null}` pour celle dont tu n'as trouvé aucun passage décisionnel.
+Un `null` est une déclaration : il dit que tu as cherché et que le document ne t'a rien donné pour
+cette sous-question. N'omets aucun rang et n'en invente aucun.
 
 Sommaire versionné du document courant :
 $sommaire

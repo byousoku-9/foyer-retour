@@ -86,7 +86,7 @@ from server.app.domain.answer import DemandeContexte
 from server.app.domain.errors import BudgetExceeded, LlmParse, PipelineError
 from server.app.domain.question import ParsedQuestion
 from server.app.domain.trace import CheckResult, StepTrace
-from server.app.domain.verdict import KINDS_FONDATEURS
+from server.app.domain.verdict import KINDS_DECISIONNELS, KINDS_FONDATEURS
 from server.app.llm.client import structured_input_envelope
 from server.app.llm.models import MODEL_CAPS, STEP_TIERS, model_for
 from server.app.llm.pricing import estimate_tokens
@@ -395,6 +395,32 @@ def _classement_par_facette(*, index: Index, doc_id: str, question: str,
     return classement
 
 
+def _unite_reservable(block_id: str, *, block: Callable[[str], Block], index: Index,
+                      terms: list[str], doc_id: str, cohorte: list[str],
+                      budget: RetrievalBudget, settings: Settings,
+                      related_cache: dict[str, list[str]]) -> list[str] | None:
+    """L'unité atomique qu'une facette ferait garder pour son meilleur candidat décisionnel.
+
+    C'est **exactement** celle que la navigation admettrait pour ce bloc — même fermeture d'un
+    niveau, mêmes dépendances directes, même règle de primaire structurel. Une réserve calculée sur
+    autre chose que ce qui sera réellement admis serait une réserve fausse : elle garderait une
+    place d'une taille que personne ne dépenserait.
+
+    `None` quand le bloc n'appartient pas au document servi ou ne forme aucune unité transmissible.
+    """
+    try:
+        dependances = _dependances_directes(
+            block_id, block=block, index=index, terms=terms, doc_id=doc_id,
+            search_candidates=cohorte, related_limit=budget.search_limit,
+            related_max=settings.limite_liee_max,
+            proximity_min=settings.limite_liee_proximite_min,
+            related_cache=related_cache, search_related=True)
+        return _unite_primaire(block_id, kind=block(block_id).kind, index=index,
+                               dependances=dependances)
+    except KeyError:
+        return None
+
+
 def _couverture_facettes(mappings: list[tuple[int, dict[str, list[str]] | list[str]]], *,
                          classement: Callable[[dict[str, list[str]] | list[str]],
                                               list[ScoredHit]],
@@ -483,7 +509,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     tool_search_mappings: list[dict[str, list[str]] | list[str]] = []
     search_runs: list[list[str]] = []
     scored_hits: list[ScoredHit] = []
+    # L'identité **canonique** d'une clause : la première vue, celle qui sert au classement et à la
+    # priorité de focus. `hits_by_block` accumule, lui, **toutes** ses identités : c'est ce qui
+    # permet d'admettre la clause pour chacune d'elles (voir `record_admitted`).
     hit_by_block: dict[str, ScoredHit] = {}
+    hits_by_block: dict[str, list[ScoredHit]] = {}
     admission_by_result: dict[str, AdmissionDecision] = {}
     reserved_candidates: list[tuple[str, str]] = []
     best_hit_by_node: dict[str, str] = {}
@@ -507,11 +537,28 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # publié « des candidats sont restés fermés » sur des candidats qui n'existaient pas encore
     # quand elle a ouvert — une borne inventée après coup.
     mappings_figes: list[tuple[int, dict[str, list[str]] | list[str]]] | None = None
+    # Correctif du tour 2 (R1) : la place que la lecture **garde** pour l'unité décisionnelle de
+    # chaque facette, `block_id` du primaire → son unité atomique. Tant qu'un primaire réservé n'est
+    # pas admis, sa place n'est dépensable par personne d'autre : ni par un voisin de fenêtre, ni
+    # par une définition suivie automatiquement. Ce n'est **pas** une capacité de plus — c'est la
+    # même, allouée dans l'ordre de ce qui décide.
+    reserve_facettes: dict[str, list[str]] = {}
+    # Une unité refusée par le budget est un fait distinct d'un candidat que le navigateur a choisi
+    # de ne pas ouvrir : la trace ne doit pas dire l'un pour l'autre.
+    budget_a_refuse = False
 
     def block(block_id: str) -> Block:
         if index.doc_of(block_id) != doc_id:
             raise KeyError(block_id)
         return document.block(block_id)
+
+    def _decisionnel_confirme(block_id: str) -> bool:
+        """Ce que le corpus typé dit d'un bloc, jamais ce que son texte a l'air de dire."""
+        try:
+            candidat = block(block_id)
+        except KeyError:
+            return False
+        return candidat.kind in KINDS_DECISIONNELS and candidat.kind_confirmed
 
     def budget_snapshot() -> BudgetSnapshot:
         return BudgetSnapshot(
@@ -524,20 +571,61 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         )
 
     def record_admitted(block_id: str, reason: str) -> None:
-        hit = hit_by_block.get(block_id)
-        if hit is None or hit.result_uid in admission_by_result:
-            return
-        # Un candidat préparé par un mécanisme devient réellement présenté lorsque son bloc entre
-        # dans le résultat d'ouverture ; c'est cette frontière, et elle seule, qui publie son hit.
-        if hit.result_uid not in {existing.result_uid for existing in scored_hits}:
-            scored_hits.append(hit)
-        admission_by_result[hit.result_uid] = AdmissionDecision(
-            result_uid=hit.result_uid, state="admitted", reason=reason,
-            snapshot=budget_snapshot())
+        """Correctif du tour 2 (rapport citations, B) : une clause admise l'est pour **toutes** ses
+        identités de résultat.
 
-    def admit(unit: list[str]) -> list[str]:
-        """Admet une unité atomique sous les deux budgets ; rend ses nouveaux blocs."""
-        nonlocal blocks_used, tokens_used, truncated
+        `result_uid` dérive du `question_uid`, donc des termes de la requête : deux `chercher` aux
+        termes différents produisent **deux identités pour la même clause**. La passe mécanique
+        `sommaire` tourne avant la phase `outils` et amorçait `hit_by_block` avec une identité que le
+        navigateur ne voyait jamais ; seule celle-là était admise, et l'identité que le modèle
+        désignait à la fin recevait `rejected`. `RetrievalResult` valide la suffisance au niveau du
+        `result_uid` et levait alors une `ValidationError` — **hors** de tout `PipelineError`, donc
+        un 500 nu sur le chemin servi, sans trace partielle, après une minute payée.
+
+        « Ce bloc est entré dans le contexte » est un fait de corpus : il ne peut pas être vrai pour
+        une empreinte de requête et faux pour une autre.
+        """
+        for hit in hits_by_block.get(block_id, []):
+            if hit.result_uid in admission_by_result:
+                continue
+            # Un candidat préparé par un mécanisme devient réellement présenté lorsque son bloc entre
+            # dans le résultat d'ouverture ; c'est cette frontière, et elle seule, qui publie son hit.
+            if hit.result_uid not in {existing.result_uid for existing in scored_hits}:
+                scored_hits.append(hit)
+            admission_by_result[hit.result_uid] = AdmissionDecision(
+                result_uid=hit.result_uid, state="admitted", reason=reason,
+                snapshot=budget_snapshot())
+
+    def cout_unite(unit: Iterable[str]) -> tuple[int, int]:
+        """Ce qu'une unité coûterait **en plus** : blocs et tokens, doublons déjà lus déduits."""
+        neufs = [b for b in dict.fromkeys(unit) if b not in admitted_set]
+        return len(neufs), sum(estimate_tokens(f"{b}\n{block(b).text}", settings) for b in neufs)
+
+    def reserve_restante() -> tuple[int, int]:
+        """La part du budget encore gardée pour des unités décisionnelles non lues.
+
+        Recalculée à chaque admission plutôt que décomptée : un primaire réservé qu'une fenêtre a
+        fini par admettre d'elle-même libère sa place **au moment même**, et un membre d'unité déjà
+        lu ailleurs ne la fait pas payer deux fois. Une place réservée qui reste vide à la fin n'est
+        pas perdue : plus rien n'admet après la passe de couverture, qui est la seule à pouvoir la
+        dépenser.
+        """
+        blocs = tokens = 0
+        for primaire, unite in reserve_facettes.items():
+            if primaire in admitted_set:
+                continue
+            cout_blocs, cout_tokens = cout_unite(unite)
+            blocs += cout_blocs
+            tokens += cout_tokens
+        return blocs, tokens
+
+    def admit(unit: list[str], *, reserve: bool = False) -> list[str]:
+        """Admet une unité atomique sous les deux budgets ; rend ses nouveaux blocs.
+
+        `reserve` dit que cette unité **est** celle qu'une facette avait fait garder : elle seule
+        peut dépenser la part gardée, et elle la libère en la dépensant.
+        """
+        nonlocal blocks_used, tokens_used, truncated, budget_a_refuse
         # Une référence répétée dans une unité, ou la réouverture de la même fenêtre, ne consomme
         # jamais deux fois les budgets et ne produit jamais deux fois le même bloc.
         new: list[str] = []
@@ -549,11 +637,19 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         except KeyError:
             truncated = True
             return []
-        if budget.max_blocks is not None and blocks_used + len(new) > budget.max_blocks:
+        # La part gardée pour les unités décisionnelles encore non lues n'est retirée du plafond que
+        # pour les **autres** admissions ; l'unité réservée, elle, voit le budget entier. Ce sont
+        # les mêmes bornes qu'avant : `max_blocks` et `max_tokens` ne bougent pas d'un cran.
+        blocs_gardes, tokens_gardes = (0, 0) if reserve else reserve_restante()
+        if (budget.max_blocks is not None
+                and blocks_used + len(new) > budget.max_blocks - blocs_gardes):
             truncated = True
+            budget_a_refuse = True
             return []
-        if budget.max_tokens is not None and tokens_used + token_cost > budget.max_tokens:
+        if (budget.max_tokens is not None
+                and tokens_used + token_cost > budget.max_tokens - tokens_gardes):
             truncated = True
+            budget_a_refuse = True
             return []
         blocks_used += len(new)
         tokens_used += token_cost
@@ -638,6 +734,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         and hit.result_uid not in {existing.result_uid for existing in scored_hits}):
                     scored_hits.append(hit)
                 hit_by_block.setdefault(hit.clause_uid, hit)
+                identites = hits_by_block.setdefault(hit.clause_uid, [])
+                if all(connue.result_uid != hit.result_uid for connue in identites):
+                    identites.append(hit)
             search_runs.append([block_id for block_id, _node_id in hits])
             return {"candidats": [{
                         "result_uid": hit.result_uid,
@@ -728,8 +827,19 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                         and canonical_focus.sort_key < canonical_best.sort_key)
                 )
             )
-            admission_ids = _prioriser_focus(
-                primary_ids, focus, reserve=focus_reserve)
+            # Correctif du tour 2 (R1) : **dans une fenêtre, ce qui décide passe avant ce qui
+            # éclaire.** Le focus garde sa tête quand il est réservé ; derrière lui, les primaires
+            # dont le corpus confirme un kind décisionnel passent avant les voisins de contexte,
+            # l'ordre documentaire étant conservé à l'intérieur de chaque groupe (tri stable). Cet
+            # ordre ne décide que **qui tient sous le budget** : le rendu, lui, retrouve plus bas
+            # l'ordre documentaire de la fenêtre.
+            ordre = _prioriser_focus(primary_ids, focus, reserve=focus_reserve)
+            tete = ordre[:1] if (focus_reserve and ordre and ordre[0] == focus) else []
+            admission_ids = [
+                *tete,
+                *sorted(ordre[len(tete):],
+                        key=lambda block_id: 0 if _decisionnel_confirme(block_id) else 1),
+            ]
             for primary_id in admission_ids:
                 item = window_block_by_id[primary_id]
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
@@ -748,7 +858,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 if unit is None:
                     truncated = True
                     continue
-                got = admit(unit)
+                got = admit(unit, reserve=item.block_id in reserve_facettes)
                 if item.block_id in got:
                     primary.append(item.block_id)
                 if item.block_id in admitted_set:
@@ -1145,6 +1255,60 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 return
             cohorte_precedente = cohorte[1:]
 
+    def reserver_les_facettes() -> None:
+        """Garde, **avant** la navigation, la place de l'unité décisionnelle de chaque facette.
+
+        Correctif du tour 2 (cause R1). L'ordre d'admission était exactement inverse de l'ordre des
+        priorités : les voisins de fenêtre et les définitions suivies automatiquement — hors quota
+        d'ouvertures mais **pleinement comptés en tokens** — étaient admis pendant les tours du
+        navigateur, et la passe de couverture par facette ne trouvait plus rien à dépenser. Sur les
+        trois runs A16, le budget de tokens était consommé à 99,8 % quand la clause manquante en
+        coûtait 210.
+
+        La correction ne change aucun plafond : elle **réalloue**. Pour chaque facette, le meilleur
+        candidat de son propre classement restreint aux kinds décisionnels confirmés voit sa place
+        gardée ; personne d'autre ne peut la dépenser tant qu'il n'est pas lu, et il la libère en
+        étant lu — y compris quand c'est le navigateur qui l'ouvre de lui-même.
+
+        La réserve est **bornée par construction** : au plus une unité par facette, et
+        `question_max_facettes` borne déjà le nombre de facettes. Elle ne peut pas saturer l'étape :
+        une unité dont la place gardée dépasserait à elle seule ce qui reste du budget n'est pas
+        gardée du tout — mieux vaut une lecture large qu'une réserve que rien ne pourra honorer.
+        """
+        nonlocal mappings_figes
+        if kinds_suffisants is None:
+            return
+        mappings = mappings_par_rang()
+        if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
+            return
+        mappings_figes = mappings
+        classement = classement_des_facettes()
+        for _rang, mapping in mappings:
+            for hit in classement(mapping):
+                if hit.clause_uid in admitted_set or hit.clause_uid in reserve_facettes:
+                    break  # cette facette a déjà sa place, gardée ou déjà lue
+                unite = _unite_reservable(
+                    hit.clause_uid, block=block, index=index, terms=terms, doc_id=doc_id,
+                    cohorte=[h.clause_uid for h in classement(mapping)],
+                    budget=budget, settings=settings, related_cache=related_cache)
+                if unite is None:
+                    continue
+                blocs_gardes, tokens_gardes = reserve_restante()
+                cout_blocs, cout_tokens = cout_unite(unite)
+                part = settings.facette_reserve_max_part
+                if ((budget.max_blocks is not None
+                     and blocs_gardes + cout_blocs > int(budget.max_blocks * part))
+                        or (budget.max_tokens is not None
+                            and tokens_gardes + cout_tokens > int(budget.max_tokens * part))):
+                    # **La réserve ordonne la lecture, elle ne la remplace pas.** Au-delà de sa
+                    # part, garder une place de plus reviendrait à évincer entièrement ce que le
+                    # navigateur choisit — et une unité gardée qu'on ne pourrait pas honorer
+                    # retirerait du budget sans rien rendre. La facette repartira par la passe de
+                    # couverture, sous les bornes ordinaires, ou sera dite bornée.
+                    break
+                reserve_facettes[hit.clause_uid] = unite
+                break
+
     def couvrir_les_facettes() -> None:
         """Chaque facette rapporte au moins une règle décisionnelle, ou elle est dite non retrouvée.
 
@@ -1173,7 +1337,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # navigation commencée.
             return
         nonlocal mappings_figes
-        mappings = mappings_par_rang()
+        mappings = mappings_figes if mappings_figes is not None else mappings_par_rang()
         if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
             return
         mappings_figes = mappings
@@ -1203,6 +1367,9 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 # Le hit est enregistré avant l'ouverture : c'est lui qui rend le focus recevable
                 # par l'outil commun, et c'est lui que la décision d'admission publiera.
                 hit_by_block.setdefault(candidat.clause_uid, candidat)
+                identites = hits_by_block.setdefault(candidat.clause_uid, [])
+                if all(connue.result_uid != candidat.result_uid for connue in identites):
+                    identites.append(candidat)
                 best_hit_by_node.setdefault(candidat.node_uid, candidat.clause_uid)
                 if candidat.clause_uid not in search_candidates:
                     search_candidates.append(candidat.clause_uid)
@@ -1326,6 +1493,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             if terms:
                 execute("chercher", {"termes": terms}, mechanism=True)
         elif mechanism == "outils":
+            # La réserve est posée **avant** le premier tour : c'est tout l'objet du correctif.
+            reserver_les_facettes()
             await navigate()
             # Le navigateur conserve la priorité : ses fenêtres sont admises en premier. La
             # complétion ne voit que les recherches des phases antérieures et de ce tour outils ;
@@ -1360,22 +1529,34 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     # Tout hit réellement présenté obtient exactement un état terminal. Les refus sont capturés
     # ici, à l'instant où plus aucun outil ne peut les admettre, avec le snapshot courant.
     for hit in scored_hits:
-        if hit.result_uid not in admission_by_result:
-            admission_by_result[hit.result_uid] = AdmissionDecision(
-                result_uid=hit.result_uid, state="rejected",
-                reason="not_admitted_within_bounded_navigation", snapshot=budget_snapshot())
+        if hit.result_uid in admission_by_result:
+            continue
+        # Une identité dont la **clause** est entrée dans le contexte n'est pas un candidat refusé :
+        # c'est la même clause, vue sous une autre empreinte de requête (correctif du tour 2).
+        admise = hit.clause_uid in admitted_set
+        admission_by_result[hit.result_uid] = AdmissionDecision(
+            result_uid=hit.result_uid, state="admitted" if admise else "rejected",
+            reason=("admitted_by_exact_unit" if admise
+                    else "not_admitted_within_bounded_navigation"),
+            snapshot=budget_snapshot())
     selected_hit = next((
         hit for hit in scored_hits
         if semantic_selection is not None
         and semantic_selection.sufficient
         and hit.result_uid == semantic_selection.result_uid
     ), None)
+    # La suffisance est jugée sur l'identité **canonique** de la clause désignée, la même que celle
+    # que `suffisance_atteinte()` lit : deux identités de la même clause portent deux scores, et les
+    # faire juger par deux mesures différentes revenait à ce que le code et le modèle ne parlent pas
+    # de la même chose (correctif du tour 2, rapport citations B2).
+    canonique = (hit_by_block.get(selected_hit.clause_uid, selected_hit)
+                 if selected_hit is not None else None)
     sufficient_hit = (
         selected_hit
-        if selected_hit is not None
+        if selected_hit is not None and canonique is not None
         and selected_hit.clause_uid in admitted_set
         and _score_positif(
-            selected_hit.score,
+            canonique.score,
             question=canonical_question,
             clause=block(selected_hit.clause_uid).text,
         )
@@ -1389,15 +1570,6 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         result_uid_non_admis = True
     considered = tuple(hit.result_uid for hit in scored_hits
                        if hit.clause_uid in admitted_set)
-    sufficiency = SufficiencyDecision(
-        complete=sufficient_hit is not None,
-        reason=("semantic_result_uid_admitted" if sufficient_hit is not None
-                else "invalid_semantic_result_uid" if result_uid_non_admis
-                else "unreadable_semantic_verdict" if verdict_illisible
-                else "explicit_semantic_insufficiency"),
-        sufficiency_result_uid=(sufficient_hit.result_uid if sufficient_hit is not None else None),
-        considered_result_uids=considered,
-    )
     # Ce que la lecture rapporte **par facette**, mesuré une fois sur l'état final des blocs admis.
     # Vide sans besoin déclaré : la variante guide ne pose pas de facette au barème de *retrouver*,
     # et un résultat qui ne mesure rien vaut mieux qu'un résultat qui affirme une couverture.
@@ -1412,6 +1584,43 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # NFR2 : des candidats décisionnels d'une sous-question sont restés fermés. La lecture est
         # bornée, et c'est `truncated` — jamais une absence — qui le dit.
         truncated = True
+    # Correctif du tour 2 (cause R2) : **la suffisance n'est plus mono-bloc.** Un seul résultat admis
+    # la rendait vraie pour la question entière, quelle que soit la sous-question à laquelle il
+    # répondait — c'est-à-dire qu'une lecture à moitié faite pouvait se déclarer suffisante. Quand
+    # la couverture par facette a été mesurée, la lecture n'est suffisante que si **chaque**
+    # sous-question porte au moins un bloc décisionnel confirmé transmis. La mesure est celle du
+    # code ; la déclaration du navigateur ne la remplace jamais (AD-1).
+    facettes_manquantes = [facette.rang for facette in facettes_couverture if not facette.retrouvee]
+    complete = sufficient_hit is not None and not facettes_manquantes
+    sufficiency = SufficiencyDecision(
+        complete=complete,
+        reason=("semantic_result_uid_admitted" if complete
+                else "facettes_sans_clause_decisionnelle" if sufficient_hit is not None
+                else "invalid_semantic_result_uid" if result_uid_non_admis
+                else "unreadable_semantic_verdict" if verdict_illisible
+                else "explicit_semantic_insufficiency"),
+        sufficiency_result_uid=(sufficient_hit.result_uid if complete else None),
+        considered_result_uids=considered,
+    )
+    if facettes_couverture and semantic_selection is not None:
+        # Ce que le navigateur **déclare** par sous-question, confronté à ce que le code mesure.
+        # Aucun des deux ne corrige l'autre : le code décide, la déclaration est publiée, et l'écart
+        # est nommé — c'est lui qui dira, aux témoins, si le prompt porte réellement la consigne.
+        # AD-10 : des rangs et des comptes, jamais un libellé de facette.
+        declarees = {facette.facette: facette.result_uid for facette in semantic_selection.facettes}
+        mesurees = {facette.rang: facette.retrouvee for facette in facettes_couverture}
+        muettes = sorted(rang for rang in mesurees if rang not in declarees)
+        ecarts = sorted(rang for rang, retrouvee in mesurees.items()
+                        if rang in declarees and (declarees[rang] is not None) != retrouvee)
+        detail = (f"{len(declarees)} sous-question(s) sur {len(mesurees)} ont reçu un verdict du "
+                  "navigateur")
+        if muettes:
+            detail += f" ; sans verdict : rang(s) {', '.join(str(rang) for rang in muettes)}"
+        if ecarts:
+            detail += (" ; verdict contredit par la mesure du code (qui fait foi) : rang(s) "
+                       + ", ".join(str(rang) for rang in ecarts))
+        step.checks.append(CheckResult(
+            name="verdict_par_facette", ok=not muettes and not ecarts, detail=detail))
     result = RetrievalResult(
         blocs=[block(b).model_copy(
             update={"context_role": context_role_by_block.get(b)}, deep=True,
@@ -1429,6 +1638,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     step.ms = int((time.monotonic() - t0) * 1000)
     step.opened_block_ids = list(admitted)
     step.discarded_block_ids = list(discarded)
+    step.budget_lecture = budget_snapshot()
     designes = list(parsed.scope.noeuds)
     if designes and budget.profil_max_opens > 0:
         designes_set = set(designes)
@@ -1461,10 +1671,18 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         step.checks.append(CheckResult(
             name="facettes_retrouvees", ok=not (absentes or bornees), detail=detail))
     if discarded:
+        # Le détail disait « choix de navigation » sans condition. Sur les trois runs A16, les
+        # quinze candidats non lus l'avaient été par **épuisement du budget de tokens**, pas par
+        # choix du modèle : le message trompait l'exploitation sur la cause. Les deux états sont
+        # désormais distingués par un fait que le code connaît — le budget a-t-il refusé une unité.
+        cause = ("le budget de l'étape a refusé au moins une unité : ces candidats n'ont pas pu "
+                 f"être lus ({blocks_used} bloc(s), {tokens_used} token(s) consommés)"
+                 if budget_a_refuse
+                 else "choix de navigation distinct d'une troncature")
         step.checks.append(CheckResult(
             name="candidats_non_ouverts", ok=False,
             detail=f"{len(discarded)} candidat(s) de chercher non lu(s) par le navigateur ; "
-                   "choix de navigation distinct d'une troncature"))
+                   + cause))
     if verdict_illisible or result_uid_non_admis:
         # Correctif G1 : la trace nomme laquelle des deux causes a dégradé le verdict terminal, et
         # dit qu'aucune des deux ne borne la lecture. `truncated` reste le seul canal des bornes

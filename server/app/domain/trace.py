@@ -24,6 +24,7 @@ import math
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from .document import DomainModel
+from .retrieval import BudgetSnapshot
 
 
 class Usage(DomainModel):
@@ -86,6 +87,12 @@ class StepTrace(DomainModel):
     usage: Usage = Field(default_factory=Usage)
     opened_block_ids: list[str] = Field(default_factory=list)
     discarded_block_ids: list[str] = Field(default_factory=list)
+    # Correctif du tour 2 : ce que l'étape a réellement **consommé** de son budget de lecture.
+    # `retrieval_max_tokens` était publié dans `Trace.thresholds`, jamais ce qui en restait — trois
+    # runs A16 frôlaient la saturation (99,8 %) et rien dans la trace ne le disait, si bien qu'une
+    # enquête a dû le recalculer à la main. Le type existait déjà, il n'était simplement pas remonté.
+    # `None` pour toute étape qui ne lit pas le corpus.
+    budget_lecture: BudgetSnapshot | None = None
     checks: list[CheckResult] = Field(default_factory=list)
     calls: list[LLMCall] = Field(default_factory=list)
     # Story 4.5, revue croisée B1 : une sortie modèle peut déclarer à la fois une intention refusée
@@ -211,6 +218,16 @@ class Trace(DomainModel):
     blocs: list[BlocTrace] = Field(default_factory=list)
     gate: GateTrace | None = None
     dictionnaire: DictionnaireTrace | None = None
+    # Correctif du tour 2 : **ce que *comprendre* a décidé, et dont tout le reste dépend.** Les
+    # termes de recherche et le découpage en sous-questions sont produits librement par le modèle à
+    # chaque appel ; ils déterminent le classement, donc les blocs lus, donc la réponse. Rien ne les
+    # publiait — `faits_compris` ne porte ni l'un ni l'autre —, si bien que le rejeu d'un incident
+    # était impossible **même avec l'audit** : trois réponses différentes à la même question, sans
+    # aucun moyen de dire ce qui avait été cherché. Ce sont les mêmes libellés que ceux déjà servis
+    # dans `AbsenceProof.terms_searched` (AD-4) : rien de neuf n'est exposé, c'est la même donnée,
+    # publiée sur le chemin nominal et pas seulement sur un refus.
+    termes: list[str] = Field(default_factory=list)
+    facettes: list[str] = Field(default_factory=list)
 
     @field_validator("total_cost_eur", mode="before")
     @classmethod

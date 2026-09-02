@@ -31,6 +31,7 @@ from server.app.llm.client import LlmClient
 from server.app.llm.budget import RequestBudget
 from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines.commun import retrieval_budget
+from server.app.steps import retrouver
 from server.app.steps.retrouver import (
     OUTILS_RECHERCHE,
     _score_positif,
@@ -132,9 +133,15 @@ def _tool_message(*uses: dict[str, object], stop_reason: str = "tool_use") -> di
     return fake_message(model="claude-sonnet-5", stop_reason=stop_reason, content=list(uses))
 
 
-@pytest.mark.parametrize("max_llm_turns", [0, 3])
+@pytest.mark.parametrize("max_llm_turns", [0, 4])
 def test_retrieval_budget_enforces_the_tool_turn_invariant_for_direct_callers(
         max_llm_turns: int) -> None:
+    """Le plafond de sûreté du domaine est passé à trois tours (correctif du tour 2).
+
+    À deux, le verdict terminal était inatteignable : les résultats du dernier tour ne sont jamais
+    réinjectés, donc le navigateur ne voyait jamais ce qu'il avait ouvert. Le troisième tour est
+    celui de la conclusion ; le quatrième reste refusé, ici comme dans `Settings`.
+    """
     with pytest.raises(ValidationError, match="max_llm_turns"):
         _budget(max_llm_turns=max_llm_turns)
 
@@ -4358,3 +4365,285 @@ async def test_le_navigateur_recoit_le_guide_reel_entier_avec_ses_resumes() -> N
         assert node_id in prefixe, node_id
     assert "La commune fournit les bacs" in prefixe  # le résumé de `fdechets`, son signal propre
     assert prefixe.count("lux-guide:f") >= 36  # les 36 fiches, aucune laissée hors de la carte
+
+
+# --- Correctif du tour 2 (R1) : la place de ce qui décide est gardée avant la navigation ------
+
+
+def _corpus_a_voisins_gourmands() -> Corpus:
+    """Un nœud dont les voisins de contexte mangent le budget, et une règle ailleurs.
+
+    La géométrie est celle mesurée sur les trois runs A16 : le navigateur ouvre un nœud dont les
+    voisins non décisionnels sont longs, ils sont admis pendant ses tours, et la clause décisionnelle
+    de la seconde sous-question — courte — n'a plus de place quand la couverture par facette
+    s'exécute.
+    """
+    focus = Block(block_id="d:p1:1", text="Repère alpha règle initiale.", loc="p1", seq=1,
+                  kind="garantie", kind_source="manual")
+    voisins = [
+        Block(block_id=f"d:p1:{rang}", text="Contexte " + ("dilué " * 40) + f"numéro {rang}.",
+              loc="p1", seq=rang, kind="para")
+        for rang in range(2, 5)
+    ]
+    regle = Block(block_id="d:p9:1", text="Branche distincte règle utile.", loc="p9", seq=1,
+                  kind="exclusion", kind_source="manual")
+    return _corpus_neutre_par_noeuds(("initiale", [focus, *voisins]), ("distincte", [regle]))
+
+
+async def _lecture_a_voisins_gourmands(**kw):
+    corpus = _corpus_a_voisins_gourmands()
+    reglages = _s(max_cost_eur_per_request=1.0)
+    document = corpus.documents["d"]
+
+    def cout(block_id: str) -> int:
+        return estimate_tokens(f"{block_id}\n{document.block(block_id).text}", reglages)
+
+    # Le budget est **dérivé du corpus**, pas choisi à la main : il laisse exactement la fenêtre
+    # entière moins un token. Sans réserve, la règle de la seconde sous-question ne peut donc pas
+    # tenir ; avec elle, c'est le dernier voisin de contexte qui tombe à sa place. C'est la
+    # réallocation, mesurée, et rien d'autre : le plafond est le même dans les deux cas.
+    fenetre = sum(cout(f"d:p1:{rang}") for rang in range(1, 5))
+    regle = cout("d:p9:1")
+    return await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1")),
+    ], corpus=corpus, settings=reglages,
+        parsed=_parsed(["alpha"], facettes=["repère alpha", "branche distincte"]),
+        # Le budget de tokens est la borne mordante, comme sur A16 : les blocs ne saturent pas.
+        budget=_budget(max_opens=3, node_window=30, search_limit=5,
+                       max_blocks=10, max_tokens=fenetre + regle - 1),
+        kinds_suffisants=KINDS_FONDATEURS, **kw)
+
+
+async def test_la_place_de_lunite_decisionnelle_dune_facette_est_gardee_avant_la_navigation(
+        ) -> None:
+    """R1 — les voisins de fenêtre ne peuvent plus manger la règle de la seconde sous-question.
+
+    Avant le correctif, l'ordre d'admission était l'inverse de l'ordre des priorités : voisins et
+    définitions étaient admis pendant les tours du navigateur, et la passe de couverture par facette
+    n'avait plus rien à dépenser. La réserve ne change aucun plafond — elle alloue le même budget
+    dans l'ordre de ce qui décide.
+    """
+    result, step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    assert "d:p9:1" in result.opened_block_ids, "la règle de la seconde facette doit être transmise"
+    assert result.facette(1).block_ids == ("d:p9:1",)
+    # La réserve n'a rien ajouté : le budget de tokens reste tenu.
+    assert step.budget_lecture is not None
+    assert step.budget_lecture.tokens_remaining is not None
+    assert step.budget_lecture.tokens_remaining >= 0
+    assert step.budget_lecture.blocks_used == len(result.opened_block_ids)
+    # Le dernier voisin de contexte est ce qui a cédé la place, pas la lecture entière.
+    assert "d:p1:1" in result.opened_block_ids
+
+
+async def test_sans_reserve_les_voisins_de_fenetre_mangent_la_regle_de_la_facette(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation du témoin ci-dessus : la réserve neutralisée, on retrouve l'état d'avant.
+
+    Le seam est la part de budget que la réserve a le droit de garder. À zéro place gardée, la
+    lecture reprend l'ordre historique — les voisins d'abord — et la seconde sous-question repart
+    sans règle, déclarée bornée puisque son classement, lui, proposait bien un candidat.
+    """
+    monkeypatch.setattr(retrouver, "_unite_reservable",
+                        lambda *a, **kw: None)
+    result, _step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    assert "d:p9:1" not in result.opened_block_ids
+    assert result.facette(1).bornee and not result.facette(1).retrouvee
+
+
+async def test_le_budget_refuse_est_distingue_dun_choix_de_navigation() -> None:
+    """La trace ne dit plus « choix de navigation » quand c'est le budget qui a refusé (défaut 4)."""
+    _result, step, _fake, _request_budget = await _lecture_a_voisins_gourmands()
+
+    candidats = [c for c in step.checks if c.name == "candidats_non_ouverts"]
+    assert not candidats or "le budget de l'étape a refusé" in candidats[0].detail
+
+
+# --- Correctif du tour 2 (R2/R5) : le verdict par sous-question devient atteignable -----------
+
+
+def _corpus_a_deux_regles() -> Corpus:
+    """Deux règles décisionnelles confirmées, une par nœud : une par sous-question."""
+    premiere = Block(block_id="d:p1:1", text="Repère alpha règle initiale.", loc="p1", seq=1,
+                     kind="garantie", kind_source="manual")
+    seconde = Block(block_id="d:p2:1", text="Branche distincte règle utile.", loc="p2", seq=1,
+                    kind="exclusion", kind_source="manual")
+    return _corpus_neutre_par_noeuds(("initiale", [premiere]), ("distincte", [seconde]))
+
+
+def _verdict_facettes(corpus: Corpus, parsed: ParsedQuestion,
+                      couverture: list[tuple[int, str | None]]) -> dict[str, object]:
+    """Le verdict terminal, par sous-question, avec les `result_uid` réellement publiés par l'index.
+
+    Le navigateur ne peut désigner qu'une identité qu'il a vue : le témoin la relit donc du même
+    classement que `chercher`, jamais une chaîne inventée.
+    """
+    index = Index(corpus)
+    par_bloc = {hit.clause_uid: hit.result_uid for hit in index.chercher(
+        parsed.termes_de_recherche(), question=parsed.question_resolue, limit=20, doc_id="d")}
+    facettes = [{"facette": rang,
+                 "result_uid": par_bloc[block_id] if block_id is not None else None}
+                for rang, block_id in couverture]
+    premier = next((f["result_uid"] for f in facettes if f["result_uid"] is not None), None)
+    return fake_message(
+        model=TIERS["reason"], stop_reason="end_turn",
+        text=json.dumps({"sufficient": premier is not None, "result_uid": premier,
+                         "facettes": facettes}))
+
+
+async def test_le_navigateur_rend_un_verdict_par_sous_question_confronte_a_la_mesure() -> None:
+    """R2/R5 — la suffisance n'est plus mono-bloc, et le navigateur peut dire ce qu'il n'a pas trouvé.
+
+    Avant le correctif, le verdict terminal ne connaissait qu'un `result_uid` pour toute la
+    question : un navigateur ayant couvert la première sous-question n'avait aucun moyen de dire
+    qu'il n'avait rien trouvé pour la seconde — son verdict était vrai, et muet sur la moitié de la
+    demande. Le prompt ne mentionnait même pas les facettes, alors qu'elles lui étaient envoyées.
+    """
+    corpus = _corpus_a_deux_regles()
+    parsed = _parsed(["alpha", "branche distincte"],
+                     facettes=["repère alpha", "branche distincte"])
+
+    # Premier tour : recherche et ouvertures. Second : le verdict, par sous-question.
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha", "branche distincte"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1"),
+            _tool("ouvrir_noeud", "t3", node_id="distincte", focus_block_id="d:p2:1")),
+        _verdict_facettes(corpus, parsed, [(0, "d:p1:1"), (1, "d:p2:1")]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=3, node_window=2, search_limit=5),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    verdict = next(c for c in step.checks if c.name == "verdict_par_facette")
+    assert verdict.ok, verdict.detail
+    assert "2 sous-question(s) sur 2" in verdict.detail
+    assert result.sufficiency is not None and result.sufficiency.complete
+
+
+async def test_une_sous_question_sans_clause_refuse_la_suffisance_entiere() -> None:
+    """La lecture n'est suffisante que si **chaque** sous-question porte une règle décisionnelle."""
+    corpus = _corpus_a_deux_regles()
+    parsed = _parsed(["alpha"], facettes=["repère alpha", "sujet absent du texte"])
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["alpha"]),
+            _tool("ouvrir_noeud", "t2", node_id="initiale", focus_block_id="d:p1:1")),
+        _verdict_facettes(corpus, parsed, [(0, "d:p1:1"), (1, None)]),
+    ], corpus=corpus, parsed=parsed,
+        budget=_budget(max_opens=1, node_window=2, search_limit=5),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert result.sufficiency is not None
+    # Un résultat admis suffisait autrefois à déclarer la lecture complète, quelle que soit la
+    # sous-question à laquelle il répondait : une lecture à moitié faite pouvait se dire suffisante.
+    assert result.sufficiency.complete is False
+    assert result.sufficiency.reason == "facettes_sans_clause_decisionnelle"
+    verdict = next(c for c in step.checks if c.name == "verdict_par_facette")
+    assert verdict.ok, verdict.detail
+
+
+# --- Correctif du tour 2 (R3) : la réservation par facette réserve enfin quelque chose ---------
+
+
+def _corpus_a_facette_phrase() -> tuple[Corpus, list[str]]:
+    """Une facette écrite comme *comprendre* les écrit : une phrase, pas un mot-clé.
+
+    C'est le cœur de R3 : l'ancien critère exigeait qu'un même bloc porte **tous** les mots du
+    libellé. Une sous-question en langue naturelle n'y parvient jamais — aucune facette ne réservait
+    donc quoi que ce soit. Et le corpus reproduit l'autre moitié du défaut : le voisin lexical porte
+    le mot au singulier, la règle décisionnelle au pluriel.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages brisés du bien désigné sont pris en charge.")
+    voisin = Block(block_id="d:p2:1", kind="para", loc="p2", seq=1,
+                   text="Le vitrage extérieur des serres relève d'une extension distincte.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]), ("voisin", [voisin]))
+    facettes = ["quels vitrages du bien désigné sont pris en charge"]
+    return corpus, facettes
+
+
+def test_une_facette_ecrite_en_phrase_reserve_sa_regle_decisionnelle() -> None:
+    """R3 — la couverture pleine du libellé était le mauvais critère, et elle ne réservait rien."""
+    corpus, facettes = _corpus_a_facette_phrase()
+    index = Index(corpus)
+    reservations: list[tuple[str, str]] = []
+
+    hits = index.chercher(["vitrage", "bien désigné"], limit=5, doc_id="d",
+                          question=" ".join(facettes), groupes_prioritaires=facettes,
+                          reservations_out=reservations)
+
+    assert [block_id for block_id, _node_id in reservations] == ["d:p1:1"], (
+        "la sous-question doit réserver la règle décisionnelle confirmée, pas son voisin lexical")
+    assert hits[0].clause_uid == "d:p1:1"
+
+
+def test_sans_clause_typee_la_reservation_garde_son_critere_historique() -> None:
+    """Un corpus sans clauses typées — un guide — se comporte **exactement** comme avant.
+
+    L'ajout est strictement additif : il crée une réservation là où aucune n'était possible, il n'en
+    retire aucune et n'en déplace aucune. Restreindre la réservation aux seuls kinds confirmés
+    l'aurait éteinte sur tout le guide ; changer son critère pour l'ordre du classement l'aurait au
+    contraire réveillée partout, en déplaçant une lecture que rien n'a mesurée.
+    """
+    premier = Block(block_id="d:p1:1", text="Première démarche utile.", loc="p1", seq=1)
+    second = Block(block_id="d:p2:1", text="Seconde démarche utile.", loc="p2", seq=1)
+    corpus = _corpus_neutre_par_noeuds(("n1", [premier]), ("n2", [second]))
+
+    def reserve(libelle: str) -> list[str]:
+        sortie: list[tuple[str, str]] = []
+        Index(corpus).chercher(["démarche"], limit=5, doc_id="d",
+                               question="quelles démarches sont utiles",
+                               groupes_prioritaires=[libelle], reservations_out=sortie)
+        return [block_id for block_id, _node_id in sortie]
+
+    # Couverture pleine : la réservation historique, inchangée.
+    assert reserve("seconde démarche") == ["d:p2:1"]
+    # Libellé en phrase : rien à réserver faute de clause typée — comme avant le correctif.
+    assert reserve("seconde démarche utile à connaître") == []
+
+
+# --- Correctif du tour 2 (rapport citations, B) : une clause, plusieurs identités de résultat ---
+
+
+async def test_une_clause_admise_lest_pour_toutes_ses_identites_de_resultat() -> None:
+    """L'incident interne non déterministe, reproduit sans réseau — et c'est un bug de production.
+
+    `result_uid` dérive du `question_uid`, donc des termes de la requête : deux `chercher` aux
+    termes différents produisent **deux identités pour la même clause**. La passe mécanique
+    `sommaire` tourne avant la phase `outils` et amorçait la table avec une identité que le
+    navigateur ne voyait jamais ; seule celle-là était admise, et l'identité que le modèle désignait
+    à la fin recevait `rejected`. `RetrievalResult` valide la suffisance au niveau du `result_uid`
+    et levait une `ValidationError` — hors de tout `PipelineError`, donc un 500 nu sur le chemin
+    servi, sans trace partielle, après une minute payée.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Le repère alpha et la mention beta ouvrent la prise en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]))
+    # `parsed.terms` alimente la recherche **mécanique** du sommaire ; le navigateur, lui, cherche
+    # avec d'autres termes. Deux empreintes de requête, une seule clause.
+    parsed = _parsed(["alpha"])
+    index = Index(corpus)
+    identite_mecanisme = index.chercher(parsed.termes_de_recherche(), limit=5, doc_id="d",
+                                        question=parsed.question_resolue)[0].result_uid
+    identite_navigateur = index.chercher(["beta"], limit=5, doc_id="d",
+                                         question=parsed.question_resolue)[0].result_uid
+    assert identite_mecanisme != identite_navigateur, "le témoin exige deux empreintes distinctes"
+
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(
+            _tool("chercher", "t1", termes=["beta"]),
+            _tool("ouvrir_noeud", "t2", node_id="regle", focus_block_id="d:p1:1")),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": True, "result_uid": identite_navigateur})),
+    ], corpus=corpus, parsed=parsed, budget=_budget(max_opens=2, node_window=2, search_limit=5))
+
+    assert result.sufficiency is not None and result.sufficiency.complete
+    assert result.sufficiency.sufficiency_result_uid == identite_navigateur
+    etats = {d.result_uid: d.state for d in result.admission_decisions}
+    assert etats[identite_navigateur] == "admitted"
+    assert etats[identite_mecanisme] == "admitted", (
+        "la clause est entrée dans le contexte : c'est un fait de corpus, pas une propriété "
+        "de l'empreinte de requête qui l'a désignée")

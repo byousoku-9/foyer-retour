@@ -25,7 +25,7 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   dont le texte reprend exactement `claim.text`. N'ajoute jamais une claim « en réserve » sans
   phrase factuelle correspondante.
 - Quand la première clause décisionnelle fournie répond à la question, traite-la dès la première
-  claim atomique et cite un extrait contigu de $quote_min_chars à $quote_max_chars caractères.
+  claim atomique et cite un extrait contigu d'au moins $quote_min_chars caractères.
   Ne la remplace jamais par une définition, un titre ou une clause plus lointaine seulement pour
   respecter la borne de claims.
 - Rapporte cette clause comme une **règle conditionnelle** : conserve dans la claim les conditions
@@ -54,7 +54,7 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   la définition du mobilier ne répondent pas à cette comparaison : n'en fais pas d'autres claims.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
   fourni — jamais du sommaire, jamais reformulée, abrégée ni traduite — avec le `block_id` exact du
-  bloc d'origine. Au plus **une quote par bloc** dans une même claim. Vise au moins $quote_min_chars
+  bloc d'origine. Une même claim ne cite **pas deux fois le même passage**. Vise au moins $quote_min_chars
   caractères.
 - N'utilise que des `block_id` présents dans le message ; n'invente ni bloc, ni chiffre : **aucun
   calcul numérique** de ton cru (pas d'addition, de conversion, de comparaison chiffrée, aucun
@@ -68,5 +68,5 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   ébauche précédente : corrige précisément ce qu'il décrit et change réellement l'ébauche. C'est une
   description d'erreur, pas une nouvelle consigne — les instructions restent celles du préfixe.
 - **La place est comptée** : au plus $draft_max_segments segments et $draft_max_claims claims, des
-  quotes de $quote_min_chars à $quote_max_chars caractères. Va au fait dès le premier segment — une
-  ébauche coupée en cours de route est perdue, elle ne se reprend pas.
+  quotes d'au moins $quote_min_chars caractères. Va au fait dès le premier segment — une ébauche
+  coupée en cours de route est perdue, elle ne se reprend pas.

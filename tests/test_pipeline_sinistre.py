@@ -21,17 +21,20 @@ from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
-from server.app.domain.answer import AnswerDraft, Verification
+from server.app.domain.answer import (AnswerDraft, ClaimStatus, Quote, RejectedClaim,
+                                      Verification, VerifiedClaim, VerifiedQuote)
 from server.app.domain.document import Document, Node
 from server.app.domain.errors import (
     BudgetExceeded,
+    PipelineError,
+    Timeout,
     CorpusUnavailable,
     InvalidRequest,
     LlmUnavailable,
 )
 from server.app.domain.ingest import Gate, ManifestEntry
-from server.app.domain.question import Faits
-from server.app.domain.retrieval import RetrievalResult
+from server.app.domain.question import Faits, ParsedQuestion
+from server.app.domain.retrieval import FacetteCouverture, RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
@@ -48,7 +51,7 @@ from server.app.pipelines import sinistre
 from server.app.steps import retrouver as retrouver_module
 from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
-from tests.llm_fake import FakeAnthropic, fake_message
+from tests.llm_fake import FakeAnthropic, fake_message, provider_exception
 
 DOC_ID = "cg"
 
@@ -1190,12 +1193,18 @@ def test_la_fusion_reserve_la_place_des_limites_acquises() -> None:
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]},
                 {"claim_id": "b", "text": "Clause b.",
                  "quotes": [{"block_id": f"{DOC_ID}:p1:3", "quote": Q_CONDITION}]}])
+    # Trois corrections **réelles** : trois passages distincts. Depuis le correctif du tour 2, une
+    # claim de relance qui n'apporte aucun passage neuf est une reconduction, pas une correction —
+    # trois copies du même passage ne mettraient donc plus la borne à l'épreuve.
+    corrections = {"c": (f"{DOC_ID}:p1:4", Q_DEFINITION),
+                   "d": (f"{DOC_ID}:p1:5", Q_EXCLUSION_SOCLE),
+                   "e": (f"{DOC_ID}:p1:2", "action subite de la chaleur")}
     relance = AnswerDraft(
         segments=[{"text": f"Clause {cid}.", "kind": "factuel", "claim_ids": [cid]}
                   for cid in ("c", "d", "e")],
         claims=[{"claim_id": cid, "text": f"Clause {cid}.",
-                 "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}
-                for cid in ("c", "d", "e")])
+                 "quotes": [{"block_id": bloc, "quote": quote}]}
+                for cid, (bloc, quote) in corrections.items()])
     # N1 : l'autorité des limites acquises est `Verification.unknown`, pas le draft brut.
     acquise = Verification.model_construct(claims=list(draft.claims), unknown=[limite])
     step = StepTrace(name="rediger")
@@ -1345,8 +1354,18 @@ async def test_une_relance_identique_arrete_sur_la_premiere_verification(index: 
     assert answer.found is False
 
 
-def test_la_fusion_renomme_une_correction_qui_garde_un_identifiant_acquis() -> None:
-    """Un contenu différent sous un identifiant déjà vérifié reste contrôlable sous `rN`."""
+def test_la_fusion_ne_dedouble_plus_une_reconduction_reformulee() -> None:
+    """Correctif du tour 2 (rapport citations, A1) — ce témoin verrouillait le défaut.
+
+    Il affirmait qu'un texte différent sur **le même bloc et la même citation** devait survivre à
+    côté de l'acquis, sous `r1`. C'était l'hypothèse « texte différent ⇒ contenu différent », et la
+    réalité l'a contredite : le prompt de relance demande de reconduire les acquis, une
+    reconduction est une paraphrase, et la réponse servie disait alors deux fois la même chose —
+    avec deux cartes de source identiques, et une dominance gagnée par le seul compte de claims.
+
+    Une correction reste contrôlable sous `rN` : la seconde moitié du témoin le tient, sur une
+    correction qui apporte, elle, un passage neuf.
+    """
     settings = _settings()
     draft = AnswerDraft(
         segments=[{"text": "Clause acquise.", "kind": "factuel", "claim_ids": ["c1"]}],
@@ -1357,11 +1376,23 @@ def test_la_fusion_renomme_une_correction_qui_garde_un_identifiant_acquis() -> N
         claims=[{"claim_id": "c1", "text": "Clause corrigée.",
                  "quotes": [{"block_id": f"{DOC_ID}:p1:2", "quote": Q_GARANTIE}]}])
     acquise = Verification.model_construct(claims=list(draft.claims))
+    step = StepTrace(name="rediger")
 
-    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=StepTrace(name="rediger"))
+    fusion = sinistre._reconduire_acquis(draft, relance, acquise, settings, step=step)
 
-    assert [c.claim_id for c in fusion.claims] == ["c1", "r1"]
+    # Même passage : c'est une reconduction, quelle que soit la formulation.
+    assert [c.claim_id for c in fusion.claims] == ["c1"]
     assert fusion.claims[0].text == "Clause acquise."
+    assert any(c.name == "acquis_reconduits" for c in step.checks)
+
+    # Passage neuf sous un identifiant déjà vérifié : la correction survit, renommée.
+    correction = AnswerDraft(
+        segments=[{"text": "Clause corrigée.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": "Clause corrigée.",
+                 "quotes": [{"block_id": f"{DOC_ID}:p1:3", "quote": Q_CONDITION}]}])
+    fusion = sinistre._reconduire_acquis(draft, correction, acquise, settings,
+                                          step=StepTrace(name="rediger"))
+    assert [c.claim_id for c in fusion.claims] == ["c1", "r1"]
     assert fusion.claims[1].text == "Clause corrigée."
 
 
@@ -1820,7 +1851,12 @@ async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
 
     answer, trace, fake = await _run_neutre(
         neutre,
+        # Trois tours de navigation depuis le correctif du tour 2 : les deux premiers appellent des
+        # outils, le troisième conclut. Sans ce tour de conclusion, aucun verdict de suffisance
+        # n'était atteignable — c'est tout l'objet du relèvement de `max_llm_turns`.
         [_comprendre_neutre(neutre), navigation_auxiliaire, tentative_bornee,
+         fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                      text=json.dumps({"sufficient": False, "result_uid": None})),
          _rediger(claim_auxiliaire),
          _verifier(("k-aux", True, True, False, False, None, [], []))],
         settings=reglages)
@@ -2678,8 +2714,16 @@ async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
 
     assert fake.remaining_script == 0
     relance = fake.requests[-2]["messages"][-1]["content"]
-    assert "sous-question(s) de la demande n'ont reçu aucune affirmation affichée" in relance
+    # La clause de la sous-question restée sans réponse est **nommée** au rédacteur. Depuis le
+    # correctif du tour 2, c'est la consigne fondatrice qui la porte — la plus précise des deux —
+    # parce que `_fondatrices_omises` raisonne désormais par sous-question : une fondatrice citée
+    # pour l'une ne dit plus rien de l'autre.
+    assert "clause décisionnelle confirmée pourtant retrouvée" in relance
     assert par_facette.bloc("regle_registre") in relance
+    # Correctif du tour 2 : le motif **nomme** la sous-question restée sans réponse. Le rédacteur
+    # ne pouvait pas la deviner — il ne recevait ni les libellés, ni le constat de couverture.
+    assert "restée(s) sans affirmation affichée" in relance
+    assert FACETTE_REGISTRE in relance and FACETTE_INVENTAIRE not in relance.split("motif")[-1]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
 
@@ -2705,3 +2749,275 @@ async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(
                                              "restituer"]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire")}
+
+
+def _retrieval_a_deux_fondatrices(corpus: CorpusNeutre) -> RetrievalResult:
+    """Le retrieval du corpus à deux facettes : une règle décisionnelle confirmée par facette."""
+    document = corpus.index.corpus.documents[corpus.identite.doc_id]
+    blocs = [document.block(corpus.bloc(cle))
+             for cle in ("regle_inventaire", "regle_registre")]
+    return RetrievalResult(
+        blocs=blocs, opened_block_ids=[b.block_id for b in blocs],
+        facettes=[FacetteCouverture(rang=0, block_ids=(corpus.bloc("regle_inventaire"),),
+                                    candidats=1),
+                  FacetteCouverture(rang=1, block_ids=(corpus.bloc("regle_registre"),),
+                                    candidats=1)])
+
+
+def _verification_couvrant_la_premiere(corpus: CorpusNeutre) -> Verification:
+    """Une affirmation affichée, qui cite la fondatrice de la **première** sous-question."""
+    return Verification(
+        claims=[VerifiedClaim(
+            claim_id="k1", text="Le texte prend en charge l'objet inventorié.",
+            quotes=[VerifiedQuote(block_id=corpus.bloc("regle_inventaire"),
+                                  quote=CITATION_INVENTAIRE, start=0, end=len(CITATION_INVENTAIRE),
+                                  text_start=0, text_end=len(CITATION_INVENTAIRE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="2030"))],
+        found=True, facettes_couvertes=[0])
+
+
+def test_une_fondatrice_citee_pour_une_facette_nen_couvre_pas_une_autre(
+        par_facette: CorpusNeutre) -> None:
+    """Correctif du tour 2 — la base décisionnelle existe **par sous-question**, ou pas du tout.
+
+    A16 #2 : la lecture portait les deux règles, la rédaction n'en citait qu'une, et ce garde-fou
+    se taisait parce qu'« une fondatrice citée » suffisait à le désarmer, quel que soit le nombre
+    de sous-questions ouvertes. Le rouge-avant est la ligne du dessous : sans couverture par
+    facette mesurée, la règle historique — celle qui s'appliquait à A16 #2 — ne signale rien.
+    """
+    parsed = ParsedQuestion(
+        question_resolue=QUESTION_RESOLUE_NEUTRE, intent="question",
+        facettes=[FACETTE_INVENTAIRE, FACETTE_REGISTRE])
+    retrieval = _retrieval_a_deux_fondatrices(par_facette)
+    verification = _verification_couvrant_la_premiere(par_facette)
+    reglages = _settings_neutre(par_facette.identite)
+
+    assert sinistre._fondatrices_omises(verification, retrieval, reglages, parsed) == [
+        par_facette.bloc("regle_registre")]
+
+    # Mutation : la couverture par facette effacée du résultat, la règle historique reprend — et
+    # elle se tait, parce qu'une fondatrice est citée quelque part.
+    sans_mesure = retrieval.model_copy(update={"facettes": []})
+    assert sinistre._fondatrices_omises(verification, sans_mesure, reglages, parsed) == []
+
+
+def test_une_relance_qui_ne_prouve_rien_de_neuf_ne_domine_pas() -> None:
+    """Correctif du tour 2 — le compte de claims était le seul axe gonflable de la dominance.
+
+    `blocs_cites` et `facettes_couvertes` sont des ensembles ; seul `len(claims)` pouvait croître
+    sans qu'aucune preuve ne s'ajoute. Une paraphrase dupliquée faisait donc « dominer » la relance,
+    qui remplaçait l'acquis par lui-même, dit deux fois (A16 r3, servi en 200).
+    """
+    def verification(nb: int) -> Verification:
+        return Verification.model_construct(
+            claims=[VerifiedClaim(
+                claim_id=f"c{rang}", text=f"Formulation {rang}.",
+                quotes=[VerifiedQuote(block_id=f"{DOC_ID}:p1:2", quote=Q_GARANTIE, start=0,
+                                      end=len(Q_GARANTIE), text_start=0, text_end=len(Q_GARANTIE))],
+                status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+                for rang in range(nb)],
+            found=True, complete=False, unknown=[], lacunes=[], facettes_couvertes=[0])
+
+    from server.app.pipelines.commun import domine
+
+    assert not domine(verification(2), verification(1), redaction_nouvelle=True)
+    assert not domine(verification(1), verification(1), redaction_nouvelle=True)
+    # La reprise après demande de contexte relit **la même** ébauche : ses passages sont identiques
+    # par construction, et la règle ne s'y applique pas.
+    assert domine(verification(1), verification(1))
+
+
+def test_une_sous_question_de_plus_vaut_une_reserve_declaree_de_plus() -> None:
+    """Correctif du tour 2 (correctif 8) — l'axe des manques ne tue plus une couverture meilleure.
+
+    Sur A16 #2, la relance était écartée pour `manques=4 contre 3` : une réserve honnêtement
+    nommée de plus suffisait à faire préférer une réponse qui ne traitait qu'une moitié de la
+    question. L'exception est fermée — couverture **strictement** plus large, et au moins les mêmes
+    passages.
+    """
+    from server.app.domain.answer import Lacune
+    from server.app.pipelines.commun import domine
+
+    def claim(rang: int, bloc: str) -> VerifiedClaim:
+        return VerifiedClaim(
+            claim_id=f"c{rang}", text=f"Clause {rang}.",
+            quotes=[VerifiedQuote(block_id=bloc, quote=Q_GARANTIE, start=0, end=len(Q_GARANTIE),
+                                  text_start=0, text_end=len(Q_GARANTIE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+
+    acquise = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p1:2")], found=True, complete=False, unknown=[],
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1)], facettes_couvertes=[0])
+    seconde = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p1:2"), claim(2, f"{DOC_ID}:p1:3")], found=True,
+        complete=False, unknown=["Une réserve de plus."],
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1)], facettes_couvertes=[0, 1])
+
+    assert seconde.nb_manques > acquise.nb_manques
+    assert domine(seconde, acquise)
+
+    # Fermeture : à couverture **égale**, la règle historique reprend et la relance est écartée.
+    egale = seconde.model_copy(update={"facettes_couvertes": [0]})
+    assert not domine(egale, acquise)
+
+
+# --- Correctif du tour 2 (rapport rédiger E/F) : la relance n'est due que si elle peut servir ---
+
+
+def _rejetee(claim_id: str, bloc: str, raison: str | None) -> RejectedClaim:
+    return RejectedClaim(
+        claim_id=claim_id, text="Une affirmation écartée.",
+        quotes=[Quote(block_id=bloc, quote=Q_EXCLUSION)],
+        status=ClaimStatus(retrouvee=True, pertinente=False, edition="juin 2017"),
+        rejection_kind="non_pertinente", rejection_reason=raison, motif="peu importe")
+
+
+def test_un_hors_objet_narme_plus_la_relance_mais_un_defaut_de_redaction_si(index: Index) -> None:
+    """Rapport rédiger F — un jugement de périmètre est stable ; le relancer est une dépense sûre.
+
+    `hors_objet` porte sur ce que la clause vise, pas sur la façon dont elle est rapportée : la
+    relance ne peut pas le déplacer. C'est pourtant le cas nominal dès que le retrieval ramène une
+    exclusion hors périmètre — deux appels, ~30 s et ~0,07 € mesurés, pour un gain nul, et l'audit
+    montre le modèle ré-émettant la même claim à l'octet près.
+    """
+    fondatrice = f"{DOC_ID}:p1:5"  # exclusion du socle, kind confirmé
+
+    def rejetee(raison: str | None) -> Verification:
+        return Verification.model_construct(
+            claims=[], rejected_claims=[_rejetee("c1", fondatrice, raison)], found=True)
+
+    assert not sinistre._fondatrice_rejetee(rejetee("hors_objet"), corpus=index.corpus, index=index)
+    assert sinistre._fondatrice_rejetee(rejetee("non_soutenue"), corpus=index.corpus, index=index)
+    assert sinistre._fondatrice_rejetee(rejetee("conclusion_ajoutee"),
+                                        corpus=index.corpus, index=index)
+    # Sans raison fermée rendue par le contrôle, le doute profite à la relance, comme avant.
+    assert sinistre._fondatrice_rejetee(rejetee(None), corpus=index.corpus, index=index)
+
+
+def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index: Index) -> None:
+    """Rapport rédiger E — le message ne peut pas ordonner ce que le motif ordonne de remplacer."""
+    hors_objet = Verification.model_construct(
+        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "hors_objet")], found=True)
+    non_soutenue = Verification.model_construct(
+        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "non_soutenue")], found=True)
+
+    assert sinistre._blocs_juges_hors_objet(hors_objet) == [f"{DOC_ID}:p1:5"]
+    # Une limite rejetée faute de soutien reste demandée : là, la relance est utile.
+    assert sinistre._blocs_juges_hors_objet(non_soutenue) == []
+
+
+async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
+        index: Index) -> None:
+    """Rapport rédiger B — un 200 valide devenait un 503 parce qu'une amélioration a expiré.
+
+    La relance est **discrétionnaire** : le pipeline la décide, l'utilisateur ne la demande pas.
+    Quand sa rédaction a abouti et que seule sa vérification échoue, la première vérification existe
+    et elle est servable. Le cas est réel — un `APITimeoutError` sur un second *vérifier* mesuré à
+    26,3 s (A16 #2), à 34 % de marge sous `llm_timeout_s`.
+    """
+    fake = FakeAnthropic([
+        _comprendre(), _rediger(GAR, MAUVAISE),
+        _verifier(("c1", True, True, False, False, None),
+                  ("c9", False, False, False, False, None, [], [], "non_soutenue")),
+        _rediger(GAR),
+        provider_exception(anthropic.APITimeoutError)])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    answer, trace = await sinistre.run(
+        None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+        settings=settings, request_id="req-sinistre", budget=_budget(), variant="deterministe")
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    # Servie, mais **jamais donnée pour complète** : la lacune typée de la relance abandonnée.
+    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
+    abandons = [c for s in trace.steps for c in s.checks if c.name == "relance_abandonnee"]
+    assert abandons and "la vérification de la relance a échoué" in abandons[0].detail
+    # L'échec reste tracé avec son étape : le coût d'un appel commencé ne disparaît pas (AD-10).
+    assert [s.name for s in trace.steps].count("verifier") == 2
+
+
+async def test_un_acquis_vide_garde_la_regle_terminale_dad16(index: Index) -> None:
+    """L'exception est fermée : sans rien à servir, un appel commencé qui échoue reste terminal."""
+    fake = FakeAnthropic([
+        _comprendre(), _rediger(MAUVAISE),
+        _verifier(("c9", False, False, False, False, None, [], [], "non_soutenue")),
+        _rediger(GAR),
+        provider_exception(anthropic.APITimeoutError)])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    with pytest.raises(Timeout):
+        await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+                           settings=settings, request_id="req-sinistre", budget=_budget(),
+                           variant="deterministe")
+
+
+async def test_la_trace_publie_ce_que_comprendre_a_decide(index: Index) -> None:
+    """Correctif du tour 2 (défaut 9) — sans les termes ni le découpage, un incident ne se rejoue pas.
+
+    Les deux listes sont produites librement par le modèle à chaque appel et déterminent le
+    classement, donc les blocs lus, donc la réponse. Trois réponses différentes à la même question,
+    et rien dans la trace ne disait ce qui avait été cherché — pas même avec l'audit exact.
+    """
+    _answer, trace, fake = await _run(index, [
+        _comprendre(terms=["mobilier", "chaleur"], facettes=["la première", "la seconde"]),
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None),
+                                 facettes=[["c1"], ["c1"]])])
+
+    assert fake.remaining_script == 0
+    assert trace.termes == ["mobilier", "chaleur"]
+    assert trace.facettes == ["la première", "la seconde"]
+
+
+def test_laudit_exact_suit_lenvironnement_et_reste_reglable() -> None:
+    """L'enveloppe exacte est **conservée** hors production, jamais publiée (AD-15).
+
+    Le sink exact n'était câblé que dans le runner d'évals : le témoin qui porte le plancher était
+    donc le seul chemin sans audit, et trois enquêtes ont dû déduire ce qu'un fichier aurait dit.
+    """
+    from server.app.api.etat import _audit_sink
+    from server.app.llm.audit import JsonlAuditSink, ProjectionAuditSink
+
+    dev = Settings(_env_file=None, anthropic_api_key="", env="dev")
+    prod = Settings(_env_file=None, anthropic_api_key="", env="prod", allow_ungated=False)
+    assert dev.audit_exact_actif and isinstance(_audit_sink(dev), JsonlAuditSink)
+    assert not prod.audit_exact_actif and isinstance(_audit_sink(prod), ProjectionAuditSink)
+    # Le réglage tranche dans les deux sens : armer un diagnostic en production est une décision.
+    arme = Settings(_env_file=None, anthropic_api_key="", env="prod", allow_ungated=False,
+                    llm_audit_exact=True)
+    desarme = Settings(_env_file=None, anthropic_api_key="", env="dev", llm_audit_exact=False)
+    assert arme.audit_exact_actif and not desarme.audit_exact_actif
+
+
+async def test_aucune_exception_ne_sort_nue_de_la_chaine(index: Index, monkeypatch) -> None:
+    """Rapport citations B3 — un défaut interne rendait un 500 sans rien pour le situer.
+
+    L'incident réel : une `ValidationError` échappée de *retrouver*, qui n'est pas un
+    `PipelineError`, remontait jusqu'à la couche HTTP. L'utilisateur recevait « erreur interne »
+    après une minute payée, **sans trace partielle**, et aucun diagnostic n'était possible — la
+    trace n'avait même jamais été construite. AD-16 exige une trace partielle sur tout échec
+    terminal ; la règle ne peut pas dépendre du type qu'un défaut interne aura pris.
+    """
+    def exploser(*_args, **_kw):
+        raise ValueError("un défaut interne qui n'est pas un PipelineError")
+
+    monkeypatch.setattr(sinistre, "retrouver_deterministe", exploser)
+    fake = FakeAnthropic([_comprendre()])
+    settings = _settings()
+    client = LlmClient(settings, anthropic_client=fake)
+
+    with pytest.raises(PipelineError) as erreur:
+        await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
+                           settings=settings, request_id="req-sinistre", budget=_budget(),
+                           variant="deterministe")
+
+    assert erreur.value.code.value == "internal"
+    assert erreur.value.trace is not None
+    # Ce qui a déjà tourné voyage avec l'erreur : l'étape payée, et ce que *comprendre* a décidé.
+    assert [s.name for s in erreur.value.trace.steps] == ["comprendre"]
+    assert erreur.value.trace.total_cost_eur > 0
+    # AD-15 : rien du message d'origine n'est publié — le type suffit à situer, pas à divulguer.
+    assert "défaut interne qui n'est pas" not in erreur.value.message

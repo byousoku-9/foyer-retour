@@ -23,6 +23,15 @@ SegmentKind = Literal["factuel", "transition", "limite"]
 # nomme précisément comme ce qu'il empêche. Aucun des trois kinds d'origine ne la décrit : elle n'est
 # ni introuvable, ni ambiguë, ni jugée non pertinente.
 RejectionKind = Literal["non_retrouvee", "non_pertinente", "ambigue", "non_citee"]
+# Le vocabulaire **fermé** des raisons de non-pertinence. Il vivait uniquement dans le schéma de
+# sortie de *vérifier* et n'atteignait le reste de la chaîne que fondu dans une phrase de motif.
+# Or ces trois raisons n'ont pas la même nature (correctif du tour 2, rapport rédiger F) : une
+# citation `non_soutenue` et une `conclusion_ajoutee` sont des défauts de **rédaction**, qu'une
+# reformulation corrige ; un `hors_objet` est un jugement de **périmètre**, stable, que relancer ne
+# déplace pas. Décider entre les deux en relisant une phrase française aurait été une heuristique
+# de texte ; la raison devient donc un fait typé, porté par la claim rejetée.
+RaisonNonPertinence = Literal["non_soutenue", "hors_objet", "conclusion_ajoutee"]
+RAISONS_CORRIGEABLES: frozenset[str] = frozenset({"non_soutenue", "conclusion_ajoutee"})
 # `clarification_requise` amende AD-4 (story 1.5) : `Answer` exige un `reason` dès que `found=False`, et
 # aucun des trois kinds d'origine ne décrit « la question n'a pas pu être rendue autonome » (AD-5, deux
 # sorties exclusives de *comprendre*). Répondre `hors_perimetre` à une anaphore irrésoluble serait un
@@ -80,22 +89,66 @@ class Quote(DomainModel):
     quote: str
 
 
+def passage_canonique(texte: str) -> str:
+    """Forme canonique d'un passage cité : ce qui reste quand on retire ce qui n'est pas du contenu.
+
+    Blancs réduits à une espace simple (même règle que `AnswerDraft.digest`), apostrophe
+    typographique ramenée à l'apostrophe simple, casse repliée. Ce n'est **pas** la normalisation du
+    corpus (`corpus.text.normalize`, hors de portée du domaine) et elle n'a pas à l'être : elle ne
+    sert jamais à retrouver une occurrence dans un bloc — seulement à décider si deux citations
+    désignent le même passage.
+    """
+    return " ".join(texte.replace("\u2019", "'").split()).casefold()
+
+
 class Claim(DomainModel):
     claim_id: str
     text: str
     quotes: list[Quote] = Field(min_length=1)  # une quote par bloc
 
+    @property
+    def preuve(self) -> frozenset[tuple[str, str]]:
+        """Ce que cette affirmation **prouve** : ses passages, jamais sa formulation.
+
+        Correctif du tour 2 (rapport citations, A1). La fusion de relance ne dédupliquait que sur
+        l'égalité byte-exacte du couple `(text, quotes)`. Or le prompt de relance demande de
+        **reconduire** les acquis, et une reconduction est naturellement une paraphrase : « le
+        contrat couvre » devient « le contrat garantit ». La comparaison échouait, la branche
+        « correction » se déclenchait, et l'acquis **et** sa paraphrase survivaient tous les deux —
+        sur le même bloc, le même passage. La réponse servie disait alors deux fois la même chose,
+        `sources[]` publiait deux cartes identiques, et la duplication **gagnait** la dominance,
+        puisque seul le compte de claims y est gonflable.
+
+        Deux affirmations qui s'appuient exactement sur les mêmes passages avancent la même preuve.
+        Ce sont donc les `(block_id, passage canonique)` qui les identifient.
+        """
+        return frozenset((quote.block_id, passage_canonique(quote.quote))
+                         for quote in self.quotes)
+
     @field_validator("quotes")
     @classmethod
-    def _one_quote_per_block(cls, quotes: list[Quote]) -> list[Quote]:
-        # AD-10/AD-15 (revue Codex 1.4, B7) : le message d'un validateur du domaine est recopié tel
-        # quel dans `StepTrace.checks` et dans la relance ; il ne cite donc **jamais** une valeur reçue
-        # (`block_id`, `claim_id`) — elles viennent du modèle et sont du contenu non fiable. Le chemin
-        # pydantic (`claims.2.quotes`) suffit à situer la faute, et il est produit par le code.
-        ids = [q.block_id for q in quotes]
-        if len(set(ids)) != len(ids):
-            raise ValueError("deux quotes portent le même block_id (une seule quote par bloc dans une claim) : "
-                             "regrouper le passage, ou faire deux claims distinctes")
+    def _pas_deux_fois_la_meme_citation(cls, quotes: list[Quote]) -> list[Quote]:
+        """Deux citations **identiques** dans une claim n'ajoutent rien ; deux extraits d'un même
+        bloc, si — et ce n'est plus un échec de schéma (correctif du tour 2, rapport rédiger §1).
+
+        La règle « au plus une quote par bloc » était portée **ici**, donc terminale : le parse
+        échouait, le retry unique d'AD-16 était consommé, le modèle rejouait la même faute, et
+        l'utilisateur recevait un 503 sur une question nominale. Les deux issues que le prompt lui
+        proposait étaient d'ailleurs fermées toutes les deux : le passage englobant dépassait la
+        borne annoncée, et la place de claims était déjà prise.
+
+        Ce que la règle protégeait — deux extraits disjoints d'un même bloc se faisant passer pour
+        deux preuves — est désormais obtenu **par le code**, en fusionnant les deux extraits en un
+        seul passage contigu qui les couvre (`steps.rediger`). La preuve reste une, le contenu n'est
+        pas perdu, et rien n'est refusé au modèle qu'il puisse corriger.
+
+        AD-10/AD-15 (revue Codex 1.4, B7) : le message d'un validateur du domaine est recopié tel
+        quel dans `StepTrace.checks` et dans la relance ; il ne cite donc **jamais** une valeur reçue.
+        """
+        vues = {(q.block_id, q.quote) for q in quotes}
+        if len(vues) != len(quotes):
+            raise ValueError("deux citations identiques dans une même affirmation : cite un passage "
+                             "une seule fois")
         return quotes
 
 
@@ -202,6 +255,10 @@ class VerifiedClaim(Claim):
 
 class RejectedClaim(VerifiedClaim):
     rejection_kind: RejectionKind
+    # La raison fermée du rejet de pertinence, quand le contrôle en a rendu une. `None` sur les
+    # autres kinds de rejet, et sur une pertinence rejetée sans raison valide — absence de mesure,
+    # jamais une raison par défaut (AD-16).
+    rejection_reason: RaisonNonPertinence | None = None
     motif: str = ""
 
     # Une claim rejetée sur ses citations n'a pas d'occurrence à conserver : ses quotes restent celles
