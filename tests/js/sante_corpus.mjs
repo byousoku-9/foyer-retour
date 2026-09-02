@@ -37,7 +37,7 @@ export function santeConforme(extra) {
     // jamais (revue coordonnée 2.1).
     dictionary: { validated: false, corpus_ok: true, refus_zero_hit_actif: false },
     alerts: [],
-    thresholds: { deadline_s: 55.0 },
+    thresholds: { deadline_s: 75.0 },
   }, extra || {});
 }
 

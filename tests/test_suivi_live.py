@@ -22,8 +22,9 @@ Les assertions tolèrent que le modèle choisisse ses mots (`_evoque`, patron de
 `tests/test_steps_live.py::_covers`) : un test live qui asserte une chaîne exacte rendue par le
 modèle rougit au premier synonyme et cesse de mesurer quoi que ce soit.
 
-Un seul appel `micro` par scénario : *comprendre* est le seul étage qui voie l'historique avec
-*rédiger* (AD-1), et il tranche seul les trois cas — l'étage `reason` n'est jamais atteint.
+Un seul appel modèle par scénario : *comprendre* est la seule étape qui voie l'historique avec
+*rédiger* (AD-1), et elle tranche seule les trois cas — aucune étape au-delà n'est facturée. Son
+étage est celui que la configuration lui affecte (AD-9), lu sur `Settings` et jamais recopié ici.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from server.app.llm.client import LlmClient
 from server.app.steps.comprendre import comprendre
 from server.app.steps.restituer import PHRASES_DE_REFUS
 from tests.fixtures import LLMRecorder
+from tests.helpers_tiers import verifier_etage
 from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,11 +109,13 @@ async def _comprendre(corpus: Corpus, llm_recorder: LLMRecorder, question: str,
     sortie, step = await comprendre(question, historique, Profil(), client=_client(llm_recorder),
                                     budget=budget, settings=_settings(),
                                     perimetre=corpus.perimetres.get(DOC_ID, ""))
-    # AD-9 : *comprendre* est affecté au tier `micro`, et c'est le seul appel avant tout
-    # court-circuit — le compte d'appels **est** l'assertion « aucun étage `reason` n'est facturé ».
-    assert step.name == "comprendre" and step.tier == "micro"
-    assert len(step.calls) == 1 and budget.attempts == 1
-    assert step.calls[0].model.startswith("claude-haiku")
+    # AD-9 : *comprendre* tourne à l'étage que la configuration lui affecte, et c'est le seul appel
+    # avant tout court-circuit — le compte d'appels **est** l'assertion « aucune étape au-delà n'est
+    # facturée ». Le tier attendu se lit sur `Settings`, il n'est pas recopié : l'AC porte sur
+    # l'affectation d'AD-9, pas sur la valeur qu'elle avait le jour où ce test a été écrit.
+    assert step.name == "comprendre"
+    verifier_etage(step, _settings(), appels=1)
+    assert budget.attempts == 1
     assert step.usage.cost_eur > 0
     return sortie, budget
 
@@ -127,7 +131,7 @@ async def test_un_suivi_est_resolu_par_lhistorique(corpus: Corpus, llm_recorder:
     Ce test tient la moitié que les tests mockés ne peuvent pas tenir (revue 2.2, P8) : dans
     `tests/test_pipeline_guide.py`, `question_resolue` et `terms` sont posés côte à côte par le
     script, si bien que le lien entre les deux n'y est jamais exercé. Ici ils sortent du **même**
-    appel `micro`, et c'est ce qui rend vrai « les termes que le refus consulte sont ceux de la
+    appel de *comprendre*, et c'est ce qui rend vrai « les termes que le refus consulte sont ceux de la
     question résolue ».
     """
     historique = [Turn(role="user", texte=LOGEMENT), Turn(role="assistant", texte=REPONSE_LOGEMENT)]

@@ -24,7 +24,8 @@ class RequestBudget:
         self.artifact_uid = ""
         # Story 1.4 (reprise B5) : empreintes des préfixes dont le fournisseur a confirmé l'écriture (ou la
         # lecture) pendant cette requête — `estimate_cost` peut alors compter le préfixe au tarif
-        # `cache_read` (0,1×) au lieu de l'écriture (2×). Le cache reste chaud : deadline 55 s, TTL ≥ 5 min.
+        # `cache_read` (0,1×) au lieu de l'écriture (2×). Le cache reste chaud : la deadline vaut moins
+        # d'une minute et demie (`Settings.deadline_s`), les TTL servis sont d'au moins 5 min.
         # Un préfixe que le fournisseur n'a pas caché (trop court pour son seuil minimal) n'entre jamais ici.
         self._prefixes: set[str] = set()
         self._t0 = time.monotonic()

@@ -119,6 +119,11 @@ guide est **partiel** à `53/102`, Baloise est indisponible, pour un coût fourn
 `2,1127 EUR`. Ces éléments rendent ce candidat **rouge et non promouvable** ; ils ne sont ni un
 verdict sur les variantes ni une validation experte. Le dernier produit servi reste `6abd3d0…`.
 
+**Ce que Sonnet coûte** *(02/09/2026)*. Un sinistre nominal facture ≈ 0,19 €, ≈ 0,21 € avec
+relance, contre 0,10 et 0,18 € visés ; le plafond par requête passe à 0,45 €. Les deux tiers
+(0,128 €) sont l'écriture de cache 1 h, au double tarif pour trois préfixes : prochain gisement,
+décision de spine (AD-9). Mesures : `docs/tests-live.md`.
+
 ## Limites honnêtes
 
 Le parseur V2 change l'identité et la structure publiées. Les PDF réels étant hors dépôt et leur

@@ -21,20 +21,22 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
-    assert s.deadline_s == 55 and s.llm_timeout_s == 40  # 40 s : AD-16 amendé en 1.9, sur mesure
+    # 75 s : mesurée sur les cinq appels Sonnet du chemin nominal, queue dispersée comprise
+    # (02/09/2026) ; 40 s : AD-16 amendé en 1.9, sur mesure.
+    assert s.deadline_s == 75 and s.llm_timeout_s == 40
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 2
-    assert s.max_llm_attempts == 8 and s.retrouver_outils_max_tokens == 1024
+    assert s.max_llm_attempts == 9 and s.retrouver_outils_max_tokens == 1024
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
         "reason", "reason", "reason")
     assert s.rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in Settings.model_fields
-    assert s.max_cost_eur_per_request == 0.18 and s.cost_alert_eur == 0.05
+    assert s.max_cost_eur_per_request == 0.45 and s.cost_alert_eur == 0.25
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
-    assert s.evals_max_cost_eur == 1.0
+    assert s.evals_max_cost_eur == 7.0
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
     assert s.mixed_page_image_density == 0.2 and s.ocr_dpi == 300
@@ -47,7 +49,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.env == "dev" and s.allow_ungated is True
     # story 1.5 : pipeline guide, historique borné (AD-11), bornes de *vérifier* (AD-4)
     assert s.guide_doc_id == "lux-guide" and s.historique_max_turns == 6
-    assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 1024
+    assert s.verifier_max_claims == 8 and s.verifier_max_tokens == 3072
     # story 1.8 : contrat servi par le pipeline sinistre, et les bornes de son appel groupé
     assert s.sinistre_doc_id == "axa-lu-optihome-2017"
     assert s.verifier_sinistre_max_tokens == 3072
@@ -83,7 +85,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
-    assert t.thresholds["max_cost_eur_per_request"] == 0.18
+    assert t.thresholds["max_cost_eur_per_request"] == 0.45
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",

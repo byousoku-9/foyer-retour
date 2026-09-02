@@ -7,8 +7,9 @@ assertions, réponses rejouées — zéro réseau.
 1. Une question du guide donne une réponse dont **chaque phrase affichée** est soutenue : toute
    claim retenue est retrouvée mot pour mot dans le bloc relu depuis le corpus, et jugée pertinente
    par le contrôle groupé. Le coût de la requête entière reste sous le plafond par requête.
-2. Une question météo est refusée après le **seul** appel `micro` de *comprendre* : l'étage `reason`
-   n'est jamais atteint pour un refus (AD-5), et le refus explique pourquoi.
+2. Une question météo est refusée après le **seul** appel de *comprendre* : aucune étape au-delà
+   n'est facturée pour un refus (AD-5), et le refus explique pourquoi. L'étage de chaque étape est
+   lu sur la configuration (AD-9), jamais recopié ici — c'est le tier qui a changé, pas l'AC.
 3. La question de référence de la story 2.6 est rejouée en déterministe, comme diagnostic.
 4. La même question traverse la variante outils ; son chemin froid et son coût restent observables.
 """
@@ -28,6 +29,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.pipelines.guide import repondre_guide
 from tests.fixtures import LLMRecorder
+from tests.helpers_tiers import verifier_etage
 from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,9 +96,12 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
     assert all(s.kind != "limite" for s in answer.segments)
     assert all(u.strip() not in answer.texte for u in answer.unknown)
 
-    # AD-1 : la chaîne des cinq étapes, dans l'ordre, avec l'affectation de tiers d'AD-9
+    # AD-1 : la chaîne des cinq étapes, dans l'ordre, avec l'affectation de tiers d'AD-9 — lue sur
+    # `Settings`/`STEP_TIERS`, jamais recopiée : un oracle qui épingle un tier en littéral cesse de
+    # mesurer AD-9 dès que la configuration bouge, et se met à mentir sans rougir.
     assert [s.name for s in trace.steps][:5] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    assert [s.tier for s in trace.steps][:5] == ["micro", "reason", "reason", "micro", None]
+    for step in trace.steps[:5]:
+        verifier_etage(step, settings)
     assert trace.steps[1].calls == []  # *retrouver* déterministe : aucun modèle
     verifier = next(s for s in trace.steps if s.name == "verifier")
     assert len(verifier.calls) == 1  # AD-4 : **un seul** appel groupé de pertinence
@@ -107,15 +112,18 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
 
 async def test_a_weather_question_is_refused_before_the_reason_tier(index: Index,
                                                                     llm_recorder: LLMRecorder) -> None:
-    budget = _budget()
+    settings, budget = _settings(), _budget()
     answer, trace = await repondre_guide(METEO, [], Profil(), corpus=index.corpus, index=index,
-                                         client=_client(llm_recorder), settings=_settings(),
+                                         client=_client(llm_recorder), settings=settings,
                                          request_id="live-2", budget=budget)
     assert answer.found is False and answer.claims == []
     assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
     assert answer.texte and answer.segments[0].kind == "limite"  # le refus explique pourquoi
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
-    assert budget.attempts == 1 and all(c.model.startswith("claude-haiku") for c in trace.steps[0].calls)
+    # Un seul appel, à l'étage que la configuration affecte à *comprendre* : le compte d'appels
+    # **est** l'assertion « aucune étape au-delà n'est facturée » (AD-5).
+    assert budget.attempts == 1
+    verifier_etage(trace.steps[0], settings, appels=1)
 
 
 async def test_deterministe_diagnostic_for_outils_question(

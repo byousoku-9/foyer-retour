@@ -20,7 +20,7 @@ window.CHAT = (function () {
   // les retient de la sonde. Ce qui suit n'est qu'un **repli**, pour la premiere requete quand la
   // sonde n'a pas encore repondu.
   var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
-  var DEADLINE_SERVEUR_REPLI = 55;      // config.deadline_s
+  var DEADLINE_SERVEUR_REPLI = 75;      // config.deadline_s
   // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne : en dessous, on
   // couperait une requete a laquelle il aurait repondu ; bien au-dela, l'utilisateur attendrait
   // pour rien. Ce n'etait pas un seuil du serveur, c'en est un : `config.client_abort_margin_s`,

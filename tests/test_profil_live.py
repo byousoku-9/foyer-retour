@@ -39,6 +39,7 @@ from server.app.llm.client import LlmClient
 from server.app.pipelines.guide import repondre_guide
 from server.app.steps.comprendre import comprendre
 from tests.fixtures import LLMRecorder
+from tests.helpers_tiers import verifier_etage
 from tests.llm_fake import RecordedAnthropic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,7 +86,7 @@ async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
     """AD-5 : « `scope` dérivé du profil : enfants → école/allocations ». La moitié « thèmes » de l'AC.
 
     Le profil est envoyé **brut** (AD-11) et filtré par `PROFIL_KEYS` ; *comprendre* le voit dans son
-    unique appel `micro` et en tire des axes de recherche. C'est ce qui **cherche** — le parcours,
+    unique appel et en tire des axes de recherche. C'est ce qui **cherche** — le parcours,
     lui, ne fait que classer ce que la recherche a trouvé.
     """
     budget = _budget()
@@ -99,9 +100,10 @@ async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
     # Et la seconde moitié, dans le **même** `scope` (revue Codex 2.3, B1) : les nœuds désignés sont
     # construits ici, par du code pur sur `Document.parcours`, et c'est ce que *retrouver* lit.
     assert ECOLE in parsed.scope.noeuds, parsed.scope.noeuds
-    # AD-9 : un seul appel `micro` — l'étage `reason` n'est jamais atteint par *comprendre*.
-    assert step.tier == "micro" and len(step.calls) == 1 and budget.attempts == 1
-    assert step.calls[0].model.startswith("claude-haiku")
+    # AD-9 : un seul appel, à l'étage que la configuration affecte à *comprendre* — lu sur
+    # `Settings`, jamais recopié (le tier a été promu depuis ; l'AC, elle, n'a pas bougé).
+    verifier_etage(step, _settings(), appels=1)
+    assert budget.attempts == 1
 
 
 async def test_le_profil_fait_ouvrir_la_fiche_ecole_par_le_pipeline(index: Index,
@@ -206,4 +208,4 @@ async def test_le_statut_fait_sortir_des_themes_daffiliation_et_dimpot(
     touches = {node_id for _b, node_id in index.chercher(parsed.termes_de_recherche(),
                                                          limit=_settings().search_limit, doc_id=DOC_ID)}
     assert touches & FISCALES, sorted(touches)
-    assert step.tier == "micro" and len(step.calls) == 1
+    verifier_etage(step, _settings(), appels=1)

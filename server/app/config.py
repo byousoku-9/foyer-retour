@@ -134,7 +134,39 @@ class Settings(BaseSettings):
         return self.git_sha[:SHA_COURT] if _est_revision_complete(self.git_sha) else self.git_sha
 
     # Temps (AD-1, AD-9)
-    deadline_s: float = Field(55.0, gt=0)
+    # **75 s, et non 55 (02/09/2026 ; remesuré au tour « budgets Sonnet », appliqué au tour final).**
+    # 55 s a été calibré quand une seule étape sur cinq était servie par `reason` ; depuis la
+    # promotion de *comprendre*, *retrouver* et *vérifier*, les cinq appels du chemin nominal sont
+    # des appels Sonnet à effort `medium`, donc avec réflexion étendue.
+    # **Ancre de latence** — la seule que le projet possède : *rédiger* (tier `reason`, effort
+    # `medium`), mesuré 12,9 / 15,9 / 17,6 s pour 904 → 1 130 tokens de sortie enregistrés, soit
+    # **14,3 à 15,6 ms par token de sortie**. **Charge de sortie** du chemin nominal, relevée sur les
+    # 108 réponses Sonnet enregistrées (médiane / maximum par étape) : *comprendre* 146 / 220, les
+    # deux tours de *retrouver* 99 / 195 chacun, *rédiger* 838 / 1 509, *vérifier* 215 / 820.
+    #   — charge médiane, 1 397 tokens : **20 à 22 s** ;
+    #   — pire charge observée, 2 939 tokens : **42 à 46 s** ;
+    #   — même pire, corrigé de la dispersion mesurée d'un seul appel (*rédiger* a franchi 25 s
+    #     **deux fois sur six**, soit 1,42 fois son maximum typique) : ≈ 65 s, plus ≈ 2,5 s
+    #     d'établissement des cinq connexions, soit **≈ 68 s**.
+    # 55 s couvrait le pire *observé* avec 9 s de marge — moins que la dispersion d'un seul appel —
+    # et laissait donc atteignable un `Timeout` **terminal** (503) sur une question nominale : deux
+    # mécanismes vivent hors de tout `except`, le contrôle `budget.remaining() <= 0` posé avant
+    # chacune des cinq étapes (`pipelines/`) et le `timeout_for_call() = min(llm_timeout_s,
+    # remaining())` que le SDK reçoit (`llm/budget.py`). 75 s couvre les 68 s majorés avec 10 %.
+    # **Ce que ce relèvement ne fait pas : rallonger une requête.** La deadline est un **budget**,
+    # jamais une attente — rien n'attend qu'elle s'écoule. Une requête normale finit en 20 à 22 s
+    # exactement comme avant ; ce qui change est qu'une requête lente **aboutit** au lieu de sortir
+    # en 503. **Latence utilisateur maximale entérinée** : `deadline_s + client_abort_margin_s`
+    # = **85 s** avant que le navigateur abandonne (`web/app/chat.js` lit les deux sur `/sante`).
+    # **Ce que la deadline ne couvre pas, et c'est voulu** : la relance d'AD-3 (≈ 82 s au pire) et la
+    # reprise de 4.2e (≈ 95 s) dépassent, et leurs pré-contrôles (`pipelines/sinistre.py`,
+    # `budget.remaining() <= llm_retry_margin_s`) les refusent **avant** tout appel puis servent
+    # l'acquis en 200 avec `relance_abandonnee` ou `reprise_sans_place` — jamais un `Timeout`.
+    #
+    # **La valeur couvrante mesurée**, celle sous laquelle la deadline ne doit pas redescendre sans
+    # une nouvelle mesure : 68 s. Elle est tenue par
+    # `tests/test_budget.py::test_la_deadline_couvre_la_queue_mesuree_du_chemin_nominal`.
+    deadline_s: float = Field(75.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
@@ -183,7 +215,37 @@ class Settings(BaseSettings):
     relance_sur_non_pertinence: bool = False
     historique_max_turns: int = Field(6, ge=0)
     verifier_max_claims: int = Field(8, ge=1)
-    verifier_max_tokens: int = Field(1024, ge=1)
+    # 1 024 → 3 072 (02/09/2026), et voici la mesure qui déplace ce seuil.
+    # **Cause.** Depuis que *vérifier* est servi par le tier `reason` (`verifier_tier`), son appel
+    # part avec `EFFORT["reason"] = "medium"` : la réflexion étendue de Sonnet 5 est comptée **dans
+    # le même `max_tokens`** que la sortie. Un plafond calibré sur le seul contrat JSON du guide
+    # (≈ 440 tokens : 8 verdicts, 8 phrases soutenues, 4 facettes) est donc partagé avec une dépense
+    # de réflexion **intermittente**. Mesuré sur les 12 appels enregistrés de ce schéma de sortie :
+    # 8 aboutissent (174 → 820 tokens de sortie, dont 3 avec un bloc `thinking`) et **4 sont tronqués
+    # à exactement 1 024**, avec pour tout contenu un bloc `thinking` et **zéro caractère de JSON** —
+    # c'est-à-dire un `LlmParse`, donc un 503 sur une question parfaitement nominale, ce qu'AD-16
+    # refuse. Le témoin de non-troncature est l'étage voisin : `rediger_max_tokens = 2048`, même tier
+    # et même effort, 86 appels enregistrés, **aucun** tronqué, maximum observé 1 509.
+    # **Valeur.** 3 072, la même que `verifier_sinistre_max_tokens` : ce plafond-là sert déjà le même
+    # tier au même effort pour un contrat strictement plus grand. Il laisse au contrat du guide plus
+    # de 2 600 tokens de réflexion, soit plus du triple de la plus forte dépense jamais observée sur
+    # cet appel. Les deux champs restent **distincts** parce que leurs contrats le sont : si le paquet
+    # d'applicabilité du sinistre grandit, le guide n'a pas à suivre.
+    # **Coût.** `max_tokens` ne facture pas, il borne — ce qui est payé est la sortie réellement
+    # produite. Le seul risque est le majorant de préflight, et il vaut exactement les tokens ajoutés
+    # au tarif de sortie du tier servi : +2 048 tokens à 15 USD/MTok (`usd_eur` 0,92) = **+0,0283 €**,
+    # quel que soit le corpus. C'est cette identité-là qui est prouvée hors réseau, par
+    # `tests/test_pipeline_guide.py::test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes` ;
+    # elle rougit si le plafond, le tier de *vérifier* ou la tarification changent.
+    # **Ce que la mesure de coût ne dit pas.** Les totaux de bout en bout du témoin sont relevés sur
+    # le corpus de fixtures (« Mini guide », 4 blocs) : ils montrent que la chaîne tient, ils ne
+    # transposent pas en production, où le préfixe est le guide entier. La marge réelle sous
+    # `max_cost_eur_per_request` se mesure en ligne, pas ici.
+    # **Ce qui justifie le chiffre**, lui, est la panne supprimée :
+    # `test_le_plafond_retenu_ecarte_la_troncature_mesuree` rejoue la troncature enregistrée et finit
+    # en `LlmParse` — donc en 503 — tant que le plafond ne dépasse pas la réflexion mesurée.
+    # Ce qui reste à confirmer au réenregistrement : qu'aucune réponse ne se tronque plus ici.
+    verifier_max_tokens: int = Field(3072, ge=1)
 
     # Pipeline sinistre (story 1.8, AD-6) : contrat servi par `pipelines/sinistre.py` — un slug, pas un
     # seuil numérique, donc absent de `thresholds()` comme `guide_doc_id`.
@@ -275,7 +337,15 @@ class Settings(BaseSettings):
     # est servie sans être donnée pour complète. Le mécanisme reste fail-closed ; ce qu'il perd, ce
     # n'est jamais une garantie, c'est une chance de relire. Relever ce plafond est une décision de
     # coût, mesurable par l'orchestrateur, qui appartient au gate 4.5.
-    max_llm_attempts: int = Field(8, ge=1)
+    # **9, et non 8 (02/09/2026, tour « budgets Sonnet »).** La séquence la plus longue en consomme
+    # exactement huit — *comprendre*, les deux tours de navigation, *rédiger*, *vérifier*, la relance
+    # d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e (`APPELS_DE_LA_REPRISE` = 1) — si
+    # bien qu'à 8 le premier retry motivé d'un parse invalide (AD-16, « 1 retry ») n'avait plus de
+    # place : il ressortait en `BudgetExceeded` terminal sur un chemin conforme. 9 est le **minimum**
+    # qui rend ce retry survivable, et c'est délibérément le minimum : une unité de plus autoriserait
+    # un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste ailleurs et
+    # s'applique avant chaque envoi (`max_cost_eur_per_request`).
+    max_llm_attempts: int = Field(9, ge=1)
     max_llm_turns: int = Field(2, ge=1, le=2)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
@@ -319,23 +389,50 @@ class Settings(BaseSettings):
     # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
     retrieval_max_tokens: int = Field(3500, ge=1)
 
-    # Coût (AD-9, AD-10). Après promotion de tous les choix sémantiques sur Sonnet, quatre chemins
-    # sinistre hermétiques ont reproduit 0,0164 € engagés + 0,1469–0,1480 € de majorant pour
-    # *vérifier*, soit 0,1633–0,1644 €. 0,18 € garde ≈ 9,5 % de marge sur le pire cas observé sans
-    # modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
-    max_cost_eur_per_request: float = Field(0.18, ge=0)
-    cost_alert_eur: float = Field(0.05, ge=0)
+    # Coût (AD-9, AD-10).
+    # **0,45 €, et non 0,18 (02/09/2026, tour « budgets Sonnet »).** 0,18 € datait du chiffrage fait
+    # quand *comprendre*, *retrouver* et *vérifier* étaient servis par `micro` ; il refusait la
+    # chaîne servie **avant son premier appel de *vérifier***, donc sur un sinistre parfaitement
+    # nominal — un 503 de configuration, ce qu'AD-16 refuse.
+    # **Mesure**, chaîne sinistre par outils, corpus AXA réel, prompts, schémas et outils réels,
+    # usages enregistrés rejoués au tarif du tier servi (écriture de cache au TTL 1 h de `reason`).
+    # Ce que le garde-fou compare est `engagé + majorant` **avant chaque appel** :
+    #   — sorties enregistrées, séquence la plus longue (8 appels) : pire somme **0,2699 €** ;
+    #   — chaque sortie saturant son `max_tokens` : pire somme **0,4074 €** ;
+    #   — majorant froid rigoureux (aucun préfixe jamais relu) : **0,5059 €**.
+    # 0,45 € couvre le pire mesuré avec 67 % de marge et le pire « sorties saturées » avec 10 %,
+    # tout en restant **11 % sous** le majorant froid : le garde-fou mord donc encore sur une requête
+    # réellement anormale, il ne devient pas décoratif. Le témoin
+    # `tests/test_sinistre_live.py::test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse`
+    # tient les deux moitiés — le nominal passe, un plafond d'un centième de centime trop bas refuse.
+    max_cost_eur_per_request: float = Field(0.45, ge=0)
+    # **0,25 €, et non 0,05.** `cout_eleve` est de l'**observabilité** (AD-10), pas un garde-fou : il
+    # doit désigner une requête anormale. À 0,05 € il se levait au sortir de *retrouver* — 0,0427 € à
+    # son second tour, 0,0548 € avant *rédiger* — c'est-à-dire sur toutes les requêtes, ce qui n'est
+    # plus un signal mais du bruit. Bornes mesurées ci-dessus : la chaîne la plus longue jamais
+    # enregistrée facture 0,2295 €. 0,25 € se place 9 % au-dessus d'elle et 1,8 fois sous le plafond :
+    # l'alerte dit donc « cette requête a dépassé tout ce qu'une chaîne enregistrée a coûté », et elle
+    # le dit avant que le plafond ne refuse.
+    cost_alert_eur: float = Field(0.25, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
     # un seuil comme les autres — il vit ici, jamais en dur dans `server/evals/run.py`, et `--max-cost`
-    # ne fait que le surcharger pour un run. Valeur : le profil `vertical` exécute **deux** cas, à
-    # 0,027–0,054 € pièce selon le cas et le run (quatre runs mesurés le 24/08/2026,
-    # `docs/tests-live.md` § 1.10 — le cas sinistre coûte environ le double du cas guide) ; 1,00 € laisse donc
-    # un facteur dix sur le run que cette story écrit, ce qui borne une dérive sans jamais gêner un
-    # re-gate. Il ne suffira **pas** au golden set complet de 4.1 : 40–60 cas au tarif mesuré valent
-    # 2 à 3 €, et c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener ce coût, pas ce
-    # plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
-    evals_max_cost_eur: float = Field(1.0, ge=0)
+    # ne fait que le surcharger pour un run.
+    # **7,00 €, et non 1,00 (02/09/2026, tour « budgets Sonnet »).** Ce plafond n'est pas relevé pour
+    # lui-même : il est **entraîné** par `max_cost_eur_per_request`, parce que `estimate_run_majorant`
+    # chiffre le préflight d'une campagne à `exécutions × plafond par requête` (`llm/pricing.py`). À
+    # 0,45 €, toute campagne de trois exécutions ou plus était refusée **avant de commencer** — or
+    # les campagnes `--repeat` ≥ 3 et les re-gates sont l'étape suivante du projet.
+    # **Mesure.** Le profil `vertical` retient aujourd'hui **cinq** cas (`server/evals/cases/**` :
+    # guide 1, sinistre 1, baloise 3 ; `run.py` ne filtre pas le profil `vertical` par document).
+    # Une campagne de gate vertical à `--repeat 3` vaut donc 15 exécutions, soit un majorant de
+    # 15 × 0,45 = **6,75 €**. 7,00 € la laisse passer avec 3,7 % de marge, pour un coût **réel**
+    # attendu d'environ 2,9 € (15 × 0,19 € mesurés) : le plafond reste un facteur 2,4 au-dessus du
+    # réel, jamais illimité. Ce qu'il continue de refuser sans `--max-cost` explicite : le même gate
+    # à `--repeat` 5 (11,25 €) et le profil `full` (56 cas, 25,2 €). Cette dernière borne est
+    # voulue — c'est le cache de réponses d'AD-14 (story 4.1) qui doit ramener le coût du golden set,
+    # pas ce plafond qu'on relèverait. `[HYPOTHÈSE]` : à re-régler en 4.1, avec le cache.
+    evals_max_cost_eur: float = Field(7.0, ge=0)
     # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
     #
     # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
@@ -365,11 +462,22 @@ class Settings(BaseSettings):
         if valeur in (".", ".."):
             raise ValueError("evals_publication_file doit nommer un fichier, pas un répertoire")
         return valeur
-    # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne : 1,00 € par défaut,
-    # surchargé par `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
+    # Story 4.2b corrective — plafond **agrégé persistant** de story/campagne, surchargé par
+    # `LIVE_BUDGET_EUR`. `--max-cost` reste une borne locale distincte par run.
     # L'orchestrateur fournit `LIVE_CAMPAIGN_ID`; le ledger inter-processus conserve le coût réel
     # entre invocations et refuse toute seconde série baseline/finale par témoin nommé.
-    live_budget_eur: float = Field(1.00, gt=0)
+    # **7,00 €, et non 1,00 (02/09/2026, tour « budgets Sonnet »).** Cette borne-ci n'était pas au
+    # programme du tour : elle a été **trouvée** en vérifiant ce qui casse derrière les autres. Le
+    # budget qu'un run confronte à son majorant est `min(--max-cost, LIVE_BUDGET_EUR)`
+    # (`evals/run.py`) : tant que celui-ci reste à 1,00 €, relever `evals_max_cost_eur` seul est
+    # **inopérant** — une campagne de trois exécutions au nouveau plafond par requête vaut déjà
+    # 3 × 0,45 = 1,35 € et se fait refuser avant le premier appel, ce que seize tests de
+    # `tests/test_gate_full.py` constatent. Les deux plafonds bougent donc ensemble, à la même
+    # valeur et pour la même mesure (voir `evals_max_cost_eur` : gate vertical `--repeat 3`,
+    # 15 exécutions, majorant 6,75 €). Ce que ce relèvement ne change pas : l'orchestrateur reste
+    # tenu de passer `LIVE_BUDGET_EUR` explicitement (CLAUDE.md, `automation/epreuves-agent.md`) —
+    # ce défaut est le filet de celui qui l'oublie, pas l'autorisation de s'en passer.
+    live_budget_eur: float = Field(7.00, gt=0)
     live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse

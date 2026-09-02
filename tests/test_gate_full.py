@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 
 from server.app.config import Settings
+from server.app.llm.pricing import estimate_run_majorant
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
@@ -1156,7 +1157,12 @@ def test_main_full_propage_quality_closure_rouge_au_rapport_et_au_gate(
     code = _cli(tmp_path, monkeypatch, [
         "--gate", DOC, "--profile", "full", "--repeat", "3",
         "--candidate-revision", REVISION, "--producer", "orchestrator",
-        "--series-kind", "final", "--series-id", "quality-main", "--max-cost", "1",
+        "--series-kind", "final", "--series-id", "quality-main",
+        # Le plafond de run suit la configuration au lieu de la recopier : « 1 » valait
+        # pour un plafond par requête de 0,18 €, et le relèvement des budgets Sonnet
+        # (02/09/2026) faisait refuser ce run avant son premier appel — pour une raison
+        # étrangère à ce que le test mesure, la propagation de `quality_closure`.
+        "--max-cost", str(estimate_run_majorant(3, _settings())),
         "--quality-evidence", str(evidence),
     ])
 

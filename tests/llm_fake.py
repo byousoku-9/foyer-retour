@@ -82,7 +82,15 @@ class _FakeMessages:
     async def parse(self, **kwargs: Any) -> Message:
         self.requests.append(kwargs)
         if not self._script:
-            raise AssertionError("script épuisé : appel API non prévu par le test")
+            # Le message dit **de quel appel** il s'agit : un script trop court se diagnostique
+            # sinon en instrumentant le test (un tour de navigation d'AD-1 oublié et le pipeline
+            # accusé à sa place — c'est exactement ce qui a coûté un tour de revue). Le compte exclut
+            # l'appel courant, déjà enregistré ci-dessus.
+            raise AssertionError(
+                f"script épuisé : appel API non prévu par le test — "
+                f"{len(self.requests) - 1} appel(s) déjà servi(s), "
+                f"modèle demandé {kwargs.get('model')!r}, "
+                f"max_tokens {kwargs.get('max_tokens')!r}")
         item = self._script.pop(0)
         if isinstance(item, Exception):
             raise item

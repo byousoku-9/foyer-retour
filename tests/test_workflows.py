@@ -167,7 +167,7 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
 
 
 @pytest.mark.parametrize("drapeau", ["--allow-unauthenticated", "--max-instances=1",
-                                     "--concurrency=2", "--timeout=60", "--min-instances=0"])
+                                     "--concurrency=2", "--timeout=120", "--min-instances=0"])
 def test_les_cinq_drapeaux_de_dimensionnement_dad_13(drapeau: str) -> None:
     """AD-13 : le dimensionnement initial, et le plafond dur de la facture."""
     assert drapeau in deploiement()["flags"]
@@ -376,11 +376,18 @@ def test_le_timeout_cloud_run_couvre_la_deadline_du_serveur() -> None:
     """
     from server.app.config import Settings
 
+    settings = Settings(_env_file=None)
     drapeaux = deploiement()["flags"]
     valeurs = re.findall(r"--timeout=([0-9]+)", drapeaux)
     assert len(valeurs) == 1, f"un seul `--timeout` attendu dans les drapeaux : {valeurs}"
-    assert float(valeurs[0]) >= Settings(_env_file=None).deadline_s, (
-        "Cloud Run couperait la requête avant que le serveur ait fini de répondre")
+    # **Strictement** supérieur (tour « budgets Sonnet », 02/09/2026) : `>=` laissait passer
+    # l'égalité, où une requête honorée à la milliseconde près est coupée par l'infrastructure. La
+    # marge que le navigateur s'ajoute (`client_abort_margin_s`) n'entre pas dans cette comparaison :
+    # elle rend le client plus patient que le serveur, elle ne demande rien à Cloud Run.
+    assert float(valeurs[0]) > settings.deadline_s, (
+        f"--timeout={valeurs[0]} s ne laisse pas au serveur ses {settings.deadline_s} s : à égalité "
+        "Cloud Run couperait une requête que le pipeline honore encore, et le 503 viendrait de "
+        "l'infrastructure au lieu de la seule autorité qui sait pourquoi (AD-16)")
 
 
 def test_le_readme_cite_les_drapeaux_du_workflow_sans_les_reecrire() -> None:
