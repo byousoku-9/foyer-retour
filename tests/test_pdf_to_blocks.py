@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from server.app.domain import (Block, BlockRef, Check, Document, Line, Node, NodeRef, Report,
                                is_citable)
 from server.app.domain.document import Relation, Scope
+from server.ingest import pdf_structure_gate as structure_gate
 from server.ingest import pdf_to_blocks as p
 from server.ingest.artifacts import document_json
 from server.ingest.report import _printed_toc_check, _quality, _tree_category, report_from_validation_error
@@ -367,6 +368,140 @@ def test_table_rows_keep_their_source_geometry() -> None:
     assert [line.bbox for line in groups[0][1]] == table.row_bboxes
 
 
+def test_table_cells_use_source_lines_instead_of_reordered_table_text() -> None:
+    """La géométrie vient du moteur de table, mais les caractères viennent des spans source."""
+
+    class NativeRow:
+        bbox = [40, 20, 240, 50]
+        cells = [[40, 20, 140, 50], [140, 20, 240, 50]]
+
+    class NativeTable:
+        bbox = [40, 20, 240, 50]
+        rows = [NativeRow()]
+
+        @staticmethod
+        def extract():
+            return [["notifciation", None]]
+
+    class Page:
+        @staticmethod
+        def find_tables():
+            return type("Found", (), {"tables": [NativeTable()]})()
+
+        @staticmethod
+        def get_text(_kind: str, **_options: object):
+            return {"blocks": [{"type": 0, "lines": [{
+                "bbox": [50, 25, 130, 38],
+                "spans": [{"text": "notification", "font": "Text-Regular", "size": 10}],
+            }]}]}
+
+    tables = p._tables(Page())
+    registry = p.SourceRegistry()
+    lines, _ = p._raw_lines(Page(), tables=tables, registry=registry)
+
+    assert lines == []
+    assert tables[0].rows == [["notification", ""]]
+    assert tables[0].source_uids == ["p1:l1"]
+
+
+def test_line_inside_table_box_but_outside_cells_returns_to_text_flow_once() -> None:
+    table = p.PageTable(
+        bbox=[40, 20, 240, 80], rows=[["cellule"]],
+        cell_bboxes=[[[40, 20, 140, 50]]], row_bboxes=[[40, 20, 240, 80]],
+    )
+
+    class Page:
+        @staticmethod
+        def get_text(_kind: str, **_options: object):
+            def line(text: str, bbox: list[float]) -> dict[str, object]:
+                return {"bbox": bbox, "spans": [{
+                    "text": text, "font": "Text-Regular", "size": 10,
+                }]}
+
+            return {"blocks": [{"type": 0, "lines": [
+                line("avant", [20, 5, 80, 17]),
+                line("note hors cellule", [160, 60, 220, 72]),
+                line("après", [20, 90, 80, 102]),
+            ]}]}
+
+    registry = p.SourceRegistry()
+    lines, _ = p._raw_lines(Page(), tables=[table], registry=registry)
+    page = p.PageText(page=1, width=300, height=200, lines=lines, tables=[table], source=registry)
+    document, meta = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+
+    carriers = [block for block in document.blocks if "p1:l2" in meta["source_uids"][block.block_id]]
+    assert [line.text for line in lines] == ["avant", "note hors cellule", "après"]
+    assert table.source_uids == []
+    assert len(carriers) == 1 and "note hors cellule" in carriers[0].text
+    assert p.anomalies_registre([page], meta["source_uids"]) == []
+    assert all(not issues for issues in
+               structure_gate._page_issues(page, document, meta["source_uids"]).values())
+
+
+def test_empty_native_grid_is_rebuilt_from_spans_and_absent_source_makes_no_empty_block() -> None:
+    class NativeRow:
+        bbox = [40, 20, 240, 50]
+        cells = [[40, 20, 140, 50], [140, 20, 240, 50]]
+
+    class NativeTable:
+        bbox = [40, 20, 240, 50]
+        rows = [NativeRow()]
+
+        @staticmethod
+        def extract():
+            return [[None, None]]
+
+    class Page:
+        text = True
+
+        @staticmethod
+        def find_tables():
+            return type("Found", (), {"tables": [NativeTable()]})()
+
+        def get_text(self, _kind: str, **_options: object):
+            lines = [{
+                "bbox": [50, 25, 130, 38],
+                "spans": [{"text": "source fidèle", "font": "Text-Regular", "size": 10}],
+            }] if self.text else []
+            return {"blocks": [{"type": 0, "lines": lines}]}
+
+    page = Page()
+    tables = p._tables(page)
+    registry = p.SourceRegistry()
+    lines, _ = p._raw_lines(page, tables=tables, registry=registry)
+    assert lines == [] and tables[0].rows == [["source fidèle", ""]]
+    assert tables[0].sert_un_bloc
+
+    page.text = False
+    empty_tables = p._tables(page)
+    empty_lines, _ = p._raw_lines(page, tables=empty_tables, registry=p.SourceRegistry())
+    assert empty_lines == [] and not empty_tables[0].sert_un_bloc
+
+
+def test_font_family_with_unambiguous_currency_role_decodes_its_symbol() -> None:
+    class Page:
+        @staticmethod
+        def get_text(_kind: str, **_options: object):
+            return {"blocks": [{"type": 0, "lines": [{
+                "bbox": [50, 25, 130, 38],
+                "spans": [
+                    {"text": "2.500 ", "font": "Text-Regular", "size": 10},
+                    {"text": "r", "font": "EuroMono-Regular", "size": 10},
+                ],
+            }]}]}
+
+    lines, _ = p._raw_lines(Page())
+
+    assert [line.text for line in lines] == ["2.500 €"]
+
+
+def test_textual_eurostile_font_and_multichar_span_are_never_decoded_as_currency() -> None:
+    assert p._decode_symbol_span("Tarifs", "Eurostile-Regular") == "Tarifs"
+    assert p._decode_symbol_span("rr", "EuroMono-Regular") == "rr"
+
+
 def test_empty_table_is_ignored_and_only_line_center_inside_excludes_text() -> None:
     class EmptyTable:
         bbox = (10, 10, 50, 50)
@@ -451,6 +586,32 @@ def test_targeted_ocr_is_marked_and_preserves_geometry(tmp_path: Path, monkeypat
                                 printed_toc=meta["printed_toc"])
     assert next(check for check in report.checks if check.name == "ocr_cible").level == "info"
     assert all(check.name != "pages_mixtes" for check in report.checks)
+
+
+def test_ocr_preliminary_surface_keeps_ocr_provenance_and_report() -> None:
+    registry = p.SourceRegistry()
+    source = registry.add(page=1, text="Couverture OCR", bbox=[56, 100, 250, 114])
+    cover = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine(source.text, list(source.bbox), 12, source_uids=[source.uid]),
+    ], source=registry, native_text=False, ocr_attempted=True, ocr_succeeded=True)
+    article = p.PageText(page=2, width=595, height=842, lines=[
+        p.PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+    ], native_text=True)
+
+    document, meta = p.build_document(
+        [cover, article], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat",
+    )
+    block = next(block for block in document.blocks if block.page == 1)
+    report = p.build_pdf_report(
+        document, None, pages=[cover, article], numbers=meta["numbers"],
+        duplicates=meta["duplicates"], continues=meta["continues"], toc=[],
+        printed_toc=meta["printed_toc"],
+    )
+
+    assert block.source_field == "ocr"
+    assert block.surface_class == "preliminaire" and not p.is_citable(block)
+    assert next(check for check in report.checks if check.name == "ocr_cible").level == "info"
 
 
 def test_visual_page_ocr_runs_after_native_band_removal_and_empty_result_keeps_diagnostic(
@@ -654,6 +815,71 @@ def test_table_stays_atomic_in_preliminary_and_toc_pages(is_toc: bool) -> None:
     page_one = [block for block in document.blocks if block.page == 1]
     assert len(page_one) == 1 and page_one[0].kind == "table"
     assert page_one[0].source_field == ("tdm" if is_toc else "preliminaire")
+
+
+def test_initial_and_toc_text_surfaces_are_explicitly_non_citable() -> None:
+    cover = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("Couverture", [56, 100, 250, 114], 18),
+    ])
+    toc_page = p.PageText(page=2, width=595, height=842, is_toc=True, lines=[
+        p.PageLine("1 Garanties 3", [56, 100, 300, 114], 12),
+    ])
+    body = p.PageText(page=3, width=595, height=842, after_toc=True, lines=[
+        p.PageLine("1 Garanties", [56, 100, 250, 114], 17, number="1"),
+        p.PageLine("Clause utile.", [56, 130, 250, 144], 10),
+    ])
+
+    document, _ = p.build_document(
+        [cover, toc_page, body], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat",
+    )
+
+    assert all(block.surface_class == "preliminaire" and not p.is_citable(block)
+               for block in document.blocks if block.page == 1)
+    assert all(block.surface_class == "table_des_matieres" and not p.is_citable(block)
+               for block in document.blocks if block.page == 2)
+    assert all(p.is_citable(block) for block in document.blocks if block.page == 3)
+
+
+def test_blank_separator_detaches_terminal_non_article_surface_from_last_article() -> None:
+    article = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+        p.PageLine("Clause utile.", [56, 130, 250, 144], 10),
+    ], native_text=True)
+    blank = p.PageText(page=2, width=595, height=842, native_text=False)
+    back = p.PageText(page=3, width=595, height=842, lines=[
+        p.PageLine("Coordonnées de contact", [56, 100, 300, 114], 10),
+    ], native_text=True)
+
+    document, _ = p.build_document(
+        [article, blank, back], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat",
+    )
+    terminal = [block for block in document.blocks if block.page == 3]
+
+    assert terminal and all(block.surface_class == "preliminaire" for block in terminal)
+    assert all(block.article_uid is None and not p.is_citable(block) for block in terminal)
+    root = next(node for node in document.nodes if node.node_id == DOC)
+    assert terminal[0].block_id in root.blocks
+
+
+def test_article_after_blank_separator_remains_substantive() -> None:
+    first = p.PageText(page=1, width=595, height=842, lines=[
+        p.PageLine("1 Premier", [56, 100, 250, 114], 17, number="1"),
+    ], native_text=True)
+    blank = p.PageText(page=2, width=595, height=842, native_text=False)
+    second = p.PageText(page=3, width=595, height=842, lines=[
+        p.PageLine("2 Second", [56, 100, 250, 114], 17, number="2"),
+        p.PageLine("Clause après séparation.", [56, 130, 300, 144], 10),
+    ], native_text=True)
+
+    document, _ = p.build_document(
+        [first, blank, second], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id=DOC, title="Contrat",
+    )
+
+    assert all(block.surface_class == "substantiel" and p.is_citable(block)
+               for block in document.blocks if block.page == 3)
 
 
 def test_toc_title_in_table_continues_until_article_and_body_mention_does_not_trigger() -> None:
@@ -944,6 +1170,77 @@ def test_multiline_toc_titles_in_columns_are_assembled_deterministically() -> No
     entries = p._printed_toc_entries([page])
     assert entries == [("1", "Conditions générales communes"), ("2", "Garanties complémentaires")]
     assert _printed_toc_check(_document_for_toc(), entries, 1).level == "info"
+
+
+def test_toc_fragments_on_the_same_baseline_keep_title_page_associations() -> None:
+    page = p.PageText(page=1, width=595, height=842, is_toc=True, lines=[
+        p.PageLine("1 Garanties", [56, 100, 220, 114], 12, source_uids=["p1:l1"]),
+        p.PageLine("12", [280, 100, 300, 114], 12, source_uids=["p1:l2"]),
+        p.PageLine("2 Exclusions", [56, 120, 220, 134], 12, source_uids=["p1:l3"]),
+        p.PageLine("28", [280, 120, 300, 134], 12, source_uids=["p1:l4"]),
+    ])
+
+    p._assemble_toc_lines(page)
+
+    assert [line.text for line in page.lines] == ["1 Garanties 12", "2 Exclusions 28"]
+    assert [uid for line in page.lines for uid in line.source_uids] == [
+        "p1:l1", "p1:l2", "p1:l3", "p1:l4",
+    ]
+
+
+def test_toc_fragments_with_different_sizes_use_their_aligned_visual_bottom() -> None:
+    page = p.PageText(page=1, width=595, height=842, is_toc=True, lines=[
+        p.PageLine("Garanties", [56, 100, 220, 114], 10, source_uids=["p1:l1"]),
+        p.PageLine("12", [280, 96, 300, 114], 14, source_uids=["p1:l2"]),
+    ])
+
+    p._assemble_toc_lines(page)
+
+    assert [line.text for line in page.lines] == ["Garanties 12"]
+    assert page.lines[0].source_uids == ["p1:l1", "p1:l2"]
+
+
+def test_two_toc_columns_sharing_baselines_keep_distinct_entries_and_article_transition() -> None:
+    registry = p.SourceRegistry()
+    lines: list[p.PageLine] = []
+
+    def add(text: str, bbox: list[float], *, number: str | None = None) -> None:
+        source = registry.add(page=1, text=text, bbox=bbox)
+        lines.append(p.PageLine(text, bbox, 10, number=number, source_uids=[source.uid]))
+
+    for row, (left, left_page, right, right_page) in enumerate((
+        ("Garanties", "10", "Exclusions", "40"),
+        ("Conditions", "20", "Définitions", "50"),
+        ("Annexes", "30", "Index", "60"),
+    )):
+        y = 80 + row * 24
+        add(left, [40, y, 170, y + 12])
+        add(left_page, [230, y, 245, y + 12])
+        add(right, [330, y, 460, y + 12])
+        add(right_page, [520, y, 535, y + 12])
+    add("1 Corps contractuel", [40, 190, 535, 206], number="1")
+    page = p.PageText(
+        page=1, width=595, height=842, lines=lines, is_toc=True, source=registry,
+    )
+
+    p._assemble_toc_lines(page)
+    document, meta = p.build_document(
+        [page], edition="2026", source_hash="0" * 64, toc=[], doc_id=DOC, title="Contrat",
+    )
+
+    assert [line.text for line in page.lines[:6]] == [
+        "Garanties 10", "Conditions 20", "Annexes 30",
+        "Exclusions 40", "Définitions 50", "Index 60",
+    ]
+    assert page.lines[-1].number == "1"
+    toc_node = next(node for node in document.nodes if node.node_id == f"{DOC}:tdm")
+    toc_text = [document.block(block_id).text for block_id in toc_node.blocks]
+    assert toc_text == ["Garanties 10\nConditions 20\nAnnexes 30",
+                        "Exclusions 40\nDéfinitions 50\nIndex 60"]
+    assert f"{DOC}:a1" in {node.node_id for node in document.nodes}
+    carried = [uid for block_id in meta["source_uids"] for uid in meta["source_uids"][block_id]]
+    assert sorted(carried) == sorted(source.uid for source in registry.lines)
+    assert len(carried) == len(set(carried))
 
 
 @pytest.mark.parametrize(

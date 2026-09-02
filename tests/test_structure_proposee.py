@@ -205,11 +205,12 @@ def test_chaque_ligne_source_dune_table_extraite_est_portee_une_fois_par_son_blo
     bloc = next(block for block in document.blocks if block.kind == "table")
     portees = meta["source_uids"][bloc.block_id]
     assert portees == table.source_uids  # une fois, et une seule, dans l'ordre d'extraction
+    registre = _registre(pages)
+    assert all(registre[uid].texte in bloc.text for uid in portees)
     assert len(set(portees)) == len(portees)
     assert not set(table.source_uids) & set(pages[0].source.removed)  # servi ⇒ jamais « retiré »
     assert p.anomalies_registre(pages, meta["source_uids"]) == []
     # Et elles sont proposables, à la position de la table dans l'ordre de lecture.
-    registre = _registre(pages)
     ordres = [registre[uid].ordre for uid in table.source_uids]
     assert ordres == list(range(ordres[0], ordres[0] + len(ordres)))
     assert registre[table.source_uids[0]].ordre > registre["p1:l1"].ordre

@@ -9,10 +9,10 @@ from pathlib import Path
 import pymupdf
 import pytest
 
-from server.app.domain import Check, Document, Node, Report
+from server.app.domain import Check, Document, Node, Report, is_citable
 from server.ingest import pdf_structure_gate as gate
 from server.ingest.artifacts import document_json
-from server.ingest.pdf_to_blocks import build_document, extract_pages
+from server.ingest.pdf_to_blocks import PageLine, PageText, SourceRegistry, build_document, extract_pages
 
 
 def _corpus(tmp_path: Path, *, columns: bool = True) -> Path:
@@ -209,3 +209,65 @@ def test_gate_rejoue_oracle_semantique_sans_faire_confiance_a_la_structure_trust
     issues = gate._semantic_issues(document)
 
     assert any(expected in issue for issue in issues)
+
+
+def test_gate_observe_la_classe_et_la_fidelite_dune_surface_preliminaire() -> None:
+    registry = SourceRegistry()
+    source = registry.add(page=1, text="Couverture fidèle", bbox=[56, 100, 250, 114])
+    cover = PageText(page=1, width=595, height=842, lines=[
+        PageLine(source.text, list(source.bbox), 12, source_uids=[source.uid]),
+    ], source=registry)
+    article = PageText(page=2, width=595, height=842, lines=[
+        PageLine("1 Corps", [56, 100, 250, 114], 17, number="1"),
+    ])
+    document, meta = build_document(
+        [cover, article], edition="2026", source_hash="0" * 64, toc=[],
+        doc_id="contrat-synthetique", title="Contrat synthétique",
+    )
+    block = next(block for block in document.blocks if block.page == 1)
+
+    assert block.surface_class == "preliminaire" and not is_citable(block)
+    assert all(not issues for issues in gate._page_issues(cover, document, meta["source_uids"]).values())
+    assert not any(
+        block.block_id in issue and "classe divergente" in issue
+        for issue in gate._semantic_issues(document)
+    )
+
+
+def test_gate_reconnait_un_titre_numerote_comme_identite_article_locale(tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    document.nodes.append(Node(
+        node_id=f"{document.doc_id}:a12", level=1, title="12 Garanties",
+        article_uid="article:12", surface_class="substantiel",
+    ))
+
+    issues = gate._semantic_issues(document)
+
+    assert not any(f"{document.doc_id}:a12:" in issue for issue in issues)
+
+
+def test_gate_ninvente_pas_darticle_pour_un_millesime_sans_identite_revendique(
+        tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    node_id = f"{document.doc_id}:tarifs"
+    document.nodes.append(Node(
+        node_id=node_id, level=1, title="2024 Tarifs",
+        article_uid=None, surface_class="substantiel",
+    ))
+
+    issues = gate._semantic_issues(document)
+
+    assert not any(node_id in issue and "article_uid" in issue for issue in issues)
+
+
+def test_gate_refuse_une_tdm_rattachee_a_la_racine_sans_noeud_navigable(tmp_path: Path) -> None:
+    doc_dir = _corpus(tmp_path)
+    document = Document.model_validate_json((doc_dir / "document.json").read_bytes())
+    source = document.blocks[0]
+    document.blocks[0] = source.model_copy(update={"surface_class": "table_des_matieres"})
+
+    issues = gate._semantic_issues(document)
+
+    assert any(source.block_id in issue and "classe divergente" in issue for issue in issues)

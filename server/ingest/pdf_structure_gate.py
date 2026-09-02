@@ -37,6 +37,7 @@ from server.ingest.structure import (charger_octets, oracle_article_uid, oracle_
                                      presente)
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_NUMBERED_HEADING_RE = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)*)\b")
 
 
 def _sha256(path: Path) -> str:
@@ -148,6 +149,17 @@ def _page_identity(doc: Document, page: int) -> str:
     ).hexdigest()
 
 
+def _readable_article_uid(title: str, claimed: str | None) -> str | None:
+    """Relit un numéro nu seulement lorsqu'une identité d'article est effectivement revendiquée."""
+    explicit = oracle_article_uid(title)
+    if explicit is not None:
+        return explicit
+    if claimed is None:
+        return None
+    numbered = _NUMBERED_HEADING_RE.search(normalize(title))
+    return f"article:{numbered.group('number')}" if numbered else None
+
+
 def _semantic_issues(doc: Document) -> list[str]:
     node_ids = {node.node_id for node in doc.nodes}
     by_node = {node.node_id: node for node in doc.nodes}
@@ -161,17 +173,19 @@ def _semantic_issues(doc: Document) -> list[str]:
             issues.append(f"{node.node_id}: titre complet absent")
         if node.surface_class == "inconnu":
             issues.append(f"{node.node_id}: classe de surface inconnue")
+        readable_article = _readable_article_uid(node.title, node.article_uid)
         technical_surface = oracle_surface_class(
             node.title, [doc.block(block_id).text for block_id in node.blocks
                          if normalize(doc.block(block_id).text) != normalize(node.title)],
         )
+        if technical_surface is None and readable_article is not None:
+            technical_surface = "substantiel"
         if technical_surface is None:
             issues.append(f"{node.node_id}: classe de surface sans preuve locale")
         elif node.surface_class != technical_surface:
             issues.append(
                 f"{node.node_id}: surface {technical_surface} lisible dans le titre mais classée "
                 f"{node.surface_class}")
-        readable_article = oracle_article_uid(node.title)
         if node.article_uid != readable_article:
             issues.append(
                 f"{node.node_id}: article_uid {node.article_uid!r} diverge du numéro lisible "
@@ -189,7 +203,11 @@ def _semantic_issues(doc: Document) -> list[str]:
         except (KeyError, ValueError):
             issues.append(f"{block.block_id}: bloc orphelin de l'arbre")
         owner = by_node[doc.node_of(block.block_id)]
-        if block.surface_class != owner.surface_class:
+        root_technical_surface = (
+            owner.node_id == doc.doc_id
+            and block.surface_class == "preliminaire"
+        )
+        if block.surface_class != owner.surface_class and not root_technical_surface:
             issues.append(f"{block.block_id}: classe divergente du nœud propriétaire")
         if block.article_uid != owner.article_uid:
             issues.append(f"{block.block_id}: identité article divergente du nœud propriétaire")

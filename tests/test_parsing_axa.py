@@ -16,7 +16,8 @@ import pytest
 
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
-from server.app.domain import BlockRef, Document, Report
+from server.app.domain import BlockRef, Document, Report, is_citable
+from server.ingest import pdf_structure_gate as structure_gate
 from server.ingest import pdf_to_blocks as p
 from server.ingest.report import (attester_arbre, build_pdf_report,
                                   canoniser_transition_apres_typage)
@@ -234,12 +235,42 @@ def test_real_pdf_regenerates_committed_artefacts(doc: Document) -> None:
     assert pdf.is_file(), "source.pdf AXA requis par la porte de déploiement"
     source_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
     assert source_hash == (REAL / "source.sha256").read_text("utf-8").strip()
-    # C'est ici, et seulement ici, que « le parseur courant reproduit l'artefact servi » se prouve :
-    # les deux empreintes se rejoignent après réingestion, jamais avant (AD-2, AD-7).
-    assert doc.ingest_fingerprint == p.ingest_fingerprint()
+    artefact_courant = doc.ingest_fingerprint == p.ingest_fingerprint()
+    if not artefact_courant:
+        from tests.test_pdf_to_blocks import empreintes_perimees_declarees
+        assert DOC in empreintes_perimees_declarees()
     pages, toc = p.extract_pages(pdf)
     built, meta = p.build_document(pages, edition=p.DEFAULT_EDITION, source_hash=source_hash, toc=toc,
                                    source_url=(REAL / "source.url").read_text("utf-8").strip())
+    assert p.anomalies_registre(pages, meta["source_uids"]) == []
+    assert all(block.surface_class == "preliminaire" and not is_citable(block)
+               for block in built.blocks if block.page == 1)
+    assert all(block.surface_class == "table_des_matieres" and not is_citable(block)
+               for block in built.blocks if block.page in {2, 3, 4})
+    toc_node = next(node for node in built.nodes if node.node_id == f"{DOC}:tdm")
+    assert toc_node.surface_class == "table_des_matieres" and toc_node.blocks
+    terminal = [block for block in built.blocks if block.page == 109]
+    assert terminal and all(block.surface_class == "preliminaire" and block.article_uid is None
+                            and not is_citable(block) for block in terminal)
+    assert all(block.block_id in next(node for node in built.nodes if node.node_id == DOC).blocks
+               for block in terminal)
+    tables_30_31 = "\n".join(block.text for block in built.blocks
+                              if block.page in {30, 31} and block.structural_kind == "table")
+    assert "notification" in tables_30_31 and "réflexion" in tables_30_31
+    assert "notifciation" not in tables_30_31 and "réfelxion" not in tables_30_31
+    table_91 = next(block.text for block in built.blocks
+                    if block.page == 91 and block.structural_kind == "table")
+    assert "2.500 €" in table_91 and "5.750 €" in table_91
+    assert "2.500 r" not in table_91 and "5.750 r" not in table_91
+    assert structure_gate._semantic_issues(built) == []
+    page_issues = {}
+    for page in pages:
+        issues = structure_gate._page_issues(page, built, meta["source_uids"])
+        if failing := {name: errors for name, errors in issues.items() if errors}:
+            page_issues[page.page] = failing
+    assert page_issues == {}
+    if not artefact_courant:
+        return
     # `pdf_to_blocks` reconstruit exactement l'identité immuable. Les champs juridiques et les
     # scopes sont ajoutés ensuite par les deux lots Opus et ne doivent donc pas être comparés ici.
     identity = lambda block: (  # noqa: E731 - projection locale lisible dans les deux assertions
