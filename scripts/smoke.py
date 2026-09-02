@@ -452,7 +452,7 @@ def _manquant(chemin: str) -> str:
 
 # Les deux seuils que `_timeout_pipeline` consomme. Ils sont **exigés** de `/sante` : sans eux, la
 # patience du smoke retomberait sur `TIMEOUT_SANTE_S` (30 s), c'est-à-dire **sous** la deadline du
-# serveur (55 s), et le smoke couperait une requête parfaitement saine en accusant le pipeline.
+# serveur (75 s), et le smoke couperait une requête parfaitement saine en accusant le pipeline.
 SEUILS_EXIGES = ("deadline_s", "client_abort_margin_s")
 
 

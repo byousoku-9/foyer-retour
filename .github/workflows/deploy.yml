@@ -175,16 +175,23 @@ jobs:
           secrets: |-
             ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1
           secrets_update_strategy: overwrite
-          # AD-13, et les cinq valeurs de dimensionnement ont ici leur **autorité** : ce sont des
+          # AD-13, et les six valeurs de dimensionnement ont ici leur **autorité** : ce sont des
           # drapeaux d'infrastructure, pas des seuils de `config.py` (qui configure le processus).
           # Le passage à 2 instances et 8 requêtes concurrentes n'aura lieu qu'après un test
           # mémoire/latence, et le README porte cette règle.
+          #
+          # `--memory=1Gi` : sans lui, Cloud Run sert **512 Mio**, et le README reconnaissait déjà
+          # que deux requêtes de pipeline concurrentes avec PyMuPDF chargé n'y tiennent pas — alors
+          # que le service sert précisément deux requêtes de front. La limite était documentée et
+          # non corrigée : un dépassement mémoire tue l'instance, et Cloud Run rend un 503 que rien
+          # dans la trace n'explique. Le drapeau est ici parce que c'est ici qu'il décide.
           flags: >-
             --allow-unauthenticated
             --max-instances=1
             --concurrency=2
             --timeout=120
             --min-instances=0
+            --memory=1Gi
             --service-account=foyer-retour-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
           wait: true
 

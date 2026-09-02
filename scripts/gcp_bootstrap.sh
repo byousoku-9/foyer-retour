@@ -538,7 +538,7 @@ else
        "${BUDGET_AMOUNT} dans la devise du compte, alerte 50 %)"
 fi
 # Un budget n'**arrête** rien : il alerte. Les plafonds durs sont ailleurs — `--max-instances=1`,
-# `--timeout=60` (AD-13), le plafond de coût par requête, et le crédit prépayé Anthropic.
+# `--timeout=120` (AD-13), le plafond de coût par requête, et le crédit prépayé Anthropic.
 
 log "Sorties (variables GitHub)"
 echo "GCP_PROJECT_ID=${PROJECT}"
