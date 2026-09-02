@@ -567,17 +567,28 @@ def resume_payload_fingerprint(plans: list[RequestPlan], settings: Settings) -> 
 
 
 class _CostGuard:
-    """Réserve le prochain majorant contre le coût réel déjà observé, même en concurrence."""
+    """Réserve le prochain majorant contre le coût réel déjà observé, même en concurrence.
+
+    Les réservations en cours sont **tenues une à une**, jamais accumulées dans un total flottant :
+    `reserved += e` puis `reserved -= e` ne rend pas `0.0` en virgule flottante, et le garde
+    finissait une exécution complète avec un reliquat de l'ordre de 1e-18 — un montant réservé que
+    plus aucune requête ne détenait. Sommer les réservations réellement ouvertes rend exactement
+    zéro quand il n'y en a plus, quel que soit l'ordre des réservations et des libérations.
+    """
 
     def __init__(self, ceiling: float, spent: float = 0.0) -> None:
         self.ceiling = ceiling
         self.spent = spent
-        self.reserved = 0.0
+        self._outstanding: list[float] = []
         self.condition = Condition()
+
+    @property
+    def reserved(self) -> float:
+        return math.fsum(self._outstanding)
 
     def reserve(self, estimate: float) -> None:
         with self.condition:
-            while self.spent + self.reserved + estimate > self.ceiling and self.reserved > 0:
+            while self.spent + self.reserved + estimate > self.ceiling and self._outstanding:
                 self.condition.wait()
             if self.spent + self.reserved + estimate > self.ceiling:
                 raise BatchFailure(
@@ -585,17 +596,17 @@ class _CostGuard:
                     f"(coût réel {self.spent:.4f} € + estimation {estimate:.4f} €); "
                     "aucun artefact écrit"
                 )
-            self.reserved += estimate
+            self._outstanding.append(estimate)
 
     def commit(self, estimate: float, actual: float) -> None:
         with self.condition:
-            self.reserved -= estimate
+            self._outstanding.remove(estimate)
             self.spent += actual
             self.condition.notify_all()
 
     def release(self, estimate: float) -> None:
         with self.condition:
-            self.reserved -= estimate
+            self._outstanding.remove(estimate)
             self.condition.notify_all()
 
 
