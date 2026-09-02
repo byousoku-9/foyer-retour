@@ -43,17 +43,17 @@
     "response": {
       "content": [
         {
-          "signature": "EvkFCpABCBEYAipAgZTFOY5VsHLz9OvcX33uy+jrSi7nDBbosGoXq8HzpBzVbeV/daohz2CmKWSVM4GrqGHIlslp8miXKx+ySCnBDDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcmd4tQGEgx8+BY/14MpfUNXdv0aDANXAALMZiPOVkoj1iIwe4TkzEUFXzRnfvJS0V0mJCLrrWRE8cWz6lwuxTkhcyZfyCdcJvfcKR+5Yl2VtMBOKpUEK1fPa54B/Ye6rsh1ykbf3tM2MJujbOO/owCJHDYVa0T48zNssqdsYSMnr5b+aXPNgkY0Q5/l7TZOw/xj6QPASFZ5ICxlA3BXIzTF6rEC1wBDECcDBwCgbj31ZTdy8rhZuxZpXVRROrBHJTWUcSHHLzHrT3f+yfVC/hEvXNk+vDFHSQ23nwlLtmHbaU9kZvMkpCI4KL+h2f6380eLJsNUux66k77zVUYweoJzAAqgOpHB9P6YKQDGHKSWbg4lrPLTef3UKqqk4MIp+O3JZOBlTb/4jvI4Imlgu8P3YTBpKsa+jKT44ktPdVLlE/LkFnA4/ux7/CWvwX6L+nknfq+ESiHlgqGtj5XOyKWY4aMg5KrI2CkTrsK1OXHmEqZ8ZbXFbRcSKp7QUTgYfPW1PnBcEPG+F8I4JbEvo0VQd5nHfbL/Keom5lB3nwsQbhcDzq6rGxnkLcR1J1VvHA8cFTTfuu/Y9xfEDeT3nPkQ7EwthzOjO8ehU6MDR5JLc9rwR9ffueqSfvmFFxoiAO9d9tuyGDDv1y4CcQ6X8eBCJPYGzqDRNyU13zb60Z1WioYHCAtNgHGCBZvAHFx+retf58u7FAobatO4P4bUkP+uUxPHzffHCabr8CBG+ok1WdqNX6rMJ2rHV1JfESQrPkNowNV0f5MfAqY7K7Hey0JLDR8Bnvn7D1YDq5wYUnhYQWxsG2iPIsByYW4YAQ==",
+          "signature": "Eu8GCpABCBEYAipAA+9eviiib+ChKuEieoVIQJvfgpx5NtpNZIe7yA0Om/G6YemxcOc/Z5XPArHeHFDFClsZZbCFNEQX1KUEarMzyTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAfC84tQGEgxR1eHKr4FEIooIkcEaDPe0L8hSQfWKTwYQsyIw6CGFgzCVL98jtY59FCgNWBa6V2IV/KpGZCHnIwZRJiG0rD9I5VzNTKyL3+mus7u7KosFfVLm9JF007G/Z+hvI14BkhEJ8itG6flbnzLMdOj0becYtoedakzFTWtmrCixfFWBgds9KLbP+7eUaSs7DopffR6N6RT7xUWewXhGh4daMkRZExcjirojrlOP+tMNaOLFUqXSpM3j2yxZ+O6jLvIpj6jux10c5r8vxRYv4ti2MryrKaT8LmW1A84CkZ/fPA8kuX29FQ03jVbHDFiouj3N4QVI5fyj449PZb56wBGK0CxEMe1i56v17ndOoQNyKgxmDVyMC/IHMUK5JIJ6dt3ULpOIXd81gZrRU5FpzyCfdTPmMzfgV7rmpPVlevF5RC+aTI5zWixv54UL0j0j89pDaWRZg5vQG9kr1+yvgPIlQhSxCevxKWbaI2SD/Cf2swBngiyXn047VI4pOFMKk80RPnVy8x74dK2Gk9ho1GgpXAN1nnkHKM5TCt/Q1zvBol5+zKB+cUyF18SLqKFmyG4B7Ecc6Q/F/7ZGfRbd68IK54wIJpkwomMQalTxmLRhL0yvmXUNmj13plPs5wltUNTqSYnlUWHMsOsy5T14xP8RFVqyrXYVNT5s3g0p+xJ+ha4rAqAnwFDJ2DvPVQfRWFXuUE9pIy/6ZIvRtwMgsOysmRfFuxMNdfnzlBEBbIHvcE8+K20JF/6HJHn1FeRIuB1fuFmSeQ4sKg61yPI9JcE4WsGRChcERuN8pWjrtxzLmyf/9wPtXnMQF6ICb79gQaGVgx32PFW8xUoi3Xb/HugiTy/h4EKdybyQJueBMFJKFLd/SfshPRcUxFI/o6ScWRwZ2BSfiW3CL/+pz49wMt5LhujUZDyaVqIF8+a8ajBsVlyiQFzaOQsMdx2IuNzfmfh5nZvSoTBb9zHwBTcLGAE=",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"les huit premiers jours\",\"déclaration d'arrivée\",\"administration\",\"installation\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année après l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"premiers jours\",\"installation\",\"déclaration d'arrivée\",\"conseil fiscal première année\",\"administratif\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année d'installation\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefHf6rCatGm18v5gN1AQ",
+      "id": "msg_011CefNkQhiASkqZaRxUWW5x",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -69,9 +69,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 162,
-        "output_tokens": 363,
+        "output_tokens": 405,
         "output_tokens_details": {
-          "thinking_tokens": 185
+          "thinking_tokens": 222
         },
         "service_tier": "standard"
       }

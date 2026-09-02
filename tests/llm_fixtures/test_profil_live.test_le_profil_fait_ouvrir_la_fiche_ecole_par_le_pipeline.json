@@ -392,11 +392,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"Démarches à faire avant la rentrée pour les enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations familiales\",\"garde d'enfants\"],\"facettes\":[\"Démarches à faire avant la rentrée pour inscrire ses enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefHawpN33iWRwtvzn5Eq",
+      "id": "msg_011CefNh5PXYnXsu1LnwAAGY",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -412,7 +412,49 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 156,
-        "output_tokens": 169,
+        "output_tokens": 185,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2952ea2765de9033": {
+    "certificate": {
+      "messages_sha256": "4cf84da908140efac978bcdba2e0de09ed6bccfd982de85b0b0bc714b1221638",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:2952ea2765de9033",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La démarche scolaire est la plus contraignante et doit être engagée en priorité, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies existent (école publique, écoles européennes/internationales, établissements privés), et il faut vérifier la disponibilité de la section linguistique visée, pas seulement de l'établissement, car les places les plus recherchées se réservent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'ancienne école un certificat de radiation et les bulletins des dernières années, quasi systématiquement exigés.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Pour la garde d'enfants, il est conseillé de s'inscrire sur les listes d'attente très tôt, sans attendre d'avoir un logement définitif, et de vérifier que la structure est bien conventionnée avant de signer.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Les blocs fournis ne précisent pas les délais exacts d'inscription à la commune ni les dates limites propres à chaque section, informations à vérifier directement auprès de l'administration concernée.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La scolarisation est la démarche la plus longue et la plus contrainte de l'installation, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée, les places partant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti.\"}]},{\"claim_id\":\"c4\",\"text\":\"Pour la garde d'enfants, il faut s'inscrire tôt sur les listes d'attente et vérifier le conventionnement de la structure.\",\"quotes\":[{\"block_id\":\"lux-guide:fgarde:5\",\"quote\":\"inscrivez-vous sur les listes d'attente très tôt, sans attendre d'avoir un logement définitif ni une date d'arrivée certaine.\"},{\"block_id\":\"lux-guide:fgarde:4\",\"quote\":\"vérifiez que la structure est bien conventionnée. Toutes les crèches privées ne le sont pas\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefNhKPPzdtswg6HSpnhP",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2845,
+        "output_tokens": 1125,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -483,6 +525,53 @@
         "output_tokens": 1073,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:323e882752b7365e": {
+    "certificate": {
+      "messages_sha256": "ae89d0c239772e84824de6a6bf118d69dba58beca999d29dc61e0bb4ed97b51c",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:323e882752b7365e",
+    "response": {
+      "content": [
+        {
+          "signature": "ErkICpABCBEYAipAJ+JgRMawKBNzS1kW9osznIghPvhsDZdPro8X+D1/9F3xPgN+ahpHSMyMkpJLJDyNQgFMZEtEeX0DpDWiWflTUTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdK84tQGEgygaYYkRiLhgtSEw8kaDKq1onfrAsml1JCACCIwxnd30Re4I2TpWIFkNvuLEpFbds2YDplNmqxWtXFIDyy6jU8/9ddriD2IXFA0dGP2KtUGl1oYly6LR/j46MzXvATwwKHlG9/Gep5kDvq9ps5yUwT+9gpMFnHbXpn7M9BWw14mQfzdbqenq4KQzYpiIe9SRm183xipaKrVUvpaECH/5hZsOs0JZka2Cx/90LHR+gUkn78mnax4nALZytGNI1VJz8adJU7WXLe5PFL6O59V5rNOAvGWQUirBTtTVWnNsF/EeXHlCiPXt/xMZqjUACIa+sjV7b9e/MkC//8CAMSHcgE53VdoIMEC1HHNzg6lLsvR86xIU7w1bVOjKv7O8LZsO4QaMVFjYdGu1ru3aZ5sXSbyjLT2ZsqOeQuUQy3FOg5wLKgQC3dG+9JJCF2yEIdmvc1DY/c3VzLCD+n/YzRXj9dUQlt6i+oeRCuisi9foEnJVzdT4Qpzi3I005U+wF9pA8IARcBqVNqHwhJJPrpxlwumWdTlFLxpX6rxTvNgkV73hBCXappDTAfvmsKEgAlIV2lq9dFFjcDs+Pxce4VqzmCtYYWZjaiLrI6Qtgfpq5awMxW+h/JXwSwpBqXbDAHNZDLHFQgIZYOKM4Az4jmUHuI3LFeP9lKgjEE3WopfLhDTwsN7t2dxvQCIqNUwxfA1yn6+dtHMP9Kc4/nwjDsQpFjh36hSvRsAmwrDWtkI4657ddbu1Ndk/8qFRHoHkl86B5lbRcXf543114GMRR/00gApCdhVkyG0YNpJfh2Wq/8KpVXfAEXlTisvJf8ves7TqAQEUtDoX1oTthFS3vifCXRqdkLnBeX2Wgpyf+MwrtxPdbGbXu8CwI7vpsJEnE1sFEDBWGFCyqN2EM/VVEwWpvMBOz4+tLk2tS/s8Z5M4ScE3dtqoYfBt/ho17PvQ/Tmf9FdpVYb26oOjchYq0nfBhsm5OK0hZxuyBzx77DmCEkT4hqy3bYwv4mxmfPExC0GCG8PqCZBEhuxmd5dEJda8KCaz1Jeevk9ZeQxNA3aWIPOLA6lZ3ic4FAudFuwBCN3CjQLlEfMAgPM6L9Oj62BFIVkPG/MvN/9JsdOVg7UZe6xTmXmf7FArmuod+rFhkVcwvklnkuzVIbmuElL91ISnV13RzWpoYX2EfpoRkEBwVOA6Ir8OYnORrTWbNqAPJNGdG+MKMD9R9rxFYNbQJTOfsbAmmxniRgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c4\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\",\"c4\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":false},{\"segment\":4,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefNi8DU7k4v6X7kACinf",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1484,
+        "output_tokens": 543,
+        "output_tokens_details": {
+          "thinking_tokens": 317
         },
         "service_tier": "standard"
       }

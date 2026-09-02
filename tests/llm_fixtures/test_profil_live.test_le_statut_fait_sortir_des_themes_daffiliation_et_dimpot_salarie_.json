@@ -43,17 +43,12 @@
     "response": {
       "content": [
         {
-          "signature": "EssHCpABCBEYAipAJ6UA/qRiDS/xCdaeqk6eMvV7btl/aq10ZToPE6qn8eX7IkikCD+HcTkFFoqIhFFRZI9adGlWRAnlYctkeUFWFDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdCd4tQGEgzNcBVR3ChOncGT9esaDH3fCiIEZcQjwL8DtyIwkjV7ftpnrGcsohKdomfscz0Knym6sTVN29L125jQtBxlln10IxupltxgqnVbRWFfKucFHN6TEotwCCL8QSsP9CHI256p9xoWTt+WEerPJwPdILw+NFOuVcXZMX4R+4M9SGLlmAVuwORtPOzR1ri//5IFibUPyaOXlondy5wJlLkbcx7FHrThOudCpiTVgFJSCoZOQES/qlXhffUmx3wLMEb6uKcr9VNtjtNXyjPXtt/t45+Pt3WbdeXJ17Uknja9Z3LLsvqZ1oNLrNez2a4Wd8AeClMkP2pxbOkyLOwHRX7Cv1q+zdKJA670qK03r20uYOX9s1XQ4iFzPrtfkHHYNoZ6r4j1g7TgA1d7LLWZS+nLDUsDy406m2jVNeMJFzKdbm/MjjWEt8Pta7RKpUIc3N9QoDBxKFRuDa6GYuxpdh/DpEb+cp/XBHyMUOQDQJaldFuyqLWr5dR8CnpHznzNPMF2Icu8IymBZI74YW3excOAScNILV4ON9s7+jyT6kMOMrj/kI3BuAq6ccaI4CeSiZLCzut9wBYZ++sBDsd/J0QImeiIH8l8uJ/uEu5S3QKU3zPR7KHtuFyyG+VPwXa174EVQc0xKw9BEQEtcA1A+Q3do/NmhMeJibWFslPRefK5cZ/EcN/2aZN1+ku3DRvdqM2IPq7QbUeMLK4HMjqIpPB1Na6Tqvm8YGZ4nTON4cA6FQ4i/v6Z5AHBwadxNtSuEq6WGJiB/QoQFqZhNzzcg/VWoWd2BPjPBFTRLibnl2jjt6wpH8h7/oC6FgO0TWa+Qpu345DTxvyyvyh3Rn4AgPJm9iYzwSkCWkLLMnyHwfbL9FZfyWUtqr0v7+86wmIIMPNT23PgVpNddYVUSLDiK3yQ73EuVKabzQo+bhw6WiV9xvZ+EwCX+Q4tnojxOahxjG1Vh+Mv2OXTy/s1kfMyO4c+E9SjUNe5z0SVMMLJcQ+ysPmpYhBkxtI271O4NR4b6nnTzToR3Fxynj/tK/RmrNZpHBVR94nQFo3zXrNMFlgZRVmlNYBznFNMAuLJ8bv/xZp0Azh1xMwM5VwYAQ==",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"huit premiers jours\",\"déclaration d'arrivée\",\"administration\",\"installation\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que dois-je prévoir pour ma première année au Luxembourg\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"huit premiers jours\",\"déclaration d'arrivée\",\"installation au Luxembourg\",\"conseil fiscal première année\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année d'installation\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefHfUDKtN7K7HUfpAJAZ",
+      "id": "msg_011CefNkpNW9TqwqTbARwpDN",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -69,9 +64,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 163,
-        "output_tokens": 454,
+        "output_tokens": 186,
         "output_tokens_details": {
-          "thinking_tokens": 274
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }

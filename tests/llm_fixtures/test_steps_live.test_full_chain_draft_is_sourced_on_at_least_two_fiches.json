@@ -182,6 +182,48 @@
       }
     }
   },
+  "claude-sonnet-5:6a1359cf6602265e": {
+    "certificate": {
+      "messages_sha256": "46465e018e69a670a37445b27dadce94ac7b5a9350043752463fb89d08259b7f",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:6a1359cf6602265e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue et la plus contrainte de toute l'installation : il faut l'engager en premier, avant même la recherche de logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent : l'école publique gratuite et multilingue, les écoles européennes et internationales, et des établissements privés avec baccalauréat international ou cursus étrangers.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement de l'établissement, tout en récupérant certificat de radiation et bulletins avant de partir.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Concernant les allocations familiales, elles sont versées sans condition de nationalité, la résidence de l'enfant étant le seul critère.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans (valeurs au 1er juin 2026), auquel s'ajoute une allocation de rentrée automatique de 115 ou 235 euros versée en août.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces montants suivent l'indexation générale et sont revalorisés à chaque tranche indiciaire, ce qui n'est pas un élément que les blocs fournis permettent de projeter dans le temps au-delà de la date indiquée.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée en premier, avant même la recherche de logement, car c'est la démarche la plus longue et la plus contrainte.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Trois voies scolaires existent : l'école publique, les écoles européennes/internationales, et les établissements privés.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Enfin, des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut s'inscrire à la commune avant l'école, vérifier la section linguistique, et récupérer certificat de radiation et bulletins avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années\"}]},{\"claim_id\":\"c4\",\"text\":\"Les allocations familiales sont versées sans condition de nationalité, avec un montant de base de 315,04 euros majoré selon l'âge et une allocation de rentrée automatique.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité\"},{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, valeurs applicables au 1er juin 2026.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefNoumHQvDUkeUnfg8ct",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2833,
+        "output_tokens": 1357,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:6d6a82c3df9199e0": {
     "request": "claude-sonnet-5:6d6a82c3df9199e0",
     "response": {
@@ -306,11 +348,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"allocations familiales\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"comment inscrire mes enfants à l'école\",\"quel est le montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"école\",\"allocations familiales\"],\"themes\":[\"scolarité\"],\"facettes\":[\"inscrire mes enfants à l'école\",\"montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefHicAPiY74H9ewRJURh",
+      "id": "msg_011CefNogbGU53hrrC4vsGj8",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -326,7 +368,7 @@
         "cache_read_input_tokens": 3985,
         "inference_geo": "global",
         "input_tokens": 104,
-        "output_tokens": 170,
+        "output_tokens": 160,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
