@@ -90,6 +90,9 @@ LINE_UID_MAX = len("line-v1:") + 64
 # à la fois payload et enum sans ouvrir un levier corpus dans la configuration produit.
 MAX_BOUNDARY_ANCHORS = 32
 
+# Titre qui s'ouvre sur un numéro nu (« 1. Définitions »), la forme qu'emploie un contrat qui ne
+# écrit pas le mot « article ». Relu seulement sur revendication : voir `article_uid_lisible`.
+_NUMBERED_HEADING_RE = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)*)\b")
 _ARTICLE_TITLE_RE = re.compile(
     r"^\s*(?:article|art\.?|artikel|articulo|artigo|articolo)\s+"
     r"(?P<number>(?:\d+|[ivxlcdm]+)(?:[.\-][0-9a-z]+)*)\b",
@@ -138,6 +141,27 @@ def oracle_article_uid(title: str) -> str | None:
     """Identité canonique uniquement lorsqu'un numéro d'article est réellement lisible."""
     match = _ARTICLE_TITLE_RE.search(_oracle_text(title))
     return f"article:{match.group('number')}" if match else None
+
+
+def article_uid_lisible(title: str, revendique: str | None) -> str | None:
+    """Identité relue dans le titre, numéro nu compris — **si** une identité est revendiquée.
+
+    Une seule implémentation pour les deux frontières qui la jugent : le vérificateur de la
+    proposition et la porte de certification. Elles en portaient deux, et la plus stricte — celle
+    qui exige le mot « article » — refusait ce que l'autre acceptait : un contrat qui numérote ses
+    sections « 1. Définitions » voyait `article:1` déclaré illisible, alors que le parseur lit ce
+    même « 1 » pour bâtir son arbre.
+
+    Le numéro nu n'est relu que sur revendication : sans elle, une énumération de corps qui commence
+    par un chiffre se verrait attribuer une identité juridique que personne n'a proposée.
+    """
+    explicite = oracle_article_uid(title)
+    if explicite is not None:
+        return explicite
+    if revendique is None:
+        return None
+    numero = _NUMBERED_HEADING_RE.search(_oracle_text(title))
+    return f"article:{numero.group('number')}" if numero else None
 
 
 def _lignes_de_lintervalle(noeud: NoeudPropose,
@@ -1408,7 +1432,7 @@ def verifier(proposition: StructureProposee, registre: dict[str, Entree], *, doc
                     f"surface {technical_surface!r} lisible mais classée {noeud.surface_class!r} ; "
                     f"lignes lues : {_lignes_lues(noeud, registre)}",
                 )
-            readable_article = oracle_article_uid(title)
+            readable_article = article_uid_lisible(title, noeud.article_uid)
             if noeud.article_uid != readable_article:
                 return _refus(
                     "affectation_non_prouvee",
