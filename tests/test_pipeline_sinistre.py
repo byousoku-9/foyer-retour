@@ -3021,3 +3021,67 @@ async def test_aucune_exception_ne_sort_nue_de_la_chaine(index: Index, monkeypat
     assert erreur.value.trace.total_cost_eur > 0
     # AD-15 : rien du message d'origine n'est publié — le type suffit à situer, pas à divulguer.
     assert "défaut interne qui n'est pas" not in erreur.value.message
+
+
+# --- Correctif du tour 3 (R4) : ne relancer que sur ce qu'une relance peut rendre pertinent ----
+
+
+async def test_une_facette_dont_la_reprise_na_rien_rouvert_ne_relance_pas(
+        par_facette: CorpusNeutre) -> None:
+    """R4 — la relance n'avait devant elle que des blocs déjà soumis, et lus.
+
+    Mesuré sur la troisième réponse A16 : la reprise ciblée court-circuitait (« 0 bloc rouvert »),
+    le motif ordonnait quand même une claim sur le bloc déjà transmis, le rédacteur obéissait, et le
+    contrôle rejetait les deux claims — 42 s et 0,09 € pour rien. Le bloc n'étant pas une fondatrice
+    confirmée jamais citée, aucun chemin précis ne le réclamait : c'est une absence de clause neuve,
+    et elle se dit.
+    """
+    # Les deux règles sont transmises et **toutes deux citées** : aucune fondatrice n'est omise,
+    # donc aucun chemin précis ne réclame quoi que ce soit. Le contrôle n'attribue pourtant les
+    # deux affirmations qu'à la première sous-question — la seconde reste sans réponse, et la
+    # reprise ciblée n'a rien de neuf à rouvrir.
+    corpus = par_facette
+    answer, trace, fake = await _run_par_facette(corpus, [
+        _comprendre_facettes(corpus, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": "t1", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{corpus.identite.doc_id}:n1"}},
+            {"type": "tool_use", "id": "t2", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{corpus.identite.doc_id}:n2"}}]),
+        _verdict_insuffisant(),
+        _rediger_les_deux(corpus),
+        _verifier(("k1", True, True, False, False, None, [], []),
+                  ("k2", True, True, False, False, None, [], []),
+                  facettes=[["k1", "k2"], []])])
+
+    assert fake.remaining_script == 0
+    # Aucune seconde rédaction : la chaîne s'arrête au lieu de redemander un bloc déjà soumis.
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    absence = [c for s in trace.steps for c in s.checks if c.name == "facettes_sans_clause"]
+    assert absence and "l'absence est dite plutôt que fabriquée" in absence[0].detail
+    assert answer.complete is False and len(answer.claims) == 2
+
+
+def test_un_bloc_a_correspondance_partielle_nentre_pas_dans_les_fondatrices_omises(
+        par_facette: CorpusNeutre) -> None:
+    """R4, première garde — elle est **héritée** de R1, et ce témoin le fixe.
+
+    `_fondatrices_omises` lit `FacetteCouverture.block_ids`, qui ne contient plus que des
+    correspondances pleines. Un bloc que seul un recouvrement partiel proposait ne peut donc plus
+    entrer dans le motif — c'est lui qui a fait ordonner une claim sur une exclusion hors sujet.
+    """
+    parsed = ParsedQuestion(
+        question_resolue=QUESTION_RESOLUE_NEUTRE, intent="question",
+        facettes=[FACETTE_INVENTAIRE, FACETTE_REGISTRE])
+    retrieval = _retrieval_a_deux_fondatrices(par_facette)
+    verification = _verification_couvrant_la_premiere(par_facette)
+    reglages = _settings_neutre(par_facette.identite)
+
+    assert sinistre._fondatrices_omises(verification, retrieval, reglages, parsed) == [
+        par_facette.bloc("regle_registre")]
+    # La même couverture, vidée comme R1 la vide sur un recouvrement partiel : plus rien à relancer.
+    partielle = retrieval.model_copy(update={"facettes": [
+        FacetteCouverture(rang=0, block_ids=(par_facette.bloc("regle_inventaire"),), candidats=1),
+        FacetteCouverture(rang=1, block_ids=(), candidats=0)]})
+    assert sinistre._fondatrices_omises(verification, partielle, reglages, parsed) == []

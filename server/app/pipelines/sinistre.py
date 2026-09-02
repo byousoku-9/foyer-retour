@@ -752,11 +752,26 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 "truncated": truncated,
                 "discarded_block_ids": list(complement_facettes.discarded_block_ids)})
             retrieval_relance = complement_facettes.model_copy(update={"truncated": truncated})
+            # Correctif du tour 3 (R4). **On ne relance que sur ce qu'une relance peut rendre
+            # pertinent.** Deux gardes, et elles sont mesurées toutes les deux :
+            #
+            # 1. les blocs viennent de `FacetteCouverture.block_ids`, qui ne contient plus que des
+            #    correspondances **pleines** depuis R1 — c'est ce qui a fait ordonner au rédacteur,
+            #    en réel, une claim sur une exclusion de responsabilité civile immeuble ;
+            # 2. la reprise doit avoir **réellement rouvert** quelque chose pour cette
+            #    sous-question. Quand elle ne rouvre rien, la relance n'a devant elle que des blocs
+            #    déjà soumis au rédacteur, qui les a lus et n'en a rien tiré : lui redemander la
+            #    même chose est une dépense sûre pour un gain nul (mesuré : 42 s et 0,09 € sur la
+            #    troisième réponse, pour deux claims que le contrôle a rejetées). Si l'un de ces
+            #    blocs est une fondatrice confirmée jamais citée, `_fondatrices_omises` le nomme —
+            #    c'est le chemin précis, et il reste ouvert.
+            rouverts = set(step_facettes.opened_block_ids)
             blocs_des_facettes[:] = list(dict.fromkeys(
                 block_id for rang in rangs_non_couverts
                 for block_id in (complement_facettes.facette(rang).block_ids
-                                 if complement_facettes.facette(rang) is not None else ())))
-            if not blocs_des_facettes and complement_facettes.facettes:
+                                 if complement_facettes.facette(rang) is not None else ())
+                if block_id in rouverts))
+            if not rouverts and complement_facettes.facettes:
                 # Fin de chaîne honnête : rien de décisionnel n'existe dans le contrat lu pour ces
                 # sous-questions, et aucune relance de *rédiger* ne peut le fabriquer. La réponse
                 # le dit — *vérifier* dépose la lacune `facettes_sans_clause` sur la déclaration
@@ -768,9 +783,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 # absence qu'aucune passe n'a cherché à lever.
                 step_de_la_verification.checks.append(CheckResult(
                     name="facettes_sans_clause", ok=False,
-                    detail=f"{len(rangs_non_couverts)} sous-question(s) restent sans clause "
-                           "décisionnelle confirmée après une reprise ciblée de retrouver : "
-                           "aucune relance de rédiger ne peut les couvrir, l'absence est dite"))
+                    detail=f"{len(rangs_non_couverts)} sous-question(s) sans clause décisionnelle "
+                           "neuve après une reprise ciblée de retrouver : la relance n'aurait que "
+                           "des blocs déjà soumis à proposer, l'absence est dite plutôt que "
+                           "fabriquée"))
 
         # --- relance unique (AD-3) ------------------------------------------
         omises = _fondatrices_omises(verification, retrieval_relance, settings, parsed)
