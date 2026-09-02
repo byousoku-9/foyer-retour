@@ -327,8 +327,16 @@ async def test_le_plafond_unique_2048_demarre_la_redaction_froide_sous_douze_cen
     assert budget.attempts == 1 and budget.cost_eur < settings.max_cost_eur_per_request
 
 
-async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
+async def test_sinistre_donne_les_facettes_au_redacteur_et_pas_seulement_leur_nombre(
         mini_index: Index) -> None:
+    """Correctif du tour 2 — le rédacteur était noté sur un barème qu'on ne lui montrait pas.
+
+    *vérifier* reçoit les libellés un par un, sous `untrusted("facette", …)`, et mesure la
+    couverture de chacun. *rédiger* n'en recevait que le **compte** : il devait redécouper la
+    question lui-même, sous une consigne de concision. Les libellés lui sont désormais donnés dans
+    la **même forme** — et ils restent hors du texte de confiance, comme tout ce qui vient du
+    modèle (AD-15).
+    """
     client, fake = _client([fake_message(text=_draft(), model=SONNET)])
     parsed = _parsed(facettes=["les appareils", "les denrées"])
 
@@ -339,11 +347,14 @@ async def test_sinistre_porte_le_nombre_de_facettes_dans_la_consigne_dynamique(
     content = req["messages"][0]["content"]
     outside = UNTRUSTED.sub("", content)
     assert "Plan de sortie concis : 2 facette(s)" in outside
-    assert "Traite chacune au plus une fois" in outside
+    assert "Traite **chacune** au plus une fois" in outside
     assert "une claim d'une seule phrase courte" in outside
     assert "la plus courte quote contiguë qui la soutient" in outside
     assert "n'énumère pas les autres items d'une liste contractuelle" in outside
+    # Les libellés sont transmis, et **uniquement** dans un bloc délimité : jamais en clair.
     assert "les appareils" not in outside and "les denrées" not in outside
+    assert '<untrusted kind="facette">' in content
+    assert '"libelle": "les appareils"' in content and '"libelle": "les denrées"' in content
     expected_prefix = load_prompt("commun") + "\n\n" + render_prompt(
         "rediger_sinistre", quote_min_chars=_settings().quote_min_chars,
         quote_max_chars=_settings().quote_max_chars,

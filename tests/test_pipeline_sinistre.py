@@ -2685,6 +2685,10 @@ async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
     # pour l'une ne dit plus rien de l'autre.
     assert "clause décisionnelle confirmée pourtant retrouvée" in relance
     assert par_facette.bloc("regle_registre") in relance
+    # Correctif du tour 2 : le motif **nomme** la sous-question restée sans réponse. Le rédacteur
+    # ne pouvait pas la deviner — il ne recevait ni les libellés, ni le constat de couverture.
+    assert "restée(s) sans affirmation affichée" in relance
+    assert FACETTE_REGISTRE in relance and FACETTE_INVENTAIRE not in relance.split("motif")[-1]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
 

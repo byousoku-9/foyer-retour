@@ -168,6 +168,18 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
                                                 ensure_ascii=False))]
     parts += [untrusted("document", f"{b.block_id}\n{b.text}") for b in retrieval.blocs]
     parts.append(untrusted("question", parsed.question_resolue))
+    if prompt == "rediger_sinistre":
+        # Correctif du tour 2 : le rédacteur était **noté sur un barème qu'on ne lui montrait pas.**
+        # *vérifier* mesure la couverture des facettes une par une (`verifier.py`, même forme
+        # `untrusted("facette", …)`), et *rédiger* n'en recevait que le **nombre** — il devait
+        # redécouper la question lui-même, sous une consigne de concision. Le découpage vient de
+        # *comprendre*, il est arrêté avant tout retrieval (AD-4), et il est déjà borné en nombre
+        # (`question_max_facettes`) et en longueur (`libelle_max_chars`) : le transmettre ne coûte
+        # que quelques dizaines de tokens et referme l'écart entre ce qui est demandé et ce qui est
+        # mesuré. C'est du texte du modèle : il est délimité comme le reste (AD-15).
+        parts += [untrusted("facette", json.dumps({"facette": rang, "libelle": libelle},
+                                                  ensure_ascii=False))
+                  for rang, libelle in enumerate(parsed.facettes)]
     tail = (f"Langue de rédaction : {LANGUES_SERVIES[parsed.language]} ({parsed.language}). "
             "Les citations restent recopiées mot pour mot dans la langue du bloc source.")
     if prompt == "rediger_sinistre":
@@ -176,12 +188,13 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # ci-dessous vient du contrat `ParsedQuestion` de la requête — ce n'est ni un nouveau seuil,
         # ni une déduction depuis le texte. La consigne vit dans le message dynamique pour garder le
         # préfixe cacheable byte-identique, et demande seulement d'éviter les redites entre facettes.
-        tail += (f"\nPlan de sortie concis : {len(parsed.facettes)} facette(s) ont déjà été extraites. "
-                 "Traite chacune au plus une fois, dès les premiers segments, avec seulement les "
-                 "claims directement nécessaires. Pour chaque clause utile, rends une claim d'une "
-                 "seule phrase courte et la plus courte quote contiguë qui la soutient ; n'énumère "
-                 "pas les autres items d'une liste contractuelle. N'ajoute ni transition, ni "
-                 "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
+        tail += (f"\nPlan de sortie concis : {len(parsed.facettes)} facette(s) ont déjà été "
+                 "extraites, et elles te sont données ci-dessus, numérotées. Traite **chacune** au "
+                 "plus une fois, dès les premiers segments, avec seulement les claims directement "
+                 "nécessaires. Pour chaque clause utile, rends une claim d'une seule phrase courte "
+                 "et la plus courte quote contiguë qui la soutient ; n'énumère pas les autres items "
+                 "d'une liste contractuelle. N'ajoute ni transition, ni reformulation de contexte, "
+                 "ni segment limite si les claims factuelles suffisent.")
         fondatrices_confirmees: list[str] = []
         for bloc in retrieval.blocs:
             if bloc.kind not in KINDS_FONDATEURS or not bloc.kind_confirmed:

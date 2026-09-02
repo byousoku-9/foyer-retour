@@ -725,6 +725,18 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # consigne de facette. Un identifiant n'apparaît donc que dans l'une des deux.
         blocs_des_facettes = [block_id for block_id in blocs_des_facettes
                               if block_id not in set(omises)]
+        # Correctif du tour 2 : **la sous-question restée sans réponse est nommée.** Le motif ne
+        # savait dire que « telle claim a été rejetée » ; il ne disait jamais « il te reste cette
+        # sous-question à traiter », et le rédacteur ne recevait pas non plus le découpage. La ligne
+        # est composée par le code (AD-15), depuis les libellés que *comprendre* a arrêtés avant
+        # tout retrieval, déjà bornés en nombre et en longueur ; elle voyage sous `untrusted()`
+        # comme tout le motif.
+        libelles_manquants = [parsed.facettes[rang] for rang in rangs_non_couverts
+                              if 0 <= rang < len(parsed.facettes) and parsed.facettes[rang].strip()]
+        consigne_facettes_nommees = (
+            "Sous-question(s) de la demande restée(s) sans affirmation affichée, à traiter "
+            "explicitement : " + " ; ".join(libelles_manquants) + "."
+        ) if libelles_manquants else None
         if blocs_des_facettes:
             # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du corpus
             # typé, jamais de la question — la consigne nomme des blocs à rendre vérifiables.
@@ -804,9 +816,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     "déclaré.")
                 motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
                                  else consigne_fondatrice)
-            if consigne_facette is not None:
-                motif_relance = (f"{motif_relance}\n{consigne_facette}" if motif_relance
-                                 else consigne_facette)
+            for consigne in (consigne_facettes_nommees, consigne_facette):
+                if consigne is not None:
+                    motif_relance = (f"{motif_relance}\n{consigne}" if motif_relance
+                                     else consigne)
             acquise = verification
             appels_avant = budget.attempts
             try:
