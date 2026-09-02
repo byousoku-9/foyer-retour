@@ -752,6 +752,19 @@ class Settings(BaseSettings):
     # la desserrer : l'abaisser ne rouvre aucun trou, chaque ligne non couverte reste un refus
     # `ligne_omise` (prouvé par `test_abaisser_la_borne_de_couverture_ne_rouvre_pas_la_ligne_omise`).
     structure_min_coverage: float = Field(1.0, ge=0, le=1)
+    # Longueur maximale d'une **étiquette** : une ligne qui nomme, adresse ou identifie, par
+    # opposition à une phrase. Sert à reconnaître le cartouche légal qui clôt certains contrats —
+    # raison sociale, siège, registre du commerce — et qui suit le dernier corps de la dernière page
+    # portant du texte. La porte de lecture le rend alors non citable, comme la couverture : c'est
+    # la même notion de provenance, prise par l'autre bout du document.
+    # **Mesuré, et non supposé** : les deux lignes du cartouche du contrat le plus long du corpus
+    # font 124 et 118 caractères et ne se terminent par aucune ponctuation de phrase, quand le
+    # dernier alinéa de corps qui les précède finit par un point. La borne à 160 est celle que
+    # `structure._candidates_ancres` emploie déjà pour la même question de forme — « ceci
+    # ressemble-t-il à un intitulé plutôt qu'à une phrase ? ». Les deux doivent rester égales ;
+    # les unifier changerait la charge utile envoyée au fournisseur, donc la relecture des réponses
+    # archivées, et n'appartient pas à ce tour.
+    etiquette_max_chars: int = Field(160, ge=1)
     # Bornes de structure hors ligne. `structure_max_input_chars` borne chaque charge utile
     # segmentée **et** l'artefact global relu. Le planificateur mesure en plus l'enveloppe sérialisée
     # complète (prompt, message, ancres de frontière bornées et schéma) contre
@@ -1151,6 +1164,7 @@ class Settings(BaseSettings):
             "structure_max_children": self.structure_max_children,
             "structure_max_blocks_per_leaf": self.structure_max_blocks_per_leaf,
             "structure_min_coverage": self.structure_min_coverage,
+            "etiquette_max_chars": self.etiquette_max_chars,
             "structure_max_input_chars": self.structure_max_input_chars,
             "structure_max_output_tokens": self.structure_max_output_tokens,
             "structure_output_tokens_per_line": self.structure_output_tokens_per_line,

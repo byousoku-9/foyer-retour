@@ -28,6 +28,7 @@ import json
 import logging
 import re
 import sys
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from math import ceil
@@ -38,7 +39,7 @@ from urllib.parse import urlsplit
 import pymupdf
 from pydantic import ValidationError
 
-from server.app.config import get_settings
+from server.app.config import Settings, get_settings
 from server.app.corpus.text import normalize, normalize_version
 from server.app.domain import Block, BlockRef, Check, Document, Line, ManifestEntry, Node, NodeRef, Report, is_citable
 from server.app.domain.document import DOC_ID_MAX, DOC_ID_RE, SurfaceClass
@@ -67,7 +68,7 @@ TYPING_PENDING_COUNT_STAT = "blocs_typage_a_rejouer"
 # sont déclarés périmés dans `docs/choix-et-limites.md`. C'est `SEGMENTATION_RULES` — lui aussi dans
 # l'empreinte — qui porte l'énoncé exact des règles et change dès que l'une d'elles change : le
 # numéro de génération le résume, il ne le remplace pas.
-PARSER_VERSION = "20-la-porte-de-lecture-rend-le-glyphe-le-titre-tourne-et-la-vraie-gouttiere"
+PARSER_VERSION = "21-le-cartouche-qui-clot-le-document-nest-pas-du-corps"
 SEGMENTATION_RULES = ("numero:^\\d+(\\.\\d+)*$@x0<article_number_max_x=>noeud a{numero}(parent=prefixe);"
                       "titre:meme_ligne_de_base(size>=title_min_size_pt|sans_ponct_finale&suite_majuscule)=>heading;"
                       "puce:Wingdings|^•=>list(item;continuation=indent>list_indent_pt|minuscule&prec!~[.;:]$);"
@@ -145,6 +146,8 @@ _PRINTED_TOC_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\.?\s+(.+?)(?:\s+\.{2,}\s*|\s+
 _TOC_LEADER_RE = re.compile(r"^\s*(\S.*?)\s*\.{2,}\s*\d{1,3}\s*$")
 _BULLET_FONTS = ("Wingdings",)
 _TERMINAL = (".", ";", ":")
+# Ponctuation qui clôt une **phrase** : le seul signe qui distingue un énoncé d'une étiquette.
+_FIN_DE_PHRASE = (".", ";", "?", "!")
 # Provenance d'un groupe → classe de surface. La provenance est la seule source : la classe de page
 # est fausse dès qu'une page porte à la fois des groupes préliminaires et son premier article.
 _SURFACE_DE_PROVENANCE = {"preliminaire": "preliminaire", "tdm": "table_des_matieres"}
@@ -2153,6 +2156,84 @@ def reconcilier_affectation(nodes: dict[str, Node], block_uids: dict[str, list[s
                     f"sous {prescrit or 'aucun nœud'}")
 
 
+def _est_une_etiquette(texte: str, settings: Settings) -> bool:
+    """Cette ligne **nomme** plutôt qu'elle n'énonce : bornée, et sans ponctuation de phrase.
+
+    Deux critères de forme seulement, les mêmes qui servent déjà à reconnaître un intitulé. Aucun
+    vocabulaire : ni raison sociale, ni forme juridique, ni registre du commerce n'entre ici — un
+    cartouche allemand ou portugais se reconnaît au même signe qu'un cartouche français.
+    """
+    depouille = texte.strip()
+    return (bool(depouille) and len(depouille) <= settings.etiquette_max_chars
+            and not depouille.endswith(_FIN_DE_PHRASE))
+
+
+def _taille_dominante(page: PageText) -> float | None:
+    """Corps de la page : la taille de police qui domine **franchement** ses lignes, ou rien.
+
+    Franchement veut dire : portée par au moins deux lignes, et par strictement plus de lignes que
+    toute autre. Sur une page qui n'a pas de corps dominant — deux lignes de tailles différentes —
+    il n'y a rien dont un cartouche puisse s'écarter, et prétendre le reconnaître reviendrait à
+    tirer à pile ou face. Fail-closed : la règle se tait.
+    """
+    tailles = Counter(round(line.size, 1) for line in page.lines if line.text.strip())
+    frequentes = tailles.most_common(2)
+    if not frequentes or frequentes[0][1] < 2:
+        return None
+    if len(frequentes) > 1 and frequentes[0][1] == frequentes[1][1]:
+        return None
+    return frequentes[0][0]
+
+
+def _marquer_le_cartouche(
+    parcours: list[tuple[PageText, list[tuple[str, list[tuple[str, list[PageLine]]]]],
+                         list[tuple[str, list[PageLine]]], bool]],
+    settings: Settings,
+) -> None:
+    """Le cartouche qui clôt le document : symétrique de la couverture, pris par l'autre bout.
+
+    La règle de provenance ne reconnaissait que ce qui **précède** le premier article d'une page
+    mixte. Un contrat dont la dernière page porte, sous son dernier alinéa, la raison sociale et le
+    registre de l'assureur voyait donc ces lignes publiées citables, et le modèle qui les classait
+    `preliminaire` — à raison — était refusé par l'oracle. Un document dont la queue occupe une page
+    entière n'avait pas le problème : c'est la page mixte, et elle seule, qui manquait.
+
+    Ce qui est structurel et n'est pas supposé : **la dernière page portant du corps**, et **ce qui
+    suit son dernier groupe de corps**. Aucun numéro de page en dur. La queue n'est prise que si
+    toutes ses lignes sont des étiquettes, et il reste toujours au moins un groupe de corps sur la
+    page — sinon ce n'est pas un cartouche, c'est une page qui relève des règles d'avant.
+    """
+    dernier = next((index for index in reversed(range(len(parcours))) if parcours[index][2]), None)
+    if dernier is None:
+        return
+    page, techniques, corps, rompre = parcours[dernier]
+    dominante = _taille_dominante(page)
+    if dominante is None:
+        return
+
+    def est_un_cartouche(groupe: tuple[str, list[PageLine]]) -> bool:
+        """Un cartouche est **composé en plus petit que le corps de sa page**, et n'énonce rien.
+
+        La forme seule ne suffit pas : un tableau de garanties, une colonne de montants, un
+        intitulé — tous tiennent sous la borne et sans ponctuation finale, et sont du corps. Ce qui
+        met le cartouche à part est qu'il est mis en page à part : sa taille de police est
+        strictement inférieure à celle du corps de la page. Le critère est **relatif**, donc sans
+        seuil absolu et sans dépendance à une maquette.
+        """
+        _kind, lignes = groupe
+        return bool(lignes) and all(
+            round(ligne.size, 1) < dominante and _est_une_etiquette(ligne.text, settings)
+            for ligne in lignes)
+
+    coupe = len(corps)
+    while coupe > 1 and est_un_cartouche(corps[coupe - 1]):
+        coupe -= 1
+    if coupe == len(corps):
+        return
+    techniques.append(("preliminaire", corps[coupe:]))
+    parcours[dernier] = (page, techniques, corps[:coupe], rompre)
+
+
 def _parcours_de_provenance(
     pages: list[PageText], node_of_uid: dict[str, str] | None = None,
 ) -> Iterator[tuple[PageText, list[tuple[str, list[tuple[str, list[PageLine]]]]],
@@ -2172,6 +2253,8 @@ def _parcours_de_provenance(
     figure. Sur une page mixte, seuls les groupes situés avant le premier article sont techniques.
     """
     node_of_uid = node_of_uid or {}
+    parcours: list[tuple[PageText, list[tuple[str, list[tuple[str, list[PageLine]]]]],
+                         list[tuple[str, list[PageLine]]], bool]] = []
     article_seen = False
     document_has_articles = any(line.number is not None for page in pages for line in page.lines)
     document_has_toc = any(page.is_toc for page in pages)
@@ -2188,7 +2271,7 @@ def _parcours_de_provenance(
                 "tdm", groups if first_article_group is None else groups[:first_article_group]))
             rompre = True
             if first_article_group is None:
-                yield pt, techniques, [], rompre
+                parcours.append((pt, techniques, [], rompre))
                 continue
             # Une première clause sur la même page clôt la TdM : elle et tous les groupes suivants
             # appartiennent au corps citable.
@@ -2196,7 +2279,7 @@ def _parcours_de_provenance(
             article_seen = True
         if pt.surface_class == "preliminaire":
             techniques.append(("preliminaire", groups))
-            yield pt, techniques, [], True
+            parcours.append((pt, techniques, [], True))
             continue
         first_article_group = next((i for i, (_, lines) in enumerate(groups)
                                     if lines[0].number is not None), None)
@@ -2204,13 +2287,15 @@ def _parcours_de_provenance(
             preliminary_count = len(groups) if first_article_group is None else first_article_group
             techniques.append(("preliminaire", groups[:preliminary_count]))
             if first_article_group is None:
-                yield pt, techniques, [], True
+                parcours.append((pt, techniques, [], True))
                 continue
             groups = groups[first_article_group:]
             article_seen = True
         elif first_article_group is not None:
             article_seen = True
-        yield pt, techniques, groups, rompre
+        parcours.append((pt, techniques, groups, rompre))
+    _marquer_le_cartouche(parcours, get_settings())
+    return iter(parcours)
 
 
 def surfaces_de_provenance(pages: list[PageText]) -> dict[str, SurfaceClass]:
