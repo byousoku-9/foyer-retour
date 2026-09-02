@@ -46,6 +46,34 @@ def test_prefix_tracking_starts_empty_and_remembers_digests() -> None:
 
 
 # --- les bornes remesurées du tour « budgets Sonnet » (02/09/2026) ------------------------------
+def _cas_payants_par_profil() -> tuple[int, int]:
+    """Les cas payants d'un run `vertical` et d'un run `full`, lus sur `server/evals/cases/**`.
+
+    Deux règles du produit, appliquées telles quelles : un run `vertical` ne retient que les cas de
+    ce profil (`evals/run.py`, sélection des cas), un run `full` les retient tous ; et seuls les cas
+    dont la suite n'est pas `parsing` sont **payants** (`executions_payantes`, même fichier). Un
+    compte écrit à la main ici périmerait au premier cas ajouté — et il l'était : « 56 » comptait les
+    fichiers du profil `full` au lieu des exécutions payantes d'un run `full`, qui en retient 61 et
+    n'en fait payer que 50.
+    """
+    import re
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[1] / "server" / "evals" / "cases"
+    verticaux = full = 0
+    for chemin in racine.rglob("*.yaml"):
+        texte = chemin.read_text("utf-8")
+        profil = re.search(r"^\s*profile:\s*(\w+)", texte, re.M)
+        suite = re.search(r"^\s*suite:\s*(\w+)", texte, re.M)
+        if suite is not None and suite.group(1) == "parsing":
+            continue  # jamais payant
+        full += 1
+        if profil is not None and profil.group(1) == "vertical":
+            verticaux += 1
+    assert verticaux and full, f"aucun cas lu sous {racine}"
+    return verticaux, full
+
+
 def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_longue() -> None:
     """`max_llm_attempts` doit couvrir la séquence la plus longue **plus** le retry motivé d'AD-16.
 
