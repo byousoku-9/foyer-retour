@@ -22,6 +22,7 @@ from server.ingest import pdf_to_blocks as p
 from server.ingest.report import (attester_arbre, build_pdf_report,
                                   canoniser_transition_apres_typage)
 from tests.helpers_reports import assert_stats_structurelles_exactes
+from tests.test_porte_de_lecture import mesure_de_la_porte
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "data" / "axa-lu-optihome-2017"
@@ -294,6 +295,31 @@ def test_real_pdf_invariants_de_surface_et_de_fidelite(
         if failing := {name: errors for name, errors in issues.items() if errors}:
             page_issues[page.page] = failing
     assert page_issues == {}
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_pdf_ce_que_la_porte_de_lecture_laisse_passer(
+        regeneration: tuple[Document, dict, list, list, str]) -> None:
+    """Vérité **régénérée** de la porte de lecture, indépendante de tout artefact committé.
+
+    Ce contrat porte exactement une ligne tournée dans ses 109 pages — une mention d'édition en marge,
+    jamais répétée. Elle doit donc être **conservée** : c'est le côté « pas de faux positif » de la
+    règle du titre courant, et il n'est prouvé que sur un document qui en offre une. Il ne porte
+    aucune ligne-glyphe et, sur ses trois pages à deux colonnes, aucune ligne de colonne n'est
+    déclarée pleine largeur.
+    """
+    built, _meta, pages, _toc, _source_hash = regeneration
+    assert mesure_de_la_porte(pages) == {
+        "lignes_tournees_conservees": 1,
+        "titres_courants_survivants": 0,
+        "lignes_glyphes": 0,
+        "lignes_pleine_largeur_hors_marge": 0,
+        "pages_a_gouttiere": 3,
+    }
+    assert (len(built.blocks), len(built.nodes)) == (1400, 751)
 
 
 @pytest.mark.skipif(

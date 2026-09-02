@@ -15,6 +15,7 @@ from server.ingest import pdf_to_blocks as p
 from server.ingest.report import (attester_arbre, build_pdf_report,
                                   canoniser_transition_apres_typage)
 from tests.helpers_reports import assert_stats_structurelles_exactes
+from tests.test_porte_de_lecture import mesure_de_la_porte
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / "data" / "baloise-lu-home-2-2024"
@@ -177,6 +178,32 @@ def test_real_baloise_pdf_invariants_de_surface_et_de_registre(
         if failing := {name: errors for name, errors in issues.items() if errors}:
             page_issues[page.page] = failing
     assert page_issues == {}
+
+
+@pytest.mark.skipif(
+    not (REAL / "source.pdf").is_file() and os.environ.get("REAL_PDF_TESTS_REQUIRED") != "1",
+    reason="source.pdf absent (non committé)",
+)
+def test_real_baloise_pdf_ce_que_la_porte_de_lecture_laisse_passer(
+        regeneration: tuple[Document, dict, list, list]) -> None:
+    """Vérité **régénérée** de la porte de lecture, indépendante de tout artefact committé.
+
+    C'est ce contrat qui a fait rougir les quatre règles à la fois : un titre courant composé tourné
+    dans la marge droite de 47 de ses 48 pages, tombé au milieu du flux d'une colonne ; des centaines
+    de puces et de points-virgules sortis en lignes muettes ; et deux colonnes qu'une fausse frontière
+    intérieure relisait entrelacées. Après correction, aucune ligne tournée ne subsiste, une seule
+    ligne-glyphe reste — isolée dans sa bande, donc rien à lui rendre —, et aucune ligne de colonne
+    n'est déclarée pleine largeur sur les 42 pages à gouttière.
+    """
+    built, _meta, pages, _toc = regeneration
+    assert mesure_de_la_porte(pages) == {
+        "lignes_tournees_conservees": 0,
+        "titres_courants_survivants": 0,
+        "lignes_glyphes": 1,
+        "lignes_pleine_largeur_hors_marge": 0,
+        "pages_a_gouttiere": 42,
+    }
+    assert (len(built.blocks), len(built.nodes)) == (962, 2)
 
 
 @pytest.mark.skipif(
