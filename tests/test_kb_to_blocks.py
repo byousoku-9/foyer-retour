@@ -223,40 +223,27 @@ def test_real_source_matches_committed_artefacts() -> None:
     doc = k.build_document(kb, edition=k.DEFAULT_EDITION, source_hash=source_hash)
     assert len(kb["fiches"]) == 36 and len(kb["faq"]) == 41 and len(doc.blocks) > 400
     previous = Document.model_validate_json((REAL / "document.json").read_bytes())
-    # **La tolérance est bornée à un champ, et ce champ est nommé.** L'Epic 5 a versionné
-    # l'ingestion (`SCHEMA_VERSION` "3" → "4") sans réingérer l'artefact guide, et la comparaison
-    # avait été relâchée sur un `model_copy` qui réinjectait l'ancienne empreinte — une tolérance
-    # sans borne : n'importe quelle divergence de sérialisation serait passée avec elle, puisque
-    # rien ne disait que l'empreinte était la **seule** chose à diverger.
-    #
-    # Elle l'est, et c'est mesuré ici : hors `ingest_fingerprint`, l'artefact servi est **exactement**
-    # ce que le code d'ingestion produit aujourd'hui, octet pour octet, document et sommaire compris.
-    # L'invariant strict — empreinte comprise — se rétablit par la réingestion du guide, qui est
-    # déterministe et gratuite, mais qui **retire son gate** (AD-7 : un gate certifie une empreinte,
-    # et `_gate_alerts` met `sans_gate` en quarantaine hors `allow_ungated`). Elle va donc avec un
-    # `evals run --gate` facturé, et les deux appartiennent à l'orchestrateur : reprise différée
-    # `reingestion-guide-et-regate-epic5-D1`.
-    assert k.ingest_fingerprint() != previous.ingest_fingerprint  # l'écart existe encore
-    comparable = doc.model_copy(update={"ingest_fingerprint": previous.ingest_fingerprint})
-    assert k.document_json(comparable) == (REAL / "document.json").read_text("utf-8")
-    # …et il n'y a rien d'autre : le seul écart entre l'artefact servi et la sortie d'aujourd'hui
-    # est la valeur de ce champ-là. Une seule ligne diffère, et c'est celle de l'empreinte.
-    ecarts = [(a, b) for a, b in zip(k.document_json(doc).splitlines(),
-                                     (REAL / "document.json").read_text("utf-8").splitlines(),
-                                     strict=True) if a != b]
-    assert ecarts == [(f'  "ingest_fingerprint": "{k.ingest_fingerprint()}"',
-                       f'  "ingest_fingerprint": "{previous.ingest_fingerprint}"')]
-    summary = k.build_summary(comparable, kb).replace(
-        k.ingest_fingerprint(), previous.ingest_fingerprint)
+    # **Invariant strict, empreinte comprise.** L'Epic 5 avait versionné l'ingestion sans réingérer
+    # l'artefact guide, et ce témoin bornait alors la tolérance à ce seul champ (reprise différée
+    # `reingestion-guide-et-regate-epic5-D1`). Le guide a été réingéré le 2026-09-02 avec le code
+    # courant : l'artefact servi est **exactement** ce que l'ingestion produit aujourd'hui, octet
+    # pour octet, document et sommaire compris. Toute divergence future — empreinte ou contenu —
+    # rougit ici et appelle une réingestion (déterministe, gratuite) suivie d'un `evals run --gate`.
+    assert k.ingest_fingerprint() == previous.ingest_fingerprint
+    assert k.document_json(doc) == (REAL / "document.json").read_text("utf-8")
+    summary = k.build_summary(doc, kb)
     assert summary == (REAL / "summary.md").read_text("utf-8")
-    ecarts_sommaire = [(a, b) for a, b in zip(k.build_summary(doc, kb).splitlines(),
-                                              (REAL / "summary.md").read_text("utf-8").splitlines(),
-                                              strict=True) if a != b]
-    assert [a.replace(k.ingest_fingerprint(), previous.ingest_fingerprint) == b
-            for a, b in ecarts_sommaire] == [True]  # une ligne, l'en-tête, et rien d'autre
     parcours = k.parcours_conditions(kb, {n.node_id for n in doc.nodes})
-    assert build_report(doc, previous, kb, summary=summary, parcours_ignorees=parcours.ignorees,
-                        parcours_alertes=parcours.alertes) == Report.model_validate_json((REAL / "report.json").read_bytes())
+    from server.ingest.report import attester_arbre
+    # L'ingestion atteste l'arbre après avoir construit le rapport (document_hash + empreinte) :
+    # le témoin rejoue exactement ce geste pour comparer au rapport servi.
+    report = attester_arbre(
+        build_report(doc, previous, kb, summary=summary, parcours_ignorees=parcours.ignorees,
+                     parcours_alertes=parcours.alertes),
+        document_hash=hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
+        ingest_fingerprint=doc.ingest_fingerprint,
+    )
+    assert report == Report.model_validate_json((REAL / "report.json").read_bytes())
     # Story 2.3 : les neuf fiches que la `timeline` conditionne, dans l'ordre du parcours, sans
     # doublon (trois étapes différentes conditionnent `ecole` sur `{enfants: true}`). Les conditions
     # sont celles de la **source** — aucun texte d'étape n'a été ingéré, et aucun n'a de bloc.

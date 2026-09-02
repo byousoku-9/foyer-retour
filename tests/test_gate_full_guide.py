@@ -149,17 +149,18 @@ def test_un_gate_full_du_guide_nest_plus_structurellement_rouge_par_le_typage() 
 
 # --- B4, volet guide : une exigence de structure que le guide peut satisfaire honnêtement ----------
 
-def test_le_corpus_servi_ne_prouve_pas_encore_son_arbre_et_le_gate_le_dit() -> None:
-    """L'état **réel** : `report.json` du guide porte `invariants_arbre: ok`, sans empreinte.
+def test_le_corpus_servi_prouve_son_arbre_et_le_gate_le_dit() -> None:
+    """L'état **réel** : le guide servi a été réingéré le 2026-09-02 et `report.json` porte
+    l'attestation d'arbre avec son empreinte.
 
-    C'est la forme antérieure à cette story. Le témoin est donc rouge tant que le guide n'a pas été
-    réingéré — publié tel quel, comme `structure_prouvee_rate` l'est pour les contrats. Un plancher
-    ne se satisfait pas d'une déclaration.
+    Avant cette réingestion, le témoin était rouge (arbre déclaré `ok` sans empreinte), publié tel
+    quel comme `structure_prouvee_rate` l'est pour les contrats : un plancher ne se satisfait pas
+    d'une déclaration. Il redeviendrait rouge si l'artefact servi cessait de porter sa preuve.
     """
     doc_id = _guide_doc_id()
     avant = {chemin: chemin.read_bytes() for chemin in sorted(DATA.rglob("*")) if chemin.is_file()}
     ctx = _contexte(DATA)
-    assert runner.preuve_darbre(DATA, ctx, [doc_id]) == (0, 1)
+    assert runner.preuve_darbre(DATA, ctx, [doc_id]) == (1, 1)
     # Le témoin PDF, lui, ne compte pas le guide du tout : les deux dénominateurs se partagent le lot.
     assert runner.preuve_de_structure(DATA, ctx, [doc_id]) == (0, 0)
     # Lecture seule, vérifiée : ce test ne touche jamais le corpus servi.
@@ -191,7 +192,8 @@ def test_la_reingestion_reelle_du_guide_rend_son_arbre_prouvable(tmp_path: Path)
     manifest_path = data / "manifest.json"
     edition = json.loads(manifest_path.read_text(encoding="utf-8"))[doc_id]["edition"]
 
-    assert runner.preuve_darbre(data, _contexte(data), [doc_id]) == (0, 1)
+    # Le corpus servi porte déjà sa preuve (réingéré le 2026-09-02) : la relance doit la conserver.
+    assert runner.preuve_darbre(data, _contexte(data), [doc_id]) == (1, 1)
 
     # 1. L'ingestion réelle, sur la copie. C'est le chemin de production, pas un raccourci de test.
     report, entry = kb_to_blocks.run(data / doc_id, edition=edition)
