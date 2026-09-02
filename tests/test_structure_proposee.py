@@ -487,7 +487,12 @@ def test_le_schema_nadmet_que_des_uid_du_registre_et_aucun_champ_de_jugement() -
         "relations",
     }
     assert noeud["additionalProperties"] is False and schema["additionalProperties"] is False
-    assert noeud["properties"]["titre_line_uid"]["enum"] == list(registre)
+    # L'énumération des uid vit une seule fois sous `$defs` ; chaque champ d'uid la référence.
+    assert schema["$defs"]["uid"]["enum"] == list(registre)
+    for champ in ("titre_line_uid", "premiere_line_uid", "derniere_line_uid"):
+        assert noeud["properties"][champ] == {"$ref": "#/$defs/uid"}
+    assert noeud["properties"]["title_line_uids"]["items"] == {"$ref": "#/$defs/uid"}
+    assert json.dumps(schema).count('"enum": [') == 5, "une seule copie par énumération d'uid"
     rendu = json.dumps(schema)
     # `relations.kind` est un vocabulaire structurel fermé, pas un jugement juridique.
     for interdit in ("portee", "scope", "applicab", "verdict", "titre\"", "texte"):
@@ -1000,11 +1005,12 @@ def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontie
         {"uid": anchor.line_uid, "ordre": anchor.ordre, "titre": anchor.titre}
         for anchor in plan.segments[1].anchors
     ]
-    properties = second_request["output_config"]["format"]["schema"]["properties"][
-        "noeuds"]["items"]["properties"]
-    assert parent_uid in properties["parent_line_uid"]["anyOf"][0]["enum"]
-    assert parent_uid in properties["relations"]["items"]["properties"][
-        "target_line_uid"]["enum"]
+    schema = second_request["output_config"]["format"]["schema"]
+    properties = schema["properties"]["noeuds"]["items"]["properties"]
+    assert properties["parent_line_uid"]["anyOf"][0] == {"$ref": "#/$defs/reference"}
+    assert properties["relations"]["items"]["properties"]["target_line_uid"] == {
+        "$ref": "#/$defs/reference"}
+    assert parent_uid in schema["$defs"]["reference"]["enum"]
     assert parent_uid not in properties["premiere_line_uid"]["enum"]
 
     by_title = {node.titre_line_uid: node for node in execution.proposition.noeuds}
@@ -2033,19 +2039,41 @@ def test_la_largeur_se_compte_par_parent_et_pas_seulement_a_la_racine(
     assert "'p1:l1'" in verdict.detail  # la fratrie fautive est nommée, et ce n'est pas la racine
 
 
-def test_le_schema_fournisseur_borne_le_nombre_de_noeuds_proposables(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """Premier des cinq points : la surface d'écriture du modèle est bornée par le schéma lui-même.
+_MOTS_CLES_REFUSES_PAR_LE_FOURNISSEUR = frozenset({
+    "maxItems", "minItems", "uniqueItems", "maxLength", "minLength", "pattern", "format",
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+})
 
-    Le nombre d'enfants n'est pas exprimable en JSON Schema ; `maxItems` le borne transitivement,
-    une fratrie ne pouvant pas compter plus de nœuds que l'arbre entier.
+
+def _mots_cles(schema: object) -> set[str]:
+    trouves: set[str] = set()
+    if isinstance(schema, dict):
+        for cle, valeur in schema.items():
+            if cle not in ("properties", "enum", "required"):
+                trouves.add(cle)
+            if cle != "enum":
+                trouves |= _mots_cles(valeur)
+    elif isinstance(schema, list):
+        for valeur in schema:
+            trouves |= _mots_cles(valeur)
+    return trouves
+
+
+def test_le_schema_fournisseur_nemploie_que_des_mots_cles_acceptes_par_lapi(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Premier des cinq points : la borne de largeur ne vit pas dans le schéma fournisseur.
+
+    La sortie structurée refuse `maxItems`/`minItems`/`maxLength` (400 mesuré sur le premier
+    segment réel de Baloise). Le schéma ne porte donc plus aucune cardinalité : `parse_proposition`
+    et `verifier` gardent `STRUCTURE_MAX_NODES` et `STRUCTURE_MAX_CHILDREN` fail-closed, et le
+    témoin suivant prouve que la borne mord toujours à la lecture.
     """
     registre = _registre(_corpus())
     schema = s.requete(registre, DOC, get_settings())["output_config"]["format"]["schema"]
-    assert schema["properties"]["noeuds"]["maxItems"] == get_settings().structure_max_nodes
+    assert not (_mots_cles(schema) & _MOTS_CLES_REFUSES_PAR_LE_FOURNISSEUR)
     with _regle(monkeypatch, STRUCTURE_MAX_NODES="3") as settings:
         borne = s.requete(registre, DOC, settings)["output_config"]["format"]["schema"]
-    assert borne["properties"]["noeuds"]["maxItems"] == 3
+    assert borne == schema, "la borne de nœuds ne doit plus s'exprimer dans le schéma"
 
 
 def test_le_modele_pydantic_reste_independant_des_settings_dynamiques(

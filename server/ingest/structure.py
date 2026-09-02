@@ -591,16 +591,24 @@ def _schema(uids: tuple[str, ...], settings: Settings, *,
             reference_uids: tuple[str, ...] = ()) -> dict[str, Any]:
     """Le schéma fournisseur énumère les `uid` autorisés : rien d'autre ne peut être écrit.
 
-    `maxItems` y borne la largeur dès la surface d'écriture. Le nombre d'enfants d'un parent n'est
-    pas exprimable en JSON Schema ; `maxItems` le borne transitivement — une fratrie ne compte jamais
-    plus de nœuds que l'arbre entier —, et `parse_proposition` le revérifie exactement.
+    Il ne porte aucune borne de cardinalité ni de longueur : la sortie structurée du fournisseur
+    refuse `maxItems`, `minItems` et `maxLength` (400 `invalid_request_error`, mesuré sur le premier
+    segment réel). Les bornes vivent côté code, fail-closed : `STRUCTURE_MAX_NODES` et
+    `STRUCTURE_MAX_CHILDREN` dans `parse_proposition`/`verifier`, `max_length=1` sur
+    `continuations_frontiere`, `max_length=256` sur `article_uid`, et un `title_line_uids` vide est
+    refusé par le validateur du nœud.
     """
-    uid_schema = {"type": "string", "enum": list(uids)}
-    reference_schema = {
-        "type": "string",
-        "enum": list(dict.fromkeys((*uids, *reference_uids))),
+    # Chaque énumération d'uid est définie une seule fois sous `$defs` et référencée par `$ref` :
+    # répétée inline à chaque champ, la même liste de plusieurs centaines d'uid rendait le schéma
+    # « too complex » pour la grammaire du fournisseur (400 mesuré sur le premier segment réel).
+    definitions = {
+        "uid": {"type": "string", "enum": list(uids)},
+        "reference": {"type": "string", "enum": list(dict.fromkeys((*uids, *reference_uids)))},
+        "external_reference": {"type": "string", "enum": list(reference_uids)},
     }
-    external_reference_schema = {"type": "string", "enum": list(reference_uids)}
+    uid_schema = {"$ref": "#/$defs/uid"}
+    reference_schema = {"$ref": "#/$defs/reference"}
+    external_reference_schema = {"$ref": "#/$defs/external_reference"}
     noeud = {
         "type": "object",
         "properties": {
@@ -608,8 +616,8 @@ def _schema(uids: tuple[str, ...], settings: Settings, *,
             "premiere_line_uid": uid_schema,
             "derniere_line_uid": uid_schema,
             "parent_line_uid": {"anyOf": [reference_schema, {"type": "null"}]},
-            "title_line_uids": {"type": "array", "items": uid_schema, "minItems": 1},
-            "article_uid": {"anyOf": [{"type": "string", "maxLength": 256}, {"type": "null"}]},
+            "title_line_uids": {"type": "array", "items": uid_schema},
+            "article_uid": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "surface_class": {"type": "string", "enum": [
                 "preliminaire", "table_des_matieres", "substantiel", "inconnu"]},
             "continuation_line_uids": {"type": "array", "items": uid_schema},
@@ -645,12 +653,10 @@ def _schema(uids: tuple[str, ...], settings: Settings, *,
     }
     schema = {
         "type": "object",
+        "$defs": definitions,
         "properties": {
-            "noeuds": {"type": "array", "items": noeud,
-                        "maxItems": settings.structure_max_nodes},
-            "continuations_frontiere": {
-                "type": "array", "items": continuation, "maxItems": 1,
-            },
+            "noeuds": {"type": "array", "items": noeud},
+            "continuations_frontiere": {"type": "array", "items": continuation},
         },
         "required": ["noeuds", "continuations_frontiere"],
         "additionalProperties": False,
