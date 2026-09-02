@@ -166,7 +166,17 @@ class Settings(BaseSettings):
     # **La valeur couvrante mesurée**, celle sous laquelle la deadline ne doit pas redescendre sans
     # une nouvelle mesure : 68 s. Elle est tenue par
     # `tests/test_budget.py::test_la_deadline_couvre_la_queue_mesuree_du_chemin_nominal`.
-    deadline_s: float = Field(75.0, gt=0)
+    # **100 s, et non 75 (02/09/2026, 20 h 30, témoin A16 en live).** Le chiffrage à 68 s ne
+    # comptait qu'un cycle rédiger → vérifier. Sur « vitre d'insert » (`POST /api/v1/sinistre`,
+    # service local réel), le vérificateur signale des facettes non couvertes et la chaîne fait
+    # **deux cycles**, avec une relance de parse de *rédiger* : 61,4 s et 60,5 s quand elle aboutit
+    # (200, `p34:12` cité), et une troisième requête coupée à 75 s alors que son dernier
+    # *vérifier* avait démarré (étapes cumulées 75,0 s, ≈ 80 s au total). Un 503 sur un chemin
+    # nominal à deux cycles est le 503 de configuration qu'AD-16 refuse. 100 s couvre les ≈ 80 s
+    # mesurés avec 25 % de marge, reste sous `--timeout=120` de Cloud Run avec la marge
+    # d'abandon du navigateur (`client_abort_margin_s` : 110 s au pire, lue sur `/sante`), et ne
+    # rallonge aucune requête : une question à un cycle finit toujours en 20 à 30 s.
+    deadline_s: float = Field(100.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
