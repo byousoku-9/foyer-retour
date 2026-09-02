@@ -467,17 +467,33 @@ def test_build_document_leve_sur_une_ligne_extraite_que_rien_ne_porte() -> None:
 # --- 2. Surface exacte du modèle ----------------------------------------------------------------
 
 def test_la_charge_utile_nexpose_que_la_position_et_le_texte_en_lecture_seule() -> None:
-    """AC : ni texte de bloc réinscriptible, ni `kind`, ni portée, ni applicabilité, ni verdict."""
+    """AC : ni texte de bloc réinscriptible, ni `kind`, ni portée, ni applicabilité, ni verdict.
+
+    Elle n'expose pas non plus les `line_uid` : le modèle désigne une ligne par son `index`, et
+    l'empreinte de 72 caractères ne quitte jamais le code.
+    """
     registre = _registre(_corpus())
     payload = json.loads(s.demande(registre, get_settings()))
     assert set(payload) == {"lignes"}
     for ligne in payload["lignes"]:
-        assert set(ligne) == {"uid", "page", "colonne", "ordre", "bbox", "texte"}
+        assert set(ligne) == {"index", "page", "colonne", "ordre", "bbox", "texte"}
+    assert [ligne["index"] for ligne in payload["lignes"]] == list(range(len(registre)))
     ordres = [ligne["ordre"] for ligne in payload["lignes"]]
     assert ordres == sorted(ordres) == list(range(1, len(registre) + 1))
+    rendu = json.dumps(payload)
+    assert not any(uid in rendu for uid in registre)
+    assert s.table_indices(registre) == tuple(registre)
 
 
-def test_le_schema_nadmet_que_des_uid_du_registre_et_aucun_champ_de_jugement() -> None:
+def test_le_schema_nenumere_aucun_uid_et_ne_porte_aucun_champ_de_jugement() -> None:
+    """Le schéma désigne les lignes par un entier, et sa taille ne dépend plus du registre.
+
+    Il énumérait les `line_uid` autorisés : à 70 empreintes de 72 caractères, l'API répond déjà 400
+    « Schema is too complex », et un segment sans ancre produisait une énumération vide, elle aussi
+    refusée (« Enum must be a non-empty array »). La garantie que portait cette énumération — rien
+    d'autre qu'une ligne du segment ne peut être désignée — est prouvée par `rapprocher_indices`,
+    dont les témoins suivent.
+    """
     registre = _registre(_corpus())
     schema = s.requete(registre, DOC, get_settings())["output_config"]["format"]["schema"]
     noeud = schema["properties"]["noeuds"]["items"]
@@ -487,16 +503,185 @@ def test_le_schema_nadmet_que_des_uid_du_registre_et_aucun_champ_de_jugement() -
         "relations",
     }
     assert noeud["additionalProperties"] is False and schema["additionalProperties"] is False
-    # L'énumération des uid vit une seule fois sous `$defs` ; chaque champ d'uid la référence.
-    assert schema["$defs"]["uid"]["enum"] == list(registre)
+    entier = {"type": "integer"}
     for champ in ("titre_line_uid", "premiere_line_uid", "derniere_line_uid"):
-        assert noeud["properties"][champ] == {"$ref": "#/$defs/uid"}
-    assert noeud["properties"]["title_line_uids"]["items"] == {"$ref": "#/$defs/uid"}
-    assert json.dumps(schema).count('"enum": [') == 5, "une seule copie par énumération d'uid"
+        assert noeud["properties"][champ] == entier
+    assert noeud["properties"]["parent_line_uid"] == {"anyOf": [entier, {"type": "null"}]}
+    for champ in ("title_line_uids", "continuation_line_uids"):
+        assert noeud["properties"][champ] == {"type": "array", "items": entier}
+    assert noeud["properties"]["relations"]["items"]["properties"]["target_line_uid"] == entier
+    continuation = schema["properties"]["continuations_frontiere"]["items"]["properties"]
+    assert list(continuation.values()) == [entier, entier, entier]
+    assert "$defs" not in schema and "$ref" not in json.dumps(schema)
     rendu = json.dumps(schema)
+    assert not any(uid in rendu for uid in registre), "aucune empreinte n'entre dans la grammaire"
+    # Les deux seules énumérations restantes sont des vocabulaires structurels fermés et constants.
+    assert rendu.count('"enum": [') == 2
     # `relations.kind` est un vocabulaire structurel fermé, pas un jugement juridique.
     for interdit in ("portee", "scope", "applicab", "verdict", "titre\"", "texte"):
         assert interdit not in rendu, interdit
+
+
+def test_le_schema_est_constant_quelle_que_soit_la_taille_du_segment() -> None:
+    """Sa taille ne dépend plus du registre : c'est ce qui le rend compilable à toute échelle.
+
+    C'est la propriété que l'énumération d'uid rendait impossible : le schéma grossissait avec le
+    segment, jusqu'au 400 « Schema is too complex » que personne ne pouvait contourner en
+    resegmentant.
+    """
+    petit = _registre([_page(1, ["Article 1 Objet", "Corps."])])
+    grand = _registre([_page(1, [f"Article {index} Objet" for index in range(300)])])
+    settings = get_settings()
+    reference = s.requete(petit, DOC, settings)["output_config"]["format"]
+    assert reference == s.requete(grand, DOC, settings)["output_config"]["format"]
+    tete = tuple(grand)[:2]
+    ancres = s._ancres_frontiere(grand, tete)
+    assert ancres  # un segment avec voisinage rend exactement la même grammaire
+    avec_ancres = s.requete({uid: grand[uid] for uid in tete}, DOC, settings, anchors=ancres)
+    assert avec_ancres["output_config"]["format"] == reference
+    # Un segment sans aucune ancre reste un schéma valide : plus aucune énumération à vider.
+    assert s.requete(petit, DOC, settings, anchors=())["output_config"]["format"] == reference
+
+
+def _segment_avec_ancres() -> tuple[dict[str, s.Entree], tuple[s.AncreStructure, ...], tuple[str, ...]]:
+    """Segment de trois lignes pris au milieu d'un document, avec son voisinage de frontière."""
+    registre = _registre([_page(1, [
+        "Article 1 Objet",
+        "Corps du premier article.",
+        "Article 2 Portee",
+        "Corps du deuxieme article.",
+        "Article 3 Exclusions",
+        "Corps du troisieme article.",
+    ])])
+    ordonnes = tuple(registre)
+    locales = ordonnes[2:4]
+    subset = {uid: registre[uid] for uid in locales}
+    anchors = s._ancres_frontiere(registre, locales)
+    assert anchors, "le segment doit avoir un voisinage pour que le domaine externe existe"
+    return subset, anchors, s.table_indices(subset, anchors)
+
+
+def test_une_reponse_par_index_se_traduit_exactement_en_uid() -> None:
+    """Le contrat de sortie change, le contrat d'artefact non : en aval, tout est en `line_uid`."""
+    subset, anchors, table = _segment_avec_ancres()
+    externe = len(subset)  # premier index d'ancre
+    reponse = {
+        "noeuds": [{
+            "titre_line_uid": 0,
+            "premiere_line_uid": 0,
+            "derniere_line_uid": 1,
+            "parent_line_uid": externe,
+            "title_line_uids": [0],
+            "article_uid": "article:2",
+            "surface_class": "substantiel",
+            "continuation_line_uids": [1],
+            "relations": [{"kind": "explicit_dependency", "target_line_uid": externe}],
+        }],
+        "continuations_frontiere": [{
+            "premiere_line_uid": 0,
+            "derniere_line_uid": 1,
+            "target_line_uid": externe,
+        }],
+    }
+    rapproche = json.loads(s.rapprocher_indices(json.dumps(reponse), subset, anchors=anchors))
+    noeud = rapproche["noeuds"][0]
+    assert noeud["titre_line_uid"] == table[0] and noeud["premiere_line_uid"] == table[0]
+    assert noeud["derniere_line_uid"] == table[1]
+    assert noeud["parent_line_uid"] == table[externe]
+    assert noeud["title_line_uids"] == [table[0]]
+    assert noeud["continuation_line_uids"] == [table[1]]
+    assert noeud["relations"][0]["target_line_uid"] == table[externe]
+    assert noeud["article_uid"] == "article:2" and noeud["surface_class"] == "substantiel"
+    assert rapproche["continuations_frontiere"][0] == {
+        "premiere_line_uid": table[0], "derniere_line_uid": table[1],
+        "target_line_uid": table[externe],
+    }
+    # La traduction est exactement celle de la demande : même table, même ordre.
+    charge = json.loads(s.demande(subset, get_settings()))
+    assert [ligne["index"] for ligne in charge["lignes"]] == list(range(len(subset)))
+    assert table[:len(subset)] == tuple(uid for uid in subset)
+
+
+def _reponse_index(**remplacements: Any) -> str:
+    noeud: dict[str, Any] = {
+        "titre_line_uid": 0, "premiere_line_uid": 0, "derniere_line_uid": 1,
+        "parent_line_uid": None, "title_line_uids": [0], "article_uid": None,
+        "surface_class": "substantiel", "continuation_line_uids": [], "relations": [],
+    }
+    continuations = remplacements.pop("continuations_frontiere", [])
+    noeud.update(remplacements)
+    return json.dumps({"noeuds": [noeud], "continuations_frontiere": continuations})
+
+
+@pytest.mark.parametrize("reponse,attendu", [
+    # Index hors de la plage reçue : rien ne le rattrape, il n'est ramené à aucune borne.
+    (_reponse_index(derniere_line_uid=99), "hors de la plage"),
+    # Index négatif : il indexerait la fin de la table en Python, jamais une ligne désignée.
+    (_reponse_index(titre_line_uid=-1), "hors de la plage"),
+    # Ancre de frontière comme titre : elle n'est pas une ligne à couvrir.
+    (_reponse_index(titre_line_uid=2), "ancre de frontière"),
+    # Ancre de frontière annexée au titre complet, même refus.
+    (_reponse_index(title_line_uids=[0, 2]), "ancre de frontière"),
+    # Ligne locale comme cible d'une continuation de frontière : la cible est forcément externe.
+    (_reponse_index(continuations_frontiere=[{
+        "premiere_line_uid": 0, "derniere_line_uid": 1, "target_line_uid": 0}]),
+     "pas une ancre de frontière"),
+    # Index répété dans une liste : refusé, jamais dédoublonné.
+    (_reponse_index(title_line_uids=[0, 0]), "répété"),
+    # Ce qui n'est pas un entier n'est pas un index — l'empreinte elle-même comprise.
+    (_reponse_index(titre_line_uid="line-v1:" + "a" * 64), "index entier attendu"),
+    # `True` est un `int` en Python : sans filtre explicite, il désignerait la ligne d'index 1.
+    (_reponse_index(titre_line_uid=True), "index entier attendu"),
+])
+def test_un_index_qui_ne_designe_pas_une_ligne_du_segment_est_un_refus_nomme(
+        reponse: str, attendu: str) -> None:
+    """La garantie que portait l'énumération d'uid, prouvée là où elle vit désormais.
+
+    Le schéma fournisseur ne connaît plus que `integer` : il ne peut plus dire qu'une ligne du
+    segment, et elle seule, est désignable. Chaque famille est donc un refus **nommé** du
+    rapprochement, jamais une réparation silencieuse.
+    """
+    subset, anchors, _table = _segment_avec_ancres()
+    with pytest.raises(s.StructureRefusee) as leve:
+        s.rapprocher_indices(reponse, subset, anchors=anchors)
+    assert leve.value.motif == "index_invalide" and leve.value.motif in s.MOTIFS
+    assert attendu in leve.value.detail
+
+
+def test_un_segment_sans_ancre_reste_proposable_et_ne_peut_viser_aucune_cible_externe() -> None:
+    """Le cas qui rendait un 400 « Enum must be a non-empty array », désormais impossible.
+
+    Sans ancre, la plage externe est vide : le schéma reste valide et constant, et toute cible
+    externe est refusée par le rapprochement au lieu d'être un champ que rien ne peut satisfaire.
+    """
+    registre = _registre([_page(1, ["Article 1 Objet", "Corps du premier article."])])
+    settings = get_settings()
+    assert s._ancres_frontiere(registre, tuple(registre)) == ()
+    params = s.requete(registre, DOC, settings, anchors=())
+    schema = params["output_config"]["format"]["schema"]
+    assert "ancres_frontiere" not in params["messages"][0]["content"]
+    for enumeration in _enumerations(schema):
+        assert enumeration, "aucune énumération vide ne peut entrer dans la grammaire"
+    assert s.table_indices(registre) == tuple(registre)
+    rapproche = json.loads(s.rapprocher_indices(_reponse_index(), registre, anchors=()))
+    assert rapproche["noeuds"][0]["titre_line_uid"] == tuple(registre)[0]
+    with pytest.raises(s.StructureRefusee) as leve:
+        s.rapprocher_indices(
+            _reponse_index(continuations_frontiere=[{
+                "premiere_line_uid": 0, "derniere_line_uid": 1, "target_line_uid": 0}]),
+            registre, anchors=())
+    assert leve.value.motif == "index_invalide"
+
+
+def _enumerations(schema: Any) -> list[list[Any]]:
+    if isinstance(schema, dict):
+        trouvees = [schema["enum"]] if "enum" in schema else []
+        for valeur in schema.values():
+            trouvees += _enumerations(valeur)
+        return trouvees
+    if isinstance(schema, list):
+        return [item for valeur in schema for item in _enumerations(valeur)]
+    return []
 
 
 def test_la_charge_utile_reste_sous_la_borne_publiee(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -537,7 +722,7 @@ class FauxMessages:
             "convention LLM du spine : `output_format` ferait valider le SDK avant de rendre la "
             "réponse — `usage`, `stop_reason` et le texte reçu seraient perdus")
         lignes = json.loads(params["messages"][0]["content"])["lignes"]
-        premiere, derniere = lignes[0]["uid"], lignes[-1]["uid"]
+        premiere, derniere = lignes[0]["index"], lignes[-1]["index"]
         noeuds = self.noeuds if self.noeuds is not None else [
             {"titre_line_uid": premiere, "premiere_line_uid": premiere,
              "derniere_line_uid": derniere, "parent_line_uid": None},
@@ -585,22 +770,30 @@ class FauxClientAvecSeuil:
 
 
 class FauxMessagesFrontiereIncoherente(FauxMessages):
-    """Le second segment tente de réutiliser une borne appartenant au premier."""
+    """Le second segment tente de borner son nœud sur une ligne qui n'est pas la sienne.
+
+    Sous la convention d'index, « une borne appartenant au segment précédent » se dit exactement
+    ainsi : un index d'ancre de frontière là où seule une ligne locale est admise — ou, à défaut
+    d'ancre, un index hors de la plage reçue. Les deux sont un refus du rapprochement.
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.first_uid: str | None = None
+        self.premier_appel = True
 
     def parse(self, **params: Any) -> Any:
-        lignes = json.loads(params["messages"][0]["content"])["lignes"]
-        if self.first_uid is None:
-            self.first_uid = lignes[0]["uid"]
+        payload = json.loads(params["messages"][0]["content"])
+        lignes = payload["lignes"]
+        if self.premier_appel:
+            self.premier_appel = False
             return super().parse(**params)
         self.calls.append(params)
+        ancres = payload.get("ancres_frontiere", [])
+        hors_segment = ancres[0]["index"] if ancres else len(lignes)
         node = {
-            "titre_line_uid": lignes[0]["uid"],
-            "premiere_line_uid": lignes[0]["uid"],
-            "derniere_line_uid": self.first_uid,
+            "titre_line_uid": lignes[0]["index"],
+            "premiere_line_uid": lignes[0]["index"],
+            "derniere_line_uid": hors_segment,
             "parent_line_uid": None,
         }
         return SimpleNamespace(
@@ -616,34 +809,41 @@ class FauxClientFrontiereIncoherente:
 
 
 class FauxMessagesTraverseFrontiere(FauxMessages):
-    """Propose un enfant et une dépendance vers le titre du segment précédent."""
+    """Propose un enfant et une dépendance vers le titre du segment précédent.
+
+    L'ancre visée est retrouvée par son titre source : sous la convention d'index, la même ligne
+    ne porte pas le même nombre d'un segment à l'autre, et c'est justement ce que le rapprochement
+    traduit.
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.parent_uid: str | None = None
+        self.parent_titre: str | None = None
 
     def parse(self, **params: Any) -> Any:
         self.calls.append(params)
-        lignes = json.loads(params["messages"][0]["content"])["lignes"]
-        titre_uid, derniere_uid = lignes[0]["uid"], lignes[-1]["uid"]
-        if self.parent_uid is None:
-            self.parent_uid = titre_uid
+        payload = json.loads(params["messages"][0]["content"])
+        lignes = payload["lignes"]
+        titre_index, derniere_index = lignes[0]["index"], lignes[-1]["index"]
+        if self.parent_titre is None:
+            self.parent_titre = lignes[0]["texte"]
             article_uid = "article:1"
-            parent_uid = None
-            relations: list[dict[str, str]] = []
+            parent_index: int | None = None
+            relations: list[dict[str, Any]] = []
         else:
             article_uid = "article:1.1"
-            parent_uid = self.parent_uid
+            parent_index = next(ancre["index"] for ancre in payload["ancres_frontiere"]
+                                if ancre["titre"] == self.parent_titre)
             relations = [{
                 "kind": "explicit_dependency",
-                "target_line_uid": self.parent_uid,
+                "target_line_uid": parent_index,
             }]
         node = {
-            "titre_line_uid": titre_uid,
-            "premiere_line_uid": titre_uid,
-            "derniere_line_uid": derniere_uid,
-            "parent_line_uid": parent_uid,
-            "title_line_uids": [titre_uid],
+            "titre_line_uid": titre_index,
+            "premiere_line_uid": titre_index,
+            "derniere_line_uid": derniere_index,
+            "parent_line_uid": parent_index,
+            "title_line_uids": [titre_index],
             "article_uid": article_uid,
             "surface_class": "substantiel",
             "continuation_line_uids": [],
@@ -665,11 +865,11 @@ class FauxMessagesAncreNonProposee(FauxMessagesTraverseFrontiere):
     """Vise une candidate reçue comme ancre mais jamais proposée comme titre global."""
 
     def parse(self, **params: Any) -> Any:
-        first_call = self.parent_uid is None
+        first_call = self.parent_titre is None
         message = super().parse(**params)
         if first_call:
             payload = json.loads(params["messages"][0]["content"])
-            self.parent_uid = payload["lignes"][1]["uid"]
+            self.parent_titre = payload["lignes"][1]["texte"]
         return message
 
 
@@ -682,11 +882,11 @@ class FauxMessagesContinuation(FauxMessages):
         lignes = payload["lignes"]
         if lignes[0]["texte"].startswith("Article "):
             node = {
-                "titre_line_uid": lignes[0]["uid"],
-                "premiere_line_uid": lignes[0]["uid"],
-                "derniere_line_uid": lignes[-1]["uid"],
+                "titre_line_uid": lignes[0]["index"],
+                "premiere_line_uid": lignes[0]["index"],
+                "derniere_line_uid": lignes[-1]["index"],
                 "parent_line_uid": None,
-                "title_line_uids": [lignes[0]["uid"]],
+                "title_line_uids": [lignes[0]["index"]],
                 "article_uid": "article:1",
                 "surface_class": "substantiel",
                 "continuation_line_uids": [],
@@ -695,13 +895,13 @@ class FauxMessagesContinuation(FauxMessages):
             value = {"noeuds": [node], "continuations_frontiere": []}
         else:
             target = next(
-                anchor["uid"] for anchor in payload["ancres_frontiere"]
+                anchor["index"] for anchor in payload["ancres_frontiere"]
                 if anchor["titre"].startswith("Article "))
             value = {
                 "noeuds": [],
                 "continuations_frontiere": [{
-                    "premiere_line_uid": lignes[0]["uid"],
-                    "derniere_line_uid": lignes[-1]["uid"],
+                    "premiere_line_uid": lignes[0]["index"],
+                    "derniere_line_uid": lignes[-1]["index"],
                     "target_line_uid": target,
                 }],
             }
@@ -1001,17 +1201,29 @@ def test_ancres_sont_injectees_et_consommees_par_parent_et_relation_transfrontie
     final_uid = ordered[3][0]
     second_request = client.messages.calls[1]
     second_payload = json.loads(second_request["messages"][0]["content"])
+    locales = len(plan.segments[1].line_uids)
     assert second_payload["ancres_frontiere"] == [
-        {"uid": anchor.line_uid, "ordre": anchor.ordre, "titre": anchor.titre}
-        for anchor in plan.segments[1].anchors
+        {"index": locales + position, "ordre": anchor.ordre, "titre": anchor.titre}
+        for position, anchor in enumerate(plan.segments[1].anchors)
     ]
     schema = second_request["output_config"]["format"]["schema"]
     properties = schema["properties"]["noeuds"]["items"]["properties"]
-    assert properties["parent_line_uid"]["anyOf"][0] == {"$ref": "#/$defs/reference"}
-    assert properties["relations"]["items"]["properties"]["target_line_uid"] == {
-        "$ref": "#/$defs/reference"}
-    assert parent_uid in schema["$defs"]["reference"]["enum"]
-    assert parent_uid not in properties["premiere_line_uid"]["enum"]
+    assert properties["parent_line_uid"]["anyOf"][0] == {"type": "integer"}
+    assert properties["relations"]["items"]["properties"]["target_line_uid"] == {"type": "integer"}
+    assert parent_uid not in json.dumps(schema)
+    # Le domaine n'est plus dans la grammaire : c'est le rapprochement qui le prouve. L'index de
+    # l'ancre nomme le parent hors segment, et le même index est refusé comme borne locale.
+    table = s.table_indices(
+        {uid: registre[uid] for uid in plan.segments[1].line_uids}, plan.segments[1].anchors)
+    index_parent = table.index(parent_uid)
+    assert index_parent >= locales
+    with pytest.raises(s.StructureRefusee) as borne_hors_segment:
+        s.rapprocher_indices(
+            json.dumps({"noeuds": [{"titre_line_uid": 0, "premiere_line_uid": 0,
+                                    "derniere_line_uid": index_parent, "parent_line_uid": None}]}),
+            {uid: registre[uid] for uid in plan.segments[1].line_uids},
+            anchors=plan.segments[1].anchors)
+    assert borne_hors_segment.value.motif == "index_invalide"
 
     by_title = {node.titre_line_uid: node for node in execution.proposition.noeuds}
     assert by_title[child_uid].parent_line_uid == parent_uid
@@ -1095,11 +1307,11 @@ def test_opus_audit_et_document_partagent_les_memes_line_uid_content_adresses(
     proposition_filaire, _ = s.proposer(
         client, registre, doc_id=DOC, settings=get_settings(),
     )
-    uids_envoyes = tuple(
-        ligne["uid"]
-        for ligne in json.loads(client.messages.calls[0]["messages"][0]["content"])["lignes"]
-    )
-    assert uids_envoyes == attendus
+    charge = json.loads(client.messages.calls[0]["messages"][0]["content"])
+    # La demande n'expose que des index ; la table qui les rapproche est celle du registre, dans
+    # l'ordre. C'est elle, et non le fournisseur, qui porte l'identité content-adressée.
+    assert [ligne["index"] for ligne in charge["lignes"]] == list(range(len(attendus)))
+    assert s.table_indices(registre) == attendus
     assert audit["trusted_line_uids"] == tuple(sorted(attendus))
     assert proposition_filaire.noeuds[0].titre_line_uid in attendus
 
@@ -1411,8 +1623,10 @@ def test_une_reponse_localement_invalide_conserve_usage_stop_reason_et_texte_rec
     porte tous les trois.
     """
     registre = _registre(_corpus())
-    hors_forme = [{"titre_line_uid": "p1:l1", "premiere_line_uid": "p1:l1",
-                   "derniere_line_uid": "p1:l4", "parent_line_uid": None, "kind": "garantie"}]
+    # Les index sont valides et se rapprochent : c'est le champ surnuméraire, et lui seul, qui fait
+    # sortir la réponse du schéma strict — le refus reste donc celui de la forme filaire locale.
+    hors_forme = [{"titre_line_uid": 0, "premiere_line_uid": 0,
+                   "derniere_line_uid": 3, "parent_line_uid": None, "kind": "garantie"}]
     with pytest.raises(ValueError) as leve:
         s.proposer(FauxClient(noeuds=hors_forme), registre, doc_id=DOC, settings=get_settings())
     message = str(leve.value)
