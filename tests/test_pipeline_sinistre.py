@@ -2,7 +2,7 @@
 la relance unique d'AD-3, les bornes d'entrée et la trace d'AD-10.
 
 Comme pour le guide, `FakeAnthropic` lève sur tout appel non scripté : la **longueur du script est
-une assertion**. C'est ainsi que « *vérifier* n'a fait qu'**un** appel `micro` » (AD-9 amendé) se
+une assertion**. C'est ainsi que « *vérifier* n'a fait qu'**un** appel `reason` » (AD-9 amendé) se
 vérifie sans compter les appels à la main.
 """
 
@@ -345,7 +345,8 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
     script = [
         _comprendre(), _outils(termes=["mobilier", "chaleur", "contenu"],
                                node_id=f"{DOC_ID}:socle"),
-        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": False, "result_uid": None})),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -389,7 +390,8 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
         _comprendre(cause="fuite progressive depuis des mois",
                     evenement="effondrement soudain du plafond", moment="hier"),
         _outils(termes=["mobilier", "chaleur", "contenu"], node_id=f"{DOC_ID}:socle"),
-        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                     text=json.dumps({"sufficient": False, "result_uid": None})),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -1659,7 +1661,10 @@ def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
     demande_outil = bool(navigation.get("chercher", True) or navigation["noeuds"])
     script = [_comprendre_neutre(corpus), _navigation(corpus, **navigation)]
     if demande_outil:
-        script.append(fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]))
+        script.append(fake_message(
+            model=TIERS["reason"], stop_reason="end_turn",
+            text=json.dumps({"sufficient": False, "result_uid": None}),
+        ))
     return [*script, _rediger_neutre(corpus), _verifier_neutre()]
 
 
@@ -1700,7 +1705,10 @@ async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatr
         termes=termes,
         node_id=neutre.identite.noeud(neutre.identite.socle),
         focus_block_id=auxiliaire)
-    fin_navigation = fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])
+    fin_navigation = fake_message(
+        model=TIERS["reason"], stop_reason="end_turn",
+        text=json.dumps({"sufficient": False, "result_uid": None}),
+    )
     reglages = _settings_neutre(
         neutre.identite, node_window=1, max_opens=2, profil_max_opens=0)
 
@@ -1740,7 +1748,10 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
         termes=termes,
         node_id=neutre.identite.noeud(neutre.identite.socle),
         focus_block_id=auxiliaire)
-    fin_navigation = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
+    fin_navigation = fake_message(
+        model=TIERS["reason"], stop_reason="end_turn",
+        text=json.dumps({"sufficient": False, "result_uid": None}),
+    )
     claim_fondatrice = (
         "k1", "Le texte prend en charge la situation décrite.",
         [(fondatrice, texte_fondateur)])

@@ -196,7 +196,7 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     assert len(redactions) == 1
     engage, majorant, _model, _tokens = redactions[0]
     assert engage == pytest.approx(0.0149, abs=0.0001)
-    assert engage + majorant <= settings.max_cost_eur_per_request == 0.12
+    assert engage + majorant <= settings.max_cost_eur_per_request == 0.18
     assert fournisseur.requests[2]["model"] == TIERS["reason"]
     assert answer.verdict is not None
 

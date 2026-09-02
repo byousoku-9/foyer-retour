@@ -320,10 +320,11 @@ class Settings(BaseSettings):
     # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
     retrieval_max_tokens: int = Field(3500, ge=1)
 
-    # Coût (AD-9, AD-10). Le chemin sinistre `outils` engage 0,0149 € avant une rédaction dont le
-    # majorant froid mesuré est 0,0945 €, soit 0,1094 € au total. 0,12 € conserve 0,0106 € de marge
-    # (≈ 9,7 %) sans modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
-    max_cost_eur_per_request: float = Field(0.12, ge=0)
+    # Coût (AD-9, AD-10). Après promotion de tous les choix sémantiques sur Sonnet, quatre chemins
+    # sinistre hermétiques ont reproduit 0,0164 € engagés + 0,1469–0,1480 € de majorant pour
+    # *vérifier*, soit 0,1633–0,1644 €. 0,18 € garde ≈ 9,5 % de marge sur le pire cas observé sans
+    # modifier les bornes d'appels, de tours, de deadline, de run ou de campagne.
+    max_cost_eur_per_request: float = Field(0.18, ge=0)
     cost_alert_eur: float = Field(0.05, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
@@ -379,7 +380,7 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = Field(4096, ge=1)
     llm_retry_margin_s: float = Field(5.0, ge=0)
     # Étapes (story 1.4, NFR4) : sortie maximale par étape — le majorant `estimate_cost` compte la sortie
-    # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,12 €).
+    # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,18 €).
     comprendre_max_tokens: int = Field(1024, ge=1)
     rediger_max_tokens: int = Field(2048, ge=1)
     # Bornes comportementales annoncées aux prompts des étapes (story 1.4, revue Codex 1.4 I1) : la
