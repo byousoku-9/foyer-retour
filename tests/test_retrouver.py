@@ -882,8 +882,16 @@ async def test_outils_garde_atomique_une_limite_classee_apres_sa_garantie() -> N
     assert result.truncated is True
 
 
-async def test_outils_ne_rejoue_pas_les_facettes_sans_appel_outil_chercher(
-        ) -> None:
+async def test_outils_couvre_les_facettes_meme_sans_appel_outil_chercher() -> None:
+    """Le *replay* reste conditionné à une recherche du navigateur ; la **couverture**, non.
+
+    Correctif du 2026-09-02. Le rappel après suffisance rejoue les requêtes que le navigateur a
+    réellement lancées : sans `chercher` de sa part, il n'a rien à rejouer, et cette propriété-là
+    ne bouge pas. La couverture par facette est d'une autre nature : c'est une **obligation** —
+    chaque sous-question rapporte une règle décisionnelle confirmée ou est dite non retrouvée — et
+    une obligation qui dépendrait de ce que le navigateur a bien voulu chercher n'en serait pas
+    une. Elle ouvre donc ici, sous le même quota d'ouvertures et les mêmes budgets.
+    """
     auxiliaire = Block(
         block_id="d:p1:1", text="Repère beta contexte.", loc="p1", seq=1,
         kind="condition", kind_source="manual")
@@ -904,8 +912,11 @@ async def test_outils_ne_rejoue_pas_les_facettes_sans_appel_outil_chercher(
                        max_blocks=2, max_tokens=6000),
         kinds_suffisants=KINDS_FONDATEURS)
 
-    assert result.opened_block_ids == [auxiliaire.block_id]
-    assert fondatrice.block_id not in result.opened_block_ids
+    assert result.opened_block_ids == [auxiliaire.block_id, fondatrice.block_id]
+    assert result.facette(0).block_ids == (fondatrice.block_id,)
+    # La seconde facette n'a aucun candidat décisionnel confirmé dans ce corpus : elle est dite
+    # absente, et une absence n'est pas une borne de lecture.
+    assert result.facette(1).absente and not result.facette(1).bornee
 
 
 async def test_outils_parcourt_les_sources_faibles_apres_les_facettes() -> None:
@@ -1002,8 +1013,17 @@ async def test_outils_classe_chaque_source_une_fois_par_fusion(
         kinds_suffisants=KINDS_FONDATEURS)
 
     assert result.opened_block_ids == [initiale.block_id]
-    assert appels == {("première facette",): 1, ("seconde facette",): 1}
-    assert result.truncated is False
+    # Deux classements par facette, et deux seulement : celui de la **fusion** (borné par
+    # `search_limit` augmenté des identifiants déjà indisponibles) et celui de la **couverture**
+    # (mémoïsé par signature de requête, partagé entre la passe d'ouverture et la mesure finale).
+    # Les deux ne peuvent pas être confondus : la fusion écarte avant `limit` ce qui est déjà
+    # admis, quand la couverture doit précisément voir les blocs admis pour les attribuer.
+    assert appels == {("première facette",): 2, ("seconde facette",): 2}
+    # Le quota d'ouvertures est épuisé et les deux sous-questions gardent des candidats fermés :
+    # c'est une lecture bornée, et elle se dit (NFR2) — là où la suffisance globale, atteinte par
+    # `initiale`, la taisait.
+    assert result.truncated is True
+    assert [f.rang for f in result.facettes if f.bornee] == [0, 1]
 
 
 @pytest.mark.parametrize("avec_source_distincte", [False, True])
@@ -1050,9 +1070,18 @@ async def test_outils_dedoublonne_les_sources_de_facettes_apres_expansion(
         settings=_s(max_cost_eur_per_request=1.0, limite_liee_max=0),
         kinds_suffisants=KINDS_FONDATEURS)
 
+    # Deux libellés synonymes forment **une** requête : sans source distincte, la question n'a
+    # qu'une sous-question effective, et la couverture par facette ne s'y applique pas — c'est le
+    # même seuil que le rappel après suffisance. Avec la troisième, elles sont deux, et les deux
+    # sont couvertes : le groupe commun une seule fois pour ses deux libellés.
     attendu = ([initiale.block_id, premiere.block_id, distincte.block_id]
                if avec_source_distincte else [initiale.block_id])
     assert result.opened_block_ids == attendu
+    if avec_source_distincte:
+        assert result.facette(0).block_ids == result.facette(1).block_ids == (premiere.block_id,)
+        assert result.facette(2).block_ids == (distincte.block_id,)
+    else:
+        assert result.facettes == []
     assert doublon.block_id not in result.opened_block_ids
     assert result.truncated is False
 

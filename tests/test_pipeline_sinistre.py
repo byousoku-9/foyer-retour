@@ -45,6 +45,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
+from server.app.steps import retrouver as retrouver_module
 from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
 from tests.llm_fake import FakeAnthropic, fake_message
@@ -2444,3 +2445,263 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     assert "guide" not in " ".join(answer.unknown)
     verifier = next(s for s in trace.steps if s.name == "verifier")
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
+
+
+# --- Correctif du 2026-09-02 : une facette, une règle — ou l'absence dite -------------------
+#
+# Témoins hermétiques de la couverture par facette. Le corpus est **neutre** (aucun mot du cas
+# témoin, aucun vocabulaire d'assurance), et chaque règle décisionnelle vit dans **son propre
+# nœud** : c'est la seule géométrie où une fenêtre ouverte sur l'une ne rapporte pas l'autre par
+# accident, donc la seule où « la seconde sous-question a-t-elle été cherchée ? » se répond.
+
+CLAUSES_PAR_FACETTE = (
+    ("regle_inventaire", "garantie",
+     "Les dommages atteignant l'objet inventorié lors d'un épisode répertorié sont pris en charge."),
+    ("regle_registre", "exclusion",
+     "Sont écartés les dommages qui portent sur un registre non déclaré."),
+)
+# Les deux sous-questions, chacune classée par l'index sur **sa** règle et sur aucune autre.
+FACETTE_INVENTAIRE = "objet inventorié pris en charge"
+FACETTE_REGISTRE = "registre non déclaré"
+# Une sous-question dont aucun mot n'existe dans ce corpus : son classement est vide, et c'est la
+# seule forme d'absence qu'une lecture ait le droit d'affirmer.
+FACETTE_INTROUVABLE = "véhicule motorisé"
+CITATION_INVENTAIRE = "atteignant l'objet inventorié lors d'un épisode répertorié"
+CITATION_REGISTRE = "qui portent sur un registre non déclaré"
+
+
+def _corpus_par_facette() -> CorpusNeutre:
+    """Une règle décisionnelle confirmée par nœud, pour que les facettes ne se recouvrent pas."""
+    identite = IdentiteNeutre(doc_id="texte-neutre-facettes", page_socle=1, page_annexe=2,
+                              seq_depart=1, socle="n1", annexe="n2", racine="n0")
+    par_cle: dict[str, str] = {}
+    blocs: list[dict[str, Any]] = []
+    noeuds: list[Node] = []
+    for rang, (cle, kind, texte) in enumerate(CLAUSES_PAR_FACETTE, start=1):
+        node_id = f"{identite.doc_id}:n{rang}"
+        block_id = f"{identite.doc_id}:p{rang}:1"
+        par_cle[cle] = block_id
+        blocs.append({"block_id": block_id, "loc": f"p{rang}", "seq": 1, "kind": kind,
+                      "text": texte, "kind_source": "manual", "scope_node_id": node_id})
+        noeuds.append(Node(node_id=node_id, level=1, title=f"Section {rang}",
+                           items=[{"block_id": block_id}]))
+    noeuds.append(Node(node_id=identite.noeud(identite.racine), level=0, title="Texte applicable",
+                       items=[{"node_id": noeud.node_id} for noeud in noeuds]))
+    document = Document(doc_id=identite.doc_id, kind="contrat", title="Texte neutre",
+                        edition="2030", nodes=noeuds, blocks=blocs)
+    for bloc in document.blocks:
+        bloc.text_norm = normalize(bloc.text)
+    manifest = {identite.doc_id: ManifestEntry(
+        status="servi", source_hash=f"sha-{identite.doc_id}", ingest_fingerprint="fp-facettes",
+        document_hash="sha-doc", edition="2030")}
+    return CorpusNeutre(
+        index=Index(Corpus(documents={identite.doc_id: document}, manifest=manifest,
+                           summaries={identite.doc_id: "# Texte neutre\n- deux sections"})),
+        identite=identite, par_cle=par_cle)
+
+
+@pytest.fixture
+def par_facette() -> CorpusNeutre:
+    return _corpus_par_facette()
+
+
+def _comprendre_facettes(corpus: CorpusNeutre, facettes: list[str]) -> dict:
+    return _comprendre(terms=["objet"], question_resolue=QUESTION_RESOLUE_NEUTRE,
+                       facettes=facettes, bien="objet inventorié",
+                       evenement="épisode répertorié", lieu="local déclaré",
+                       cause="agent externe", moment="période déclarée")
+
+
+def _navigation_une_section(corpus: CorpusNeutre) -> dict:
+    """Le navigateur n'ouvre que la première section : la seconde sous-question reste dehors."""
+    return fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
+        {"type": "tool_use", "id": "toolu_ouvrir", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{corpus.identite.doc_id}:n1"}}])
+
+
+def _verdict_insuffisant() -> dict:
+    return fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                        text=json.dumps({"sufficient": False, "result_uid": None}))
+
+
+def _rediger_inventaire(corpus: CorpusNeutre) -> dict:
+    return _rediger(("k1", "Le texte prend en charge l'objet inventorié.",
+                     [(corpus.bloc("regle_inventaire"), CITATION_INVENTAIRE)]))
+
+
+def _rediger_les_deux(corpus: CorpusNeutre) -> dict:
+    return _rediger(("k1", "Le texte prend en charge l'objet inventorié.",
+                     [(corpus.bloc("regle_inventaire"), CITATION_INVENTAIRE)]),
+                    ("k2", "Le texte écarte les dommages sur un registre non déclaré.",
+                     [(corpus.bloc("regle_registre"), CITATION_REGISTRE)]))
+
+
+def _verifier_une_facette() -> dict:
+    """La rédaction n'a couvert que la première sous-question ; le contrôle le mesure."""
+    return _verifier(("k1", True, True, False, False, None, [], []),
+                     facettes=[["k1"], []])
+
+
+def _verifier_les_deux() -> dict:
+    return _verifier(("k1", True, True, False, False, None, [], []),
+                     ("k2", True, True, False, False, None, [], []),
+                     facettes=[["k1"], ["k2"]])
+
+
+async def _run_par_facette(corpus: CorpusNeutre, script: list, **kw):
+    # Le plafond d'appels par défaut du fichier (6) est calibré sur une chaîne sans navigation à
+    # deux tours ; ces témoins en ont une, et la relance d'AD-3 en coûte deux de plus. Le plafond
+    # est relevé pour que le budget ne décide pas à la place du mécanisme mesuré.
+    kw.setdefault("budget", RequestBudget(deadline_s=30.0, max_attempts=8, max_cost_eur=0.20))
+    return await _run(corpus.index, script,
+                      settings=_settings_neutre(corpus.identite),
+                      question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE, **kw)
+
+
+async def test_la_facette_laissee_dehors_par_la_navigation_est_cherchee_puis_couverte(
+        par_facette: CorpusNeutre) -> None:
+    """Témoin 1 — deux sous-questions, une seule lue par le navigateur : l'autre est retrouvée.
+
+    C'est l'écart exact que la suffisance globale laissait ouvert : un bloc décisionnel confirmé
+    suffisait à clore l'étape, quelle que soit la sous-question auquel il répondait. La couverture
+    par facette va chercher la règle de la seconde, par le classement de sa propre requête restreint
+    aux kinds confirmés du corpus, sous le même quota d'ouvertures.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_les_deux(par_facette),
+        _verifier_les_deux()])
+
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    # La règle de la seconde sous-question est bien partie à la rédaction, alors que le navigateur
+    # n'avait ouvert que la première section.
+    assert par_facette.cles(retrouver.opened_block_ids) == ["regle_inventaire", "regle_registre"]
+    couverture = next(c for c in retrouver.checks if c.name == "facettes_retrouvees")
+    assert couverture.ok and "2 facette(s) sur 2" in couverture.detail
+    assert answer.found and {q.block_id for c in answer.claims for q in c.quotes} == {
+        par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
+
+
+async def test_sans_couverture_par_facette_la_seconde_regle_ne_part_jamais(
+        par_facette: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation du témoin 1 : la couverture par facette neutralisée, la lecture redevient partielle.
+
+    Le seam est la **traduction des facettes en requêtes** — sans elle, la passe n'a rien à couvrir
+    et la mesure n'a rien à mesurer, exactement l'état d'avant le correctif. Le témoin ci-dessus
+    doit alors virer au rouge : c'est ce qui prouve qu'il mesure le mécanisme et non l'index.
+    """
+    monkeypatch.setattr(retrouver_module, "_mappings_facettes", lambda *a, **kw: [])
+    _answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_inventaire(par_facette),
+        _verifier_une_facette()])
+
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert par_facette.cles(retrouver.opened_block_ids) == ["regle_inventaire"]
+    assert not [c for c in retrouver.checks if c.name == "facettes_retrouvees"]
+
+
+async def test_une_facette_introuvable_est_dite_absente_sans_claim_inventee(
+        par_facette: CorpusNeutre) -> None:
+    """Témoin 2 — le contrat ne dit rien de la seconde sous-question : l'absence est **dite**.
+
+    Rien n'est inventé : aucune claim de plus, aucune relance vers une règle qui n'existe pas, et
+    la réponse porte la cause typée dans « Ce que je ne sais pas ». Les budgets de l'étape ne sont
+    pas dépassés — la passe n'ouvre que ce que le classement propose, et il ne propose rien.
+    """
+    reglages = _settings_neutre(par_facette.identite)
+    answer, trace, fake = await _run(
+        par_facette.index, [
+            _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_INTROUVABLE]),
+            _navigation_une_section(par_facette),
+            _verdict_insuffisant(),
+            _rediger_inventaire(par_facette),
+            _verifier_une_facette()],
+        settings=reglages, question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE,
+        budget=RequestBudget(deadline_s=30.0, max_attempts=8, max_cost_eur=0.20))
+
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert len(retrouver.opened_block_ids) <= reglages.retrieval_max_blocks
+    couverture = next(c for c in retrouver.checks if c.name == "facettes_retrouvees")
+    assert not couverture.ok and "déclaré(s) absent(s)" in couverture.detail
+    # La chaîne cesse honnêtement : pas de seconde rédaction pour une règle qui n'existe pas.
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert len(answer.claims) == 1
+    assert PHRASES_DE_LACUNE["fr"]["facettes_sans_clause"][0].format(n=1) in answer.unknown
+    assert answer.complete is False
+
+
+async def test_une_seule_facette_laisse_le_chemin_inchange(neutre: CorpusNeutre) -> None:
+    """Témoin 3 — une sous-question : la chaîne est **exactement** celle d'avant le correctif.
+
+    Une facette unique **est** la question. Sa couverture décisionnelle est déjà ce que mesure la
+    suffisance déclarée par l'appelant — sur la question résolue, pas sur une paraphrase. La
+    couverture par facette ne s'y applique donc pas du tout : aucun bloc de plus, aucun contrôle de
+    plus, aucune borne de lecture, aucune couverture publiée. C'est le chemin du cas ancre, et
+    c'est ce qui garantit que sa fixture live se rejoue sans être réenregistrée.
+    """
+    answer, trace, fake = await _run_neutre(neutre, _script_outils(neutre))
+
+    assert fake.remaining_script == 0
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    assert not [c for c in retrouver.checks
+                if c.name in {"facettes_retrouvees", "couverture_facettes"}]
+    assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
+    assert trace.truncations == 0 and answer.found and answer.complete
+
+
+async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
+        par_facette: CorpusNeutre) -> None:
+    """Témoin du second cycle — les blocs étaient là, la rédaction en a oublié un.
+
+    C'est la seconde moitié de l'écart A16 : la lecture portait les deux règles, la première
+    rédaction n'en a rendu qu'une, et le second cycle re-rédigeait sur les mêmes blocs sans jamais
+    dire lequel manquait. Le motif nomme désormais la clause décisionnelle retrouvée pour la
+    sous-question restée sans réponse, et la relance la rend vérifiable.
+    """
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_inventaire(par_facette),
+        _verifier_une_facette(),
+        _rediger_les_deux(par_facette),
+        _verifier_les_deux()])
+
+    assert fake.remaining_script == 0
+    relance = fake.requests[-2]["messages"][-1]["content"]
+    assert "sous-question(s) de la demande n'ont reçu aucune affirmation affichée" in relance
+    assert par_facette.bloc("regle_registre") in relance
+    assert {q.block_id for c in answer.claims for q in c.quotes} == {
+        par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
+
+
+async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(
+        par_facette: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation du témoin du second cycle : sans le constat, il n'y a ni reprise ni relance.
+
+    Le seam est le calcul des sous-questions non couvertes. Neutralisé, le pipeline retrouve son
+    comportement d'avant le correctif — la première vérification fait foi, la sous-question reste
+    sans réponse, et aucune seconde rédaction n'est demandée.
+    """
+    monkeypatch.setattr(sinistre, "_facettes_non_couvertes", lambda *a, **kw: [])
+    answer, trace, fake = await _run_par_facette(par_facette, [
+        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+        _navigation_une_section(par_facette),
+        _verdict_insuffisant(),
+        _rediger_inventaire(par_facette),
+        _verifier_une_facette()])
+
+    assert fake.remaining_script == 0
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
+    assert {q.block_id for c in answer.claims for q in c.quotes} == {
+        par_facette.bloc("regle_inventaire")}

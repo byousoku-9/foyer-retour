@@ -126,6 +126,10 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
     "fr": {
         "lecture_bornee": "Je n'ai pas pu lire tout ce qui pouvait concerner votre question : ma lecture a été bornée, et des passages sont restés fermés.",
         "sans_decoupage": "Je n'ai pas pu découper votre question en sous-questions : je ne peux donc pas garantir de l'avoir traitée en entier.",
+        "facettes_sans_clause": (
+            "Sur {n} sous-question de votre demande, je n'ai retrouvé aucune clause du contrat qui la tranche.",
+            "Sur {n} sous-questions de votre demande, je n'ai retrouvé aucune clause du contrat qui les tranche.",
+        ),
         "facettes_sans_reponse": ("Il reste {n} sous-question sans réponse dans ce que vous m'avez demandé.", "Il reste {n} sous-questions sans réponse dans ce que vous m'avez demandé."),
         "renvoi_non_resolu": "Un passage que je cite renvoie à un autre passage que je n'ai pas pu retrouver.",
         "contradiction_non_resolue": "Deux passages que je cite se contredisent sans que le contrat les départage.",
@@ -140,6 +144,10 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
     "en": {
         "lecture_bornee": "I could not read everything that might concern your question: my reading was limited, and some passages remained unopened.",
         "sans_decoupage": "I could not break your question into sub-questions, so I cannot guarantee that I addressed it in full.",
+        "facettes_sans_clause": (
+            "For {n} sub-question of your request, I found no clause in the contract that settles it.",
+            "For {n} sub-questions of your request, I found no clause in the contract that settles them.",
+        ),
         "facettes_sans_reponse": ("There is still {n} unanswered sub-question in what you asked me.", "There are still {n} unanswered sub-questions in what you asked me."),
         "renvoi_non_resolu": "A passage I cite refers to another passage that I could not retrieve.",
         "contradiction_non_resolue": "Two passages I cite contradict each other, and the contract does not resolve the conflict.",
@@ -154,6 +162,10 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
     "de": {
         "lecture_bornee": "Ich konnte nicht alles lesen, was Ihre Frage betreffen könnte: Meine Lektüre war begrenzt, und einige Passagen blieben ungeöffnet.",
         "sans_decoupage": "Ich konnte Ihre Frage nicht in Teilfragen gliedern und kann daher nicht garantieren, sie vollständig behandelt zu haben.",
+        "facettes_sans_clause": (
+            "Zu {n} Teilfrage Ihrer Anfrage habe ich keine Vertragsklausel gefunden, die sie entscheidet.",
+            "Zu {n} Teilfragen Ihrer Anfrage habe ich keine Vertragsklauseln gefunden, die sie entscheiden.",
+        ),
         "facettes_sans_reponse": ("In Ihrer Frage bleibt noch {n} Teilfrage unbeantwortet.", "In Ihrer Frage bleiben noch {n} Teilfragen unbeantwortet."),
         "renvoi_non_resolu": "Eine von mir zitierte Passage verweist auf eine andere Passage, die ich nicht finden konnte.",
         "contradiction_non_resolue": "Zwei von mir zitierte Passagen widersprechen sich, ohne dass der Vertrag den Widerspruch auflöst.",
@@ -170,6 +182,10 @@ PHRASES_DE_LACUNE: dict[str, dict[str, str | tuple[str, str]]] = {
     "pt": {
         "lecture_bornee": "Não consegui ler tudo o que poderia dizer respeito à sua pergunta: a minha leitura foi limitada e algumas passagens ficaram por abrir.",
         "sans_decoupage": "Não consegui dividir a sua pergunta em subperguntas, pelo que não posso garantir que a tratei por completo.",
+        "facettes_sans_clause": (
+            "Para {n} subpergunta do seu pedido, não encontrei nenhuma cláusula do contrato que a decida.",
+            "Para {n} subperguntas do seu pedido, não encontrei nenhumas cláusulas do contrato que as decidam.",
+        ),
         "facettes_sans_reponse": ("Falta responder a {n} subpergunta do que me perguntou.", "Falta responder a {n} subperguntas do que me perguntou."),
         "renvoi_non_resolu": "Uma passagem que cito remete para outra passagem que não consegui encontrar.",
         "contradiction_non_resolue": "Duas passagens que cito contradizem-se, sem que o contrato resolva o conflito.",

@@ -31,6 +31,13 @@ AbsenceKind = Literal["hors_perimetre", "zero_hit", "claims_rejetes", "clarifica
 LacuneKind = Literal[
     "lecture_bornee",
     "sans_decoupage",
+    # Correctif du 2026-09-02 : *retrouver* n'a rapporté **aucune** clause décisionnelle confirmée
+    # pour une facette de la question, et il le déclare (`RetrievalResult.facettes`). La cause est
+    # distincte de `facettes_sans_reponse`, qui dit qu'une sous-question dont les clauses **ont**
+    # été lues n'a pas reçu d'affirmation affichée : ici, il n'y avait rien à rendre. Les deux
+    # comptes sont exclusifs — une facette n'entre que dans l'un des deux — pour qu'un même manque
+    # ne soit pas annoncé deux fois à qui lit la réponse.
+    "facettes_sans_clause",
     "facettes_sans_reponse",
     "renvoi_non_resolu",
     "contradiction_non_resolue",
@@ -49,6 +56,7 @@ LacuneKind = Literal[
 # `contexte_non_relu` n'en est pas : une demande de contexte est unique par vérification (bornage
 # strict de la story 4.2e), donc son cardinal est toujours `n == 0`.
 LACUNES_PLURALISEES: frozenset[LacuneKind] = frozenset({
+    "facettes_sans_clause",
     "facettes_sans_reponse",
     "phrases_ecartees",
 })
