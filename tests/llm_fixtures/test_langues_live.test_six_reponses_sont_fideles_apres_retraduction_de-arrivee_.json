@@ -92,6 +92,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:185e526241e486c4": {
+    "certificate": {
+      "messages_sha256": "3ba82a96dbae89c52f7ecccf3f898a58ad2d0a17fd81c3e4149b40a0fe1b75d2",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:185e526241e486c4",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHR55torEzi8EXsZaYp",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 732,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:1b41c591f4a12e4a": {
     "request": "claude-haiku-4-5-20251001:1b41c591f4a12e4a",
     "response": {
@@ -834,11 +873,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour déclarer son arrivée à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai de déclaration d'arrivée à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeewzQEAawwXS1Xi5adkC",
+      "id": "msg_011CefHQ9z3Lg8GiiT3JL8L1",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -889,6 +928,48 @@
         "inference_geo": "global",
         "input_tokens": 2825,
         "output_tokens": 676,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:93684b56febcad68": {
+    "certificate": {
+      "messages_sha256": "8951ee4ed1171f30abe6dc91b07e482b8e657bde5ef9ff0b58c62c3d3945a93a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:93684b56febcad68",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"hors_objet\"},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHQrHCsBPzBQ9DqQMNT",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 869,
+        "output_tokens": 174,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -965,6 +1046,48 @@
         "inference_geo": "global",
         "input_tokens": 3090,
         "output_tokens": 591,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:cf9bffc3e99195e7": {
+    "certificate": {
+      "messages_sha256": "3cb51122068d46c38cf4e1c8c3b1cbf0a3d8492d873b3ea45f725a7b3ef615ca",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:cf9bffc3e99195e7",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Sie müssen sich innerhalb von acht Tagen nach dem Einzug bei der Gemeinde anmelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung ist grundlegend, da sie die Aufenthaltsbescheinigung und die Matrikelnummer erzeugt, die für alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Es wird empfohlen, den Termin online zu vereinbaren, noch bevor man die Wohnungsschlüssel erhält.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der Gemeinde muss innerhalb von acht Tagen nach dem Einzug erfolgen.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Diese Erklärung erzeugt die Aufenthaltsbescheinigung und die Matrikelnummer, die für alle weiteren Schritte unverzichtbar sind.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Man sollte den Termin online buchen, bevor man überhaupt die Schlüssel der Wohnung hat.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHQPbrNXLwmpC9uPwsa",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2932,
+        "output_tokens": 610,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

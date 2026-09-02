@@ -74,17 +74,17 @@
     "response": {
       "content": [
         {
-          "signature": "EuEHCpABCBEYAipARwJM4TWreUWddARJo7xU8TQnEwcAArXyrYdJYoiXN9BWScdYtAMfQazlpAXVDhRxaD8ps7leQeWlBig+Sd8bVDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaSn4dQGEgz4YQQ88x8tpdttKsQaDDwDXi485kSXnDZCVCIwbGX9l8kuv2KxnGrdmK0iZliahyW+o5KDjiXzlB1PZiLIQQePfXNDzhNS8JGqj+ulKv0F7rslpY6vJGz5+CRci0WA2jAEwgvdIcoA9kXhhY7ul4I7UbB0Nttz7qYBm99v69vIDgc3CtLFFBk/oQvpmPf1D1Cm/D9Z/ljnLeAAanLebChGMkvwwS993cmHBEbZmFpuHk1ZUkzk9rnpr5/QVNMCagUUaav1DyNHlt0/xCKVrtVlDJ2M8sd5/kxQuQP65ebWWwmKaim0JnnYIHmQb63JRQaqUc6sde59pOBRYN3luIbWvXYXjBswauQt4W8Q/EEt4N73jQwpACthXJeHKNJsst3bfahiTSwAPUpoRik7rCWBCPJ2dAx6foK/x2xJCbkVjdfppL1oRL3aevr7bDlZvZ+T0m1SbT0Lls/KshtU5bpYUwMoxjPw0PGw1Pof0ZYDzGjKI8P7/ilV4xSyiPjpSvVrp5E+XHzkDzy2+axHsOVRkWxIwa8XcDlgZ7a/U8p1SOO77ZqkXV1OiZ9Hq96ge4gtuVxsIjDV2Cw+YxzQSk2xn6VGr4avDFahseTtHyrvCBo3tn8hSRUXan+R3IMD7XW//76b3krbxfxKfvnnXqzvjJTg4BIi5BRClzSk+TcYCfvHXQ4HL14panqd06sG9oFB0421u2ZhwYokdplwy1+mzVug39pL1aRTnDteYgabjq+bRSm7/7o+nAqkf/yq4kPxdMnZAYPfFaPem19EvxKlxIShmqUNJzW5/RaqTvvNGKPvPdmEx9a1cZrST3bbB6o49Z5UAT09vOtYQXN18MDE3i6ML6ueW9pPWwq/jllTFCbt7CMdNLV7BXbabQauWe/zmSQU+F8I42D96A+der7OhGKKTwp2WTq0csOHBiddxk2ndg+10D4CFFJLP0PWrm4rgf2hLJ0CpQxGwpXxyg5hbWadlz0v1dXrP781E6flGpKrOLYO+GVBGkgAbSI2lc8umyq9XRU0kI24L6xWtIVFJozXrLTqimR6I3fniNbZL6f5HOXhsDCRdPtuZxD7C3RQi00de6TyFa77vNZLsVkpw9PJ7q8M9oVQg41SGAE=",
+          "signature": "EvUICpABCBEYAipASt38PkIfrlpmN0kUwzEn/32iX/N9Q3IeKOePLZdRvHzgHso1a+VVkJpvLofBf8BMG2CY6UaEffNzYCYn6LzyTDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYqe4tQGEgwxp+72T7pSbE5RspwaDKzW65HDY/OUAZplPSIwl7SFWMW3V5dpedso2YxbQK1CmmOl923Wf8UzAEwJOMbhwoR0njnX8vyyJKc4vxKWKpEHP+DpYGYbA/9+e/Gz75d19HdO6DLUm7bnBlYjeSHZGjZq5nHaYEmLhuO1rynkUKqmuF9O42WB4H2C2QQ68g+ECGAORSOPSQlNbZ8CPpoNOKsyiAnqvF0+IVrAg/2Ds6UAmvDV1UKet1GACSfi9CD8XiUV2ZT4cX5OeBuGdLoN2JDPx1j9bAY/3Y3Rm78QrpDgjXDfeRSHM4V3bQJ9QJu1hcv4n8Q7IAYPg9fH4Q5UKneeRykq+GS9LkXso5a7yehmCnZRGW+7gqm4duAKSOklRuzn/nxynDwDyYk2xTFIiSuvr+RHhDZIGr7w0J4XKJ+8+v8X9lkGfPKARaEYsIyVxCN+sjwh4+/o1MHVvXFvlOzzoKppt/iixN3xGaG0svB555PtR01nNdFxAcI6saEAnCshQMT6438gEr/4LO/+V92xBoR/jrXMsKmbRg1JQryVTqihowIVTrR5A1MMZWNCO/VQ54+o3M3OsvRuVLhHqpd9h7GIfOpJsxSpGy4kzI874w2BOd3paLRMKX0fHMqjiTPah/4bNfUkX0zkTk9ZryFyE5mWgRDvdbYqmFa1lMM3N3Gpg1mzkYEVsr8Pg63w/Q2vWO78Pn1wlagDLtT6a1MpgxzD7bO5JQ3/+me+8kfDNu2jo7I3JwHSVGeFhvWX/devmqJw2IpnAoD4/Xs88g1ZeEKDE9PlmN0YzAmqkhOZsWUWjHiyv24pCikZm2/+4wtqB+smYObQvS/zEzF1ZZQ4HqkTy7GLhhPGhR00vL+5bL15hHL0H6uQEGleNc6k10zds7TKMnCCw6Oc+CiSyrakNZB6croOk/f/tPVBUv6XuSiIhePrWnD9tsJ/TLIrM3J6R8YG9z8VoIGRDViuPwykUUgDxiFXsoqWX/k3yisspVkqTOZ7DX0IvX05T+LDSJwhn7M6kG5iCVNbK7692Rmg+N/LvnncsA02n7y7K2pEzY0lrUumDgQqTtyqDupFygymQ/PGF+4GZp78bRTO3UUFnLTUuAuq/UYkj9DMnEcSR+ghI4ZeQr7qfpAcbdoQAykLyV8ZPmW3eEJwX1M1Cu0DvpmO7tBIOOPYeqZ2ZeIj4KiFkf/s+WdIdpvmCLGVNWln0/Gsf4VJe9bGRbPYjypvHbqqdXkIBny+bUX3llSHfFmktkkGlPDgxPuwfSJ9V5+uv0J9/pdsqfT4ndbEfuY2yEHepK1pXG787R8ZoMXn2xgB",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quelles démarches dois-je effectuer pour ma voiture en arrivant au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"immatriculation véhicule\",\"assurance véhicule\",\"permis de conduire\"],\"themes\":[],\"facettes\":[\"démarches pour la voiture à l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quelles démarches pour ma voiture en arrivant ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"immatriculation véhicule\",\"permis de conduire\",\"assurance véhicule\"],\"themes\":[],\"facettes\":[\"démarches pour la voiture en arrivant\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexQtoYsTijvPftXncEU",
+      "id": "msg_011CefHjoMd5aH8fbovpudUm",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -100,9 +100,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 199,
-        "output_tokens": 423,
+        "output_tokens": 462,
         "output_tokens_details": {
-          "thinking_tokens": 261
+          "thinking_tokens": 316
         },
         "service_tier": "standard"
       }

@@ -43,12 +43,17 @@
     "response": {
       "content": [
         {
+          "signature": "EvkFCpABCBEYAipAgZTFOY5VsHLz9OvcX33uy+jrSi7nDBbosGoXq8HzpBzVbeV/daohz2CmKWSVM4GrqGHIlslp8miXKx+ySCnBDDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcmd4tQGEgx8+BY/14MpfUNXdv0aDANXAALMZiPOVkoj1iIwe4TkzEUFXzRnfvJS0V0mJCLrrWRE8cWz6lwuxTkhcyZfyCdcJvfcKR+5Yl2VtMBOKpUEK1fPa54B/Ye6rsh1ykbf3tM2MJujbOO/owCJHDYVa0T48zNssqdsYSMnr5b+aXPNgkY0Q5/l7TZOw/xj6QPASFZ5ICxlA3BXIzTF6rEC1wBDECcDBwCgbj31ZTdy8rhZuxZpXVRROrBHJTWUcSHHLzHrT3f+yfVC/hEvXNk+vDFHSQ23nwlLtmHbaU9kZvMkpCI4KL+h2f6380eLJsNUux66k77zVUYweoJzAAqgOpHB9P6YKQDGHKSWbg4lrPLTef3UKqqk4MIp+O3JZOBlTb/4jvI4Imlgu8P3YTBpKsa+jKT44ktPdVLlE/LkFnA4/ux7/CWvwX6L+nknfq+ESiHlgqGtj5XOyKWY4aMg5KrI2CkTrsK1OXHmEqZ8ZbXFbRcSKp7QUTgYfPW1PnBcEPG+F8I4JbEvo0VQd5nHfbL/Keom5lB3nwsQbhcDzq6rGxnkLcR1J1VvHA8cFTTfuu/Y9xfEDeT3nPkQ7EwthzOjO8ehU6MDR5JLc9rwR9ffueqSfvmFFxoiAO9d9tuyGDDv1y4CcQ6X8eBCJPYGzqDRNyU13zb60Z1WioYHCAtNgHGCBZvAHFx+retf58u7FAobatO4P4bUkP+uUxPHzffHCabr8CBG+ok1WdqNX6rMJ2rHV1JfESQrPkNowNV0f5MfAqY7K7Hey0JLDR8Bnvn7D1YDq5wYUnhYQWxsG2iPIsByYW4YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"premiers jours\",\"déclaration d'arrivée\",\"conseil fiscal première année\",\"administration\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année après l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"les huit premiers jours\",\"déclaration d'arrivée\",\"administration\",\"installation\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année après l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexMLJ7k3CkQ8rRLTwyo",
+      "id": "msg_011CefHf6rCatGm18v5gN1AQ",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -64,9 +69,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 162,
-        "output_tokens": 180,
+        "output_tokens": 363,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 185
         },
         "service_tier": "standard"
       }

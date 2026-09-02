@@ -74,12 +74,17 @@
     "response": {
       "content": [
         {
+          "signature": "EscCCpABCBEYAipAILKuNHZiM8t0YDTuJyJSQ3tP/RCsharO6+hZCOSMeeR95ZWPqG8NFvsSxjpfBDwDQk5+raH9NofI35R58+onwTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAY6e4tQGEgy+LuFkGPNivPtihwsaDDZQOA/YD3FmJFUGdCIw36vvVt7hCeyqY9694waRoDrV6uA0LL9buE41G6biR6ake0pOprnSf3PCgDzwDwC5KmQ7w8e9gEp4pHSe3TIs2oRfVNx8PNftcMM5z9Izp4XRfM7xKnLceDJcfKc39FbivfCFuYPyjakr8udqh/Gil6Lcej1H6CGxRUVU3CqwuaPr443XbYCqqWRxAyNqVP4riJ7ctAxlGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":null,\"clarification\":\"De quelle démarche ou document parlez-vous ?\",\"language\":\"fr\",\"terms\":[],\"themes\":[],\"facettes\":[],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":null,\"clarification\":\"De quelle démarche parlez-vous ?\",\"language\":\"fr\",\"terms\":[],\"themes\":[],\"facettes\":[],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexRNhapmAqUvVYZVyZ9",
+      "id": "msg_011CefHkFcvsdkfbdrkjmbsZ",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -95,9 +100,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 82,
-        "output_tokens": 99,
+        "output_tokens": 133,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 35
         },
         "service_tier": "standard"
       }

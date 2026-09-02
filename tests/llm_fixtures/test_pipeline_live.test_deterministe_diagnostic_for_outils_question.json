@@ -314,6 +314,48 @@
       }
     }
   },
+  "claude-sonnet-5:43fee2d93f9d7607": {
+    "certificate": {
+      "messages_sha256": "7793682640138e1ac7a5083db10a86ce50d8289fa97b48510bb11a347152ce77",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:43fee2d93f9d7607",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Vous devez déclarer votre arrivée à la commune dans un délai de huit jours suivant votre emménagement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration est essentielle : elle produit le certificat de résidence et le matricule, sans lesquels il est impossible d'accéder à la sécurité sociale, à une banque ou à l'école.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés du logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration d'arrivée à la commune doit se faire dans les huit jours suivant l'emménagement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite (sécurité sociale, banque, école).\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est recommandé de prendre rendez-vous en ligne avant même d'avoir les clés du logement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHY8JZXDki5Ak2PBY7s",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2931,
+        "output_tokens": 582,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:44777b255a200058": {
     "certificate": {
       "messages_sha256": "d6e9fcc21789f49b89623413808b5b608c13e07c540f18b317bfc54dca4bfc9b",
@@ -328,11 +370,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quel délai ai-je pour déclarer mon arrivée au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour déclarer son arrivée à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quel délai ai-je pour déclarer mon arrivée au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai de déclaration à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexF4xxJuNpWGGaDJHmj",
+      "id": "msg_011CefHXvMicAWiWB6NqR4G6",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -348,7 +390,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 95,
-        "output_tokens": 146,
+        "output_tokens": 140,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -383,6 +425,48 @@
         "inference_geo": "global",
         "input_tokens": 2963,
         "output_tokens": 720,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:99ae3240464896a1": {
+    "certificate": {
+      "messages_sha256": "c49d14342850291d764e078676b42c18915887b1d5c0ca10174d47801fe0cd5e",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:99ae3240464896a1",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"hors_objet\"},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHYYNAarXPTuMjUdmEU",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 829,
+        "output_tokens": 174,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

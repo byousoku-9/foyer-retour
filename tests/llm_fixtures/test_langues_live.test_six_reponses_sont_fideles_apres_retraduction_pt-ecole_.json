@@ -286,6 +286,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:8c8c596cc4203106": {
+    "certificate": {
+      "messages_sha256": "e4a32dbf66836631d5794a0be09e4a7ca65c7682694fae546d52f04bcb6d3e95",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:8c8c596cc4203106",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHVRQsoLh2ekwE16Z2g",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 879,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:9b4da8a865973802": {
     "request": "claude-haiku-4-5-20251001:9b4da8a865973802",
     "response": {
@@ -596,6 +635,53 @@
       }
     }
   },
+  "claude-sonnet-5:36746e5b0b24a056": {
+    "certificate": {
+      "messages_sha256": "47ad3d5e57b68154026ee6e67f8a2d251e7ecdc23adf9ba397073385035c6a50",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:36746e5b0b24a056",
+    "response": {
+      "content": [
+        {
+          "signature": "EsEECpABCBEYAipAvrLVwaAMUz2RF6ID4Vo+0cCltboWbZNMF4+CQk0a0IS32z1GuJ6t8F/DBo2meycbI1dW8UnYOBAflmo2xeS2zzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbCc4tQGEgzysndHMSRkbaSlVpMaDJO2/bPw4DTbvWd9oCIwAiKj3pyf64Gm3IQIuXTzmWHCYog0R8uOdpSqCrY2AFKls+yg4LjKDuU558YgX1G5Kt0CPPzGPxFP2/TPc45/NILMiWstaj1lI635+hZ3ZQbWIa4kqwCBxgLXdiz5OMlo3rnYeiofwErAaZA3ALNlO2yGJEqkSRDDQ89Gf2Bb7UEMS9iTlpXDXEM3pGtqArHuaWghBEafOYU3hYWZ+YWHQYUh22avQp8hB51l9ZPK85pMj7ye65ANKvETLcTAwyKuuZpw1EDzkk1b/YW4biOLV0pmRYfgYA0kfFuQCtn9JcopvtnxysYHalBV+YzmcUEKdvCnC5AB1OS6eTtYx745cdn2jZrJS7aQLUpxWEJ5Eb7civZIfFv9nRp0GDLgRm/ZDlXjqQnFi1I9AhLvIg5GTMosAM+4gnP+GNnrTGVE+aEttd/w9A0wfLMS07kEGVjPf5XjS6HSXxBqGcNzlTAAFKgEoxfwHkhpa+ws4wJhFqD9K1RPCaX+yUMNVtYUZbyN3CoF0ccEBKGsqOpKAtlucRgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"No Luxemburgo existem três vias possíveis para escolarizar os filhos, e essa escolha deve começar antes mesmo da procura de um alojamento.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"A via mais comum é a escola pública luxemburguesa, gratuita e multilingue, que alfabetiza em luxemburguês antes de introduzir o alemão e o francês.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Existem também escolas europeias e internacionais: as europeias dão prioridade às famílias do pessoal das instituições europeias e cobram um minerval às restantes, enquanto há escolas internacionais públicas e gratuitas, muito procuradas.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Antes de partir do país de origem, é essencial levar o certificado de radiação e os boletins escolares dos últimos anos, pois são quase sempre exigidos e difíceis de obter depois.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Note-se ainda que a inscrição na comuna precede geralmente a inscrição escolar, e que as vagas nas secções mais procuradas podem esgotar-se com um ano de antecedência.\",\"kind\":\"transition\"},{\"text\":\"Os documentos fornecidos não detalham o procedimento administrativo exato de inscrição (formulários, prazos precisos por comuna), apenas a ordem geral das etapas.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Três vias coexistem para escolarizar os filhos, e é a démarche que deve ser iniciada em primeiro lugar, antes mesmo da procura de alojamento.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"}]},{\"claim_id\":\"c2\",\"text\":\"O ensino público luxemburguês é gratuito e multilingue, alfabetizando em luxemburguês antes de introduzir o alemão e depois o francês.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français.\"}]},{\"claim_id\":\"c3\",\"text\":\"As escolas europeias dão acesso prioritário aos filhos de pessoal das instituições europeias e cobram um minerval às outras famílias, enquanto existem escolas internacionais públicas e gratuitas muito demandadas.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"}]},{\"claim_id\":\"c4\",\"text\":\"Antes de sair do país de origem, é preciso pedir à escola de origem um certificado de radiação e os boletins dos últimos anos, quase sempre exigidos.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHTpHyoQEjMVDzf2Hat",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2797,
+        "output_tokens": 1306,
+        "output_tokens_details": {
+          "thinking_tokens": 111
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:39ea120403ad0254": {
     "certificate": {
       "messages_sha256": "47ad3d5e57b68154026ee6e67f8a2d251e7ecdc23adf9ba397073385035c6a50",
@@ -758,6 +844,53 @@
       }
     }
   },
+  "claude-sonnet-5:89a841509263735d": {
+    "certificate": {
+      "messages_sha256": "2c3dbe4f01a8b8ec1ef29f7bde4de32614fb4afe65b534769fb20dad74f679aa",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:89a841509263735d",
+    "response": {
+      "content": [
+        {
+          "signature": "EtIKCpABCBEYAipA7w68F/7lEL6zG6Z8spH1xIjiGm0hitcaNZ3XQeLgvoLelFUj3K7Akllr/bX5o24nu+i0Z2ugwBJvVcaVmYctEjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcGc4tQGEgzxm8MhxBSTRsWsVvcaDN1bxrHtH/jO7AkpjCIwTzi+I4RkiUleL6QDLyTVF6LeVgcfNN+VEiMnSKJBTfgqySZQe/DzOa6mt9O879PiKu4IRWvk+JWcIo0Qo2bynvmTKaYADl5ktdYjvUDqXTB+hH95jcyps5lyBXgm0ddMhMBic2o6FyQFSHxZJBh4t/S/wIHmhWLZf/LQvK2/UwITX3ZH4vzCGEGd1uucb1o8RdSu+nFcANMtN/kITnfoOXpW9q8nE+Q7NnLgKZ6NmTSMfzBLc9PQAFR8r0UHzawLh664MZXEl5sETDhU3WpXb50YwwIAmiiZewJOvQxvPVqS4VZQYavFrYayTjavIqt5TQoBHBGENE/lXZvIXlnpxzfie2DKqtdibihOtfFAZIYsAFIeReJ4qqCpbcn/9kEiR5uDIr2acevln2W/9BzuU3S9OQNWUKZOrhmRxZKDwcRNxeK7n5s5eUwN5H5b/gyV0Wtd3B0xSHbZVwBHqxTUMtihbd3iK2SOShxS//muDQFgHvmVvZsxIC0Bnh911/ZRDIIHEN8iZ8EpoqkdrpiQsyniIumXg+gl9bDpG+o+ySkdNkdUQQ72SV5tdcHbqTsCX8y9muy2wEMmcdwRoEvmHPTaYh59T3xi5wKobuMosk6o5CD1+8k5CzrHBhetasF2cyx6QeXDmgEQ9lDoMhhMPnY7cIkVBDu0ouMybueRCd5+tZFwi6WY46hnhdfzH69TjSNtIvXwEtIX/6N4QYBNNZFx8IXhVtdgxtkZcTZ9pDwDfM2PInLsioSFJyFGQqWEZCVpvFZqFmhASpX+Q0FhW0GcCSZ7QDZjycMjH/RJUJ0HA0oV6qRHi2wLnYNnVn5O3eZBTyYNnCRCYGWeS3F4lCliyqaesIsRQBpIjMd9+E0EbARIP3Ewyvc1NTbyFnC4+0CcxR67+6Ppe4DRfamfHGRxETfqdxpMH4/JYHOCECnZLi5LqMmvhjH1BVgRwXWPn0jvJOp5kwoOvE/oeBWizX9zz1aN/wu9Qf5/RRH9STNGF5PKBBZ645XdFhG4Pcv/QXnI3EGw0CqMdTkET5pnq8FjfwCPdfAjy/isupv1+WDI7SP5GgZpx2U34/BZpWSv1Xucz3SEwlXBwuoxAj4tX3cs4O9eQNyfm0cYWvK6367JdzfnLiQnKdN8p0GaXOHPGYzM0AZaa9xkEet6fxyGxUEg+eeUdlJ8hDB/WSBTf4VTTCt9RoTP8uIFSvDPEE/kC35DP5rw89GnQbmbw20M+v7bJTwMjHdoC/WMj+OkI4eYJ59hr6rMpsbp3I5YaKdNc94snWzRdpPS6NiSoMikmzMsB5EqZ8sChLrNe5LDFX7M4pbcWmZL/ATw7UgWbGk8zGudxqqkKsXkd0YixcJGY/Z/qF8/towzBVOo/Ls4oszZQxovw5mZn5zOr7lE+2exGXBpo07ypMHjEDIU/1u5Raqba+vqvXrY+I1IXKCPWhN9wu6e9Jnt1L3V85KteSKPZ6flvql+M0pSnjJ/MmspmZOO+PozylwxeKS/47NnRNt9H7TbJ3C0RX+/vODEtrUo2A3gyotij0MK7xDWIW3mBw3MKHPqhlIQAXrXEuImhs/xGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c4\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c4\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":false},{\"segment\":3,\"soutenu\":false},{\"segment\":4,\"soutenu\":false},{\"segment\":5,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHUqvz6iqb8d84G45VJ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1576,
+        "output_tokens": 670,
+        "output_tokens_details": {
+          "thinking_tokens": 425
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:97a4ebcddd6f3e5d": {
     "request": "claude-sonnet-5:97a4ebcddd6f3e5d",
     "response": {
@@ -844,17 +977,12 @@
     "response": {
       "content": [
         {
-          "signature": "EpgECpABCBEYAipAjlmHGpnFmsGQsyN1EDK+tbdLD75b4Fjvh6bccgX4WtZIKJUIE+RBEbW+j9oUiO8A9M0yxsZ90/WJthTDR0B9rjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAael4dQGEgwTpz6dzHgEL0GW320aDBCRxNpOXNgfOWkezSIwD4JXJMmftSeLC7OkDSqU3cTbl5flavsusxncUzR2m8yScyzR93bjV1RPa4r3jkHhKrQCYyc6MV5kNhS3sx64wu+/KtTK9I30zB/OrujuYteRhOL/xJkwB6u0VchUrZBHEmRSBn4vN3tPDKSuyjscrYyDGCZnJFIAEU9Eh4rTPHhGTbe6Gz7qutr0eMsRxilRjercCOnKoBCf1DdGSIEriuDMBgzhz86cNWRcpt4p3GLZcvLOxiXoARg86TSMSrEvP4gAeNfzFLYonc5o+6/5RBHcoq+N2n6qwHl40wM6DBYnqKqjvBor3ZJZdbnE3AgA02SwqbQIQrkdvIvf/0buHhjSjhF2HmJ8tJkTaHfT68uKVBdNlZyDUykqIHl3pMDKju0aoaniA5FoE3Su0K7HhbKPy2AmaNeCrHlS0Hucs9ayPcEdF0ie5mzv2fDTKuT4IePUdYTNdmnEZDyr8guGZC0C3INL/vYYAQ==",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Onde devo matricular os meus filhos na escola no Luxemburgo?\",\"clarification\":null,\"language\":\"pt\",\"terms\":[\"inscription scolaire\",\"école\",\"scolarité des enfants\"],\"themes\":[],\"facettes\":[\"où inscrire ses enfants à l'école\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Onde devo matricular os meus filhos na escola no Luxemburgo?\",\"clarification\":null,\"language\":\"pt\",\"terms\":[\"inscription scolaire\",\"scolariser ses enfants\",\"école\"],\"themes\":[],\"facettes\":[\"inscription scolaire des enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011Ceex6LLBTCBKKqVnG6NM6",
+      "id": "msg_011CefHTcyLrEnSn87HVerJi",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -870,9 +998,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 91,
-        "output_tokens": 255,
+        "output_tokens": 139,
         "output_tokens_details": {
-          "thinking_tokens": 112
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }

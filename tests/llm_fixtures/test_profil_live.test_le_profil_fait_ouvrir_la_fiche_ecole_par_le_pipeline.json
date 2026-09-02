@@ -247,6 +247,95 @@
       }
     }
   },
+  "claude-sonnet-5:0604c0632a41e789": {
+    "certificate": {
+      "messages_sha256": "4dae4c490dcd3d3b4b278af58d25f3c34e300d3540f498c8c42973b7f80d6e67",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0604c0632a41e789",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche à engager en tout premier, avant même de chercher un logement, car les places dans les sections les plus demandées se remplissent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement, car l'école publique, les écoles européennes/internationales ou les établissements privés offrent des cursus très différents.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire, ce qui crée une dépendance administrative importante à anticiper.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, procurez-vous auprès de l'ancienne école le certificat de radiation ainsi que les bulletins des dernières années, documents presque toujours exigés et bien plus difficiles à obtenir une fois installé au Luxembourg.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ces éléments concernent l'inscription scolaire elle-même ; les documents fournis ne détaillent pas les démarches propres à chaque commune (délais, formulaires précis) ni le contenu exact du dossier scolaire selon l'établissement choisi.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire doit être engagée avant la recherche de logement, les places les plus demandées partant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée, pas seulement de l'établissement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHbCyBbFRF4ynr3Mq3S",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2851,
+        "output_tokens": 1065,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:1cc40ff1f1d76036": {
+    "certificate": {
+      "messages_sha256": "7f8388cb0aa963168437a9530c4cd507787765801a7da76c585820db08a79afa",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:1cc40ff1f1d76036",
+    "response": {
+      "content": [
+        {
+          "signature": "EpAICpABCBEYAipArAI7URzZ8oFxsnr9nZ4HLV6PLrTYdcp0ewo/I8JyhR5xJq1jNWp56Kh3wKlQLWq7sZFai3nC+j0QvlWaMovLqjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaGd4tQGEgwUM9+gthgs+X2+t18aDJ/pjxF/HR8QRnbZEyIw43lWlpggGvq4XroMFtD6kLJwITfO3rCFIHbW3ehMXIi/hAaJ7w8N+FUpjncnbVexKqwGSQE8233Ygbub833VeUpqIMqZjKE6mQYs73jk6jDzAuy44l4iu7vE/J6ViFSqk+/tgTAG/ttGIptj/NIRiyJ0QccBV77R021sBza8KbLIYlH3eKzNJEAcc4lfBpUg9QWhaejTT/wNVW00bpIvlY3dsy1lV/wuvO7M5T/Yb9MKDoeJZkNauvdDcusjWIdxwYXl7sjzP8dYNgDSMxhZh5OPxgity5cT61NZmF6G7WnYmRguAzERmZXb5KzjP33/PSZ/KxhWTHwkX1dzSG/+M6EJD5suBmOCOEK+5pKcEgL0NxkKs9Eh8bIMgkX7YDmNFnLgoyTSkTsnrBJrSwH8d0VytYRG0l91WfA+XK31fr2Ms7fB7pMfPipPzU3aiuP9iwFZkYnkhLL1g8n91ZdFPu1JmScvENZAfkY9ZRNfmZAJfwXzu76FxWWl3ezlkye4RNGXrlk7U8N4E826jgCpmfe3fY44+bPByiZh7xy7exkFv14Hr/pPF3eTL5cSUIS4D0j+vAgsZqDnmxQIEE8ODeWN2HVj8cIrrZ6PckYoN7MJ6k3G2KS7vx/bZix7WRElizgb83XOPPDtNixKcWsWq5BR+EK+6iWHLV5DJ+WFIOYZ3M/sv3T0+egPp1rNADOsBRzrMQ51KTumYF0bLm+jt2cl0/zg6FhBke9l8Yfjm8vUnk1CuEXO4bDQSLbZhTsgwac2Hx5ObPh5/DNGweUtOAEc4Xx7Vis4gH5nPyAlvrdF1yBgX1CYG4Za2ulcnki55KrC9IOWb5F5TeYQdfq5qBnXfX5T7kNCvw8+a2MjABH58zgojv1UME3IjzAbkGwBCC5T0Z6Ai9xE9bAHU0jzuPxTxrVqHdsyLEAdRkJdpUeD7C75aG14z3s/pxPESAPJ+Zyxs/JyXdSGbTz3FxlZiUCkJnHD629MPAmLQWmBB1hz0e+4owblC86UAldLtZ4MJdHaaiW5eXNbnpcyZLmthD7Pcdp+pTHfK7vk4BpcX0qlg+/RohiMZOO5v+bHAJn/BfITNqrMqYiK+0Oxhu/L3Lb6015anxylJvT3vNCJds2Ast22kvIEvd6LQqTPYTsYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c4\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\",\"c4\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":false},{\"segment\":3,\"soutenu\":true},{\"segment\":4,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHc2Ze89M894CRTjkiz",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1422,
+        "output_tokens": 511,
+        "output_tokens_details": {
+          "thinking_tokens": 285
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:1e743af7838b6d1d": {
     "certificate": {
       "messages_sha256": "4dae4c490dcd3d3b4b278af58d25f3c34e300d3540f498c8c42973b7f80d6e67",
@@ -303,11 +392,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"démarches avant la rentrée pour inscrire les enfants à l'école\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"Démarches à faire avant la rentrée pour les enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexJKQTJcKMmD6LTgdKY",
+      "id": "msg_011CefHawpN33iWRwtvzn5Eq",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -323,7 +412,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 156,
-        "output_tokens": 173,
+        "output_tokens": 169,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

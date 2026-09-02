@@ -1037,6 +1037,48 @@
       }
     }
   },
+  "claude-sonnet-5:43fee2d93f9d7607": {
+    "certificate": {
+      "messages_sha256": "7793682640138e1ac7a5083db10a86ce50d8289fa97b48510bb11a347152ce77",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:43fee2d93f9d7607",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Vous devez déclarer votre arrivée à la commune dans les huit jours suivant votre emménagement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette déclaration produit deux documents indispensables pour toutes les démarches suivantes : le certificat de résidence et le matricule.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés du logement, afin de ne pas perdre de temps sur ce délai.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Sans cette déclaration initiale, aucune autre démarche administrative ne peut avancer.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La déclaration d'arrivée à la commune doit se faire dans les huit jours suivant l'emménagement, et il est conseillé de prendre rendez-vous en ligne avant d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement. Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite. Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]},{\"claim_id\":\"c2\",\"text\":\"La déclaration à la commune produit le certificat de résidence et le matricule, indispensables à toute la suite.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Sans la déclaration d'arrivée à la commune, ni matricule, ni sécurité sociale, ni banque, ni école ne sont possibles.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:2\",\"quote\":\"Tout part de la commune. Sans cette déclaration, ni matricule, ni sécurité sociale, ni banque, ni école.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHZVdzD9itxJkEf1WoF",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2931,
+        "output_tokens": 738,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:44777b255a200058": {
     "certificate": {
       "messages_sha256": "d6e9fcc21789f49b89623413808b5b608c13e07c540f18b317bfc54dca4bfc9b",
@@ -1055,7 +1097,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeexGE5AqbakMnAKLEYhJ",
+      "id": "msg_011CefHYp1WX4aGyxy49ts1C",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1106,6 +1148,146 @@
         "inference_geo": "global",
         "input_tokens": 1377,
         "output_tokens": 867,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:8627dd39b7ce2425": {
+    "certificate": {
+      "messages_sha256": "571fa030901c0de7d76732d7366d900108da0460cab320c97988ea457426b829",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "a6c06ef504dee1053b06d39a988f9a60a83025daba37a43862da05f7038b1c49",
+      "tools_sha256": "dd53e3dc85a8af38b7e6c6567a0b53f2df15849f811eee3f0aefe5208455659d",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:8627dd39b7ce2425",
+    "response": {
+      "content": [
+        {
+          "text": "Le résultat q12 (result-v1:25c41edb770ba4ca5c62fc9238a44116a24b1b0f4ef9099e9ec417fd64145109) répond directement à la question du délai de déclaration à la commune, confirmé par farrivee:3 également candidat.\n\n```json\n{\"sufficient\": true, \"result_uid\": \"result-v1:25c41edb770ba4ca5c62fc9238a44116a24b1b0f4ef9099e9ec417fd64145109\", \"facettes\": [{\"facette\": 0, \"result_uid\": \"result-v1:25c41edb770ba4ca5c62fc9238a44116a24b1b0f4ef9099e9ec417fd64145109\"}]}\n```",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHZAmRdSSpDgjZrkWA2",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9223,
+        "inference_geo": "global",
+        "input_tokens": 9377,
+        "output_tokens": 241,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:8a835984c709cbab": {
+    "certificate": {
+      "messages_sha256": "f06625cb30d3b6d9a64716f6b9c42de6b1f810423dc30f88e1e2ca2626b8ee16",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:8a835984c709cbab",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":false},{\"segment\":3,\"soutenu\":false}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHZzhE5KNJFbK3n2BXm",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1016,
+        "output_tokens": 742,
+        "output_tokens_details": {
+          "thinking_tokens": 559
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a94ae9b6ce7211bd": {
+    "certificate": {
+      "messages_sha256": "1cc85853719a9f48ce0c837d6f982f4011e065328c9e18c0acbb12c46ce5cb8d",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "a6c06ef504dee1053b06d39a988f9a60a83025daba37a43862da05f7038b1c49",
+      "tools_sha256": "dd53e3dc85a8af38b7e6c6567a0b53f2df15849f811eee3f0aefe5208455659d",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:a94ae9b6ce7211bd",
+    "response": {
+      "content": [
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_0183mJwbGGbLTHLfUBnxzjeM",
+          "input": {
+            "termes": [
+              "déclaration d'arrivée",
+              "commune",
+              "délai"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CefHZ3eYcqy8nDP24xrxu",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9223,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 9223,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 239,
+        "output_tokens": 68,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -75,11 +75,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations familiales\",\"garde d'enfants\"],\"facettes\":[\"démarches à faire avant la rentrée pour les enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"rentrée scolaire\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"démarches à faire avant la rentrée pour scolariser ses enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CeexJ3bSjsjuN62u4psyo",
+      "id": "msg_011CefHag9HcJ7wvTJ1hVeEk",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -95,7 +95,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 156,
-        "output_tokens": 179,
+        "output_tokens": 173,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

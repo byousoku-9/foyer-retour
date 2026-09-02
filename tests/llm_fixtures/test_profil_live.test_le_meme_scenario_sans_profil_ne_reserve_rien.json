@@ -278,6 +278,48 @@
       }
     }
   },
+  "claude-sonnet-5:0604c0632a41e789": {
+    "certificate": {
+      "messages_sha256": "4dae4c490dcd3d3b4b278af58d25f3c34e300d3540f498c8c42973b7f80d6e67",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "935df72e3e3d3ba4e43d17e9acd05122a77eb6688aac297ca257534baba090f7",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0604c0632a41e789",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est l'une des démarches les plus urgentes de l'installation : elle doit être engagée avant même la recherche de logement, car les places dans les sections les plus recherchées se remplissent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Concrètement, l'inscription à la commune précède l'inscription scolaire elle-même, et il faut vérifier la disponibilité de la section linguistique visée, pas seulement celle de l'établissement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école un certificat de radiation ainsi que les bulletins des dernières années : ces documents sont presque toujours exigés et bien plus difficiles à obtenir une fois parti.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"La rentrée se situe au début du mois de septembre, ce qui laisse un délai à anticiper dès le début du projet d'installation.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Cette chaîne administrative est aussi rappelée ailleurs : sans déclaration préalable à la commune, il n'y a pas de certificat de résidence, donc pas d'inscription scolaire possible.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Les blocs fournis ne précisent pas les délais exacts de dépôt de dossier auprès de chaque commune, ni les documents spécifiques demandés selon la voie choisie (publique, européenne ou internationale) ; ces points restent donc à vérifier au cas par cas.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte, à engager avant la recherche de logement, car les places partent parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription à la commune précède l'inscription scolaire, et il faut vérifier la disponibilité de la section linguistique, pas seulement de l'établissement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire\"},{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c3\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti\"}]},{\"claim_id\":\"c4\",\"text\":\"La rentrée scolaire se situe au début du mois de septembre.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"La rentrée se situe au début du mois de septembre.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHcvWHfSFLFS3RHyJxJ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6799,
+        "inference_geo": "global",
+        "input_tokens": 2851,
+        "output_tokens": 1241,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:125f5785612fc0e9": {
     "request": "claude-sonnet-5:125f5785612fc0e9",
     "response": {
@@ -354,6 +396,53 @@
       }
     }
   },
+  "claude-sonnet-5:23bf1b5469e3d148": {
+    "certificate": {
+      "messages_sha256": "e36567b3140bb11751d98116fc07af39b19a52ba78006bf8535f59f7b2b50d2a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:23bf1b5469e3d148",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c4\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":false},{\"segment\":4,\"soutenu\":true},{\"segment\":5,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefHdoTfcsV6rt6eFEBLx",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1633,
+        "output_tokens": 1614,
+        "output_tokens_details": {
+          "thinking_tokens": 1363
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:4c319c9fd1bff26b": {
     "request": "claude-sonnet-5:4c319c9fd1bff26b",
     "response": {
@@ -401,7 +490,7 @@
     "response": {
       "content": [
         {
-          "signature": "EoUECpABCBEYAipAqS4BZPI+rHN+0/5eBwqD246mJs2xPM/p/BxV1hGBxyabyLEoqM2ZQPK10wOC30ncm6cbhSv7Mp4pnldMK7CYuzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAd2m4dQGEgwEB1NAJFnQ7oNHo58aDOW36PmH/D8nQ//hPyIw4JpvXdjC5shWz5xNgWqxIveNgMxls8gaqJ4Yv8ILFDE5ON7L5aHtsisfKooHLOweKqECzob2TWP3njFJmaUxn1OTYib5TKpwSPOIi45HOXP55sCNhhu9iOPDk0AiRjzF4VU2UEeco/1RSJdR6LjOjFPEsw7N3y2Qs2J4nqwLjbvYGKpMRPj7rh1K8UNrm60HrTf0thiqIOOB2pkSa/xF6C/oXQmPAbRaQkkpixO+HgxjG2tp6QXQuEAGC2AaAQ3ImDVCAGinTnUbq/7MxXhBvakE6ASBHD+MJC/7EeG62Kfx6jT2BAu7NNuffyo6X8zQXgaLAuTXHrCSqShylg5NA+HbpIrNHp+B5VPmBQag0yzYlhdLW/XgDGv3997z2VcpCON/nCDoGifoR1J6NhP4wNPmZ7t2jypijZ5742pd/y4Hmg7MQ55jTF9DfyCzsYDH5ZvlHRgB",
+          "signature": "EsoECpABCBEYAipAl5n+raLFeIeVhyH8zruPwgvFReFBK9DmxH/4JP9BCmkWWKDVNBSJUnaEf2STNesCUCLBlpXKiQQGcIJ9n7UESDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaed4tQGEgxgdIVfFndFBN8eSV8aDH502VJgFJgU/DAX+CIw1lXyKFzNlSs+4BWlFbgA00A/Ael2LCg98VCtCvF1z987iXArG67CFvdXI5xwLVADKuYC3HxidMbfXJkq/0/wXXomSBBxkK4WzQFY5BCn0pRL59WRlxcwuxq6NhbVmhP7JA5SXALkSDKoidHA+4ndOy1HA2oynsNA1QjHX5zJjEcbosGiCYcfEGGL7XS8cnvRfgnP7Jm3ut/VU8Z3P1E1spJlAq/WjKU95Llg5ImPXeCJLVQ67FLrhg/uMvDqLrnpZGRPCJ0+uOghQAeXtJHs4k2gfOyRGeZQy40EhHl0XHyP3UR+S7i7iI0i0KgT3S27jXqRimi6aAcgeCEYX1SoVt+dIH0shxTzQq1+jyQQu7EMD2HnFMSwBTIE9BSRwHZo4oZHxOx9FmoWyBxTv0bNRrY5bHW2PX7LrV2ePkFF7QRTxDG4FTAwF29loE+z+ylY0y1hfx8NxKrnl9z3JTpfvqxHGyaae6RYI0SIMmgyMeZ4b/yBzCVBHMaz9DOeyTxjGGEnE2QaYTCsgrKdsVi9bosp6xtglwzt4hgB",
           "thinking": "",
           "type": "thinking"
         },
@@ -411,7 +500,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CeexKmFyobYSPj5Hpf847",
+      "id": "msg_011CefHcbACjWN6z1823r4qU",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -427,9 +516,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 94,
-        "output_tokens": 267,
+        "output_tokens": 280,
         "output_tokens_details": {
-          "thinking_tokens": 106
+          "thinking_tokens": 119
         },
         "service_tier": "standard"
       }
