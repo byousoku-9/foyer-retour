@@ -316,8 +316,12 @@ def test_le_client_refuse_lappel_qui_deborde_la_campagne() -> None:
 
 
 def test_live_budget_vit_dans_config_et_suit_lenvironnement(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _settings().live_budget_eur == 1.00
-    assert _settings().thresholds()["live_budget_eur"] == 1.00
+    # Ce que ce témoin tient est le **domicile** du seuil et son obéissance à l'environnement, pas
+    # sa valeur du jour : celle-ci est remesurée ailleurs (`tests/test_budget.py`), et la recopier
+    # ici en ferait une seconde autorité qui périme au premier relèvement.
+    defaut = _settings().live_budget_eur
+    assert defaut == Settings.model_fields["live_budget_eur"].default
+    assert _settings().thresholds()["live_budget_eur"] == defaut
     monkeypatch.setenv("LIVE_BUDGET_EUR", "0.25")
     assert Settings(_env_file=None).live_budget_eur == 0.25
 

@@ -21,6 +21,7 @@ import yaml
 from pydantic import ValidationError
 
 from server.app.config import Settings
+from server.app.llm.pricing import estimate_run_majorant
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
@@ -2016,7 +2017,11 @@ def test_gate_orchestrateur_fusionne_la_preuve_externe_et_peut_devenir_vert(
     code = _main(
         tmp_path,
         ["--gate", GUIDE, "--repeat", "3", "--producer", "orchestrator",
-         "--series-kind", "final", "--series-id", "final-guide", "--max-cost", "1.0",
+         # Le plafond de run suit la configuration : « 1.0 » valait pour un plafond par
+         # requête de 0,18 €, et le relèvement des budgets Sonnet (02/09/2026) faisait
+         # refuser ce run avant son premier appel, pour une raison étrangère au test.
+         "--series-kind", "final", "--series-id", "final-guide",
+         "--max-cost", str(estimate_run_majorant(3, _settings())),
          "--candidate-revision", revision,
          "--orchestrator-evidence", str(preuve),
          "--orchestrator-report", str(rapport_source)],

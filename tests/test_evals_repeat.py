@@ -295,7 +295,9 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     assert code == 4
     err = capsys.readouterr().err
     assert "refus de budget avant le premier appel" in err
-    assert "configured_budget_eur=1.0000" in err
+    # Le budget annoncé est celui de la configuration, jamais un littéral : c'est lui que le
+    # relèvement des budgets Sonnet (02/09/2026) a déplacé.
+    assert f"configured_budget_eur={Settings(_env_file=None).live_budget_eur:.4f}" in err
     assert "accrued_cost_eur=0.0000" in err
     majorant = runner.estimate_run_majorant(3, _settings())
     assert f"refused_cost_eur={majorant:.4f}" in err
@@ -303,7 +305,7 @@ def test_le_refus_de_budget_survient_avant_le_premier_appel(
     assert rapport["complete"] is False and rapport["executions_completed"] == 0
     assert rapport["preflight"] == {
         **rapport["preflight"],
-        "configured_budget_eur": 1.0,
+        "configured_budget_eur": Settings(_env_file=None).live_budget_eur,
         "accrued_cost_eur": 0.0,
         "refused_cost_eur": majorant,
     }
@@ -355,7 +357,9 @@ def test_dry_run_publie_plancher_digest_et_majorant(
     sortie = capsys.readouterr().out
     assert "plancher_digest=" in sortie
     assert "majorant_estime=" in sortie
-    assert "budget_effectif=1.0000" in sortie
+    budget = min(Settings(_env_file=None).evals_max_cost_eur,
+                 Settings(_env_file=None).live_budget_eur)
+    assert f"budget_effectif={budget:.4f}" in sortie
 
 
 # --- identité de run et décisions ------------------------------------------------------------------

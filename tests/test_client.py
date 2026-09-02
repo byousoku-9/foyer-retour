@@ -13,6 +13,7 @@ from server.app.domain.trace import StepTrace, Usage
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient, MemoryResponseCache, map_provider_error
 from server.app.llm.models import TIERS
+from server.app.llm.pricing import PRICES
 from tests.llm_fake import FakeAnthropic, fake_message, provider_exception
 
 SONNET, HAIKU, OPUS = TIERS["reason"], TIERS["micro"], TIERS["ingest"]
@@ -406,12 +407,25 @@ async def test_a_different_prefix_is_estimated_at_the_write_rate() -> None:
     assert len(fake.requests) == 1
 
 
+def _sortie_pour(part_du_seuil: float, settings: Settings | None = None) -> int:
+    """Le nombre de tokens de sortie qui vaut `part_du_seuil` × `cost_alert_eur`, au tarif `ingest`.
+
+    Le compte se **dérive** du seuil au lieu d'être recopié : un test qui écrit « 4 000 tokens parce
+    que le seuil vaut 0,05 € » n'exerce plus rien le jour où le seuil bouge — il constate seulement
+    la valeur d'hier (remesure des budgets Sonnet, 02/09/2026).
+    """
+    settings = settings or _settings()
+    sortie_usd = PRICES[OPUS]["output"]
+    return int(part_du_seuil * settings.cost_alert_eur / settings.usd_eur * 1_000_000 / sortie_usd) + 1
+
+
 async def test_expensive_call_succeeds_but_flags_cout_eleve() -> None:
-    client, _ = _client([fake_message(model=OPUS, input_tokens=10_000, output_tokens=4_000)])
+    settings = _settings()
+    client, _ = _client([fake_message(model=OPUS, input_tokens=10_000,
+                                      output_tokens=_sortie_pour(1.2, settings))], settings)
     step = StepTrace(name="ingest")
-    result = await _call(client, tier="ingest", step=step, budget=_budget(max_cost=1.0))
-    # 10000×5 + 4000×25 = 0.15 USD → 0.138 € > cost_alert_eur (0.05)
-    assert result.usage.cost_eur > 0.05
+    result = await _call(client, tier="ingest", step=step, budget=_budget(max_cost=10.0))
+    assert result.usage.cost_eur > settings.cost_alert_eur
     assert [c.name for c in step.checks] == ["cout_eleve"]
     assert step.checks[0].ok is False
 
@@ -419,13 +433,16 @@ async def test_expensive_call_succeeds_but_flags_cout_eleve() -> None:
 async def test_cout_eleve_fires_once_on_the_cumulated_request_cost() -> None:
     # revue Codex I1 (AD-10) : deux appels chacun sous 0,05 € dont seul le cumul franchit le seuil —
     # le check est levé une seule fois, au franchissement.
-    client, _ = _client([fake_message(model=OPUS, input_tokens=4_000, output_tokens=800),
-                         fake_message(model=OPUS, input_tokens=4_000, output_tokens=800)])
-    budget, step = _budget(max_cost=1.0), StepTrace(name="ingest")
+    settings = _settings()
+    moitie = _sortie_pour(0.6, settings)  # deux appels sous le seuil, dont le cumul le franchit
+    client, _ = _client([fake_message(model=OPUS, input_tokens=4_000, output_tokens=moitie),
+                         fake_message(model=OPUS, input_tokens=4_000, output_tokens=moitie)], settings)
+    budget, step = _budget(max_cost=10.0), StepTrace(name="ingest")
     first = await _call(client, tier="ingest", budget=budget, step=step)
-    assert first.usage.cost_eur < 0.05 and step.checks == []
+    assert first.usage.cost_eur < settings.cost_alert_eur and step.checks == []
     second = await _call(client, tier="ingest", budget=budget, step=step)
-    assert second.usage.cost_eur < 0.05 and budget.cost_eur > 0.05
+    assert second.usage.cost_eur < settings.cost_alert_eur
+    assert budget.cost_eur > settings.cost_alert_eur
     assert [c.name for c in step.checks] == ["cout_eleve"]
 
 
