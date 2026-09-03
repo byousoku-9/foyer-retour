@@ -550,6 +550,23 @@ class Settings(BaseSettings):
     # faits de blocs longs et laisse une marge mesurée jusque dans l'enveloppe multilingue « arrivée »
     # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
     retrieval_max_tokens: int = Field(3500, ge=1)
+    # Correctif du tour 6 (F1). **Une énumération est une unité de lecture, tant qu'elle en reste
+    # une.** Les périls d'une même garantie se qualifient les uns les autres — « même lorsqu'il n'y
+    # a pas eu embrasement, ni commencement d'incendie » du sixième péril dit quelque chose des cinq
+    # autres —, et les lire séparément fait mentir chacun par omission. Au-delà de cette borne,
+    # l'unité redevient l'amorce et l'item demandé : c'est le comportement d'avant ce correctif, et
+    # il reste juste ; ce qui serait faux est de transmettre un article entier pour une feuille.
+    #
+    # Mesuré hors ligne sur les documents servis : le contrat AXA porte **22 énumérations** (médiane
+    # 6 blocs, maximum 15 ; tokens p50 592, p75 799, p90 1 261, maximum 1 526) ; Baloise et le guide
+    # n'en portent **aucune** au sens structurel retenu — la borne n'y change donc rien. L'unité du
+    # cas mesuré, « Étendue de la garantie » incendie, vaut **593 tokens** pour 7 blocs.
+    #
+    # 900 : les 17 énumérations sur 22 qui sont des énumérations de règles passent, les 5 qui sont
+    # des articles déguisés (925 à 1 526) sont refusées, et une unité ne peut jamais occuper plus du
+    # quart de `retrieval_max_tokens` — deux sous-questions apportant chacune la leur laissent donc
+    # plus de la moitié du budget au navigateur. `[HYPOTHÈSE]`, à régler aux témoins.
+    enumeration_max_tokens: int = Field(900, ge=1)
 
     # Coût (AD-9, AD-10).
     # **0,45 €, et non 0,18 (02/09/2026, tour « budgets Sonnet »).** 0,18 € datait du chiffrage fait
