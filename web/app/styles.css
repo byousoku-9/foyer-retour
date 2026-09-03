@@ -637,6 +637,65 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
    de page, pas une erreur de plus — même ton discret que la note du bandeau. */
 .msg .retrait { margin: 7px 0 0; font-size: 12.5px; color: var(--text-2); }
 
+/* ---------- Story 5.6 (L2) : citations groupées, attente animée, passage cité ---------- */
+/*
+   Ajouts seulement : aucune classe existante n'est renommée. Les puces reprennent la forme des
+   `.chip` du site, en plus discret — ce sont des renvois vers une fiche, pas des relances.
+*/
+.msg .cite-puces { display: flex; flex-wrap: wrap; gap: 6px; }
+.msg .cite-puce {
+  font: inherit; font-size: 12.5px; line-height: 1.35;
+  padding: 4px 10px; border: 1px solid var(--border-fort); border-radius: 999px;
+  background: var(--surface); color: var(--text-2); cursor: pointer; text-align: left;
+}
+.msg .cite-puce:hover { border-color: var(--accent); color: var(--accent); }
+/* Une fiche que `kb.js` ne connait pas : le titre reste dit, il n'est pas cliquable. */
+.msg .cite-puce-txt { cursor: default; color: var(--muted); }
+.msg .cite-puce-txt:hover { border-color: var(--border-fort); color: var(--muted); }
+/* Le lien officiel garde la forme d'une puce, en trait tirete : ce n'est pas une fiche du guide. */
+.msg a.cite-lien { border-style: dashed; text-decoration: none; }
+.msg p.cite-statut { margin: 6px 0 0; }
+
+/* L'attente : trois etapes nommees, celle en cours marquee, un chronometre. */
+.msg.attente { display: block; white-space: normal; }
+.msg .prog { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.msg .prog-etape { display: flex; align-items: center; gap: 9px; font-size: 13.5px; opacity: .55; }
+.msg .prog-puce {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--border-fort); flex: 0 0 auto;
+}
+.msg .prog-libelle { flex: 1 1 auto; min-width: 0; }
+.msg .prog-etat {
+  font-size: var(--micro); text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+}
+.msg .prog-faite { opacity: .85; }
+.msg .prog-faite .prog-puce { background: var(--ok); }
+.msg .prog-encours { opacity: 1; font-weight: 600; }
+.msg .prog-encours .prog-puce {
+  background: var(--accent); animation: pulsation 1.4s ease-in-out infinite;
+}
+@keyframes pulsation {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+/* Une animation qui pulse est exactement ce que ce reglage demande de taire : l'etape reste
+   marquee par sa couleur et par le mot « en cours », qui n'ont jamais bouge. */
+@media (prefers-reduced-motion: reduce) {
+  .msg .prog-encours .prog-puce { animation: none; }
+}
+.msg .prog-pied {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; margin-top: 11px;
+  font-size: 12.5px; color: var(--muted);
+}
+.msg .prog-chrono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.msg .prog-pied .attente-txt { flex: 1 1 22ch; min-width: 0; }
+
+/* Le passage cite, dans la fiche ouverte depuis une puce : surligne, sans changer la couleur du
+   texte — le fond porte la marque, le contraste du texte reste celui du corps de l'article. */
+.detail-texte .passage-cite {
+  background: color-mix(in srgb, var(--accent-2) 26%, transparent);
+  color: inherit; border-radius: 2px; padding: 0 .1em;
+}
+
 /* La mention de confidentialite (AD-15) se lit sous la saisie, y compris dans le panneau. */
 .hint.confid { margin-top: 7px; font-size: 12.5px; }
 .chat-bar .hint.confid { flex: 1 0 100%; margin: 0; }

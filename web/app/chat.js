@@ -493,6 +493,64 @@ window.CHAT = (function () {
 
   function pluriel(n, mot) { return n + " " + mot + (n > 1 ? "s" : ""); }
 
+  // ---------- retrouver une citation dans le corps d'une fiche (story 5.6, L2) ----------
+  //
+  // « Ouvrir : <fiche> » ouvrait la fiche en haut : le lecteur devait retrouver lui-même la phrase
+  // qu'on venait de lui citer, dans un article de deux mille signes. Le front sait pourtant où elle
+  // est — la quote est ré-extraite du corpus aux offsets prouvés (AD-3).
+  //
+  // La recherche passe par une **carte normalisée** : chaque caractère de la source produit
+  // exactement un caractère normalisé (apostrophes et guillemets ramenés à l'ASCII, tirets longs
+  // ramenés au trait d'union, toute suite d'espaces ramenée à un espace, minuscules), et un index
+  // renvoie chaque position normalisée à sa position d'origine. Le surlignage porte donc sur le
+  // texte **original**. Le corpus servi et `kb.js` peuvent diverger : quand la phrase ne s'y
+  // retrouve pas, la fiche s'ouvre en haut, sans erreur et sans surlignage inventé.
+  var EQUIVALENTS = {
+    "\u2018": "'", "\u2019": "'", "\u02bc": "'", "\u2032": "'", "\u00b4": "'", "`": "'",
+    "\u201c": "\"", "\u201d": "\"", "\u201e": "\"", "\u00ab": "\"", "\u00bb": "\"",
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-",
+    "\u2212": "-"
+  };
+
+  /** Un caractere normalise, **toujours** de longueur 1 : l'index de position en depend. */
+  function normaliserCaractere(c) {
+    var n = Object.prototype.hasOwnProperty.call(EQUIVALENTS, c) ? EQUIVALENTS[c] : c;
+    var bas = n.toLocaleLowerCase();
+    return bas.length === 1 ? bas : n;
+  }
+
+  /** `{texte, index}` : le texte normalise, et la position d'origine de chacun de ses caracteres. */
+  function carteNormalisee(brut) {
+    var src = String(brut === undefined || brut === null ? "" : brut);
+    var texte = "";
+    var index = [];
+    var espacePrecedent = false;
+    for (var i = 0; i < src.length; i++) {
+      var c = normaliserCaractere(src.charAt(i));
+      if (/\s/.test(c)) {
+        if (espacePrecedent) continue;
+        c = " ";
+        espacePrecedent = true;
+      } else {
+        espacePrecedent = false;
+      }
+      texte += c;
+      index.push(i);
+    }
+    index.push(src.length);
+    return { texte: texte, index: index };
+  }
+
+  /** Les bornes de `aiguille` dans `texte`, en coordonnees **d'origine**, ou `null`. */
+  function trouverPassage(texte, aiguille) {
+    var cible = carteNormalisee(aiguille).texte.trim();
+    if (!cible) return null;
+    var source = carteNormalisee(texte);
+    var p = source.texte.indexOf(cible);
+    if (p < 0) return null;
+    return { debut: source.index[p], fin: source.index[p + cible.length] };
+  }
+
   function entier(v) {
     return (typeof v === "number" && isFinite(v) && v >= 0) ? Math.floor(v) : 0;
   }
@@ -690,6 +748,42 @@ window.CHAT = (function () {
     return /^https?:\/\//i.test(u) ? u : null;
   }
 
+  // Story 5.6 (L2) : « source officielle » n'est affiché que si l'adresse mène **à la page dont on
+  // parle**. Sur guichet.lu ou luxembourg.public.lu, l'adresse d'accueil d'une rubrique répond à
+  // toute autre question que celle qu'on vient de poser : promettre « la source officielle » et
+  // livrer une page d'accueil générique est une promesse contredite en silence.
+  //
+  // La règle est **mécanique**, pas une liste de sites : le chemin doit porter au moins deux
+  // segments qui disent quelque chose. Un code de langue et un nom de page d'accueil n'en disent
+  // rien — ils sont vrais de toutes les pages du domaine. Deux segments restants, c'est une page ;
+  // un seul, c'est une rubrique.
+  //
+  //   guichet.public.lu/fr/citoyens/citoyennete.html → « citoyens », « citoyennete » → affiché
+  //   luxembourg.public.lu/fr/vivre.html             → « vivre »                     → omis
+  //   ccss.public.lu/fr.html                         → rien                          → omis
+  //
+  // Omis veut dire **omis** : rien ne le remplace, et surtout pas une adresse de repli — ce serait
+  // rendre la même promesse avec une autre page.
+  var SEGMENTS_GENERIQUES = ["fr", "en", "de", "lb", "pt", "es", "it", "nl",
+                             "index", "home", "accueil", "default"];
+
+  function segmentsParlants(url) {
+    var chemin;
+    try { chemin = new URL(url).pathname; } catch (e) { return []; }
+    return chemin.split("/").map(function (seg) {
+      return decodeURIComponent(seg).replace(/\.(?:html?|php|aspx?|jsp)$/i, "").toLowerCase();
+    }).filter(function (seg) {
+      return seg && SEGMENTS_GENERIQUES.indexOf(seg) === -1;
+    });
+  }
+
+  /** L'URL si elle désigne une page précise, `null` sinon. */
+  function urlPrecise(url) {
+    var u = lienHttp(url);
+    if (!u) return null;
+    return segmentsParlants(u).length >= 2 ? u : null;
+  }
+
   // Le statut d'une citation retrouve par son bloc : c'est ce qui rend la reserve d'AD-4 au mode
   // degrade, ou la liste est plate et ou l'appariement claim → citation a ete abandonne.
   function statutDeBloc(answer, blockId) {
@@ -703,34 +797,66 @@ window.CHAT = (function () {
     return null;
   }
 
+  /**
+   * Les citations d'un paragraphe, **groupées par fiche** (story 5.6, L2).
+   *
+   * La réponse se lisait « une phrase, une citation, une phrase, une citation » : le paragraphe
+   * n'existait plus, et la même fiche revenait cinq fois sous cinq blocs de citation. Ce qui
+   * intéresse le lecteur, c'est de quelle fiche vient ce qu'on vient de lui dire — pas de relire
+   * chaque phrase du guide sous chaque phrase de la réponse.
+   *
+   * Une puce par fiche, donc : « Les huit premiers jours · 5 passages ». Le clic ouvre la fiche
+   * **et** la fait défiler jusqu'au premier passage cité, surligné : la citation n'est pas perdue,
+   * elle est rendue là où elle vit, avec ce qui l'entoure. Les statuts de vérification restent, en
+   * dessous et plus discrets — c'est une réserve, pas un titre.
+   */
   function citationsVue(entrees) {
-    var enfants = [noeud("strong", null, entrees.length > 1 ? "Passages cités" : "Passage cité")];
+    var groupes = [];
+    var parCle = Object.create(null);
     entrees.forEach(function (e) {
       var src = e.source || {};
-      var meta = [];
-      // `fiche_id` vient du corpus servi, qui peut diverger de `kb.js` : un bouton qui ouvre une
-      // fiche inconnue retomberait sur la liste complete, sans explication. Titre en texte alors.
-      var fiche = ficheConnue(src.fiche_id);
-      if (fiche) {
-        var b = noeud("button", "cite-fiche", src.titre || fiche.titre);
-        b.action = { nom: "ouvrir_fiche", fiche_id: src.fiche_id };
-        meta.push(b);
-      } else if (src.titre) {
-        meta.push(noeud("span", "cite-fiche-txt", src.titre));
+      // La clé de groupement est la fiche. Sans `fiche_id` (une FAQ), c'est le titre : deux
+      // passages du même titre sont bien deux passages du même endroit.
+      var cle = String(src.fiche_id || ("titre:" + String(src.titre || "")));
+      var g = parCle[cle];
+      if (!g) {
+        g = { fiche_id: src.fiche_id || null, titre: src.titre || "", entrees: [], url: null };
+        parCle[cle] = g;
+        groupes.push(g);
       }
-      var url = lienHttp(src.url);
-      if (url) {
-        var a = noeud("a", "cite-lien", "source officielle");
-        a.href = url;
-        meta.push(a);
-      }
-      var statut = statutTexte(e.status);
-      if (statut) meta.push(noeud("span", "cite-statut", statut));
-      enfants.push(noeud("div", "cite", null, [
-        noeud("blockquote", "cite-q", "« " + String(src.quote || "") + " »"),
-        noeud("div", "cite-meta", null, meta)
-      ]));
+      g.entrees.push(e);
+      if (!g.url) g.url = urlPrecise(src.url);
     });
+
+    var puces = groupes.map(function (g) {
+      var fiche = ficheConnue(g.fiche_id);
+      var titre = g.titre || (fiche ? fiche.titre : "Passage cité");
+      var n = g.entrees.length;
+      var libelle = titre + " · " + n + " passage" + (n > 1 ? "s" : "");
+      // `fiche_id` vient du corpus servi, qui peut diverger de `kb.js` : une puce qui ouvre une
+      // fiche inconnue retomberait sur la liste complete, sans explication. Texte simple alors.
+      if (!fiche) return noeud("span", "cite-puce cite-puce-txt", libelle);
+      var b = noeud("button", "cite-puce", libelle);
+      b.action = { nom: "ouvrir_fiche", fiche_id: g.fiche_id,
+                   passage: String((g.entrees[0].source || {}).quote || "") };
+      return b;
+    });
+    groupes.forEach(function (g) {
+      if (!g.url) return;
+      var a = noeud("a", "cite-puce cite-lien", "source officielle");
+      a.href = g.url;
+      puces.push(a);
+    });
+
+    var enfants = [noeud("div", "cite-puces", null, puces)];
+    // Le statut de chaque citation reste dit : AD-4 le veut, et le mode groupé serait le dernier
+    // endroit où taire la réserve d'actualité d'une édition.
+    var statuts = [];
+    entrees.forEach(function (e) {
+      var statut = statutTexte(e.status);
+      if (statut && statuts.indexOf(statut) === -1) statuts.push(statut);
+    });
+    statuts.forEach(function (t) { enfants.push(noeud("p", "cite-statut", t)); });
     return noeud("div", "cites", null, enfants);
   }
 
@@ -1137,12 +1263,130 @@ window.CHAT = (function () {
     return noeud("details", "pourquoi", null, enfants);
   }
 
-  function vueAttente() {
+  // ---------- l'attente, habillée (story 5.6, L2) ----------
+  //
+  // Une question coûte de vingt secondes à une minute. La bulle disait une phrase et trois points
+  // sautaient : rien n'indiquait où en était le travail, ni combien de temps il restait.
+  //
+  // Deux sources d'avancement, dans cet ordre : le flux `POST /chat/progression` quand le serveur
+  // en sert un, et sinon l'**estimation** par le temps écoulé sur les durées ci-dessous. Ces durées
+  // sont des estimations mesurées sur les tours live consignés dans `docs/tests-live.md` ; elles ne
+  // pilotent que l'apparence de la barre — la borne d'abandon reste `delaiAbandonMs()`, lue sur les
+  // seuils du serveur.
+  var ETAPES_GUIDE = [
+    { nom: "retrouver", libelle: "Je lis les fiches", ms: 12000 },
+    { nom: "rediger", libelle: "J'écris", ms: 18000 },
+    { nom: "verifier", libelle: "Je vérifie", ms: 12000 }
+  ];
+
+  // `/sante` ne publie aucun seuil de durée **typique** : ce qu'il publie sont des bornes
+  // (`deadline_s`), pas des attentes. La phrase se compose donc sur cette constante, qui est la
+  // somme des estimations ci-dessus, arrondie.
+  var DUREE_ANNONCEE_S = 45;
+
+  function chrono(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return m + ":" + (r < 10 ? "0" + r : String(r));
+  }
+
+  // Les trois etats d'une etape, et leurs mots. Ils sont composes **une fois** et lus par la vue
+  // comme par la mise a jour en place que `ui.js` applique : deux tables auraient diverge.
+  var ETATS_ETAPE = { faite: "terminé", encours: "en cours", attente: "à venir" };
+
+  function etatEtape(rang, i) { return i < rang ? "faite" : (i === rang ? "encours" : "attente"); }
+
+  function libellesEtapes(etat) {
+    var e = etat || {};
+    return (e.libelles && e.libelles.length)
+      ? e.libelles.map(String)
+      : ETAPES_GUIDE.map(function (x) { return x.libelle; });
+  }
+
+  function noteAttente(serveur) {
+    return serveur
+      ? "Le serveur annonce l'étape en cours ; comptez environ " + DUREE_ANNONCEE_S +
+        " secondes en tout."
+      : "Chaque phrase est vérifiée contre les passages cités avant d'être affichée : comptez " +
+        "environ " + DUREE_ANNONCEE_S + " secondes. L'avancement ci-dessus est estimé sur le " +
+        "temps écoulé.";
+  }
+
+  /**
+   * Le rang estimé après `msEcoule` millisecondes, sans aucun événement du serveur.
+   *
+   * La dernière étape reste « en cours » indéfiniment plutôt que d'afficher un travail terminé qui
+   * ne l'est pas : une barre qui atteint la fin avant la réponse ment sur ce qui se passe.
+   */
+  function rangEstime(msEcoule) {
+    var cumul = 0;
+    for (var i = 0; i < ETAPES_GUIDE.length; i++) {
+      cumul += ETAPES_GUIDE[i].ms;
+      if (msEcoule < cumul) return i;
+    }
+    return ETAPES_GUIDE.length - 1;
+  }
+
+  /**
+   * L'attente : les trois étapes, celle en cours marquée, le chronomètre, la durée annoncée.
+   *
+   * `etat` = `{rang, libelles, msEcoule, serveur}`. `serveur` dit si l'avancement vient du flux ou
+   * d'une estimation, et l'écran le **dit** : une barre qui avance toute seule ne doit pas se faire
+   * passer pour une mesure.
+   */
+  function vueAttente(etat) {
+    var e = etat || {};
+    var rang = typeof e.rang === "number" && isFinite(e.rang) ? e.rang : 0;
+    var etapes = libellesEtapes(e).map(function (libelle, i) {
+      var cle = etatEtape(rang, i);
+      return noeud("li", "prog-etape prog-" + cle, null, [
+        noeud("span", "prog-puce", "", null, { "aria-hidden": "true" }),
+        noeud("span", "prog-libelle", libelle),
+        // L'état de chaque étape est écrit en toutes lettres : la puce colorée ne le porte pas
+        // seule, et un lecteur d'écran entend « terminé », « en cours », « à venir ».
+        noeud("span", "prog-etat", ETATS_ETAPE[cle])
+      ]);
+    });
     return noeud("div", "msg bot attente", null, [
-      noeud("span", "attente-txt",
-        "Je cherche dans le guide, puis je vérifie chaque phrase contre les passages cités…"),
-      noeud("span", "points", null, [noeud("span"), noeud("span"), noeud("span")])
+      noeud("ol", "prog", null, etapes),
+      noeud("div", "prog-pied", null, [
+        noeud("span", "prog-chrono", chrono(e.msEcoule || 0)),
+        noeud("span", "attente-txt", noteAttente(e.serveur))
+      ])
     ]);
+  }
+
+  /**
+   * Ce qu'il faut **ecrire** dans une barre deja peinte, sans la repeindre.
+   *
+   * `ui.js` ne compose rien : il pose ce que cette fonction decide, classe par classe. Repeindre la
+   * bulle chaque seconde etait deux fautes en une — le journal porte `aria-live`, donc un lecteur
+   * d'ecran aurait relu la barre et son chronometre a chaque seconde, et un noeud remplace perd le
+   * focus qu'il portait. `etapes` rend `null` quand le nombre d'etapes a change : c'est le seul cas
+   * ou la bulle doit etre repeinte.
+   */
+  function majAttente(etat, nombreDetapesPeintes) {
+    var e = etat || {};
+    var libelles = libellesEtapes(e);
+    if (libelles.length !== nombreDetapesPeintes) return null;
+    var rang = typeof e.rang === "number" && isFinite(e.rang) ? e.rang : 0;
+    return {
+      etapes: libelles.map(function (libelle, i) {
+        var cle = etatEtape(rang, i);
+        return { cls: "prog-etape prog-" + cle, libelle: libelle, etat: ETATS_ETAPE[cle] };
+      }),
+      chrono: chrono(e.msEcoule || 0),
+      note: noteAttente(e.serveur)
+    };
+  }
+
+  /** L'état de la barre à cet instant, quand rien du serveur ne l'a renseigné. */
+  function etatAttente(debutMs, maintenantMs, serveur) {
+    var ecoule = Math.max(0, maintenantMs - debutMs);
+    return { rang: serveur && typeof serveur.rang === "number" ? serveur.rang : rangEstime(ecoule),
+             libelles: (serveur && serveur.libelles) || null,
+             msEcoule: ecoule, serveur: !!(serveur && typeof serveur.rang === "number") };
   }
 
   function vueReponse(r, question) {
@@ -1947,7 +2191,7 @@ window.CHAT = (function () {
       .catch(function () { finir(); apiDisponible = false; return false; });
   }
 
-  function reponseApi(question, profil, historique) {
+  function reponseApi(question, profil, historique, surEtape) {
     if (!enLigne()) {
       return Promise.reject(erreurChat({ kind: "indisponible", code: "hors_ligne", statut: 0 }));
     }
@@ -1956,7 +2200,14 @@ window.CHAT = (function () {
     // ecrits ici et ignorait une configuration differente — un serveur regle a 3 tours recevait
     // les 6 du repli, donc un 400. `testerApi()` est memoise : les requetes suivantes ne coutent
     // rien, et son resultat n'ouvre aucun repli (il ne sert qu'a lire les seuils).
-    return testerApi().then(function () { return envoyerRequete(question, profil, historique); });
+    return testerApi().then(function () {
+      // Le flux d'abord, la route classique en repli — **une seule fois**, et jamais apres qu'un
+      // resultat a ete recu.
+      return requeteProgression(question, profil, historique, surEtape).catch(function (e) {
+        if (!(e && e.bascule)) throw e;
+        return envoyerRequete(question, profil, historique);
+      });
+    });
   }
 
   function envoyerRequete(question, profil, historique) {
@@ -2013,14 +2264,187 @@ window.CHAT = (function () {
             function (e) { finir(); throw e; });
   }
 
+  // ---------- Le flux de progression (story 5.6, L2) ----------
+  //
+  // `POST /chat/progression` rend le **meme** corps que la route classique, precede des etapes que
+  // le serveur execute, en SSE. La page le consomme quand il existe, et retombe sur la route
+  // classique quand il n'existe pas — ce qui est le cas tant que le tour moteur n'est pas livre.
+  //
+  // **Un seul appel facture par question.** La bascule vers la route classique n'a lieu que dans
+  // deux situations, et elle ne peut avoir lieu qu'une fois : la route repond 404 ou 405 (elle
+  // n'existe pas, rien n'a tourne, rien n'a coute), ou le flux se coupe **avant** d'avoir livre son
+  // `resultat`. Des qu'un `resultat` est arrive, plus aucune requete n'est envoyee. Toute autre
+  // reponse (503, 429, 400…) est une erreur d'AD-16 : elle remonte telle quelle, sans repli.
+
+  function decoupeurSSE() {
+    var reste = "";
+    return {
+      /** Rend les evenements `{type, data}` complets contenus dans ce fragment. */
+      pousser: function (fragment) {
+        reste += String(fragment || "");
+        var out = [];
+        var blocs = reste.split(/\r\n\r\n|\n\n|\r\r/);
+        reste = blocs.pop();
+        blocs.forEach(function (bloc) {
+          var type = "";
+          var donnees = [];
+          bloc.split(/\r\n|\n|\r/).forEach(function (l) {
+            if (l.charAt(0) === ":") return;  // commentaire de maintien en vie
+            var i = l.indexOf(":");
+            var champ = i < 0 ? l : l.slice(0, i);
+            var valeur = i < 0 ? "" : l.slice(i + 1).replace(/^ /, "");
+            if (champ === "event") type = valeur;
+            else if (champ === "data") donnees.push(valeur);
+          });
+          if (!donnees.length) return;
+          var charge = null;
+          try { charge = JSON.parse(donnees.join("\n")); } catch (e) { charge = null; }
+          if (!type && charge && typeof charge.type === "string") type = charge.type;
+          out.push({ type: type, data: charge });
+        });
+        return out;
+      }
+    };
+  }
+
+  /**
+   * Le corps d'une reponse SSE peut-il etre lu **au fil de l'eau** ?
+   *
+   * Sinon il reste lisible d'un bloc (`r.text()`) : on perd l'avancement en direct, pas la reponse.
+   * C'est la distinction qui compte pour le portefeuille — un corps qu'on ne lit pas est un appel
+   * paye pour rien, et le renvoyer sur la route classique le paierait deux fois.
+   */
+  function fluxLisible(reponse) {
+    return !!(reponse && reponse.body && typeof reponse.body.getReader === "function" &&
+              typeof TextDecoder === "function");
+  }
+
+  // La route de progression n'existe pas sur tous les serveurs. Un 404 une fois vaut pour la
+  // session : la sonder a chaque question ajouterait un aller-retour inutile a chaque question.
+  var progressionAbsente = false;
+
+  function corpsQuestion(question, profil, historique) {
+    return JSON.stringify({
+      question: question,
+      profil: profil || {},
+      historique: historiquePourApi(historique, question)
+    });
+  }
+
+  function requeteProgression(question, profil, historique, surEtape) {
+    if (progressionAbsente) {
+      var absente = new Error("bascule");
+      absente.bascule = true;
+      return Promise.reject(absente);
+    }
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    var options = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+      body: corpsQuestion(question, profil, historique)
+    };
+    if (ctrl) options.signal = ctrl.signal;
+    var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, delaiAbandonMs()) : null;
+    function finir() { if (minuteur !== null) clearTimeout(minuteur); minuteur = null; }
+    function bascule() { var e = new Error("bascule"); e.bascule = true; return e; }
+
+    return fetch(API_BASE + "/chat/progression", options).then(function (r) {
+      if (r.status === 404 || r.status === 405) {
+        // Rien n'a tourne, rien n'a coute : l'appel classique qui suit est le premier et le seul.
+        progressionAbsente = true;
+        finir();
+        throw bascule();
+      }
+      if (!r.ok) {
+        return r.json().then(function (j) { return j; }, function () { return null; })
+          .then(function (j) { finir(); throw erreurHttp(r.status, r.headers, j); });
+      }
+      var decoupeur = decoupeurSSE();
+      var resultat = null;
+      var erreurServeur = null;
+
+      function traiter(evt) {
+        if (evt.type === "etape") {
+          if (typeof surEtape === "function") surEtape(evt.data || {});
+          return;
+        }
+        if (evt.type === "resultat" && evt.data) { resultat = evt.data; return; }
+        if (evt.type === "erreur" && evt.data) { erreurServeur = evt.data; }
+      }
+
+      // Le serveur a repondu : son corps est **paye**. On le lit — au fil de l'eau si le
+      // navigateur sait le faire, d'un bloc sinon. Le jeter pour redemander la meme chose a la
+      // route classique paierait deux fois le meme travail.
+      function lire() {
+        if (fluxLisible(r)) {
+          var lecteur = r.body.getReader();
+          var decodeur = new TextDecoder("utf-8");
+          return (function boucle() {
+            return lecteur.read().then(function (pas) {
+              if (pas && pas.value) {
+                decoupeur.pousser(decodeur.decode(pas.value, { stream: true })).forEach(traiter);
+              }
+              if (pas && pas.done) {
+                decoupeur.pousser(decodeur.decode()).forEach(traiter);
+                return null;
+              }
+              return boucle();
+            });
+          })();
+        }
+        if (typeof r.text === "function") {
+          return r.text().then(function (t) { decoupeur.pousser(t).forEach(traiter); return null; });
+        }
+        // Ni flux ni corps : l'environnement ne permet pas de lire ce que le serveur a envoye.
+        // Ce n'est pas une route absente — redemander ferait payer deux fois.
+        throw erreurChat({ kind: "requete", code: "reponse_illisible", statut: r.status });
+      }
+
+      // `Promise.resolve().then(lire)` et non `lire()` : un `lire()` qui lève **avant** de
+      // rendre sa promesse court-circuiterait le gestionnaire d'échec ci-dessous, donc
+      // `finir()` — la minuterie d'abandon resterait armée jusqu'à sa borne, plusieurs
+      // minutes après que la page a fini d'attendre.
+      return Promise.resolve().then(lire).then(function () {
+        finir();
+        // Un `resultat` recu clot la question : plus jamais de seconde requete, meme si le flux
+        // s'est ensuite coupe. C'est **la** garde contre le double appel payant.
+        if (resultat) return lireReponse(resultat);
+        if (erreurServeur) {
+          var err = erreurServeur.error || erreurServeur;
+          throw erreurChat({
+            kind: err && err.kind === "indisponible" ? "indisponible" : "requete",
+            code: typeof (err && err.code) === "string" ? err.code : "",
+            statut: 200,
+            request_id: typeof (err && err.request_id) === "string" ? err.request_id : ""
+          });
+        }
+        throw bascule();
+      }, function (e) {
+        finir();
+        if (resultat) return lireReponse(resultat);
+        if (e && e.kind) throw e;
+        throw bascule();
+      });
+    }, function () {
+      finir();
+      // Aucune reponse du tout : c'est le reseau, pas une route absente. Une bascule enverrait une
+      // seconde requete vers un serveur injoignable, sans rien y gagner.
+      throw erreurChat({
+        kind: "indisponible",
+        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
+        statut: 0
+      });
+    });
+  }
+
   // ---------- Point d'entree unique ----------
 
   // Aucun repli, nulle part. Une erreur remonte **typee** a l'UI, qui decide quoi peindre — et,
   // pour une indisponibilite seulement, propose un bouton. Meme quand la sonde a deja dit
   // « indisponible » : c'est plus lent d'un clic, et c'est la seule version qui ne fait pas passer
   // une recherche de mots-cles pour une reponse verifiee.
-  function repondre(question, profil, historique) {
-    return reponseApi(question, profil, historique).then(function (r) {
+  function repondre(question, profil, historique, surEtape) {
+    return reponseApi(question, profil, historique, surEtape).then(function (r) {
       apiDisponible = true;
       return r;
     }, function (e) {
@@ -2059,6 +2483,18 @@ window.CHAT = (function () {
     messageErreur: messageErreur,
     // Les vues : l'arbre de ce qui doit etre peint. `ui.js` ne fait plus que le materialiser.
     vueAttente: vueAttente,
+    etatAttente: etatAttente,
+    majAttente: majAttente,
+    rangEstime: rangEstime,
+    ETAPES: ETAPES_GUIDE.map(function (e) { return { nom: e.nom, libelle: e.libelle, ms: e.ms }; }),
+    DUREE_ANNONCEE_S: DUREE_ANNONCEE_S,
+    decoupeurSSE: decoupeurSSE,
+    requeteProgression: requeteProgression,
+    // Story 5.6 (L2) : la regle mecanique de precision d'une source, et la recherche d'un passage
+    // dans le corps d'une fiche — `ui.js` s'en sert pour defiler jusqu'a la phrase citee.
+    urlPrecise: urlPrecise,
+    segmentsParlants: segmentsParlants,
+    trouverPassage: trouverPassage,
     vueReponse: vueReponse,
     vueReponseLocale: vueReponseLocale,
     vueErreur: vueErreur,
