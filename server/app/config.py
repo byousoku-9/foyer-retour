@@ -511,7 +511,12 @@ class Settings(BaseSettings):
     # T1b, la place de l'ébauche servie vaut `navigation_draft_max_claims` = 6. Mesure sur les trois
     # réponses A16 d'après T1b (`automation/runs/20260902-structure-index/a16-t1b/a16-r{1,2,3}.json`,
     # sortie moins réflexion) : **738 / 638 / 484 tokens de JSON pour 5 / 4 / 3 affirmations jugées**,
-    # soit ≈ 148 tokens par affirmation au pire. À six : 6 × 148 ≈ 888. 1 024 le majore de 15 %.
+    # soit 148 / 160 / 161 tokens par affirmation — c'est **161** qui majore, pas la moyenne ni le
+    # run le plus long. À six : 6 × 161 ≈ 968, et 1 024 le majore de 5,8 %. La marge est mince, et
+    # c'est le prix de la somme : elle vaut exactement le plafond du client, donc ce qu'on donnerait
+    # de plus au contrat serait pris à la réflexion. La droite ajustée sur les trois points
+    # (≈ 103 de ponctuation fixe + 127 par affirmation) donne 865 à six : les deux lectures tiennent
+    # sous 1 024.
     # Le run à cinq affirmations remplissait déjà 96 % de l'ancien contrat : la borne ne tenait plus
     # qu'à ce que le modèle juge moins de claims que la borne ne lui en annonce.
     verifier_sinistre_json_tokens: int = Field(1024, ge=1)

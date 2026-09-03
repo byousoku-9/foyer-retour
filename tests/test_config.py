@@ -87,7 +87,7 @@ def test_defaults_match_spine_hypotheses() -> None:
     # que le sinistre ne produit pas), et la réflexion mesurée 2 394 — la réserve du tour 2 était
     # déjà dépassée quand elle a été écrite.
     # Re-dérivé le 03/09/2026 (T1c), les deux moitiés pour deux raisons distinctes : le contrat JSON
-    # sur `navigation_draft_max_claims` (6 affirmations × 148 tokens mesurés ≈ 888), la réserve sur
+    # sur `navigation_draft_max_claims` (6 affirmations × 161 tokens, le pire mesuré, ≈ 968), la réserve sur
     # le retour de cet appel à l'effort `medium` du palier. La somme retrouve **exactement** le
     # plafond du client, comme au tour 2 : le contrôle de cohérence mord, et c'est voulu.
     assert s.verifier_sinistre_json_tokens == 1024
