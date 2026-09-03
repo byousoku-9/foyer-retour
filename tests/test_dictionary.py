@@ -719,6 +719,44 @@ def test_un_dictionnaire_absent_nexplique_rien_et_ne_leve_jamais(tmp_path: Path)
     assert d.declencheurs("meteo") == () and d.confirme("meteo", "météo") == (0, 0)
 
 
+# --- Correctif du tour 5b (E2) : le nombre ne décide pas de la clé d'un groupe -------------------
+
+
+def test_le_singulier_dun_terme_trouve_le_groupe_ecrit_au_pluriel(tmp_path: Path) -> None:
+    """E2 — la table est indexée sur la chaîne entière, et le nombre la rendait manquante.
+
+    Mesuré sur le contrat servi : le navigateur cherche « bris de glace », le fichier écrit « bris de
+    glaces », et l'expansion rendait zéro. Quatre des cinq termes du navigateur n'atteignaient aucun
+    groupe ; le seul qui en atteignait un était celui qui élargissait vers une énumération entière.
+
+    La règle de nombre est **celle de la requête de facette** (`forme_de_nombre`, tour 3, R2) et
+    c'est la même fonction : deux copies auraient fini par chercher deux choses. Le terme n'est
+    jamais éclaté en mots isolés — un seul mot retourné à la fois, puis tous.
+    """
+    d = load_dictionary(_ecrire(tmp_path, corpus={"bris de glaces": ["Glasbruch", "glass breakage"]}),
+                        _corpus(), DOC_ID)
+    assert d.expand(["bris de glace"])["bris de glace"] == [
+        "bris de glaces", "glasbruch", "glass breakage"]
+    # Le pluriel écrit au fichier reste évidemment sa propre clé, et ne se cherche pas lui-même.
+    assert d.expand(["bris de glaces"])["bris de glaces"] == ["glasbruch", "glass breakage"]
+    # AD-4 : la preuve d'absence nomme le canonique atteint, pas l'orthographe employée.
+    assert d.canoniser(["bris de glace"]) == ["bris de glaces"]
+
+
+def test_la_recherche_de_nombre_ne_fabrique_aucun_groupe(tmp_path: Path) -> None:
+    """La borne : un terme qu'aucune forme de nombre ne rapproche d'un groupe reste seul.
+
+    Et le terme n'est pas éclaté : « insert de cheminée » ne trouve pas le groupe « cheminées » au
+    prétexte qu'un de ses mots y mènerait — chaque mot deviendrait alors sa propre preuve pleine,
+    ce que la garde de fréquence du tour 5 borne précisément.
+    """
+    d = load_dictionary(_ecrire(tmp_path, corpus={"cheminees": ["Kamin", "chimney"]}),
+                        _corpus(), DOC_ID)
+    assert d.expand(["insert de cheminée"])["insert de cheminée"] == []
+    assert d.expand(["enfumage"])["enfumage"] == []
+    assert d.canoniser(["insert de cheminée"]) == ["insert de cheminée"]
+
+
 def test_les_trois_dictionnaires_livres_gardent_leurs_formes_utiles(tmp_path: Path) -> None:
     """E1/E2 mesurés sur les artefacts réellement servis, guide et contrats.
 
@@ -739,9 +777,9 @@ def test_les_trois_dictionnaires_livres_gardent_leurs_formes_utiles(tmp_path: Pa
         "baloise-lu-home-2-2024": (290, {"bris des glaces": "bris de vitres",
                                          "vitrages assurés": "fenetres et baies vitrees",
                                          "dégât des eaux": "fuite d eau"}),
-        "axa-lu-optihome-2017": (186, {"bris de vitrages": "glasbruch",
-                                       "incendie": "garantie incendie",
-                                       "vol": "soustraction frauduleuse"}),
+        "axa-lu-optihome-2017": (186, {"bris de glace": "bris de glaces",
+                                       "bris de vitrages": "glasbruch",
+                                       "incendie": "garantie incendie"}),
     }
     for doc_id, (ambigues, temoins) in attendu.items():
         d = load_dictionary(REPO_ROOT / "data", corpus, doc_id)

@@ -76,7 +76,7 @@ from typing import Any
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire, forme
 from server.app.corpus.index import Index, reading_order, words
-from server.app.corpus.text import normalize
+from server.app.corpus.text import forme_de_nombre, normalize
 from server.app.corpus.loader import Corpus
 from server.app.domain import (AdmissionDecision, Block, BudgetSnapshot, FacetteCouverture,
                                FullContextSelection,
@@ -318,20 +318,6 @@ def _ajouter_best_hits_faq(node_ids: Iterable[str], *, index: Index,
     return added
 
 
-def _forme_de_nombre(mot: str) -> str | None:
-    """L'autre nombre d'un mot, par la règle régulière du français : `-s`/`-x` ajouté ou retiré.
-
-    Rien de plus : ni lemmatisation, ni pluriels irréguliers, ni vocabulaire. Une règle qu'on peut
-    écrire en une ligne et vérifier hors ligne, appliquée **à la requête seulement** — `normalize`
-    et `words` ne sont pas touchés, donc ni `question_uid`, ni `result_uid`, ni les digests, ni les
-    fixtures enregistrées. C'est ce qui distingue ce correctif de la lemmatisation d'index, restée
-    différée pour cette raison exacte.
-    """
-    if len(mot) <= 2:
-        return None
-    return mot[:-1] if mot.endswith(("s", "x")) else mot + "s"
-
-
 def _variantes_de_facette(formes: Iterable[str], *, index: Index, doc_id: str,
                           part_max: float) -> list[str]:
     """Les formes de nombre du libellé qui **désignent une clause**, jamais celles qui nomment le sujet.
@@ -361,13 +347,13 @@ def _variantes_de_facette(formes: Iterable[str], *, index: Index, doc_id: str,
         mots = words(normalize(forme_source))
         if not mots:
             continue
-        phrase = " ".join(_forme_de_nombre(mot) or mot for mot in mots)
+        phrase = " ".join(forme_de_nombre(mot) or mot for mot in mots)
         if phrase != " ".join(mots) and phrase not in variantes:
             variantes.append(phrase)
         for mot in mots:
             if mot in _MOTS_OUTILS_LIMITES:
                 continue
-            autre = _forme_de_nombre(mot)
+            autre = forme_de_nombre(mot)
             if autre is None or autre in variantes:
                 continue
             try:
@@ -416,6 +402,22 @@ def _premier_objet_json(texte: str) -> str | None:
             if profondeur == 0:
                 return texte[depart:position + 1]
     return None
+
+
+def _noter_ambigues(step: StepTrace, dictionnaire: Dictionnaire, termes: list[str]) -> None:
+    """Dit **combien** de formes cherchées n'ont rien élargi faute d'un groupe unique (E1).
+
+    Un compte, jamais la liste : une forme ambiguë est du vocabulaire du dictionnaire, et AD-4
+    n'autorise à publier que les canoniques effectivement cherchés. Le check ne se pose que
+    lorsqu'il y en a — une ligne « 0 forme ambiguë » sur chaque requête ne dirait rien à personne, et
+    l'absence de silence est ici l'information.
+    """
+    ambigues = dictionnaire.variantes_ambigues(termes)
+    if ambigues:
+        step.checks.append(CheckResult(
+            name="variantes_ambigues", ok=True,
+            detail=f"{ambigues} forme(s) ambiguë(s) non élargies : plusieurs groupes les "
+                   "revendiquent et aucun ne les nomme ; le terme reste cherché tel quel"))
 
 
 def part_du_mot_borne(index: Index | None, doc_id: str | None, *,
@@ -2011,6 +2013,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             detail=f"{dictionnaire.variants_count(dictionary_searched_terms, **borne)} "
                    f"variante(s) ajoutée(s) "
                    f"à {touches} terme(s)"))
+        _noter_ambigues(step, dictionnaire, dictionary_searched_terms)
     return result, step
 
 
@@ -2696,6 +2699,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         step.checks.append(CheckResult(
             name="dictionnaire", ok=True,
             detail=f"{ajoutees} variante(s) ajoutée(s) à {touches} terme(s)"))
+        _noter_ambigues(step, dictionnaire, terms)
     return result, step
 
 

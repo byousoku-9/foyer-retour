@@ -51,7 +51,7 @@ from server.app.domain.dictionary import DICTIONARY_FILE, DictionaryFile
 from .index import words
 from .loader import Corpus, _first_error
 from .racine import Lecture, relire
-from .text import normalize
+from .text import forme_de_nombre, normalize
 
 
 def forme(texte: str) -> str:
@@ -174,10 +174,46 @@ class Dictionnaire:
         sortie: dict[str, list[str]] = {}
         for terme in termes:
             base = forme(terme)
-            groupe = self._groupes.get(base, ()) if self.utilisable else ()
+            groupe = self._groupes.get(self._cle(terme), ()) if self.utilisable else ()
+            # C'est la forme **cherchée** qu'on retire, pas la clé du groupe : quand le nombre les
+            # sépare (« bris de glace » trouve « bris de glaces »), l'autre nombre est une forme de
+            # plus à chercher, et il compte comme telle.
             sortie[terme] = [f for f in groupe
                              if f != base and not self._trop_frequente(f, part_du_mot, part_max)]
         return sortie
+
+    def _cle(self, terme: str) -> str:
+        """La forme sous laquelle ce terme trouve son groupe — **le nombre ne doit pas décider**.
+
+        Correctif du tour 5b (E2). La table est indexée sur la chaîne normalisée entière, si bien que
+        « bris de glace » ne trouvait rien d'un fichier qui écrit « bris de glaces ». Mesuré sur le
+        contrat servi : quatre des cinq termes du navigateur n'atteignaient aucun groupe, et le seul
+        qui en atteignait un était celui qui élargissait vers une énumération entière.
+
+        La règle de nombre est celle de la requête de facette (`forme_de_nombre`, tour 3, R2), et
+        c'est **la même fonction** : deux copies auraient fini par chercher deux choses. Les
+        candidats sont le terme, puis le terme avec **un** de ses mots au nombre opposé, puis le
+        terme avec tous ses mots retournés — jamais le terme éclaté en mots isolés, qui ferait de
+        chaque mot sa propre preuve pleine et ramènerait le défaut que la garde de fréquence borne.
+        Le premier candidat que la table connaît gagne ; une forme ambiguë compte comme connue,
+        sinon la recherche de nombre irait chercher plus loin une réponse qu'on a décidé de taire.
+        """
+        base = forme(terme)
+        if not base or self._connue(base):
+            return base
+        mots = base.split(" ")
+        for position in range(len(mots)):
+            autre = forme_de_nombre(mots[position])
+            if autre is None:
+                continue
+            candidat = " ".join((*mots[:position], autre, *mots[position + 1:]))
+            if self._connue(candidat):
+                return candidat
+        tous = " ".join(forme_de_nombre(mot) or mot for mot in mots)
+        return tous if tous != base and self._connue(tous) else base
+
+    def _connue(self, cle: str) -> bool:
+        return cle in self._groupes or cle in self._ambigues
 
     @staticmethod
     def _trop_frequente(variante: str, part_du_mot: Callable[[str], float] | None,
@@ -200,7 +236,7 @@ class Dictionnaire:
         """
         if not self.utilisable:
             return 0
-        return len({f for f in (forme(t) for t in termes) if f in self._ambigues})
+        return len({cle for cle in (self._cle(t) for t in termes) if cle in self._ambigues})
 
     def variants_count(self, termes: list[str], *,
                        part_du_mot: Callable[[str], float] | None = None,
@@ -241,7 +277,7 @@ class Dictionnaire:
         """
         sortie: list[str] = []
         for terme in termes:
-            canons = self._canoniques.get(forme(terme), ()) if self.utilisable else ()
+            canons = self._canoniques.get(self._cle(terme), ()) if self.utilisable else ()
             for candidat in (canons or (terme,)):
                 if candidat not in sortie:
                     sortie.append(candidat)

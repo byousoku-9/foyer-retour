@@ -107,5 +107,24 @@ def normalize_spans(s: str) -> tuple[str, list[Span]]:
     return "".join(chars[debut:fin]), spans[debut:fin]
 
 
+def forme_de_nombre(mot: str) -> str | None:
+    """L'autre nombre d'un mot **déjà normalisé**, par la règle régulière du français : `-s`/`-x`.
+
+    Rien de plus : ni lemmatisation, ni pluriels irréguliers, ni vocabulaire. Une règle qu'on peut
+    écrire en une ligne et vérifier hors ligne, appliquée **aux requêtes seulement** — `normalize` et
+    `words` ne sont pas touchés, donc ni `question_uid`, ni `result_uid`, ni les digests, ni les
+    fixtures enregistrées. C'est ce qui distingue cette règle de la lemmatisation d'index, restée
+    différée pour cette raison exacte.
+
+    Elle vit ici parce que **deux** appelants l'emploient et doivent l'employer à l'identique : la
+    requête de facette de *retrouver* (tour 3, R2) et la clé de groupe du dictionnaire (tour 5b, E2).
+    Deux copies auraient fini par diverger, et le dictionnaire aurait alors cherché autre chose que
+    ce que la facette cherche.
+    """
+    if len(mot) <= 2:
+        return None
+    return mot[:-1] if mot.endswith(("s", "x")) else mot + "s"
+
+
 def normalize(s: str) -> str:
     return normalize_spans(s)[0]
