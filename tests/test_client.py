@@ -13,6 +13,7 @@ from server.app.config import Settings
 from server.app.domain.errors import BudgetExceeded, ErrorCode, LlmParse, LlmUnavailable, Timeout
 from server.app.domain.trace import StepTrace, Usage
 from server.app.llm.budget import RequestBudget
+from server.app.cache.prefixes import PrefixeServi
 from server.app.llm.client import LlmClient, MemoryResponseCache, map_provider_error
 from server.app.llm.models import TIERS
 from server.app.llm.pricing import PRICES
@@ -795,3 +796,67 @@ def test_new_budget_takes_the_active_settings_and_never_extends_the_deadline() -
     assert client.new_budget(deadline_s=12.0).deadline_s == 12.0
     # une valeur plus grande est ramenée au plafond du réglage
     assert client.new_budget(deadline_s=600.0).deadline_s == 100.0
+
+
+# --- coutures d'appel : un OSError nu du transport est une indisponibilité (T9) -------------
+
+def _oserror_transport() -> OSError:
+    """Ce qu'`httpx`/`ssl` laisse échapper de l'enveloppe du SDK sur une connexion coupée."""
+    return ConnectionResetError(104, "Connection reset by peer")
+
+
+async def test_un_oserror_de_transport_devient_un_503_sur_les_quatre_coutures_dappel() -> None:
+    """Un `OSError` nu remonté de l'`await` d'appel est un transport, pas un 500 muet.
+
+    Les quatre coutures sont testées ensemble parce que c'est leur **uniformité** qui est le sujet :
+    une seule oubliée et la même connexion coupée sort en 503 par `parse` et en 500 par
+    `count_tokens`. Le code est `llm_unavailable`, donc la politique de relance existante s'applique
+    (AD-11), et le message nomme la classe sans rien publier d'autre.
+    """
+    # parse
+    client, _ = _client([_oserror_transport()])
+    with pytest.raises(LlmUnavailable) as parse_exc:
+        await _call(client)
+    assert parse_exc.value.code is ErrorCode.llm_unavailable
+    assert parse_exc.value.message == "ConnectionResetError (transport)"
+    assert isinstance(parse_exc.value.__cause__, OSError)
+
+    # tool_turn
+    client, _ = _client([_oserror_transport()])
+    with pytest.raises(LlmUnavailable) as tool_exc:
+        await client.tool_turn(
+            tier="micro", system_prefix="préfixe stable", messages=[],
+            tools=[{"name": "chercher", "input_schema": {"type": "object"}}],
+            budget=_budget(), step=StepTrace(name="retrouver"), max_tokens=20)
+    assert tool_exc.value.code is ErrorCode.llm_unavailable
+
+    # count_tokens
+    client = LlmClient(_settings(), anthropic_client=FakeAnthropic(token_counts=[_oserror_transport()]))
+    with pytest.raises(LlmUnavailable) as count_exc:
+        await client.count_tokens(HAIKU, None, [{"role": "user", "content": "q"}])
+    assert count_exc.value.code is ErrorCode.llm_unavailable
+
+    # maintenir_prefixe
+    client, _ = _client([_oserror_transport()])
+    entree = PrefixeServi(digest="d" * 16, model=HAIKU,
+                          system=[{"type": "text", "text": "préfixe stable"}],
+                          tools=None, output_config=None)
+    with pytest.raises(LlmUnavailable) as maintien_exc:
+        await client.maintenir_prefixe(entree, timeout_s=5.0)
+    assert maintien_exc.value.code is ErrorCode.llm_unavailable
+
+
+def test_oserror_reste_absent_de_la_table_des_erreurs_fournisseur() -> None:
+    """Contre-sonde : la conversion est bornée à la couture, elle n'entre pas dans le mapping.
+
+    `map_provider_error` est aussi appelée depuis des blocs `except` qui **contiennent**
+    `_audit_call`. Un `OSError` d'audit relabellisé par la table sortirait en « le fournisseur est
+    indisponible » pour un disque plein — précisément le mensonge que T9 vient de retirer. La table
+    doit donc continuer à relancer un `OSError` tel quel.
+    """
+    from server.app.llm.client import PROVIDER_ERRORS
+
+    assert not any(issubclass(OSError, cls) or issubclass(cls, OSError) for cls in PROVIDER_ERRORS)
+    with pytest.raises(OSError) as exc:
+        map_provider_error(OSError(28, "No space left on device"))
+    assert exc.value.errno == 28

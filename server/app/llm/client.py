@@ -158,6 +158,25 @@ def map_provider_error(exc: Exception) -> PipelineError:
     raise exc  # pas une erreur du SDK Anthropic : on ne l'avale pas
 
 
+def erreur_de_couture(exc: Exception) -> PipelineError:
+    """Exception échappée de **l'`await` d'appel seul** → erreur typée du domaine.
+
+    Un `OSError` nu qui remonte de là ne peut venir que du transport — `ssl`, `BrokenPipeError`,
+    `ConnectionResetError` — échappé à l'enveloppe du SDK ; c'est une indisponibilité du fournisseur,
+    donc un 503 relançable par la politique existante (AD-11), pas un 500 muet.
+
+    **Pourquoi ici et non dans `PROVIDER_ERRORS` :** cette table est parcourue par
+    `map_provider_error`, qui est aussi appelée depuis des blocs `except` **contenant eux-mêmes**
+    `_audit_call`. Y ajouter `OSError` relabelliserait un disque plein en « le fournisseur est
+    indisponible » — la rustine qui déplace le mensonge. La conversion est donc bornée à l'`await`,
+    et `map_provider_error` garde son `raise exc` final : hors de la couture, un `OSError` n'est pas
+    une erreur du SDK et ne doit pas être avalé.
+    """
+    if isinstance(exc, OSError):
+        return LlmUnavailable(f"{type(exc).__name__} (transport)")
+    return map_provider_error(exc)
+
+
 class ResponseCache(Protocol):
     """Cache d'évals (AD-11, implémentation persistante en 4.1) : réponse brute + coût d'origine."""
 
@@ -470,7 +489,7 @@ class LlmClient:
         try:
             message = await self._anthropic.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 — même mapping total que les deux coutures d'appel
-            raise map_provider_error(exc) from exc
+            raise erreur_de_couture(exc) from exc
         usage = cost_from_usage(entree.model, message.usage, self._settings.usd_eur)
         self._noter_campagne(usage)
         return usage.cost_eur
@@ -618,7 +637,7 @@ class LlmClient:
                     run_uid=budget.run_uid)
                 self._apply_audit(call, projection)
                 self._note_call(step, call, tier)
-                raise map_provider_error(exc) from exc
+                raise erreur_de_couture(exc) from exc
             ms = int((time.monotonic() - t0) * 1000)
 
             usage = cost_from_usage(model, message.usage, settings.usd_eur)
@@ -823,7 +842,7 @@ class LlmClient:
                 run_uid=budget.run_uid)
             self._apply_audit(call, projection)
             self._note_call(step, call, tier)
-            raise map_provider_error(exc) from exc
+            raise erreur_de_couture(exc) from exc
         ms = int((time.monotonic() - t0) * 1000)
         usage = cost_from_usage(model, message.usage, settings.usd_eur)
         budget.note_call(usage)
@@ -864,7 +883,7 @@ class LlmClient:
         try:
             counted = await self._anthropic.messages.count_tokens(**kwargs)
         except Exception as exc:  # noqa: BLE001
-            raise map_provider_error(exc) from exc
+            raise erreur_de_couture(exc) from exc
         return counted.input_tokens
 
     @staticmethod

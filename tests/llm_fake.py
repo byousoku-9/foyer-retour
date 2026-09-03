@@ -103,7 +103,10 @@ class _FakeMessages:
         self.count_requests.append(kwargs)
         if not self._token_counts:
             raise AssertionError("token_counts épuisé : comptage non prévu par le test")
-        return MessageTokensCount(input_tokens=self._token_counts.pop(0))
+        item = self._token_counts.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return MessageTokensCount(input_tokens=item)
 
 
 class FakeAnthropic:
