@@ -5150,3 +5150,56 @@ def test_un_noeud_feuille_dont_le_parent_na_quun_titre_reste_seul() -> None:
     assert retrouver._unite_reservable(
         "d:p2:1", block=corpus.documents["d"].block, index=index, terms=["fumées"], doc_id="d",
         cohorte=[], budget=_budget(), settings=_s(), related_cache={}) == ["d:p2:1"]
+
+
+# --- Correctif du tour 5 (C10) : le compteur publie la fenêtre, puisque c'est elle qu'on dépense ---
+
+
+async def test_une_reservation_honoree_publie_la_fenetre_et_pas_la_seule_unite() -> None:
+    """C10 — le compteur du tour 4 ratait exactement le chiffre pour lequel il avait été écrit.
+
+    Il n'additionnait que l'unité gardée du primaire réservé ; les frères qui entrent avec elle sont
+    admis par des `admit()` distincts et n'étaient attribués à personne. Mesuré sur un run réel :
+    « 99 token(s) gardé(s) pour 99 admis », quand la fenêtre réellement ouverte en faisait 1 022 —
+    et un audit qui lui faisait confiance concluait que la réserve était bien calibrée.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    frere = Block(block_id="d:p1:2", loc="p1", seq=2,
+                  text="Le présent article précise les modalités applicables aux biens désignés.")
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle, frere]), ("seule", [autre]))
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés"], facettes=["vitrages assurés", "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=5, search_limit=20, max_blocks=6, max_tokens=400),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    # La réservation ne gardait que la règle ; la fenêtre a fait entrer son frère avec elle.
+    assert "d:p1:2" in result.opened_block_ids
+    assert admis > gardes > 0
+    selection = next(c for c in step.checks if c.name == "selection_par_facette")
+    assert f"{gardes} token(s) gardé(s) pour {admis} admis" in selection.detail
+
+
+async def test_une_reservation_dans_un_noeud_singleton_publie_autant_quelle_gardait() -> None:
+    """La contrepartie : quand la fenêtre ne porte que l'unité gardée, les deux nombres coïncident."""
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]), ("seule", [autre]))
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés"], facettes=["vitrages assurés", "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=5, search_limit=20, max_blocks=6, max_tokens=400),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    assert gardes > 0 and admis == gardes

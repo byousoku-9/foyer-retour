@@ -1059,6 +1059,15 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # l'ordre documentaire étant conservé à l'intérieur de chaque groupe (tri stable). Cet
             # ordre ne décide que **qui tient sous le budget** : le rendu, lui, retrouve plus bas
             # l'ordre documentaire de la fenêtre.
+            # **Correctif du tour 5 (C10) : la fenêtre est ce qui est dépensé, donc c'est elle qui
+            # se compte.** Le compteur du tour 4 n'additionnait que l'unité gardée du primaire
+            # réservé ; les frères qui entrent avec elle étaient admis par des `admit()` distincts
+            # et n'étaient attribués à personne. Mesuré : le check publiait « 99 tokens gardés pour
+            # 99 admis » quand la fenêtre réellement ouverte en faisait **1 022**. L'instrumentation
+            # ratait exactement le chiffre pour lequel elle avait été écrite, et un audit qui lui
+            # faisait confiance concluait que la réserve était bien calibrée.
+            rang_du_focus = (reserve_facettes[focus][0]
+                             if focus is not None and focus in reserve_facettes else None)
             ordre = _prioriser_focus(primary_ids, focus, reserve=focus_reserve)
             tete = ordre[:1] if (focus_reserve and ordre and ordre[0] == focus) else []
             admission_ids = [
@@ -1086,9 +1095,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     continue
                 reservee = reserve_facettes.get(item.block_id)
                 got = admit(unit, reserve=reservee is not None)
-                if reservee is not None and got:
-                    # C5 : honorer une réservation fait entrer **la fenêtre**, pas la seule unité
-                    # gardée. C'est cette dépense-là qu'aucun compteur ne voyait.
+                if reservee is not None and got and reservee[0] != rang_du_focus:
+                    # Une seconde réservation qui se trouve dans la fenêtre d'une autre n'a pas payé
+                    # l'ouverture : elle ne porte que son unité. La fenêtre est comptée une fois,
+                    # là où elle a été ouverte.
                     tokens_admis_par_rang[reservee[0]] = (
                         tokens_admis_par_rang.get(reservee[0], 0) + cout_des_blocs(got))
                 if item.block_id in got:
@@ -1105,6 +1115,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                             candidate for candidate in dependencies
                             if candidate in admitted_set and candidate not in decision_dependencies)
                 newly.extend(got)
+            if rang_du_focus is not None and newly:
+                # L'ouverture a eu lieu **pour** cette réservation : tout ce qui est entré avec elle
+                # est la dépense qu'elle a ordonnée, l'unité gardée comme ses voisins.
+                tokens_admis_par_rang[rang_du_focus] = (
+                    tokens_admis_par_rang.get(rang_du_focus, 0) + cout_des_blocs(newly))
             if newly:
                 # `admit()` a déjà pris sa décision dans l'ordre prioritaire. Pour le rendu, les
                 # membres présents dans la fenêtre retrouvent l'ordre documentaire ; les autres
