@@ -787,9 +787,18 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
       remonter l'effort de cet appel rougit ce témoin **avant** de coûter une deadline.
 
     Ce que le témoin n'affirme donc plus, et qu'il faut savoir : aux deux **plafonds envoyés** pris
-    ensemble (3 072 + 6 144, deux fois), la queue majorée vaut 305,1 s et dépasse `deadline_s`. La
+    ensemble (5 056 + 6 144, deux fois), la queue majorée vaut 351,8 s et dépasse `deadline_s`. La
     deadline couvre le chemin servi, pas un vérificateur qui saturerait sa réserve de réflexion —
     ce que seul un retour à `medium` rendrait à nouveau atteignable, et que l'assertion interdit.
+
+    **T13, 03/09/2026 : le terme du tour terminal passe de 3 072 à 5 056, et la marge du témoin
+    tombe de 48 s à 1,4 s.** C'est la mesure du gate Baloise qui l'a relevé (voir
+    `navigation_rediger_max_tokens`), et le chiffre que ce témoin rend est ce qui a **borné** le
+    plafond : la dérivation prescrivait 5 888, la queue en aurait fait 308,1 s. La marge de 1,4 s
+    n'est pas un confort qui s'est réduit, c'est le fait que la chaîne d'AD-1 est désormais à son
+    budget : le prochain terme qui monte — le tour terminal, *vérifier*, ou les tours d'outils dont
+    le majorant de 729 est un prototype quand le gate les voit saturer leurs 1 024 — ne pourra plus
+    être absorbé, et c'est l'ordre d'AD-11 qu'il faudra rouvrir.
 
     Le témoin est écrit contre la **cible du spine** (8 tours), et non contre le plafond du code :
     la deadline doit couvrir le chemin que l'architecture rend légitime. La seconde assertion tient
@@ -815,7 +824,8 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # au pire ≈ 315 par claim. À six claims : 6 × 315 ≈ 1 890 de JSON, plus les 496 tokens de
     # réflexion réellement observés sur ce tour.
     # T11 : plus de nombre figé ici — le plafond envoyé, pour la raison dite dans la docstring.
-    # Il vaut 3 072 : 1 890 de contrat JSON à six claims, 1 182 laissés à la réflexion de `high`.
+    # T13 : il vaut 5 056, dont 3 200 de contrat JSON à six claims — le pire JSON mesuré par le
+    # gate Baloise (2 558) majoré de 25 % — et 1 856 laissés à la réflexion de `medium`.
     # Pire tour d'outils du prototype : 729 tokens, dont 657 de réflexion adaptative (A16 run 1,
     # tour 3). Les tours terminaux mesurés du prototype (709 à 900) restent sous `TOUR_TERMINAL`.
     TOUR_D_OUTILS = 729
