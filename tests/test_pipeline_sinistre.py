@@ -57,6 +57,7 @@ from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
+from server.app.steps.verifier import _condition_de_section
 from tests.llm_fake import FakeAnthropic, fake_message, provider_exception
 
 DOC_ID = "cg"
@@ -655,7 +656,10 @@ async def test_a_baseline_guarantee_alone_is_covered(index: Index) -> None:
         claim_id=claim.claim_id, champs=ChampsApplicabilite(fait_requis_present=True),
         clauses=[ClauseCitee(block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
                              portee=document.scope_nodes(bloc.block_id), node_id=noeud,
-                             socle=document.node_scope_kind(noeud) == "commun")])
+                             socle=document.node_scope_kind(noeud) == "commun",
+                             # L1e : la même lecture que `steps.verifier._clauses_citees`, sinon le
+                             # rejeu hors pipeline prouverait une propriété plus faible que lui.
+                             condition_section=_condition_de_section(document, noeud))])
     assert decider([jugee], ask_client_max=_settings().ask_client_max).value == "couvert"
 
 

@@ -15,6 +15,7 @@ from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
+    ConditionDeSection,
     MissingPackage,
     applicable_de_claim,
     applicabilites_des_claims,
@@ -554,3 +555,99 @@ def test_une_clause_dont_le_fait_est_connu_et_contraire_ne_fonde_rien_non_plus()
     v = decider([_claim("c1", "garantie", _champs(True)), contraire],
                 ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
     assert v.value == "couvert" and v.missing.faits == [] and v.ask_client == []
+
+
+# --- (c) L1e : la condition écrite en tête de la section d'une garantie -------
+CONDITION_CP = ConditionDeSection(
+    block_id="d:p37:11", titre="3.1.4 Dégâts des eaux",
+    texte="Les présentes conditions spéciales sont applicables si les conditions particulières "
+          "mentionnent que la garantie “ dégâts des eaux ” est souscrite.",
+    renvoie_cp=True)
+
+
+def _garantie_conditionnee(claim_id: str = "c1", *,
+                           condition: ConditionDeSection = CONDITION_CP) -> ClaimJugee:
+    clause = _clause("garantie", block_id="d:p37:13")
+    return ClaimJugee(claim_id=claim_id,
+                      clauses=[clause.model_copy(update={"condition_section": condition})],
+                      champs=_champs(True))
+
+
+def test_une_garantie_conditionnee_par_les_cp_ne_sort_jamais_couverte() -> None:
+    """Témoin (a) de L1e — le cas mesuré : S2 sans claim sur `p37:11`.
+
+    La garantie est du socle par sa portée, ses champs typés sont les plus favorables qui soient, et
+    aucune autre clause n'est ouverte : c'est exactement le jeu qui rendait `couvert`. Le contrat
+    écrit pourtant, en tête de « 3.1.4 Dégâts des eaux », qu'elle n'est applicable que si les
+    conditions particulières la mentionnent — et personne ne les a lues.
+    """
+    v = decider([_garantie_conditionnee()], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "sous_conditions", v.value
+    # La condition est **montrée** : le bloc et son texte, pour que « sous conditions » se comprenne.
+    assert "d:p37:11" in v.reason and "dégâts des eaux" in v.reason
+    assert ("Vos conditions particulières mentionnent-elles la garantie "
+            "« 3.1.4 Dégâts des eaux » ?") in v.ask_client
+
+
+def test_une_garantie_sans_condition_en_tete_de_section_ne_bouge_pas() -> None:
+    """Témoin (b) — le plafond ne ferme pas la règle (3) : c'est une propriété de la section citée."""
+    v = decider([_claim("c1", "garantie", _champs(True))], ask_client_max=ASK_MAX,
+                missing=PAQUET_ETABLI)
+    assert v.value == "couvert", v.value
+    assert not any("conditions particulières mentionnent" in q for q in v.ask_client)
+
+
+def test_aucune_combinaison_de_claims_ne_couvre_une_section_conditionnee() -> None:
+    """Témoin (c), la contre-épreuve : la condition ne se lève que par une claim retenue `oui`.
+
+    On lui ajoute successivement tout ce qui, dans la table, pousse vers `couvert` : une seconde
+    garantie de socle inconditionnelle, une exclusion écartée, et la claim de condition elle-même —
+    d'abord telle que le pipeline la produit (`cp_requise` forcé par le texte, donc `humain`), puis au
+    mieux-disant. Seul le dernier cas la lève, et il est hors d'atteinte tant que les CP ne sont pas
+    au dossier.
+    """
+    conditionnee = _garantie_conditionnee()
+    autre = _claim("c2", "garantie", _champs(True))
+    ecartee = _claim("c3", "exclusion", _champs(False))
+    citee_humain = ClaimJugee(claim_id="c4",
+                              clauses=[_clause("condition", block_id="d:p37:11")],
+                              champs=_champs(True, cp=True))
+    for jeu in ([conditionnee], [conditionnee, autre], [conditionnee, autre, ecartee],
+                [conditionnee, citee_humain]):
+        assert decider(jeu, ask_client_max=ASK_MAX, missing=PAQUET_ETABLI).value != "couvert", jeu
+    citee_etablie = ClaimJugee(claim_id="c4",
+                               clauses=[_clause("condition", block_id="d:p37:11")],
+                               champs=_champs(True))
+    assert applicable_de_claim(citee_etablie) == "oui"
+    v = decider([conditionnee, citee_etablie], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert", v.value
+
+
+def test_une_condition_de_section_qui_ne_renvoie_pas_aux_cp_se_demande_dans_ses_termes() -> None:
+    """Le lexique `RENVOIS_CP` est un **témoin**, pas la règle : il choisit les mots de la question.
+
+    La règle est structurelle — un bloc `condition` en tête de section, avant les sous-sections —, et
+    elle attrape aussi des conditions qui ne renvoient à aucune pièce du dossier. Leur demander « vos
+    conditions particulières mentionnent-elles… » n'aurait aucun sens ; le plafond, lui, ne change pas.
+    """
+    interne = CONDITION_CP.model_copy(update={
+        "block_id": "d:p76:6", "titre": "4.1.3.5 Frais de recours",
+        "texte": "Lorsque, avec l’accord écrit préalable de la Compagnie, il y a lieu de solliciter "
+                 "l’avis d’un expert…", "renvoie_cp": False})
+    v = decider([_garantie_conditionnee(condition=interne)], ask_client_max=ASK_MAX,
+                missing=PAQUET_ETABLI)
+    assert v.value == "sous_conditions", v.value
+    assert ("La condition posée en tête de « 4.1.3.5 Frais de recours » est-elle remplie ?"
+            in v.ask_client)
+
+
+def test_une_garantie_ecartee_ne_fait_pas_poser_la_question_de_sa_section() -> None:
+    """Même doctrine que `_libelles_manquants` : une clause sans objet ne subordonne rien."""
+    clause = _clause("garantie", block_id="d:p37:13").model_copy(
+        update={"condition_section": CONDITION_CP})
+    ecartee = ClaimJugee(claim_id="c1", clauses=[clause], champs=_champs(False))
+    assert applicable_de_claim(ecartee) == "non"
+    v = decider([ecartee, _claim("c2", "garantie", _champs(True))],
+                ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert not any("3.1.4 Dégâts des eaux" in q for q in v.ask_client)
+    assert v.value == "couvert", v.value

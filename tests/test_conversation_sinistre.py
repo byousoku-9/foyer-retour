@@ -26,6 +26,7 @@ from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
+    ConditionDeSection,
     MissingPackage,
     decider,
 )
@@ -831,3 +832,38 @@ def test_seuils_conversation_alignent_settings_api_domaine_et_trace() -> None:
         })
         assert refused.status_code == 400
         assert "limite de 1 tours" in refused.json()["error"]["message"]
+
+
+def test_les_cp_produites_levent_la_condition_ecrite_en_tete_de_section() -> None:
+    """Story 5.7 (L1e) : le plafond de section doit pouvoir se refermer, sinon le fil tourne en rond.
+
+    Le premier tour plafonne le verdict à `sous_conditions` parce que le contrat n'ouvre la section de
+    la garantie que si les conditions particulières la mentionnent, et qu'à J+1 personne ne les lit.
+    C'est précisément la pièce que le fil réclame : quand le gestionnaire répond qu'elle la mentionne,
+    la condition est levée et la table retrouve son chemin ordinaire.
+    """
+    condition = ConditionDeSection(
+        block_id="cg:p1:9", titre="3.1.4 Dégâts des eaux",
+        texte="Les présentes conditions spéciales sont applicables si les conditions particulières "
+              "mentionnent que la garantie “ dégâts des eaux ” est souscrite.",
+        renvoie_cp=True)
+    claim = _claim().model_copy(deep=True)
+    assert claim.champs is not None
+    claim.champs.fait_requis_present = True
+    claim.champs.fait_manquant = None
+    claim.champs.qualites_exigees = []
+    claim.champs.qualites_non_etablies = []
+    claim.clauses[0].qualificatifs = []
+    claim.clauses[0].condition_section = condition
+    verdict = decider([claim], ask_client_max=5, missing=MissingPackage(
+        conditions_particulieres=True, options_souscrites=False, avenants=False, date_effet=False))
+    assert verdict.value == "sous_conditions" and "cg:p1:9" in verdict.reason
+    state = initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="d"),
+        answer=_state().answer.model_copy(update={"verdict": verdict}), decision_claims=[claim])
+    cp = next(q for q in state.questions if q.kind == "conditions_particulieres")
+    state = appliquer(state, ConversationAction(question_id=cp.question_id, value="oui"),
+                      request_id="r1", ask_client_max=5)
+    assert state.answer.verdict is not None
+    assert state.answer.verdict.value == "couvert", state.answer.verdict.reason

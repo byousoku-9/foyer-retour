@@ -51,7 +51,7 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
-from server.app.steps.verifier import _mots_qualifiants
+from server.app.steps.verifier import _condition_de_section, _mots_qualifiants
 from tests.fixtures import LLMRecorder
 from tests.helpers_tiers import modele_attendu, verifier_etage
 from tests.llm_fake import FakeAnthropic, RecordedAnthropic, fake_message
@@ -120,7 +120,11 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
             clauses.append(ClauseCitee(
                 block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
                 portee=document.scope_nodes(bloc.block_id), node_id=noeud,
-                socle=document.node_scope_kind(noeud) == "commun"))
+                socle=document.node_scope_kind(noeud) == "commun",
+                # Story 5.7 (L1e) : le rejeu doit lire la même chose que `steps.verifier._clauses_citees`
+                # — sans quoi il prouverait une propriété **plus faible** que celle du pipeline, sur
+                # des clauses que le code sert déjà autrement.
+                condition_section=_condition_de_section(document, noeud)))
         jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
                                  champs=ChampsApplicabilite(
                                      fait_requis_present=True, qualites_exigees=exigees or [],
@@ -433,11 +437,21 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     ouvert = decider(rejeu, ask_client_max=settings.ask_client_max)
     assert ouvert.value != "couvert", ouvert.value  # la qualité non établie referme la règle (3)
     assert any(subite in q for q in ouvert.ask_client)
-    # et la règle (3) n'est pas morte pour autant : sans qualité exigée, la même garantie du socle
-    # sort `couvert`. C'est bien le corroborant qui manque au cas bougie, pas le chemin.
+    # Story 5.7 (L1e) — l'attendu de ce second rejeu a changé, et le changement est le correctif.
+    # Sans qualité exigée, la garantie du socle sortait `couvert` : c'était faux sur **ce** contrat.
+    # L'article 3.1.1 s'ouvre par `p34:4` — « Les présentes conditions spéciales sont applicables si
+    # les conditions particulières mentionnent que la garantie “incendie et périls assimilés” est
+    # accordée » —, et rien, à J+1, ne lit les conditions particulières. Le verdict est donc plafonné
+    # à `sous_conditions`, la condition est citée dans la raison, et la question est posée.
+    # Que la règle (3) reste vivante là où la section n'est pas conditionnée se prouve sur du code pur
+    # (`test_verdict.py`) et sur le pipeline (`test_pipeline_sinistre.py`), pas ici : sur AXA, aucune
+    # garantie de conditions spéciales n'est acquise sans les CP, et c'est ce que le contrat dit.
     sans_qualite_jugees, _ = _au_mieux_disant(answer, index)
     sans_qualite = decider(sans_qualite_jugees, ask_client_max=settings.ask_client_max)
-    assert sans_qualite.value == "couvert", sans_qualite.value
+    assert sans_qualite.value == "sous_conditions", sans_qualite.value
+    assert f"{DOC_ID}:p34:4" in sans_qualite.reason
+    assert any("conditions particulières mentionnent-elles" in q.casefold()
+               for q in sans_qualite.ask_client), sans_qualite.ask_client
     # T1c : le rejeu doit encore porter **la** garantie du cas bougie — sans quoi il prouverait la
     # règle (3) sur autre chose que la clause dont l'AC parle.
     assert any(clause.block_id == f"{DOC_ID}:p34:12"

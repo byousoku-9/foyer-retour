@@ -214,6 +214,29 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     assert covered == {f"{DOC}:a3.1.8.{i}" for i in (3, 4, 5, 6)}
     assert not covered & {f"{DOC}:a3.1.8", *(f"{DOC}:a3.1.8.{i}" for i in (1, 2, 7, 8))}
     assert d.node_scope_kind(d.node_of(f"{DOC}:p47:4")) == "extension"
+    # Story 5.7 (L1e) : la condition d'applicabilité que le contrat écrit **en tête** de la section
+    # d'une garantie, lue sur l'arbre. C'est elle qui manquait au verdict — `p37:11` n'était vue que
+    # si le modèle la citait, et le même sinistre sortait `sous_conditions` ou `couvert` selon ce
+    # hasard. La garantie `p37:13` vit dans « 3.1.4.1 Etendue de la garantie » : la condition est un
+    # cran au-dessus, et c'est en remontant qu'on la trouve.
+    assert d.condition_de_section(f"{DOC}:a3.1.4") == f"{DOC}:p37:11"
+    assert d.condition_de_section_applicable(d.node_of(f"{DOC}:p37:13")) == f"{DOC}:p37:11"
+    assert normalize(d.block(f"{DOC}:p37:11").text).startswith(
+        "les presentes conditions speciales sont applicables si les conditions particulieres")
+    # Même structure pour l'incendie (`p34:4`) et la RC vie privée (`p65:5`), les deux autres
+    # sections que la mesure de L1e nommait.
+    assert d.condition_de_section_applicable(d.node_of(f"{DOC}:p34:12")) == f"{DOC}:p34:4"
+    assert d.condition_de_section_applicable(d.node_of(f"{DOC}:p65:9")) == f"{DOC}:p65:5"
+    # Le critère est structurel, pas lexical, et il retient **le** bloc de tête : `p78:1` est une
+    # seconde condition écrite après l'ouverture `p77:6` de la même section — elle nuance ce qui
+    # précède, elle ne subordonne pas la section.
+    assert d.condition_de_section(f"{DOC}:a4.1.4") == f"{DOC}:p77:6"
+    # Et la limite connue, notée en travail différé : « 3.1.9 Frais annexes » s'ouvre sur un bloc que
+    # l'ingestion a typé `garantie` parce qu'il fond la phrase de condition et la première garantie
+    # dans le même bloc. Le plafond de section ne le voit donc pas ; le renvoi aux CP écrit dans son
+    # propre texte le rend malgré tout `humain` dès qu'il est cité (T18, règle 2bis).
+    assert d.condition_de_section(f"{DOC}:a3.1.9") is None
+    assert d.block(f"{DOC}:p47:8").kind == "garantie"
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
     assert manifest["overlay_hash"] is None and not (REAL / "typing.manual.json").exists()
     raw = json.loads((REAL / "document.json").read_text("utf-8"))

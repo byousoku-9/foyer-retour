@@ -164,6 +164,44 @@ def test_a_block_knows_its_node_and_that_node_its_scope_kind() -> None:
         doc.node_of("d:p1:9")
 
 
+def test_une_section_qui_souvre_sur_une_condition_est_une_garantie_conditionnee() -> None:
+    """Story 5.7 (L1e) : la condition d'applicabilité d'une section se lit sur l'**arbre**.
+
+    Le critère est la position et le `kind`, jamais les mots : le premier bloc de contenu d'un nœud
+    qui a des sous-sections, avant la première d'entre elles. Ce qu'un contrat écrit là ne parle pas
+    d'un cas — il dit à quelle condition tout ce qui suit s'applique. Une condition écrite *après* la
+    substance de la section, ou dans un nœud feuille, nuance ce qui précède : elle ne subordonne rien.
+    """
+    nodes = [{"node_id": "d", "items": [{"node_id": "d:cond"}, {"node_id": "d:apres"},
+                                        {"node_id": "d:feuille"}, {"node_id": "d:direct"}]},
+             # la section conditionnée : titre, condition, puis les sous-sections
+             {"node_id": "d:cond", "title": "3.1.4 Dégâts des eaux",
+              "items": [{"block_id": "d:p1:1"}, {"node_id": "d:cond.1"}]},
+             {"node_id": "d:cond.1", "title": "3.1.4.1 Etendue", "items": [{"block_id": "d:p1:2"}]},
+             # la condition vient après la garantie : elle nuance l'étendue, elle ne la conditionne pas
+             {"node_id": "d:apres", "items": [{"block_id": "d:p1:3"}, {"block_id": "d:p1:4"},
+                                              {"node_id": "d:apres.1"}]},
+             {"node_id": "d:apres.1", "items": [{"block_id": "d:p1:5"}]},
+             # un nœud feuille : ses blocs sont sa substance
+             {"node_id": "d:feuille", "items": [{"block_id": "d:p1:6"}]},
+             # un nœud qui ouvre directement sur une sous-section n'a pas de tête
+             {"node_id": "d:direct", "items": [{"node_id": "d:direct.1"}]},
+             {"node_id": "d:direct.1", "items": [{"block_id": "d:p1:7"}]}]
+    blocks = [_blk(1) | {"kind": "condition"}, _blk(2) | {"kind": "garantie"},
+              _blk(3) | {"kind": "garantie"}, _blk(4) | {"kind": "condition"},
+              _blk(5) | {"kind": "garantie"}, _blk(6) | {"kind": "condition"},
+              _blk(7) | {"kind": "garantie"}]
+    doc = _doc(nodes, blocks)
+    assert doc.condition_de_section("d:cond") == "d:p1:1"
+    assert doc.condition_de_section("d:apres") is None
+    assert doc.condition_de_section("d:feuille") is None
+    assert doc.condition_de_section("d:direct") is None
+    # la garantie vit un cran plus bas : la condition se lit en remontant, la plus proche l'emporte
+    assert doc.condition_de_section_applicable(doc.node_of("d:p1:2")) == "d:p1:1"
+    assert doc.condition_de_section_applicable(doc.node_of("d:p1:5")) is None
+    assert doc.condition_de_section_applicable(doc.node_of("d:p1:7")) is None
+
+
 def test_scope_nodes_explicit_list_restricts_the_subtree() -> None:
     """Amendement AD-2 (revue Codex 1.2) : « pour les extensions 3.1.8.3 à 3.1.8.6 » ne couvre ni 3.1.8.1 ni 3.1.8.8."""
     nodes = [{"node_id": "d", "items": [{"node_id": "d:a3.1.8"}]},
