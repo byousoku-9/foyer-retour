@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing
 import stat
 from pathlib import Path
@@ -174,3 +175,80 @@ async def test_reponse_reellement_recue_mais_invalide_conserve_enveloppe_et_erre
     row = json.loads(path.read_text("utf-8"))
     assert row["response"] is not None
     assert row["error_class"] == "LlmParse"
+
+
+class _SinkQuiLeve:
+    """Sink de persistance qui échoue à l'écriture — la classe levée est le sujet du témoin."""
+
+    persistent = True
+
+    def __init__(self, erreur: Exception) -> None:
+        self._erreur = erreur
+        self.appels = 0
+
+    def append(self, event: ExactLlmAuditEvent) -> dict[str, object]:
+        self.appels += 1
+        raise self._erreur
+
+
+async def test_un_disque_plein_perd_l_artefact_d_audit_jamais_la_reponse_deja_payee(
+        caplog: pytest.LogCaptureFixture) -> None:
+    """AD-10 : l'audit exact est un artefact d'exploitation, pas une dépendance de la réponse.
+
+    Signature reproduite de l'incident du 02/09/2026 : l'appel modèle a abouti, il est **déjà
+    facturé**, et l'écriture de `llm-calls.jsonl` lève `ENOSPC`. Avant le correctif, l'`OSError`
+    sortait nu de `tool_turn` et devenait un 500 — l'appel payé n'entrant même pas dans la trace.
+    Ce que le témoin exige : la réponse est servie, `step.calls` est **complet** (empreintes et
+    tailles viennent de la projection sûre, calculée sans E/S), `audit_persisted` dit `False` — la
+    trace ne ment pas sur l'artefact manquant —, et la pile part au journal.
+    """
+    sink = _SinkQuiLeve(OSError(28, "No space left on device", "/tmp/.audit/llm-calls.jsonl"))
+    client = LlmClient(
+        Settings(_env_file=None, anthropic_api_key=""),
+        anthropic_client=FakeAnthropic([fake_message(
+            model=TIERS["micro"], stop_reason="end_turn", content=[], input_tokens=2500,
+            output_tokens=147)]),
+        audit_sink=sink,
+    )
+    budget = RequestBudget(deadline_s=100, max_attempts=4, max_cost_eur=1)
+    step = StepTrace(name="retrouver")
+
+    with caplog.at_level(logging.WARNING, logger="foyer.llm"):
+        resultat = await client.tool_turn(
+            tier="micro", system_prefix="préfixe stable", messages=[],
+            tools=[{"name": "chercher", "input_schema": {"type": "object"}}],
+            budget=budget, step=step, max_tokens=200)
+
+    assert resultat.message.stop_reason == "end_turn"
+    assert sink.appels == 1
+    assert budget.cost_eur > 0  # l'appel a été facturé…
+    (call,) = step.calls          # …et il est bien dans la trace, contrairement à l'incident
+    assert call.audit_persisted is False
+    assert call.usage.output == 147
+    assert len(call.input_sha256) == 64 and len(call.response_sha256) == 64
+    assert call.input_bytes > 0 and call.response_bytes > 0
+    (ligne,) = [r for r in caplog.records if r.name == "foyer.llm"]
+    assert "audit exact non persisté" in ligne.getMessage()
+    assert ligne.exc_info is not None and ligne.exc_info[1].errno == 28
+
+
+async def test_un_defaut_de_notre_code_dans_l_audit_reste_terminal() -> None:
+    """Contre-sonde de mutation : la borne est `OSError`, jamais `Exception`.
+
+    `audit.py` lève une `ValueError` quand un événement dépasse sa borne de taille — c'est un défaut
+    de **notre** code, pas du disque, et rien ne justifie de servir la réponse en l'avalant. Élargir
+    l'`except` de `_audit_call` à `Exception` rendrait le témoin précédent vert *et* celui-ci rouge :
+    c'est exactement ce que cette assertion existe pour empêcher.
+    """
+    sink = _SinkQuiLeve(ValueError("événement d'audit > borne"))
+    client = LlmClient(
+        Settings(_env_file=None, anthropic_api_key=""),
+        anthropic_client=FakeAnthropic([fake_message(model=TIERS["micro"])]),
+        audit_sink=sink,
+    )
+    with pytest.raises(ValueError, match="borne"):
+        await client.parse(
+            tier="micro", system_prefix="p", messages=[{"role": "user", "content": "q"}],
+            output_model=_Answer,
+            budget=RequestBudget(deadline_s=100, max_attempts=1, max_cost_eur=1),
+            step=StepTrace(name="api"))

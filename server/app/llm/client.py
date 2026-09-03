@@ -357,9 +357,28 @@ class LlmClient:
             trusted_line_uids=trusted_line_uids, request=request, response=response,
             error_class=error_class,
         )
-        return self.audit_sink.append(event) | {
-            "audit_persisted": bool(getattr(self.audit_sink, "persistent", False)),
-        }
+        try:
+            projection = self.audit_sink.append(event)
+            persiste = bool(getattr(self.audit_sink, "persistent", False))
+        except OSError as exc:
+            # L'audit exact est un **artefact d'exploitation, pas une dépendance de la réponse**.
+            # AD-10 ne le pose nulle part en condition de service : il exige la `Trace` (calculée en
+            # mémoire) et réserve l'enveloppe exacte aux runners hors ligne. Une panne disque doit
+            # donc faire perdre l'artefact, jamais une réponse **déjà appelée et déjà facturée** —
+            # c'est la règle que `cache/reponses.ecrire` applique déjà à quelques fichiers d'ici.
+            # Sans cette borne, un `ENOSPC` sur `os.write` sortait nu de `tool_turn`, traversait la
+            # boucle d'outils et devenait un 500, l'appel payé restant absent de la trace (enquête
+            # du 03/09/2026 : +0,0428 € au budget pour zéro appel audité).
+            # `projection` est la **même** projection sûre, calculée sans aucune E/S : les empreintes,
+            # les tailles et les identifiants restent exacts. `audit_persisted=False` dit alors la
+            # vérité — l'artefact manque —, ce qui est précisément l'exactitude qu'AD-10 demande.
+            # **Jamais au-delà d'`OSError` :** la `ValueError` de borne d'`audit.py` signale un défaut
+            # de notre code, pas du disque, et reste terminale.
+            _logger.warning("audit exact non persisté (%s) : la réponse est servie sans lui",
+                            type(exc).__name__, exc_info=exc)
+            projection = event.public_projection()
+            persiste = False
+        return projection | {"audit_persisted": persiste}
 
     @staticmethod
     def _apply_audit(call: LLMCall, projection: dict[str, Any]) -> None:
