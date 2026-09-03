@@ -296,16 +296,17 @@ def test_variante_incompatible_est_refusee_au_preflight() -> None:
         variante_du_cas(_cas_sinistre(), "local")
 
 
-def test_la_suite_sinistre_tourne_outils_par_defaut_et_garde_deterministe_en_baseline() -> None:
+def test_la_suite_sinistre_tourne_la_navigation_par_defaut_et_garde_les_autres_en_baseline() -> None:
     """Story 4.2d : deux runs ne sont comparables qu'à variante égale — le harness mesure le défaut.
 
-    AD-1, amendement du 25/08/2026 : la navigation par outils est le mode de production, la variante
-    `deterministe` reste la baseline **explicitement** demandée.
+    AD-1, amendement du 03/09/2026 : la **navigation par le modèle** est le chemin servi ; `outils`
+    et `deterministe` restent des baselines **explicitement** demandées.
     """
     cas = _cas_sinistre()
-    assert variante_du_cas(cas, None) == "outils" == runner.pipeline_sinistre.VARIANT
+    assert variante_du_cas(cas, None) == "navigation" == runner.pipeline_sinistre.VARIANT
     assert variante_du_cas(cas, "deterministe") == "deterministe"
     assert variante_du_cas(cas, "outils") == "outils"
+    assert variante_du_cas(cas, "navigation") == "navigation"
 
 
 @pytest.mark.parametrize("field", ["block_ids", "fiche_ids"])

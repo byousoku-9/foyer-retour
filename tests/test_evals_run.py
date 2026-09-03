@@ -1432,7 +1432,7 @@ def test_executer_cas_sans_variante_attend_le_defaut_du_pipeline_de_la_suite(sui
     _answer, trace, _cout = asyncio.run(runner.executer_cas(
         cas, ctx, doc_id=doc_id, budget_restant_eur=1.0))  # aucune variante passée
 
-    assert trace.variant == runner.DEFAUT_PAR_SUITE[suite] == "outils"
+    assert trace.variant == runner.DEFAUT_PAR_SUITE[suite] == "navigation"
 
 
 def test_guide_run_without_variant_uses_the_runtime_versioned_setting() -> None:

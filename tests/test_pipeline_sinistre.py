@@ -243,6 +243,9 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True,
 # Sentinelle : « n'envoie pas `variant` du tout » — le seul moyen d'éprouver le **défaut** du
 # pipeline (story 4.2d). Le défaut du helper reste `deterministe` : tous les tests écrits avant
 # cette story demandent donc explicitement la baseline, et continuent de mesurer ce qu'ils mesuraient.
+# Depuis l'amendement AD-1 du 03/09/2026, le défaut du **pipeline** est `navigation` : les témoins
+# de la variante `outils` la demandent donc explicitement, et le chemin servi est éprouvé par
+# `tests/test_naviguer.py` et par les témoins de bout en bout.
 SANS_VARIANTE = object()
 
 
@@ -1686,6 +1689,19 @@ def _tous_les_noeuds(corpus: CorpusNeutre) -> tuple[str, ...]:
     return (corpus.identite.socle, corpus.identite.annexe)
 
 
+def _script_navigation(corpus: CorpusNeutre, **navigation) -> list:
+    """Le script du chemin **servi** (amendement AD-1 du 03/09/2026) : lire, dire qu'on a fini,
+    rédiger dans le même fil, vérifier.
+
+    Un tour d'outils, un tour sans outil qui clôt la lecture, puis l'ébauche — que le code demande
+    par un message de plus dans la **même** conversation, et non par un second appel.
+    """
+    navigation.setdefault("noeuds", _tous_les_noeuds(corpus))
+    return [_comprendre_neutre(corpus), _navigation(corpus, **navigation),
+            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+            _rediger_neutre(corpus), _verifier_neutre()]
+
+
 def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
     """Script nominal question-aware : lecture, conclusion d'insuffisance, rédaction, vérification.
 
@@ -1705,7 +1721,7 @@ def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
     return [*script, _rediger_neutre(corpus), _verifier_neutre()]
 
 
-async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = SANS_VARIANTE,
+async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = "outils",
                       settings: Settings | None = None, **kw):
     return await _run(corpus.index, script,
                       settings=settings or _settings_neutre(corpus.identite),
@@ -1807,7 +1823,10 @@ def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existan
 
     async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
         kw["client"] = LlmClient(kw["settings"], anthropic_client=fake)
-        return await sinistre.run(doc_id, question, faits, **kw)
+        # Le quota et la transmission de la fondatrice sont des mécanismes de la variante
+        # `outils` : elle n'est plus servie par défaut (amendement AD-1 du 03/09/2026) et se
+        # demande donc explicitement, sans quoi ce témoin mesurerait un autre chemin.
+        return await sinistre.run(doc_id, question, faits, variant="outils", **kw)
 
     app = create_app(reglages)
     with TestClient(app) as client:
@@ -1874,20 +1893,22 @@ async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
 
 
-def test_une_requete_http_sans_variante_sert_la_navigation_par_outils(
+def test_une_requete_http_sans_variante_sert_la_navigation_par_le_modele(
         neutre: CorpusNeutre) -> None:
     """AC centrale : c'est parce que le corps ne nomme aucune variante que le défaut est **servi**.
 
     `POST /api/v1/sinistre` ne transporte pas `variant` (`api/schemas.py`, `extra="forbid"`) : la
-    variante servie en HTTP est donc, littéralement, le défaut du pipeline. Le seam est celui des
-    autres tests de route de ce fichier — pipeline réel scripté → FastAPI → JSON, sans service
-    externe — mais sur le corpus neutre : la story câble une variante, pas un document.
+    variante servie en HTTP est donc, littéralement, le défaut du pipeline. Depuis l'amendement AD-1
+    du 03/09/2026, c'est la **navigation par le modèle** : deux tours de lecture, puis l'ébauche
+    rendue dans la même conversation. Le seam est celui des autres tests de route de ce fichier —
+    pipeline réel scripté → FastAPI → JSON, sans service externe — mais sur le corpus neutre : la
+    story câble une variante, pas un document.
     """
     from fastapi.testclient import TestClient
 
     from server.app.api.main import create_app
 
-    fake = FakeAnthropic(_script_outils(neutre))
+    fake = FakeAnthropic(_script_navigation(neutre))
     reglages = _settings_neutre(neutre.identite, env="dev", allow_ungated=True)
 
     async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
@@ -1906,9 +1927,13 @@ def test_une_requete_http_sans_variante_sert_la_navigation_par_outils(
     assert reponse.status_code == 200, reponse.text
     corps = reponse.json()
     assert fake.remaining_script == 0
-    assert corps["trace"]["pipeline"] == "sinistre" and corps["trace"]["variant"] == "outils"
+    assert corps["trace"]["pipeline"] == "sinistre" and corps["trace"]["variant"] == "navigation"
     navigation = corps["trace"]["steps"][1]
     assert navigation["name"] == "retrouver" and len(navigation["calls"]) == 2
+    # La rédaction est le message suivant du **même** fil : un appel, sur les seuls blocs ouverts.
+    redaction = corps["trace"]["steps"][2]
+    assert redaction["name"] == "rediger" and len(redaction["calls"]) == 1
+    assert redaction["opened_block_ids"] == navigation["opened_block_ids"]
     assert corps["sources"][0]["block_id"] == neutre.bloc("prise_en_charge")
 
 
@@ -2115,7 +2140,8 @@ async def test_une_variante_inconnue_est_refusee_avant_tout_appel_facture(
     with pytest.raises(InvalidRequest, match="variante") as capture:
         await _run_neutre(neutre, [], variant="agentique")
     assert all(connue in capture.value.message for connue in sinistre.VARIANTES)
-    assert sinistre.VARIANTES == {"outils", "deterministe"} and sinistre.VARIANT == "outils"
+    assert sinistre.VARIANTES == {"navigation", "outils", "deterministe"}
+    assert sinistre.VARIANT == "navigation"  # le chemin servi (amendement AD-1 du 03/09/2026)
 
 
 # --- la garde métamorphique : aucune décision ne tient à l'identité de ce qui est lu -------------
@@ -2148,9 +2174,11 @@ async def _decisions_de_variante(corpus: CorpusNeutre, scenario: str,
     monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
 
     if scenario == "defaut":
-        script, variant = _script_outils(corpus), SANS_VARIANTE
+        # La variante `outils` n'est plus le défaut du pipeline (amendement AD-1 du 03/09/2026),
+        # mais son dispatch reste construit et se mesure ici, demandé explicitement.
+        script, variant = _script_outils(corpus), "outils"
     elif scenario == "repli":
-        script, variant = _script_outils(corpus, noeuds=(), chercher=False), SANS_VARIANTE
+        script, variant = _script_outils(corpus, noeuds=(), chercher=False), "outils"
     else:  # baseline explicite
         script = [_comprendre_neutre(corpus), _rediger_neutre(corpus), _verifier_neutre()]
         variant = "deterministe"
@@ -2589,14 +2617,15 @@ def _verifier_les_deux() -> dict:
                      facettes=[["k1"], ["k2"]])
 
 
-async def _run_par_facette(corpus: CorpusNeutre, script: list, **kw):
+async def _run_par_facette(corpus: CorpusNeutre, script: list, *,
+                           variant: object = "outils", **kw):
     # Le plafond d'appels par défaut du fichier (6) est calibré sur une chaîne sans navigation à
     # deux tours ; ces témoins en ont une, et la relance d'AD-3 en coûte deux de plus. Le plafond
     # est relevé pour que le budget ne décide pas à la place du mécanisme mesuré.
     kw.setdefault("budget", RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
     return await _run(corpus.index, script,
                       settings=_settings_neutre(corpus.identite),
-                      question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE, **kw)
+                      question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=variant, **kw)
 
 
 async def test_la_facette_laissee_dehors_par_la_navigation_est_cherchee_puis_couverte(
@@ -2664,7 +2693,7 @@ async def test_une_facette_introuvable_est_dite_absente_sans_claim_inventee(
             _verdict_insuffisant(),
             _rediger_inventaire(par_facette),
             _verifier_une_facette()],
-        settings=reglages, question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=SANS_VARIANTE,
+        settings=reglages, question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant="outils",
         budget=RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
 
     assert fake.remaining_script == 0
@@ -2731,6 +2760,44 @@ async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
     assert FACETTE_REGISTRE in relance and FACETTE_INVENTAIRE not in relance.split("motif")[-1]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
+
+
+async def test_sous_navigation_la_facette_non_couverte_repart_en_consigne_dans_le_meme_fil(
+        par_facette: CorpusNeutre) -> None:
+    """AD-1 amendé : la couverture mesurée est **renvoyée au modèle**, jamais employée à choisir.
+
+    C'est la seconde moitié de l'écart A16, sur le chemin servi : la lecture portait les deux
+    règles, la première rédaction n'en a rendu qu'une. Aucune passe de code ne rouvre de blocs ni
+    n'en attribue à une sous-question — ce qui repart au modèle est le **libellé** de celle
+    qu'aucune affirmation affichée ne couvre, dans la conversation où il a lu, et il a toujours sous
+    les yeux ce qu'il avait lu. La relance reste unique, et la seconde ébauche est demandée sans
+    réécrire le préfixe.
+    """
+    answer, trace, fake = await _run_par_facette(
+        par_facette, [
+            _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
+            _navigation(par_facette, chercher=False,
+                        noeuds=(par_facette.identite.socle, par_facette.identite.annexe)),
+            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+            _rediger_inventaire(par_facette),
+            _verifier_une_facette(),
+            _rediger_les_deux(par_facette),
+            _verifier_les_deux()],
+        variant="navigation")
+
+    assert fake.remaining_script == 0
+    relance = fake.requests[-2]["messages"][-1]["content"]
+    assert "restée(s) sans affirmation affichée" in relance and FACETTE_REGISTRE in relance
+    # Aucun identifiant de bloc n'est soufflé : le code mesure, il ne choisit pas.
+    assert par_facette.bloc("regle_registre") not in relance
+    # Un message de plus dans le **même** fil : le préfixe est byte-identique depuis la lecture.
+    assert len({r["system"][0]["text"] for r in fake.requests[1:4]}) == 1
+    assert fake.requests[-2]["system"][0]["text"] == fake.requests[1]["system"][0]["text"]
+    assert fake.requests[-2]["messages"][0] == fake.requests[1]["messages"][0]
+    assert {q.block_id for c in answer.claims for q in c.quotes} == {
+        par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "rediger", "verifier", "restituer"]
 
 
 async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(

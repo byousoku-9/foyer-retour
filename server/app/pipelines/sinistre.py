@@ -80,6 +80,7 @@ from server.app.pipelines.commun import (
     retrieval_budget,
 )
 from server.app.steps.comprendre import comprendre
+from server.app.steps.naviguer import Navigation
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
 from server.app.steps.retrouver import (couvrir_facettes, part_du_mot_borne,
@@ -94,9 +95,14 @@ PIPELINE = "sinistre"
 # le guide, par la **même** fonction d'étape (`steps.retrouver.retrouver_outils`) et le même repli.
 # Une variante inconnue reste refusée **avant** tout appel facturé plutôt que traitée comme l'une des
 # deux (AD-16 : jamais de dégradé silencieux).
-VARIANT = "outils"
+# **Amendement AD-1 du 03/09/2026.** La navigation par le modèle est le chemin servi : le modèle
+# reçoit le sommaire complet et quatre outils, puis rédige dans la **même** conversation
+# (`steps/naviguer.py`). Les deux variantes antérieures restent construites et testées — elles ne
+# sont plus servies —, et leur retrait est une tâche ultérieure de la story 5.6.
+VARIANT = "navigation"
+VARIANT_OUTILS = "outils"
 VARIANT_DETERMINISTE = "deterministe"
-VARIANTES = frozenset({VARIANT, VARIANT_DETERMINISTE})
+VARIANTES = frozenset({VARIANT, VARIANT_OUTILS, VARIANT_DETERMINISTE})
 
 # Ce que le refus d'un sinistre annonce, par `AbsenceProof.kind`. Composé par le **code**, comme les
 # phrases de `restituer.PHRASES_DE_REFUS` : aucune de ces situations n'est une lecture du contrat.
@@ -735,7 +741,27 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # **toute** l'étape »). La hisser dans une variable est ce qui empêche le repli de repartir
         # sur une borne neuve, c'est-à-dire de ne plus être borné.
         borne_retrieval = retrieval_budget(settings)
+        # La conversation de navigation, quand c'est elle qui sert : elle porte la lecture, la
+        # rédaction et la relance. `None` pour les deux variantes antérieures, dont chaque étape
+        # reste un appel séparé.
+        navigation: Navigation | None = None
         if variant == VARIANT:
+            # Le modèle lit lui-même : aucune passe de code ne choisit ce que la rédaction verra.
+            # La rédaction est le dernier message de cette même conversation, plus bas — et la
+            # relance d'AD-3 un message de plus encore. La chaîne d'étapes, elle, ne bouge pas.
+            navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
+                                    doc_id=doc_id, settings=settings, client=client,
+                                    request_budget=budget, prompt="naviguer_sinistre", faits=faits)
+            try:
+                step_retrouver = await navigation.lire()
+            except PipelineError as exc:
+                # AD-16, comme partout ailleurs : l'étape partielle voyage avec l'erreur.
+                if exc.step is not None:
+                    steps.append(exc.step)
+                exc.trace = tracer()
+                raise
+            retrieval = navigation.retrieval()
+        elif variant == VARIANT_OUTILS:
             # AD-1 : la navigation par outils est le mode par défaut. `kinds_prioritaires` n'y est
             # pas porté — le départage de la story 1.8 est un tri à score égal **dans l'index**, et
             # la variante outils ne classe pas : elle laisse le modèle choisir ses termes puis ses
@@ -759,7 +785,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
                 doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
                 dictionnaire=dictionnaire)
-        if variant == VARIANT and retrieval.truncated and not retrieval.blocs:
+        if variant == VARIANT_OUTILS and retrieval.truncated and not retrieval.blocs:
             # Le repli du guide, à la condition près de rien : `truncated ∧ aucun bloc`. Des blocs
             # outils **partiels** restent un contexte honnête, que la suite de la chaîne publiera
             # avec `complete=False` ; les remplacer par une sélection déterministe coûterait plus et
@@ -796,9 +822,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
-        draft, step_rediger = await rediger(parsed, retrieval, [], client=client, budget=budget,
-                                            index=index, doc_id=doc_id, settings=settings,
-                                            prompt="rediger_sinistre")
+        if navigation is not None:
+            draft, step_rediger = await navigation.rediger()
+        else:
+            draft, step_rediger = await rediger(parsed, retrieval, [], client=client, budget=budget,
+                                                index=index, doc_id=doc_id, settings=settings,
+                                                prompt="rediger_sinistre")
         steps.append(step_rediger)
 
         # --- vérifier -------------------------------------------------------
@@ -830,7 +859,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         retrieval_relance = retrieval
         consigne_facette: str | None = None
         blocs_des_facettes: list[str] = []
-        if rangs_non_couverts:
+        if rangs_non_couverts and navigation is None:
             complement_facettes, step_facettes = couvrir_facettes(
                 parsed, retrieval=retrieval, corpus=corpus, index=index, budget=borne_retrieval,
                 settings=settings, doc_id=doc_id, kinds_suffisants=KINDS_FONDATEURS,
@@ -932,6 +961,22 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        "acquis et ajouter la clause"))
             verification = relance_abandonnee(verification)
             omises = []
+        if (navigation is not None and consigne_facettes_nommees is not None
+                and len(verification.claims) >= settings.draft_max_claims):
+            # Même raison que les deux gardes voisines, appliquée à la seule consigne que le chemin
+            # servi puisse porter : sous navigation, aucune passe de code ne nomme de blocs pour une
+            # sous-question (l'amendement AD-1 du 03/09/2026 les a retirées), et c'est le **libellé**
+            # de la sous-question restée sans affirmation qui repart au modèle. Sous
+            # `draft_max_claims` déjà occupé, la relance ne pourrait que troquer une facette contre
+            # une autre — exactement ce que la dominance interdit.
+            step_verifier.checks.append(CheckResult(
+                name="relance_facette_sans_place", ok=False,
+                detail=f"{len(rangs_non_couverts)} sous-question(s) sans affirmation affichée mais "
+                       f"les {len(verification.claims)} affirmation(s) retenue(s) occupent déjà "
+                       "draft_max_claims : la relance ne peut pas reconduire les acquis et "
+                       "couvrir la facette"))
+            verification = relance_abandonnee(verification)
+            consigne_facettes_nommees = None
         if consigne_facette is not None and len(verification.claims) >= settings.draft_max_claims:
             # Même raison que ci-dessus, et elle vaut mot pour mot : la fusion doit reconduire tous
             # les acquis **et** ajouter la clause de la sous-question laissée de côté. Sous
@@ -948,7 +993,15 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, parsed, corpus=corpus, index=index)
-        )) or omises or consigne_facette)
+        )) or omises or consigne_facette
+            # AD-1, amendement du 03/09/2026 : « la mesure de couverture par sous-question … est
+            # **en outre renvoyée au modèle comme consigne** ». Sur le chemin servi, c'est la seule
+            # forme qu'elle puisse prendre — plus aucune passe de code n'attribue de bloc à une
+            # sous-question, donc plus aucun identifiant à nommer. Sans ce terme, une sous-question
+            # laissée de côté par la rédaction ne déclencherait plus rien du tout : la consigne
+            # existerait sans jamais partir, et l'amendement perdrait au passage ce que le chemin
+            # précédent savait faire. La relance reste unique et bornée comme avant.
+            or (navigation is not None and consigne_facettes_nommees is not None))
         if relance_due:
             # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
             # La fusion doit reconduire tous les acquis, **toutes leurs limites** et au moins une
@@ -1012,13 +1065,19 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 # reprise ciblée n'aurait servi à rien — la facette redemandée n'aurait toujours
                 # pas ses blocs sous les yeux du rédacteur. Cette lecture-là n'est adoptée que si
                 # la vérification qu'elle produit l'est aussi (revue 4.2e, F).
-                draft_2, step_rediger_2 = await rediger(parsed, retrieval_relance, [], client=client,
-                                                        budget=budget,
-                                                        index=index, doc_id=doc_id, settings=settings,
-                                                        motif=motif_relance,
-                                                        blocs_a_conserver=sorted(blocs_cites(acquise)),
-                                                        blocs_hors_objet=_blocs_juges_hors_objet(acquise),
-                                                        prompt="rediger_sinistre")
+                if navigation is not None:
+                    # Le préfixe — sommaire compris — est déjà écrit et relu au tarif de cache, et
+                    # le modèle a sous les yeux ce qu'il a lu **et** ce qu'il a rédigé : la relance
+                    # ne repaie que ce qu'elle ajoute.
+                    draft_2, step_rediger_2 = await navigation.relancer(
+                        motif_relance, blocs_a_conserver=sorted(blocs_cites(acquise)))
+                else:
+                    draft_2, step_rediger_2 = await rediger(
+                        parsed, retrieval_relance, [], client=client, budget=budget,
+                        index=index, doc_id=doc_id, settings=settings, motif=motif_relance,
+                        blocs_a_conserver=sorted(blocs_cites(acquise)),
+                        blocs_hors_objet=_blocs_juges_hors_objet(acquise),
+                        prompt="rediger_sinistre")
                 draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings,
                                              step=step_rediger_2)
                 steps.append(step_rediger_2)

@@ -75,6 +75,14 @@ class LLMCall(DomainModel):
     usage: Usage = Field(default_factory=Usage)
     cache_read: int = 0
     cache_write: int = 0
+    # Amendement AD-1 du 03/09/2026 : les tokens de **réflexion** de l'appel, tels que le
+    # fournisseur les compte. Mesurés sur le prototype de navigation, ils ont désigné la cause du
+    # seul défaut restant — le tour qui **cite** ne réfléchissait sur aucun des quatre runs
+    # (`thinking_tokens = 0`, contre 56 à 131 au tour qui navigue), faute du paramètre `thinking`
+    # dans le corps de requête. Un fait qu'aucune trace ne portait, et qui gouverne la qualité de
+    # l'étape la plus chère : il se publie, comme le coût et la durée (AD-10). `0` vaut aussi bien
+    # « pas de réflexion » que « non publié par le fournisseur » : c'est le compte, pas un jugement.
+    thinking: int = 0
     tools: list[str] = Field(default_factory=list)
     call_uid: str = ""
     run_uid: str = ""

@@ -59,6 +59,7 @@ from server.app.pipelines.commun import (
     retrieval_budget,
 )
 from server.app.steps.comprendre import comprendre
+from server.app.steps.naviguer import Navigation
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import restituer
 from server.app.steps.retrouver import (
@@ -71,9 +72,15 @@ from server.app.steps.verifier import verifier
 
 PIPELINE = "guide"
 VARIANT = RETRIEVAL_DEFAULT.variant
+# **Amendement AD-1 du 03/09/2026.** Le même chemin sert le guide et le sinistre : aucune branche
+# par sujet ni par document. Les trois variantes antérieures restent construites et testées — elles
+# ne sont plus servies —, et leur retrait est une tâche ultérieure de la story 5.6.
+VARIANT_NAVIGATION = "navigation"
+VARIANT_OUTILS = "outils"
 VARIANT_DETERMINISTE = "deterministe"
 VARIANT_FULL_CONTEXT = "full_context"
-VARIANTS = frozenset({"outils", VARIANT_DETERMINISTE, VARIANT_FULL_CONTEXT})
+VARIANTS = frozenset({VARIANT_NAVIGATION, VARIANT_OUTILS, VARIANT_DETERMINISTE,
+                      VARIANT_FULL_CONTEXT})
 # L'alerte du loader qui dit que le périmètre annoncé à *comprendre* n'est plus exhaustif
 # (`corpus/loader._perimetre`, palier 3). Nommée ici parce que c'est ici qu'elle **désarme** un refus.
 PERIMETRE_TRONQUE = "perimetre_tronque"
@@ -461,7 +468,26 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # déjà — `parsed.scope.noeuds`, construits par *comprendre* (story 2.3, canal corrigé par la
         # revue Codex 2.3, B1) —, et le pipeline n'a rien à leur ajouter ici.
         borne_retrieval = retrieval_budget(settings)
-        if variant == "outils":
+        # La conversation de navigation, quand c'est elle qui sert : elle porte la lecture, la
+        # rédaction et la relance. `None` pour les trois variantes antérieures.
+        navigation: Navigation | None = None
+        if variant == VARIANT_NAVIGATION:
+            # Le modèle lit lui-même — question, sommaire complet, quatre outils —, et rédige dans
+            # la même conversation, plus bas. Le guide et le sinistre passent par la **même**
+            # étape, avec leur seul prompt de rédaction pour différence.
+            navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
+                                    doc_id=doc_id, settings=settings, client=client,
+                                    request_budget=budget, prompt="naviguer_guide",
+                                    historique=historique)
+            try:
+                step_retrouver = await navigation.lire()
+            except PipelineError as exc:
+                if exc.step is not None:
+                    steps.append(exc.step)
+                exc.trace = tracer()
+                raise
+            retrieval = navigation.retrieval()
+        elif variant == VARIANT_OUTILS:
             candidats_outils: list[str] = []
             try:
                 retrieval, step_retrouver = await retrouver_outils(
@@ -488,7 +514,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             retrieval, step_retrouver = retrouver_deterministe(
                 parsed, corpus=corpus, index=index, budget=borne_retrieval,
                 settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
-        if variant == "outils" and retrieval.truncated and not retrieval.blocs:
+        if variant == VARIANT_OUTILS and retrieval.truncated and not retrieval.blocs:
             # O9 : le repli protège uniquement une navigation épuisée sans bloc utile. Des blocs
             # outils partiels restent un contexte honnête : *vérifier* publiera `lecture_bornee` et
             # `complete=False`, sans les remplacer par une sélection déterministe potentiellement
@@ -531,8 +557,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
-        draft, step_rediger = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                            index=index, doc_id=doc_id, settings=settings)
+        if navigation is not None:
+            draft, step_rediger = await navigation.rediger()
+        else:
+            draft, step_rediger = await rediger(parsed, retrieval, historique, client=client,
+                                                budget=budget, index=index, doc_id=doc_id,
+                                                settings=settings)
         steps.append(step_rediger)
 
         # --- vérifier -------------------------------------------------------
@@ -568,9 +598,17 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     raise BudgetExceeded(
                         f"plafond d'appels trop bas pour la relance et sa vérification "
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
-                draft_2, step_rediger_2 = await rediger(parsed, retrieval, historique, client=client, budget=budget,
-                                                        index=index, doc_id=doc_id, settings=settings,
-                                                        motif=verification.motif)
+                if navigation is not None:
+                    # Un message de plus dans la conversation de navigation : le préfixe est déjà
+                    # écrit et relu au tarif de cache, et le modèle a sous les yeux ce qu'il a lu
+                    # **et** ce qu'il a rédigé.
+                    draft_2, step_rediger_2 = await navigation.relancer(
+                        verification.motif, blocs_a_conserver=sorted(blocs_cites(acquise)))
+                else:
+                    draft_2, step_rediger_2 = await rediger(
+                        parsed, retrieval, historique, client=client, budget=budget,
+                        index=index, doc_id=doc_id, settings=settings,
+                        motif=verification.motif)
                 steps.append(step_rediger_2)
                 appels_avant = budget.attempts  # la relance a abouti : seule la suite peut encore rater
                 relances += 1

@@ -1345,18 +1345,30 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
                "claims": [{"claim_id": "c1", "text": "Une clause.",
                            "quotes": [{"block_id": f"{DOC_ID}:p46:1", "quote": EXCLUSION[:40]}]}]}
     # La variante n'est pas choisie par HTTP (`SinistreRequest` est `extra="forbid"`) : la requête
-    # emprunte donc le **défaut d'AD-1**, `outils`, c'est-à-dire le chemin réellement servi. Le tour
-    # de navigation est scripté ; les outils, eux, s'exécutent pour de bon sur l'index.
+    # emprunte donc le **défaut d'AD-1**, `navigation`, c'est-à-dire le chemin réellement servi. Les
+    # tours sont scriptés ; les outils, eux, s'exécutent pour de bon sur le corpus.
     navigation = fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
         {"type": "tool_use", "id": "t-chercher", "name": "chercher",
          "input": {"termes": ["chaleur"]}},
-        {"type": "tool_use", "id": "t-ouvrir", "name": "ouvrir_noeud",
-         "input": {"node_id": f"{DOC_ID}:socle", "focus_block_id": f"{DOC_ID}:p9:2"}}])
+        {"type": "tool_use", "id": "t-socle", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{DOC_ID}:socle"}},
+        {"type": "tool_use", "id": "t-ext", "name": "ouvrir_noeud",
+         "input": {"node_id": f"{DOC_ID}:ext"}}])
     navigation_fin = fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[])
     script = [comprendre, navigation, navigation_fin,
               fake_message(model=TIERS["reason"], text=_json.dumps(ebauche)),
               fake_message(model=TIERS["reason"], text=_json.dumps(ebauche))]
-    etat.pipeline_sinistre = _pipeline_sinistre_reel(script, retrieval_max_blocks=1)
+    # Le budget de lecture laisse passer le premier nœud et **refuse** le second : c'est la borne
+    # qui produit la lecture partielle depuis l'amendement AD-1 du 03/09/2026. Elle est calculée
+    # sur le rendu réel plutôt que devinée — un chiffre en dur se désynchroniserait du texte.
+    from server.app.llm.pricing import estimate_tokens
+    from server.app.steps.naviguer import _rendre_blocs, blocs_du_noeud
+
+    reglages = prod.app.state.foyer.settings
+    budget_socle = estimate_tokens(
+        _rendre_blocs(blocs_du_noeud(corpus, DOC_ID, f"{DOC_ID}:socle")), reglages)
+    etat.pipeline_sinistre = _pipeline_sinistre_reel(script,
+                                                     navigation_budget_tokens=budget_socle)
 
     r = _poster(prod)
 
@@ -1370,7 +1382,7 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
     assert 1 <= lue["nodes_read"] <= lue["blocks_read"]
     assert lue["documents"] == [DOC_ID]
     assert j["trace"]["truncations"] == 1
-    assert j["trace"]["variant"] == "outils"  # le chemin réellement servi
+    assert j["trace"]["variant"] == "navigation"  # le chemin réellement servi
     # AD-16 : jamais un sinistre sans verdict — et il vient de la table, pas d'un remplacement.
     assert j["answer"]["verdict"]["value"] == "ne_tranche_pas"
     assert j["sources"] == [] and j["answer"]["rejected_claims"]

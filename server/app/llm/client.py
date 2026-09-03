@@ -402,10 +402,17 @@ class LlmClient:
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int | None = None,
         effort: Literal["low", "medium", "high", "max"] | None = None,
+        thinking: dict[str, Any] | None = None,
         prompt_cache: bool = True,
         trusted_line_uids: tuple[str, ...] = (),
     ) -> LlmResult[T]:
-        """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide."""
+        """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide.
+
+        `thinking` part **tel quel** au fournisseur (`{"type": "adaptive"}` sur Claude 5, où
+        `budget_tokens` est refusé). Il entre dans le corps audité et dans la clé de cache d'évals :
+        deux appels qui ne réfléchissent pas pareil ne sont pas le même appel. Absent, rien n'est
+        envoyé — le comportement historique de toutes les étapes qui ne le demandent pas.
+        """
         settings = self._settings
         max_tokens = max_tokens or settings.llm_max_output_tokens
         request, adapter = structured_request_parts(
@@ -432,7 +439,8 @@ class LlmClient:
                 raise Timeout(f"deadline épuisée avant l'appel ({budget.remaining():.1f} s restantes)")
 
             body = {"model": model, "max_tokens": max_tokens, "system": system, "messages": msgs,
-                    "output_config": output_config, "tools": tools, "extra_body": extra_body}
+                    "output_config": output_config, "tools": tools, "extra_body": extra_body,
+                    "thinking": thinking}
             key = _cache_key(body)
             if self._cache is not None and (hit := self._cache.get(key)) is not None:
                 try:
@@ -475,6 +483,8 @@ class LlmClient:
                                       "messages": msgs, "output_config": output_config, "timeout": timeout}
             if tools is not None:
                 kwargs["tools"] = tools
+            if thinking is not None:
+                kwargs["thinking"] = thinking
             if extra_body is not None:
                 kwargs["extra_body"] = extra_body
 
@@ -514,6 +524,7 @@ class LlmClient:
                 budget.note_prefix(prefix_digest)
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=cache_write,
+                           thinking=self._thinking_tokens(message.usage),
                            tools=tool_names)
             # AD-10 (revue Codex 1.3, I1) : le seuil porte sur le coût cumulé de la requête — un appel
             # cher isolé le franchit aussi ; le check n'est ajouté qu'une fois, au franchissement.
@@ -598,6 +609,7 @@ class LlmClient:
         budget: RequestBudget,
         step: StepTrace,
         max_tokens: int,
+        thinking: dict[str, Any] | None = None,
         prompt_cache: bool = True,
         trusted_line_uids: tuple[str, ...] = (),
     ) -> ToolTurnResult:
@@ -623,7 +635,7 @@ class LlmClient:
         prefix_digest = _cache_key({"model": model, "system": system, "tools": tools})
         body = {"model": model, "max_tokens": max_tokens, "system": system,
                 "messages": messages, "tools": tools, "output_config": output_config,
-                "extra_body": extra_body}
+                "extra_body": extra_body, "thinking": thinking}
         key = _cache_key(body)
         # Une fixture n'autorise jamais à dépasser la deadline : le cache évite le fournisseur, pas
         # les bornes de la requête.
@@ -671,6 +683,8 @@ class LlmClient:
         timeout = budget.timeout_for_call(settings.llm_timeout_s)
         kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                   "messages": messages, "tools": tools, "timeout": timeout}
+        if thinking is not None:
+            kwargs["thinking"] = thinking
         if output_config is not None:
             kwargs["output_config"] = output_config
         if extra_body is not None:
@@ -701,7 +715,8 @@ class LlmClient:
         if prompt_cache and (cache_write or usage.cached):
             budget.note_prefix(prefix_digest)
         call = LLMCall(model=message.model, ms=ms, usage=usage,
-                       cache_read=usage.cached, cache_write=cache_write, tools=tool_names)
+                       cache_read=usage.cached, cache_write=cache_write,
+                       thinking=self._thinking_tokens(message.usage), tools=tool_names)
         projection = self._audit_call(
             step=step, tier=tier, model=message.model,
             request={k: v for k, v in body.items() if v is not None},
@@ -766,6 +781,12 @@ class LlmClient:
         if len(errors) > max_errors:
             motive += f" ; … ({len(errors) - max_errors} autre(s))"
         return motive[:max_len]
+
+    @staticmethod
+    def _thinking_tokens(api_usage: Any) -> int:
+        """Les tokens de réflexion de l'appel, tels que le fournisseur les compte (0 si non publiés)."""
+        details = getattr(api_usage, "output_tokens_details", None)
+        return int(getattr(details, "thinking_tokens", 0) or 0)
 
     @staticmethod
     def _cache_write_tokens(api_usage: Any) -> int:

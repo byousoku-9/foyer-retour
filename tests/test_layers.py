@@ -229,6 +229,11 @@ def test_lapplication_nimporte_jamais_les_evals() -> None:
 ETAPES_HISTORIQUE: dict[str, tuple[str, bool]] = {
     "comprendre": ("comprendre", True),
     "rediger": ("rediger", True),
+    # Amendement AD-1 du 03/09/2026 : *naviguer* **est** la rédaction, faite dans la conversation
+    # où le modèle a lu. L'historique lui est dû pour la même raison qu'à *rédiger* — la réponse
+    # s'écrit dans une conversation —, et pour elle seule : la question qu'il navigue reste la
+    # `question_resolue` que *comprendre* a rendue autonome.
+    "naviguer": ("Navigation.__init__", True),
     "retrouver": ("retrouver_deterministe", False),
     "verifier": ("verifier", False),
     "restituer": ("restituer", False),
@@ -245,8 +250,17 @@ def _modules_detape(app: Path) -> dict[str, Path]:
 
 
 def _fonction(tree: ast.Module, nom: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
-    """La fonction de premier niveau nommée `nom` dans le module, `None` si elle a disparu."""
-    for node in tree.body:
+    """La fonction de premier niveau nommée `nom`, `None` si elle a disparu.
+
+    `Classe.methode` désigne une méthode d'une classe de premier niveau : une étape dont l'entrée
+    est un objet — *naviguer* porte une conversation, pas un appel — se déclare comme les autres.
+    """
+    corps = tree.body
+    if "." in nom:
+        classe, nom = nom.split(".", 1)
+        corps = next((node.body for node in tree.body
+                      if isinstance(node, ast.ClassDef) and node.name == classe), [])
+    for node in corps:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == nom:
             return node
     return None
@@ -346,12 +360,16 @@ def test_une_etape_qui_declare_lhistorique_est_detectee(tmp_path: Path) -> None:
     fonction d'entrée (le helper privé de P3), le paramètre dû qui disparaît, la fonction d'entrée
     introuvable (renommée ou supprimée), l'étape neuve que personne n'a inscrite dans la table (P2),
     et le module de la table qui a disparu du répertoire. `__init__.py` reste ignoré : c'est le
-    marqueur du paquet, pas une étape.
+    marqueur du paquet, pas une étape. S'y ajoute l'étape dont l'entrée est une **classe**
+    (*naviguer* porte une conversation) : elle se déclare `Classe.methode` et se contrôle pareil.
     """
     app = _fake_app(tmp_path, {
         "steps/__init__.py": "historique = 1\n",
         "steps/comparer.py": "def comparer(parsed, historique):\n    return historique\n",
         "steps/comprendre.py": "async def comprendre(question, profil):\n    return question\n",
+        "steps/naviguer.py": ("class Navigation:\n"
+                              "    def __init__(self, parsed, *, historique=()):\n"
+                              "        self.h = historique\n"),
         "steps/rediger.py": "async def rediger(parsed, retrieval, historique):\n    return historique\n",
         "steps/retrouver.py": "def retrouver_deterministe(parsed, *, historique=None):\n    return parsed\n",
         "steps/verifier.py": ("def _juger(historique):\n    return historique\n\n\n"

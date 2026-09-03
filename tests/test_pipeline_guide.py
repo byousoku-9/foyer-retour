@@ -275,6 +275,40 @@ async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_cha
     assert len(fake.requests) == 5
 
 
+async def test_la_navigation_par_le_modele_est_le_chemin_servi_du_guide(index: Index) -> None:
+    """Amendement AD-1 du 03/09/2026 : le guide emprunte la **même** étape que le sinistre.
+
+    Un tour de lecture, un tour qui la clôt, puis l'ébauche rendue dans la **même** conversation :
+    la chaîne d'étapes ne bouge pas, *rédiger* n'est plus un appel qui reçoit une sélection faite
+    par un tiers, et les blocs cités sont un sous-ensemble de ceux que le modèle a ouverts.
+    """
+    lecture = fake_message(
+        model=TIERS["reason"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+             "input": {"termes": ["arrivée"]}},
+            {"type": "tool_use", "id": "toolu_ouvrir", "name": "ouvrir_noeud",
+             "input": {"node_id": f"{DOC_ID}:f1"}}])
+    answer, trace, fake = await _run(
+        index, [_comprendre(terms=["arrivée"]), lecture,
+                fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+                _rediger(BONNE), _verdicts(("c1", True))], variant="navigation")
+
+    assert answer.found and trace.variant == "navigation" and fake.remaining_script == 0
+    assert [s.name for s in trace.steps] == [
+        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
+    retrouver, redaction = trace.steps[1], trace.steps[2]
+    assert len(retrouver.calls) == 2 and retrouver.tier == "reason"
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
+    # La rédaction est le message suivant du même fil : elle ne voit que ce qui a été ouvert.
+    assert len(redaction.calls) == 1
+    assert redaction.opened_block_ids == retrouver.opened_block_ids
+    cites = {q.block_id for c in answer.claims for q in c.quotes}
+    assert cites <= set(retrouver.opened_block_ids)
+    # Le préfixe est écrit une fois pour toute la conversation (AD-9) : trois appels, un préfixe.
+    prefixes = {r["system"][0]["text"] for r in fake.requests[1:4]}
+    assert len(prefixes) == 1 and "naviguer" in prefixes.pop().lower()
+
+
 async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieval(index: Index) -> None:
     answer, trace, fake = await _run(
         index, [_comprendre(terms=["arrivée"]),

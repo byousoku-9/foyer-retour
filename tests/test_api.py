@@ -644,10 +644,15 @@ def test_variante_inconnue_est_refusee(prod: TestClient) -> None:
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "full_context"},
                   headers=XFF)
     assert r.status_code == 200 and double.appels[-1]["variant"] == "full_context"
+    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "navigation"},
+                  headers=XFF)
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "navigation"
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": None}, headers=XFF)
-    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    # Le défaut est le chemin **servi**, et c'est la navigation par le modèle depuis l'amendement
+    # AD-1 du 03/09/2026 (`data/retrieval-default.json`, triplet versionné).
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "navigation"
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF)
-    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    assert r.status_code == 200 and double.appels[-1]["variant"] == "navigation"
 
 
 def test_le_champ_contexte_de_lancien_contrat_est_ignore(prod: TestClient) -> None:
@@ -1810,9 +1815,12 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
     assert [s["name"] for s in j["trace"]["steps"]][-1] == "restituer"
 
 
-@pytest.mark.parametrize("variant", [None, "outils"])
-def test_chat_reel_uses_the_four_navigation_tools_for_default_and_explicit_variant(
+@pytest.mark.parametrize("variant", ["outils"])
+def test_chat_reel_uses_the_four_navigation_tools_for_the_outils_variant(
         prod: TestClient, monkeypatch: pytest.MonkeyPatch, variant: str | None) -> None:
+    """La variante `outils` n'est plus servie par défaut (amendement AD-1 du 03/09/2026) ; elle
+    reste construite et exercée ici. Le chemin servi, lui, est couvert par `tests/test_naviguer.py`
+    et par les témoins de bout en bout des deux pipelines."""
     from server.app.llm.models import TIERS
     from tests.llm_fake import FakeAnthropic, fake_message
 

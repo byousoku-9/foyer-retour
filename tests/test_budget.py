@@ -80,15 +80,16 @@ def _cas_payants_par_profil() -> tuple[int, int]:
 def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_longue() -> None:
     """`max_llm_attempts` doit couvrir la séquence la plus longue **plus** le retry motivé d'AD-16.
 
-    Chaque terme est lu là où le produit le décide, jamais recopié : *comprendre* (1), la navigation
-    d'AD-1 (`max_llm_turns`), *rédiger* et *vérifier* (2), la relance d'AD-3
+    Chaque terme est lu là où le produit le décide, jamais recopié : *comprendre* (1), les tours de
+    navigation du chemin **servi** (`navigation_max_llm_turns`, amendement AD-1 du 03/09/2026),
+    l'ébauche terminale rendue dans la même conversation et *vérifier* (2), la relance d'AD-3
     (`pipelines/commun.APPELS_DE_LA_RELANCE`), la reprise de 4.2e
     (`pipelines/sinistre.APPELS_DE_LA_REPRISE`), et le **seul** retry qu'AD-16 accorde à un parse
     invalide. Quand la somme vaut exactement le plafond, le premier parse invalide de la chaîne
     ressort en `BudgetExceeded` terminal sur un chemin conforme — les deux pré-contrôles
     (`budget.attempts + APPELS_DE_LA_… > budget.max_attempts`) n'ont plus rien à arbitrer. La
-    séquence est passée de 8 à 9 au correctif du tour 2 : le troisième tour de navigation est celui
-    de la conclusion, sans lequel aucun verdict de suffisance n'est atteignable.
+    séquence est passée de 9 à 14 avec la navigation par le modèle : ses tours remplacent les trois
+    de la variante `outils`, et la rédaction se fait dans le même fil.
 
     Ce témoin rougit aussi si l'un des termes grandit : c'est ce qu'on veut, chacun vit dans un
     module différent et aucun ne sait ce que les autres consomment.
@@ -99,9 +100,9 @@ def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_long
 
     settings = Settings(_env_file=None, anthropic_api_key="")
     RETRY_DE_PARSE = 1  # AD-16 : « 1 retry », et un seul
-    sequence_la_plus_longue = (1 + settings.max_llm_turns + 2
+    sequence_la_plus_longue = (1 + settings.navigation_max_llm_turns + 2
                                + APPELS_DE_LA_RELANCE + APPELS_DE_LA_REPRISE)
-    assert sequence_la_plus_longue == 9, sequence_la_plus_longue
+    assert sequence_la_plus_longue == 14, sequence_la_plus_longue
     assert settings.max_llm_attempts >= sequence_la_plus_longue + RETRY_DE_PARSE, (
         f"{settings.max_llm_attempts} appels pour une séquence de {sequence_la_plus_longue} : "
         "un parse invalide n'a plus de place et devient terminal")

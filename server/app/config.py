@@ -35,7 +35,7 @@ def load_retrieval_default(path: Path) -> RetrievalDefault:
     expected = {"variant", "tier", "prompt_cache"}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError("défaut retrieval : champs exacts variant, tier, prompt_cache attendus")
-    if value["variant"] not in {"deterministe", "outils", "full_context"}:
+    if value["variant"] not in {"navigation", "deterministe", "outils", "full_context"}:
         raise ValueError(f"défaut retrieval : variant invalide {value['variant']!r}")
     if value["tier"] not in {"reason", "micro"}:
         raise ValueError(f"défaut retrieval : tier invalide {value['tier']!r}")
@@ -590,7 +590,16 @@ class Settings(BaseSettings):
     # terminal sur un chemin conforme. C'est délibérément le **minimum** : une unité de plus
     # autoriserait un second retry, c'est-à-dire la porte d'une boucle. Le garde-fou du coût reste
     # ailleurs et s'applique avant chaque envoi (`max_cost_eur_per_request`).
-    max_llm_attempts: int = Field(10, ge=1)
+    # **Amendement AD-1 du 03/09/2026 (story 5.6).** La séquence la plus longue n'est plus celle
+    # de la variante `outils` : le chemin servi est *comprendre* (1), les tours de navigation
+    # (`navigation_max_llm_turns`), l'ébauche terminale rendue dans la même conversation (1),
+    # *vérifier* (1), la relance d'AD-3 (`APPELS_DE_LA_RELANCE` = 2, dont la rédaction est un
+    # message de plus dans le même fil) et la reprise de 4.2e (`APPELS_DE_LA_REPRISE` = 1), soit
+    # 14 — puis le `+1` d'AD-16, le premier retry motivé d'un parse invalide. C'est toujours le
+    # **minimum** : une unité de plus autoriserait un second retry, c'est-à-dire la porte d'une
+    # boucle. Le garde-fou du coût reste ailleurs et s'applique avant chaque envoi
+    # (`max_cost_eur_per_request`), tout comme la deadline.
+    max_llm_attempts: int = Field(15, ge=1)
     # Correctif du tour 2 (cause R2/R5). **À deux tours, le verdict terminal de la navigation est
     # inatteignable** : le tour 0 cherche, le tour 1 ouvre, et les résultats du tour 1 ne sont
     # jamais réinjectés (le dialogue s'arrête). Le navigateur ne voit donc jamais ce qu'il a ouvert,
@@ -612,7 +621,10 @@ class Settings(BaseSettings):
     # Une nouvelle instance relit l'artefact : après promotion atomique, HTTP, pipeline direct et
     # runner convergent au prochain démarrage/chargement sans dépendre d'une constante importée
     # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
-    retrieval_variant: Literal["deterministe", "outils", "full_context"] = RETRIEVAL_DEFAULT.variant
+    # « navigation » est le chemin servi depuis l'amendement AD-1 du 03/09/2026 ; les trois autres
+    # restent réglables pour rejouer une comparaison, et ne sont plus servies.
+    retrieval_variant: Literal["navigation", "deterministe", "outils",
+                               "full_context"] = RETRIEVAL_DEFAULT.variant
     retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
     retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
     # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink
@@ -1247,6 +1259,30 @@ class Settings(BaseSettings):
     fetch_timeout_s: float = Field(30.0, gt=0)
     metadata_timeout_s: float = Field(2.0, gt=0)  # serveur de métadonnées GCP (jeton du repli gs://)
 
+    # --- navigation par le modèle (amendement AD-1 du 03/09/2026, story 5.6) ------------------
+    # Les quatre réglages du chemin servi : le modèle reçoit le sommaire **complet** du document et
+    # navigue lui-même, puis rédige dans la même conversation. Tous mesurés sur le prototype
+    # (`scripts/proto_navigation.py`, série du 03/09/2026 : A16 3/3 strict, 2 à 4 tours, 12 à 27 s,
+    # 0,05 € à cache chaud). Ils sont ajoutés en fin de classe et ne touchent aucun seuil existant.
+    #
+    # `navigation_max_llm_turns` : le plafond de **sûreté** des tours d'outils, pas une cible. La
+    # série réelle en a employé 2 à 4 ; 8 laisse la place d'une recherche infructueuse suivie d'une
+    # exploration, et c'est le budget de lecture — non le nombre de tours — qui borne la dépense.
+    # Distinct de `max_llm_turns` (≤ 3), qui borne la variante `outils` que cette story ne sert plus.
+    navigation_max_llm_turns: int = Field(8, ge=1)
+    # `navigation_budget_tokens` : ce que la **lecture** peut coûter, tous nœuds ouverts confondus.
+    # Appliqué au refus, jamais à la sélection (le code ne coupe rien en silence : il refuse une
+    # ouverture en disant son coût, le restant et quoi faire, et le modèle arbitre). Les trois blocs
+    # du témoin A16 tiennent ensemble dans 1 029 tokens ; 12 000 laisse dix fois cette marge.
+    navigation_budget_tokens: int = Field(12000, ge=1)
+    # `navigation_search_limit` : le nombre de candidats que `chercher` **propose**. Ce n'est pas
+    # `search_limit` (20 aussi, mais celui-là borne une passe de code qui ouvre) : ici rien n'entre
+    # dans le contexte de rédaction sans que le modèle ait ouvert le nœud.
+    navigation_search_limit: int = Field(20, ge=1)
+    # AD-9 : Sonnet reste le plancher de tout choix sémantique servi, et la navigation **est** le
+    # choix sémantique le plus lourd de la chaîne. `micro` reste réglable pour rejouer l'arbitrage.
+    navigation_tier: Literal["micro", "reason"] = "reason"
+
     @model_validator(mode="before")
     @classmethod
     def _versioned_retrieval_default(cls, value: Any) -> Any:
@@ -1418,6 +1454,10 @@ class Settings(BaseSettings):
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,
             "profil_max_opens": self.profil_max_opens,
+            "navigation_max_llm_turns": self.navigation_max_llm_turns,
+            "navigation_budget_tokens": self.navigation_budget_tokens,
+            "navigation_search_limit": self.navigation_search_limit,
+            "navigation_tier_reason": int(self.navigation_tier == "reason"),
             "facette_max_opens": self.facette_max_opens,
             "facette_reserve_max_part": self.facette_reserve_max_part,
             "facette_variante_max_part": self.facette_variante_max_part,

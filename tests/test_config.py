@@ -38,7 +38,13 @@ def test_defaults_match_spine_hypotheses() -> None:
     # navigation est structurellement inatteignable (les résultats du dernier tour ne sont
     # jamais réinjectés), et la suffisance sémantique reste toujours refusée.
     assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 3
-    assert s.max_llm_attempts == 10 and s.retrouver_outils_max_tokens == 1024
+    # 15 depuis l'amendement AD-1 du 03/09/2026 : la séquence servie compte les tours de
+    # navigation et l'ébauche rendue dans la même conversation (voir `tests/test_budget.py`).
+    assert s.max_llm_attempts == 15 and s.retrouver_outils_max_tokens == 1024
+    # Le chemin servi et ses trois bornes, mesurés sur le prototype du 03/09/2026.
+    assert s.retrieval_variant == "navigation" and s.navigation_tier == "reason"
+    assert s.navigation_max_llm_turns == 8 and s.navigation_budget_tokens == 12000
+    assert s.navigation_search_limit == 20
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
         "reason", "reason", "reason")

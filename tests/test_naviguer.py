@@ -1,0 +1,326 @@
+"""Amendement AD-1 du 03/09/2026 — *naviguer*, hors réseau : ce que le code sert, borne et rend.
+
+Cinq faits, et rien d'autre : la boucle d'outils tourne pour de bon sur le corpus ; seul
+`ouvrir_noeud` rend un bloc citable ; le budget de lecture **refuse** en disant ce qu'il refuse ;
+l'ébauche sort au schéma exact de *rédiger* avec ses deux projections ; la relance est un message de
+plus dans la **même** conversation. Le préfixe — sommaire complet compris — reste byte-identique
+d'un appel à l'autre, et chaque requête demande la réflexion adaptative.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from server.app.config import Settings
+from server.app.corpus.index import Index
+from server.app.corpus.loader import Corpus
+from server.app.corpus.text import normalize
+from server.app.domain.answer import AnswerDraft
+from server.app.domain.document import Document, Node
+from server.app.domain.ingest import ManifestEntry
+from server.app.domain.question import Faits, ParsedQuestion
+from server.app.llm.budget import RequestBudget
+from server.app.llm.client import LlmClient
+from server.app.llm.models import TIERS
+from server.app.llm.pricing import estimate_tokens
+from server.app.steps.naviguer import (OUTILS, Navigation, _rendre_blocs, blocs_du_noeud,
+                                       sommaire_complet)
+from tests.llm_fake import FakeAnthropic, fake_message
+
+DEFAUT = object()  # « faits non précisés » : distinct de « pas de faits », qui est le guide
+DOC_ID = "texte-de-test"
+SOCLE = f"{DOC_ID}:socle"
+ANNEXE = f"{DOC_ID}:annexe"
+REGLE = f"{DOC_ID}:p1:2"
+ITEM = f"{DOC_ID}:p2:1"
+TITRE = f"{DOC_ID}:p1:1"
+TEXTE_REGLE = ("Le texte prend en charge la situation décrite lorsque le signalement est déposé "
+               "dans le délai prévu, sous réserve des exclusions ci-après.")
+TEXTE_ITEM = ("Sont également pris en charge les épisodes répertoriés survenus sans le concours "
+              "d'un tiers identifié.")
+
+
+def _corpus() -> tuple[Corpus, Index]:
+    """Deux sections, trois blocs : assez pour lire, refuser, citer — et rien de plus."""
+    blocs = [
+        {"block_id": TITRE, "loc": "p1", "seq": 1, "kind": "heading",
+         "text": "Prise en charge"},
+        {"block_id": REGLE, "loc": "p1", "seq": 2, "kind": "garantie", "text": TEXTE_REGLE,
+         "kind_source": "manual"},
+        {"block_id": ITEM, "loc": "p2", "seq": 1, "kind": "garantie", "text": TEXTE_ITEM,
+         "kind_source": "manual"},
+    ]
+    document = Document(
+        doc_id=DOC_ID, kind="contrat", title="Texte de test", edition="git:test",
+        nodes=[Node(node_id=SOCLE, level=1, title="Socle",
+                    items=[{"block_id": TITRE}, {"block_id": REGLE}]),
+               Node(node_id=ANNEXE, level=1, title="Annexe", items=[{"block_id": ITEM}]),
+               Node(node_id=f"{DOC_ID}:root", level=0, title="Texte",
+                    items=[{"node_id": SOCLE}, {"node_id": ANNEXE}])],
+        blocks=blocs)
+    for bloc in document.blocks:
+        bloc.text_norm = normalize(bloc.text)
+    corpus = Corpus(
+        documents={DOC_ID: document},
+        manifest={DOC_ID: ManifestEntry(status="servi", source_hash="s", ingest_fingerprint="f",
+                                        document_hash="d", edition="git:test")},
+        summaries={DOC_ID: "# Texte de test"})
+    return corpus, Index(corpus)
+
+
+def _settings(**kw: Any) -> Settings:
+    return Settings(_env_file=None, anthropic_api_key="", **kw)
+
+
+def _navigation(script: list[Any], *, prompt: str = "naviguer_sinistre",
+                faits: Any = DEFAUT, **reglages: Any) -> tuple[Navigation, FakeAnthropic]:
+    corpus, index = _corpus()
+    settings = _settings(**reglages)
+    fake = FakeAnthropic(script)
+    parsed = ParsedQuestion(question_resolue="Le signalement déposé est-il pris en charge ?",
+                            intent="question", terms=["prise en charge", "signalement"],
+                            facettes=["prise en charge", "délai"])
+    navigation = Navigation(
+        parsed, corpus=corpus, index=index, dictionnaire=None, doc_id=DOC_ID, settings=settings,
+        client=LlmClient(settings, anthropic_client=fake),
+        request_budget=RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.75),
+        prompt=prompt,
+        faits=Faits(description="Un signalement déposé.") if faits is DEFAUT else faits)
+    return navigation, fake
+
+
+def _tour_doutils(*appels: dict[str, Any], thinking: int = 0) -> dict[str, Any]:
+    message = fake_message(model=TIERS["reason"], stop_reason="tool_use", content=[
+        {"type": "tool_use", "id": f"t{rang}", **appel} for rang, appel in enumerate(appels)])
+    message["usage"]["output_tokens_details"] = {"thinking_tokens": thinking}
+    return message
+
+
+def _fin_de_lecture(thinking: int = 0) -> dict[str, Any]:
+    message = fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT")
+    message["usage"]["output_tokens_details"] = {"thinking_tokens": thinking}
+    return message
+
+
+def _ebauche(quotes: list[dict[str, str]] | None = None, thinking: int = 0) -> dict[str, Any]:
+    quotes = quotes or [{"block_id": REGLE, "quote": "prend en charge la situation décrite"}]
+    draft = {"segments": [{"text": "Le texte prend en charge la situation décrite.",
+                           "kind": "factuel", "claim_ids": ["c1"]},
+                          {"text": "Ce que je ne sais pas.", "kind": "limite", "claim_ids": []}],
+             "claims": [{"claim_id": "c1",
+                         "text": "Le texte prend en charge la situation décrite.",
+                         "quotes": quotes}]}
+    message = fake_message(model=TIERS["reason"], text=json.dumps(draft, ensure_ascii=False))
+    message["usage"]["output_tokens_details"] = {"thinking_tokens": thinking}
+    return message
+
+
+# --- 1. la boucle d'outils ---------------------------------------------------------------
+
+
+async def test_les_quatre_outils_tournent_et_seule_louverture_rend_citable() -> None:
+    """`chercher` et `definitions` **proposent** ; seul `ouvrir_noeud` fait entrer un bloc.
+
+    Le tour demande les quatre outils dans la même réponse. `chercher` propose le bloc de l'annexe,
+    que le modèle **n'ouvre pas** : il ne doit apparaître ni dans les blocs transmis à la suite de
+    la chaîne, ni parmi les blocs citables. C'est le fait qu'AD-1 nomme (« ses résultats ne sont pas
+    transmis à *rédiger*, ils sont offerts au modèle »).
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "sommaire", "input": {}},
+                      {"name": "chercher", "input": {"termes": ["épisodes répertoriés"]}},
+                      {"name": "definitions", "input": {"termes": ["signalement"]}},
+                      {"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture()])
+
+    step = await navigation.lire()
+    retrieval = navigation.retrieval()
+
+    resultats = fake.requests[1]["messages"][-1]["content"]
+    rendus = {appel["tool_use_id"]: appel["content"] for appel in resultats}
+    assert SOCLE in rendus["t0"] and ANNEXE in rendus["t0"]          # le sommaire complet
+    assert ITEM in rendus["t1"] and "extrait" in rendus["t1"]        # `chercher` propose
+    assert TEXTE_REGLE in rendus["t3"]                               # `ouvrir_noeud` sert le texte
+    # Proposé n'est pas lu : le bloc de l'annexe n'entre nulle part.
+    assert [b.block_id for b in retrieval.blocs] == [TITRE, REGLE]
+    assert retrieval.opened_node_ids == [SOCLE] and not retrieval.truncated
+    assert step.name == "retrouver" and len(step.calls) == 2
+    assert all(call.tools == [outil["name"] for outil in OUTILS] for call in step.calls)
+
+
+async def test_chaque_requete_demande_la_reflexion_adaptative_et_le_meme_prefixe() -> None:
+    """Le paramètre que le prototype a mesuré manquant — et le préfixe qui reste cacheable."""
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _ebauche()])
+
+    await navigation.lire()
+    await navigation.rediger()
+
+    assert [requete["thinking"] for requete in fake.requests] == [{"type": "adaptive"}] * 3
+    prefixes = {requete["system"][0]["text"] for requete in fake.requests}
+    assert len(prefixes) == 1  # byte-identique : le sommaire n'est écrit qu'une fois (AD-9)
+    prefixe = prefixes.pop()
+    corpus, _index = _corpus()
+    assert sommaire_complet(corpus, DOC_ID) in prefixe
+    assert all(requete["system"][0]["cache_control"]["type"] == "ephemeral"
+               for requete in fake.requests)
+
+
+# --- 2. le budget de lecture -------------------------------------------------------------
+
+
+async def test_une_ouverture_refusee_par_le_budget_le_dit_au_modele_et_borne_la_lecture() -> None:
+    """Le budget s'applique au **refus**, jamais à la sélection : rien n'est coupé en silence.
+
+    Le premier nœud passe, le second est refusé : le modèle reçoit son coût et ce qu'il reste, la
+    lecture est déclarée bornée (`truncated`), et les blocs laissés fermés sont publiés — sans quoi
+    la chaîne affirmerait une absence sur une borne qui est la nôtre (NFR2).
+    """
+    corpus, _index = _corpus()
+    budget_socle = estimate_tokens(_rendre_blocs(blocs_du_noeud(corpus, DOC_ID, SOCLE)),
+                                   _settings())
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}},
+                       {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+         _fin_de_lecture()],
+        navigation_budget_tokens=budget_socle)
+
+    step = await navigation.lire()
+    retrieval = navigation.retrieval()
+
+    refus = fake.requests[1]["messages"][-1]["content"][1]["content"]
+    assert refus.startswith("budget de lecture insuffisant")
+    assert "il en reste 0" in refus and "conclus avec ce que tu as déjà lu" in refus
+    assert [b.block_id for b in retrieval.blocs] == [TITRE, REGLE]
+    assert retrieval.truncated and retrieval.discarded_block_ids == [ITEM]
+    assert any(check.name == "lecture_refusee" and not check.ok for check in step.checks)
+    assert step.budget_lecture is not None and step.budget_lecture.tokens_remaining == 0
+
+
+async def test_le_plafond_de_tours_borne_la_lecture_sans_affirmer_dabsence() -> None:
+    navigation, _fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+         _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}})],
+        navigation_max_llm_turns=2)
+
+    step = await navigation.lire()
+
+    assert navigation.tours == 2
+    assert navigation.retrieval().truncated
+    assert any(check.name == "tours_epuises" and not check.ok for check in step.checks)
+
+
+# --- 3. l'ébauche, au schéma exact de *rédiger* ------------------------------------------
+
+
+async def test_lebauche_sort_au_schema_de_rediger_avec_ses_deux_projections() -> None:
+    """`AnswerDraft` reste la sortie structurée terminale (AD-3), projections comprises.
+
+    Les deux extraits d'un même bloc sont fusionnés en un passage contigu — sans quoi l'invariant
+    du domaine rendrait l'ébauche terminale — et les claims du sinistre deviennent les segments
+    factuels effectivement soumis à *vérifier*.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(),
+        _ebauche(quotes=[{"block_id": REGLE, "quote": "prend en charge"},
+                         {"block_id": REGLE, "quote": "dans le délai prévu"}])])
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert isinstance(draft, AnswerDraft)
+    assert [quote.block_id for claim in draft.claims for quote in claim.quotes] == [REGLE]
+    quote = draft.claims[0].quotes[0].quote
+    assert quote.startswith("prend en charge") and quote.endswith("dans le delai prevu")
+    assert [segment.kind for segment in draft.segments] == ["factuel", "limite"]
+    assert draft.segments[0].claim_ids == ["c1"]
+    assert any(check.name == "quotes_fusionnees" for check in step.checks)
+    assert step.name == "rediger" and len(step.calls) == 1
+    # L'ébauche est demandée dans le fil : la conversation porte déjà les résultats d'outils.
+    messages = fake.requests[-1]["messages"]
+    assert messages[0] == fake.requests[0]["messages"][0]
+    assert "Rends maintenant l'ébauche" in messages[-1]["content"]
+    assert "Langue de rédaction" in messages[-1]["content"]
+
+
+async def test_le_guide_emprunte_la_meme_etape_avec_son_seul_prompt_de_redaction() -> None:
+    """Un seul chemin pour les deux sujets : aucune branche par document ni par pipeline."""
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+         _fin_de_lecture(), _ebauche()],
+        prompt="naviguer_guide", faits=None)
+
+    await navigation.lire()
+    draft, _step = await navigation.rediger()
+
+    assert "naviguer" in fake.requests[0]["system"][0]["text"].lower()
+    assert "faits" not in fake.requests[0]["messages"][0]["content"]
+    # Sans faits, aucune projection sinistre : le brouillon du guide reste à l'octet près.
+    assert [segment.kind for segment in draft.segments] == ["factuel", "limite"]
+
+
+# --- 4. la relance, dans la même conversation --------------------------------------------
+
+
+async def test_la_relance_est_un_message_de_plus_dans_la_meme_conversation() -> None:
+    """AD-3 sans second dialogue : le préfixe est déjà écrit, le modèle a tout sous les yeux.
+
+    La relance n'ouvre aucun tour d'outils, reprend la conversation entière — résultats de lecture
+    **et** ébauche précédente — et porte le motif délimité (AD-15) plus les acquis à reconduire,
+    dont un identifiant inventé ne peut pas faire partie.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _ebauche(), _ebauche()])
+
+    await navigation.lire()
+    draft, _step = await navigation.rediger()
+    relance, step = await navigation.relancer("la citation n'a pas été retrouvée",
+                                              blocs_a_conserver=[REGLE, "bloc:invente"])
+
+    assert isinstance(relance, AnswerDraft) and step.name == "rediger"
+    messages = fake.requests[-1]["messages"]
+    # Le fil entier est repris : première demande, tours d'outils, ébauche précédente, puis le motif.
+    assert messages[0] == fake.requests[0]["messages"][0]
+    assert any(isinstance(m["content"], list)
+               and any(part.get("type") == "tool_result" for part in m["content"])
+               for m in messages)
+    assert draft.model_dump_json() in [m["content"] for m in messages if isinstance(m["content"], str)]
+    dernier = messages[-1]["content"]
+    assert '<untrusted kind="motif">' in dernier
+    assert "la citation n'a pas été retrouvée" in dernier
+    assert f"Acquis à reconduire : {REGLE}" in dernier and "bloc:invente" not in dernier
+    # Aucun tour d'outils supplémentaire : quatre appels en tout, dont deux de lecture.
+    assert len(fake.requests) == 4 and navigation.tours == 2
+
+
+# --- 5. ce que la trace publie -----------------------------------------------------------
+
+
+async def test_la_trace_publie_les_tours_les_noeuds_la_lecture_et_la_reflexion() -> None:
+    """AD-10 : par requête, les tours, les nœuds ouverts, les tokens lus, la réflexion, le coût."""
+    navigation, _fake = _navigation([
+        _tour_doutils({"name": "chercher", "input": {"termes": ["prise en charge"]}},
+                      thinking=56),
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}, thinking=31),
+        _fin_de_lecture(thinking=12),
+        _ebauche(thinking=204)])
+
+    step_lecture = await navigation.lire()
+    _draft, step_redaction = await navigation.rediger()
+
+    detail = next(c.detail for c in step_lecture.checks if c.name == "navigation")
+    assert "3 tour(s)" in detail and f"1 nœud(s) ouvert(s) ({SOCLE})" in detail
+    assert "1 recherche(s)" in detail and "réflexion 99 tokens" in detail
+    assert step_lecture.opened_block_ids == [TITRE, REGLE]
+    assert step_lecture.budget_lecture is not None
+    assert 0 < step_lecture.budget_lecture.tokens_used < 12000
+    assert [call.thinking for call in step_lecture.calls] == [56, 31, 12]
+    # Le tour **qui cite** est celui qui doit réfléchir : son compte est publié à part.
+    assert [call.thinking for call in step_redaction.calls] == [204]
+    assert "réflexion 204 tokens" in next(
+        c.detail for c in step_redaction.checks if c.name == "ebauche_dans_la_conversation")
+    assert step_lecture.usage.cost_eur > 0 and step_redaction.usage.cost_eur > 0

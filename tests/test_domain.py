@@ -535,7 +535,7 @@ def test_trace_models() -> None:
     # Story 4.2e : `tier` publie le tier **réellement employé** par cet appel-là. `StepTrace.tier`
     # reste le tier *demandé* de l'étape, et `model` ne suffit pas — il n'existe aucune table
     # inverse modèle → tier, et deux tiers peuvent pointer le même modèle.
-    assert {"model", "tier", "ms", "usage", "cache_read", "cache_write", "tools",
+    assert {"model", "tier", "ms", "usage", "cache_read", "cache_write", "thinking", "tools",
             "call_uid", "run_uid", "artifact_uid", "trusted_line_uids", "input_sha256",
             "input_bytes", "response_sha256", "response_bytes", "audit_persisted"} == fields(trace.LLMCall)
 
