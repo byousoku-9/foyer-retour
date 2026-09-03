@@ -2493,6 +2493,55 @@ def test_une_sous_question_de_plus_vaut_une_reserve_declaree_de_plus() -> None:
     assert not domine(egale, acquise)
 
 
+def test_une_sous_question_de_plus_vaut_une_extension_marginale_de_moins() -> None:
+    """Correctif du tour 10 (A16 r1) — l'axe des blocs ne tue plus une couverture meilleure.
+
+    Forme exacte du run : l'acquise couvre **une** facette sur deux avec `p39:9`, `p39:10`,
+    `p40:6` ; la relance couvre les **deux** avec `p39:9`, `p40:6`, `p34:11`, et laisse moins de
+    manques. Seul `p39:10`, une extension marginale, manquait au sur-ensemble de blocs — et la
+    réponse servie ignorait la fumée. La facette déjà couverte garde `p39:9` et `p40:6` : aucune
+    sous-question n'est échangée contre une autre.
+    """
+    from server.app.pipelines.commun import blocs_cites, domine
+
+    def claim(rang: int, bloc: str) -> VerifiedClaim:
+        return VerifiedClaim(
+            claim_id=f"c{rang}", text=f"Clause {rang}.",
+            quotes=[VerifiedQuote(block_id=bloc, quote=Q_GARANTIE, start=0, end=len(Q_GARANTIE),
+                                  text_start=0, text_end=len(Q_GARANTIE))],
+            status=ClaimStatus(retrouvee=True, pertinente=True, edition="juin 2017"))
+
+    acquise = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p39:9"), claim(2, f"{DOC_ID}:p39:10"),
+                claim(3, f"{DOC_ID}:p40:6")],
+        found=True, complete=False, unknown=["Une réserve.", "Une autre."], lacunes=[],
+        facettes_couvertes=[0], facettes_claims={0: ["c1", "c2", "c3"]})
+    seconde = Verification.model_construct(
+        claims=[claim(1, f"{DOC_ID}:p39:9"), claim(3, f"{DOC_ID}:p40:6"),
+                claim(4, f"{DOC_ID}:p34:11")],
+        found=True, complete=False, unknown=["Une réserve."], lacunes=[],
+        facettes_couvertes=[0, 1], facettes_claims={0: ["c1", "c3"], 1: ["c4"]})
+
+    assert not blocs_cites(seconde) >= blocs_cites(acquise)
+    assert domine(seconde, acquise)
+
+    # Fermeture 1 : à couverture **égale**, la règle historique reprend, `p39:10` manque toujours.
+    egale = seconde.model_copy(update={"facettes_couvertes": [0],
+                                       "facettes_claims": {0: ["c1", "c3", "c4"]}})
+    assert not domine(egale, acquise)
+    # Fermeture 2 : une sous-question de plus **contre** la base de celle qui était couverte reste
+    # un échange, et reste refusée — aucun des blocs de la facette 0 acquise n'est reconduit.
+    echange = Verification.model_construct(
+        claims=[claim(4, f"{DOC_ID}:p34:11"), claim(5, f"{DOC_ID}:p34:12"),
+                claim(6, f"{DOC_ID}:p34:13")],
+        found=True, complete=False, unknown=["Une réserve."], lacunes=[],
+        facettes_couvertes=[0, 1], facettes_claims={0: ["c5", "c6"], 1: ["c4"]})
+    assert not domine(echange, acquise)
+    # Fermeture 3 : sans appariement mesuré sur l'acquise (`facettes_claims` vide), il n'y a rien
+    # à vérifier par facette et le sur-ensemble de blocs redevient exigible.
+    assert not domine(seconde, acquise.model_copy(update={"facettes_claims": {}}))
+
+
 # --- Correctif du tour 2 (rapport rédiger E/F) : la relance n'est due que si elle peut servir ---
 
 

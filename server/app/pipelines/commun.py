@@ -195,6 +195,23 @@ def blocs_cites(verification: Verification) -> set[str]:
     return {q.block_id for c in verification.claims for q in c.quotes}
 
 
+def blocs_par_facette(verification: Verification) -> dict[int, set[str]]:
+    """Les blocs qui fondent **chaque** sous-question couverte, et non l'ensemble en vrac.
+
+    `blocs_cites` répond « sur quoi repose ce qui est affiché » ; il ne dit pas *à quoi* chaque bloc
+    sert. La dominance a besoin des deux : ce qui garantit qu'une relance n'échange pas une
+    sous-question contre une autre, c'est que chaque sous-question déjà couverte garde une base —
+    pas que tout bloc jamais cité soit reconduit. `facettes_claims` porte cet appariement, mesuré
+    par *vérifier* sur les claims **affichées** ; les claims rejetées n'y entrent pas, comme dans
+    `blocs_cites`.
+    """
+    par_id = {claim.claim_id: claim for claim in verification.claims}
+    couvertes = set(verification.facettes_couvertes)
+    return {rang: {quote.block_id for cid in cids if cid in par_id
+                   for quote in par_id[cid].quotes}
+            for rang, cids in verification.facettes_claims.items() if rang in couvertes}
+
+
 def preuves_citees(verification: Verification) -> set[tuple[str, str]]:
     """Les **passages** sur lesquels repose ce qui est affiché, pas seulement leurs blocs.
 
@@ -216,7 +233,8 @@ def domine(seconde: Verification, acquise: Verification, *,
     une facette *différente* ont le même compte, et prendre la seconde échangerait une sous-question
     contre une autre (tour 3, I2). Sont donc exigés : trouver au moins autant, garder au moins autant
     d'affirmations, couvrir **au moins les mêmes facettes**, s'appuyer sur **au moins les mêmes
-    blocs**, ne pas déclarer moins complet, ne pas laisser plus de **manques** (déclarés par le
+    blocs** (sauf à répondre à une sous-question de plus, voir `blocs_conserves`), ne pas déclarer
+    moins complet, ne pas laisser plus de **manques** (déclarés par le
     modèle ou constatés par le code). À égalité non dominante,
     l'acquis fait foi.
 
@@ -256,10 +274,29 @@ def domine(seconde: Verification, acquise: Verification, *,
     # rendue.
     manques_admis = (seconde.nb_manques <= acquise.nb_manques
                      or (couvre_plus and preuves_citees(seconde) >= preuves_citees(acquise)))
+    # Correctif du tour 10 (A16 r1, `a16-final1/a16-r1.json`). **Une extension marginale de moins ne
+    # se paie pas d'une sous-question de moins.** Sur ce run, l'acquise citait `p39:9`, `p39:10` et
+    # `p40:6` pour **une** facette sur deux ; la relance citait `p39:9`, `p40:6` et `p34:11` et
+    # couvrait les **deux**, avec moins de manques. Elle était écartée pour le seul `p39:10`, une
+    # extension marginale — et la réponse servie ignorait la fumée.
+    #
+    # Ce que l'axe protège est intact et n'est pas déplacé d'un cran : **on n'échange jamais une
+    # sous-question contre une autre.** C'est pourquoi la levée exige une couverture **strictement**
+    # plus large (les facettes de l'acquise sont déjà toutes reprises, axe précédent) et vérifie,
+    # sous-question par sous-question, qu'au moins un des blocs qui la fondaient reste cité. Ce qui
+    # n'est plus exigé, c'est le sur-ensemble des blocs qui ne fondaient **aucune** sous-question
+    # couverte. La table `facettes_claims` doit couvrir exactement les facettes déclarées couvertes :
+    # sans cet appariement, il n'y a rien à vérifier par facette et la règle historique s'applique.
+    par_facette = blocs_par_facette(acquise)
+    blocs_conserves = (blocs_cites(seconde) >= blocs_cites(acquise)
+                       or (couvre_plus
+                           and set(par_facette) == set(acquise.facettes_couvertes)
+                           and all(blocs & blocs_cites(seconde)
+                                   for blocs in par_facette.values())))
     return (seconde.found >= acquise.found
             and len(seconde.claims) >= len(acquise.claims)
             and set(seconde.facettes_couvertes) >= set(acquise.facettes_couvertes)
-            and blocs_cites(seconde) >= blocs_cites(acquise)
+            and blocs_conserves
             and seconde.complete >= acquise.complete
             # `manques` et non `unknown` (story 2.3) : ce qui manque à une réponse se dit maintenant
             # dans deux canaux — ce que le modèle a déclaré, ce que le code a constaté —, et ne
