@@ -405,6 +405,15 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
         elif question.kind == "conditions_particulieres":
             missing.conditions_particulieres = False
             for claim in targets:
+                # Story 5.7 (L1e) : la condition écrite en tête de la section renvoie aux conditions
+                # particulières, et c'est elle que la question rapporte. Une réponse affirmative la
+                # lève ; sans cela le verdict resterait plafonné à `sous_conditions` sur une pièce que
+                # le gestionnaire vient précisément de produire, et la boucle ne se refermerait jamais.
+                # Une réponse négative la laisse ouverte : les CP ne mentionnent pas la garantie.
+                if meaning == ResponseMeaning.AFFIRMATIVE:
+                    for clause in claim.clauses:
+                        if clause.condition_section is not None and clause.condition_section.renvoie_cp:
+                            clause.condition_section = None
                 if claim.champs is not None:
                     claim.champs.cp_requise = False
                     if meaning == ResponseMeaning.NEGATIVE:

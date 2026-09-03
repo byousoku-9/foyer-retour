@@ -102,6 +102,31 @@ class ChampsApplicabilite(DomainModel):
     qualites_non_etablies: list[str] = Field(default_factory=list)
 
 
+class ConditionDeSection(DomainModel):
+    """La condition d'applicabilité que le contrat écrit **en tête** de la section d'une garantie.
+
+    Story 5.7 (L1e). Le contrat AXA ouvre « 3.1.4 Dégâts des eaux » par `p37:11` — « Les présentes
+    conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie
+    “dégâts des eaux” est souscrite. » Tant que ce bloc n'était lu que s'il était **cité**, le verdict
+    de la même question basculait entre `sous_conditions` et `couvert` selon que le modèle avait ou
+    non retenu cette clause : la garantie était servie comme acquise alors que le contrat dit
+    lui-même qu'elle ne l'est qu'à une condition que personne n'a vérifiée.
+
+    Elle est donc lue sur l'**arbre** (`Document.condition_de_section_applicable`), jamais sur les
+    claims, et portée par chaque `ClauseCitee` de la section. `texte` est le bloc relu dans le corpus
+    (AD-3) : c'est lui que la raison du verdict cite, pour que l'utilisateur voie *pourquoi* le
+    verdict est ouvert. `renvoie_cp` est un **témoin** lexical, pas la règle : il ne décide pas
+    qu'une section est conditionnée (la structure le fait), il décide seulement des mots de la
+    question posée au client — « vos conditions particulières mentionnent-elles … » n'a de sens que
+    si la condition y renvoie.
+    """
+
+    block_id: str
+    titre: str  # titre du nœud de la section conditionnée, tel qu'il est écrit (« 3.1.4 Dégâts des eaux »)
+    texte: str  # `Block.text`, relu dans le corpus comme le `kind` et la portée
+    renvoie_cp: bool = False
+
+
 class ClauseCitee(DomainModel):
     """Un bloc de kind décisionnel cité par une claim, réduit à ce dont la table a besoin.
 
@@ -135,6 +160,10 @@ class ClauseCitee(DomainModel):
     # « incomber aux assurés »). Racines du lexique `steps.verifier.QUALITES_DE_PERSONNE`, jamais
     # affichées telles quelles — c'est lui qui porte le libellé rendu au client.
     qualites_personne: list[str] = Field(default_factory=list)
+    # Story 5.7 (L1e) : la condition d'applicabilité de la section, lue sur l'arbre du document et non
+    # sur les claims. `None` quand la section de la clause n'en porte pas — la garantie est alors
+    # inconditionnelle au regard de la structure du contrat.
+    condition_section: ConditionDeSection | None = None
 
 
 class ClaimJugee(DomainModel):
@@ -394,6 +423,56 @@ def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> l
     return out
 
 
+def _conditions_de_section_ouvertes(claims: list[ClaimJugee], *,
+                                    etat: dict[str, Applicable]) -> list[ConditionDeSection]:
+    """Les conditions d'applicabilité de section qu'aucune affirmation retenue n'établit (L1e).
+
+    Une condition est **établie** quand une claim retenue cite son bloc et que la table la tient pour
+    `applicable = "oui"`. Rien d'autre ne l'établit : ni le fait que le modèle l'ait citée sans la
+    trancher, ni le silence de la réponse. En pratique, une condition qui renvoie aux conditions
+    particulières ne peut jamais l'être au premier tour — les CP ne sont pas au dossier, `cp_requise`
+    est forcé par le texte de la clause (`steps.verifier`, T18) et la claim vaut `humain` : c'est
+    exactement ce que le verdict doit dire, au lieu de dépendre du hasard d'une citation.
+
+    Seules les garanties sont interrogées, et pas celles que la table a écartées (`applicable="non"`):
+    une clause sans objet ne subordonne rien, comme dans `_libelles_manquants`.
+    """
+    etablies = {clause.block_id for claim in claims if etat.get(claim.claim_id) == "oui"
+                for clause in claim.clauses}
+    ouvertes: list[ConditionDeSection] = []
+    vues: set[str] = set()
+    for claim in claims:
+        if claim.kind != "garantie" or etat.get(claim.claim_id) == "non":
+            continue
+        for clause in claim.clauses:
+            condition = clause.condition_section
+            if condition is None or condition.block_id in etablies or condition.block_id in vues:
+                continue
+            vues.add(condition.block_id)
+            ouvertes.append(condition)
+    return ouvertes
+
+
+def _conditions_de(claim: ClaimJugee, ouvertes: set[str]) -> list[ConditionDeSection]:
+    """Les conditions de section **ouvertes** qui subordonnent les clauses d'une claim, dédupliquées."""
+    trouvees: list[ConditionDeSection] = []
+    for clause in claim.clauses:
+        condition = clause.condition_section
+        if condition is not None and condition.block_id in ouvertes and all(
+                condition.block_id != vue.block_id for vue in trouvees):
+            trouvees.append(condition)
+    return trouvees
+
+
+def _questions_de_section(conditions: list[ConditionDeSection]) -> list[str]:
+    """Une question par condition de section ouverte — les mots suivent le témoin, pas la règle."""
+    return [
+        (f"Vos conditions particulières mentionnent-elles la garantie « {condition.titre} » ?"
+         if condition.renvoie_cp else
+         f"La condition posée en tête de « {condition.titre} » est-elle remplie ?")
+        for condition in conditions]
+
+
 def questions_du_paquet_manquant(missing: MissingPackage | None = None) -> list[str]:
     """Les questions dues **sans lire une seule clause** : le paquet manquant d'AD-6, et rien d'autre.
 
@@ -475,8 +554,9 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
     (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
-    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, ou garantie hors socle)
-          ⇒ `sous_conditions` — politique conservatrice ;
+    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, garantie hors socle, ou
+          **condition d'applicabilité de sa section non établie**) ⇒ `sous_conditions` — politique
+          conservatrice ;
     (2bis) garantie `humain` **par** option ou conditions particulières ⇒ `sous_conditions` : c'est
           le « dépend d'une option / CP inconnue » d'AD-6 vu depuis la **clause**, qu'une garantie
           `oui` ne peut pas exprimer (une garantie qui dépend d'une option est `humain` par
@@ -484,6 +564,19 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (3)   garantie du socle `oui`, aucune claim retenue `humain`, **et chaque sous-question posée
           portée par une affirmation retenue** ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
+
+    **La condition d'applicabilité de la section (story 5.7, L1e).** La règle (3) lisait le socle sur
+    le seul `Node.scope.kind`, et tenait donc « 3.1.4 Dégâts des eaux » pour acquise parce qu'elle est
+    rangée sous « 3.1 Garanties de base » — alors que le contrat écrit en tête de cette section même
+    qu'elle n'est applicable que si les conditions particulières la mentionnent. Le même sinistre
+    ressortait `sous_conditions` ou `couvert` selon que le modèle avait ou non cité cette clause : le
+    verdict le plus fort du système dépendait du hasard d'une citation. La condition est désormais lue
+    sur l'**arbre** (`Document.condition_de_section_applicable`, portée par `ClauseCitee`), et tant
+    qu'aucune affirmation retenue ne l'établit `applicable="oui"`, la garantie n'est pas du socle au
+    sens de la règle (3) : le verdict est plafonné à `sous_conditions`, la raison cite le bloc et son
+    texte, et `ask_client` demande la pièce. Aucune combinaison de claims ne rend donc `couvert` sur
+    une section conditionnée — une condition qui renvoie aux CP vaut `humain` par construction (T18),
+    et une condition non citée n'est jamais établie.
 
     **`facettes_sans_reponse` (correctif du tour 6, F3).** `couvert` est le seul verdict qui affirme
     quelque chose de la totalité de la demande : « une garantie du socle s'applique et aucune clause
@@ -533,9 +626,18 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # Ce qu'elles laissent de place borne alors les libellés du modèle, si bien que `missing.faits` et
     # `ask_client` disent la même chose.
     paquet = _questions_du_paquet(retenues, connu)
-    manquants = _libelles_manquants(retenues, etat=etat, place=ask_client_max - len(paquet))
+    # L1e : la condition que le contrat écrit en tête de la section d'une garantie retenue passe
+    # devant les faits — c'est elle qui plafonne le verdict, et elle est due quel que soit ce que le
+    # modèle a cité. Elle entre dans le décompte de `place` pour la même raison que `paquet` : ce que
+    # `missing.faits` annonce, `ask_client` doit pouvoir le demander.
+    sections_ouvertes = _conditions_de_section_ouvertes(retenues, etat=etat)
+    conditions_ouvertes = {condition.block_id for condition in sections_ouvertes}
+    questions_section = _questions_de_section(sections_ouvertes)
+    manquants = _libelles_manquants(
+        retenues, etat=etat, place=ask_client_max - len(paquet) - len(questions_section))
     missing_final = connu.model_copy(update={"faits": manquants})
     ask = (paquet
+           + questions_section
            + [f"Fait à établir auprès du client : {libelle}" for libelle in manquants]
            + [f"Qualité exigée par une clause citée, à faire confirmer par le client : {libelle}"
               for libelle in _qualites_a_confirmer(retenues, deja=manquants)])[:ask_client_max]
@@ -584,13 +686,21 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
             continue
         # « … ou d'une **extension** » (AD-6, règle 2) : le nœud le dit, pas le modèle.
         hors_socle = any(not clause.socle for clause in garantie.clauses)
-        # (2) — politique conservatrice : un seul de ces deux motifs suffit à ouvrir le verdict.
-        if ouvertes or hors_socle:
+        conditionnee = _conditions_de(garantie, conditions_ouvertes)
+        # (2) — politique conservatrice : un seul de ces trois motifs suffit à ouvrir le verdict.
+        if ouvertes or hors_socle or conditionnee:
             motifs = []
             if ouvertes:
                 motifs.append("une condition, une franchise ou une exclusion citée reste ouverte")
             if hors_socle:
                 motifs.append("la garantie ne relève pas du socle commun")
+            # L1e : la condition est **montrée**, pas seulement invoquée — le bloc et son texte, relus
+            # dans le corpus. Sans cela, « sous conditions » ne dit pas au lecteur ce qu'il lui reste
+            # à établir, et c'est précisément la clause que le modèle n'avait pas citée.
+            for condition in conditionnee:
+                motifs.append(f"le contrat ne rend « {condition.titre} » applicable qu'à une "
+                              f"condition qu'aucun passage retenu n'établit — {condition.block_id} : "
+                              f"« {condition.texte.strip()} »")
             return verdict("sous_conditions", "Une garantie s'applique, mais " + " ; ".join(motifs))
 
     # (2bis) — la garantie **elle-même** dépend d'une option ou de conditions particulières inconnues.
@@ -606,7 +716,14 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # exigées par la clause soient établies par les faits déclarés — et *vérifier* n'en tient une pour
     # établie que sur un fragment des faits relu mot pour mot (B3, tour 2).
     for garantie in garanties:
-        if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
+        # L1e : `socle` seul ne suffit plus. Une garantie rangée sous « 3.1 Garanties de base » relève
+        # bien du socle commun au sens de la portée, et le contrat écrit pourtant en tête de sa
+        # section qu'elle n'est applicable que si les conditions particulières la mentionnent. Tant
+        # que cette condition n'est pas établie, la garantie n'est pas acquise : le socle est lu ici
+        # comme la conjonction des deux — la portée **et** la condition d'applicabilité de la section.
+        socle = (all(clause.socle for clause in garantie.clauses)
+                 and not _conditions_de(garantie, conditions_ouvertes))
+        if etat[garantie.claim_id] == "oui" and socle:
             if any(etat[c.claim_id] == "humain" for c in retenues):
                 continue
             if facettes_sans_reponse > 0:

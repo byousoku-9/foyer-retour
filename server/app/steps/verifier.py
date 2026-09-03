@@ -84,6 +84,7 @@ from server.app.domain.verdict import (
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
+    ConditionDeSection,
     MissingPackage,
     Verdict,
     _mots_qualifiants,
@@ -904,6 +905,27 @@ def _qualites_de_personne(texte: str) -> list[str]:
     return [racine for racine in QUALITES_DE_PERSONNE if racine in plat]
 
 
+def _condition_de_section(document: Any, node_id: str) -> ConditionDeSection | None:
+    """La condition que le contrat écrit en tête de la section d'une clause, relue dans le corpus.
+
+    Story 5.7 (L1e). La structure décide (`Document.condition_de_section_applicable` : premier bloc de
+    contenu d'une section, `kind = condition`, avant toute sous-section) ; le lexique `RENVOIS_CP` ne
+    fait que **témoigner** de ce que la condition subordonne, pour que la question posée au client
+    soit dans les termes du contrat. Le texte est celui du bloc du corpus, comme le `kind` et la
+    portée : c'est lui que la raison du verdict cite mot pour mot (AD-3).
+    """
+    block_id = document.condition_de_section_applicable(node_id)
+    if block_id is None:
+        return None
+    bloc = document.block(block_id)
+    chemin = document.chemin_de_noeud(document.node_of(block_id))
+    # Une section sans titre ne se nomme pas dans une question : on la désigne par le document, seul
+    # repère qui reste. Le cas n'existe pas sur les deux contrats servis ; il ne doit pas lever.
+    return ConditionDeSection(
+        block_id=block_id, titre=chemin[-1] if chemin else document.title, texte=bloc.text,
+        renvoie_cp=bool(_mots_renvoi(bloc.text) & RENVOIS_CP))
+
+
 def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
@@ -920,6 +942,11 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             continue  # une définition ou un paragraphe est le contexte de la clause, pas une clause
         node_id = document.node_of(block_id)
         clauses.append(ClauseCitee(
+            # Story 5.7 (L1e) : la condition d'applicabilité de la section, lue sur l'**arbre** et non
+            # sur les claims. `renvoie_cp` est le témoin lexical déjà employé par T18 sur le texte de
+            # la clause : il ne décide pas qu'une section est conditionnée — la structure le fait —,
+            # il décide seulement des mots de la question posée au client.
+            condition_section=_condition_de_section(document, node_id),
             block_id=block_id, kind=block.kind, kind_confirmed=block.kind_confirmed,
             portee=document.scope_nodes(block_id), node_id=node_id,
             socle=document.node_scope_kind(node_id) == "commun",

@@ -229,6 +229,11 @@ class Document(DomainModel):
     # page ; le recalculer à chaque citation referait le parcours de `Node.items` pour rien.
     _parent_of_node: dict[str, str] = PrivateAttr(default_factory=dict)
     _title_of_node: dict[str, str] = PrivateAttr(default_factory=dict)
+    # Story 5.7 (L1e), même parcours et même raison que les trois précédents : le bloc `condition`
+    # par lequel une section s'ouvre, avant ses sous-sections (`condition_de_section`). C'est le seul
+    # endroit du document qui dise « tout ce qui suit n'est applicable qu'à cette condition », et la
+    # table AD-6 doit le lire sur l'arbre — pas sur ce que le modèle a choisi de citer.
+    _condition_de_section: dict[str, str] = PrivateAttr(default_factory=dict)
 
     def block(self, block_id: str) -> Block:
         return self._by_id[block_id]
@@ -248,6 +253,45 @@ class Document(DomainModel):
         déjà `commun` par le défaut d'AD-2 : il n'y a rien à aller chercher plus haut.
         """
         return self._scope_of_node[node_id]
+
+    def condition_de_section(self, node_id: str) -> str | None:
+        """Le bloc `condition` par lequel une **section** s'ouvre, avant ses sous-sections.
+
+        Une section, ici, est un nœud qui a des sous-sections (`NodeRef` dans ses `items`). Ce qu'un
+        contrat écrit **en tête** d'une telle section, avant d'en détailler l'étendue et les
+        exclusions, ne parle pas d'un cas : cela dit à quelle condition tout ce qui suit s'applique.
+        Le contrat AXA l'écrit ainsi sous « 3.1.4 Dégâts des eaux » (`p37:11`) : « Les présentes
+        conditions spéciales sont applicables si les conditions particulières mentionnent que la
+        garantie “dégâts des eaux” est souscrite. »
+
+        Le critère est **structurel**, pas lexical : la position (premier bloc de contenu du nœud,
+        avant toute sous-section) et le `kind` de l'ingestion. Une condition écrite *après* la
+        substance de la section (`p78:1`, qui suit la garantie `p77:6`) ou à l'intérieur d'une étendue
+        de garantie n'est pas une condition d'applicabilité de la section : elle nuance ce qui
+        précède. Un nœud feuille n'en a pas non plus — ses blocs *sont* sa substance.
+
+        `None` quand la section n'ouvre pas sur une condition, quand le nœud ouvre directement sur une
+        sous-section, ou quand le nœud n'a pas de sous-section.
+        """
+        return self._condition_de_section.get(node_id)
+
+    def condition_de_section_applicable(self, node_id: str) -> str | None:
+        """La condition d'applicabilité de la section la plus proche, en remontant les ancêtres.
+
+        Une garantie vit dans « 3.1.4.1 Etendue de la garantie » ; la condition qui la subordonne est
+        écrite un cran plus haut, en tête de « 3.1.4 Dégâts des eaux ». Lire la condition sur le seul
+        nœud du bloc cité ne la verrait jamais. La **plus proche** l'emporte : c'est la plus
+        spécifique, et le verdict n'a qu'une question à poser.
+        """
+        courant: str | None = node_id
+        vus: set[str] = set()
+        while courant is not None and courant not in vus:
+            vus.add(courant)
+            condition = self._condition_de_section.get(courant)
+            if condition is not None:
+                return condition
+            courant = self._parent_of_node.get(courant)
+        return None
 
     def chemin_de_noeud(self, node_id: str) -> list[str]:
         """Les titres des nœuds parents, **du plus général au nœud lui-même**, racine exclue.
@@ -418,6 +462,17 @@ class Document(DomainModel):
         self._scope_of_node = {n.node_id: n.scope.kind for n in self.nodes}
         self._parent_of_node = node_parent
         self._title_of_node = {n.node_id: n.title for n in self.nodes}
+        self._condition_de_section = {}
+        for n in self.nodes:
+            ouverture: str | None = None
+            for item in n.items:
+                if isinstance(item, NodeRef):
+                    # Une sous-section commence : ce qui précédait était la tête de la section.
+                    if ouverture is not None and by_id[ouverture].kind == "condition":
+                        self._condition_de_section[n.node_id] = ouverture
+                    break
+                if ouverture is None and by_id[item.block_id].kind != "heading":
+                    ouverture = item.block_id
         return self
 
     @field_validator("doc_id")
