@@ -20,7 +20,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T10:54:51Z",
+      "date": "2026-09-03T11:35:47Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -31,7 +31,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "1ed890ec0d1bcc4be31925939d52d5aba326233d6c2f120793ce18d373a1819c",
+          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -42,7 +42,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "1ed890ec0d1bcc4be31925939d52d5aba326233d6c2f120793ce18d373a1819c",
+          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -53,7 +53,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "1ed890ec0d1bcc4be31925939d52d5aba326233d6c2f120793ce18d373a1819c",
+          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -64,7 +64,7 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "1ed890ec0d1bcc4be31925939d52d5aba326233d6c2f120793ce18d373a1819c",
+          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -75,7 +75,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "850e02c4592aed5bc8633ff745418547ca553d3c4738ebba667f65b37c85a798",
+          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -86,7 +86,7 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "850e02c4592aed5bc8633ff745418547ca553d3c4738ebba667f65b37c85a798",
+          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -97,13 +97,13 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "850e02c4592aed5bc8633ff745418547ca553d3c4738ebba667f65b37c85a798",
+          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "1ed890ec0d1bcc4be31925939d52d5aba326233d6c2f120793ce18d373a1819c",
+      "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -120,7 +120,7 @@
         "navigation_search_limit": 20,
         "navigation_draft_max_claims": 6,
         "navigation_draft_max_segments": 9,
-        "navigation_rediger_max_tokens": 3072,
+        "navigation_rediger_max_tokens": 5056,
         "navigation_draft_effort_high": 0,
         "navigation_tier_reason": 1,
         "variante_nombre_max_part": 0.01,
@@ -287,7 +287,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "ee606f2926455378508b7d2e451d746f4aabf26f",
+      "candidate_revision": "b69188c0b35a1f3b73aa1287b93321880e5f0b34",
       "report_digest": null,
       "structure_hash": null
     }
