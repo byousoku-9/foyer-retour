@@ -40,6 +40,13 @@ MODEL_CAPS: dict[str, dict[str, object]] = {
 }
 
 # Effort explicite par tier quand le modèle l'accepte (AD-9) ; `micro` n'en a pas (MODEL_CAPS.effort=False).
+# Le même `cache_ttl`, en secondes — la traduction du vocabulaire du fournisseur dans l'unité qu'un
+# intervalle de maintien peut comparer (story 5.6, T5). Elle vit ici parce que c'est ici que le
+# vocabulaire est déclaré ; `config.PREFIX_CACHE_TTL_S` en est le reflet pour le tier servi, et
+# `tests/test_caches.py` refuse que les deux divergent.
+CACHE_TTL_S: dict[str, float] = {"5m": 300.0, "1h": 3600.0}
+
+
 EFFORT: dict[Tier, str] = {
     "ingest": "high",
     "reason": "medium",

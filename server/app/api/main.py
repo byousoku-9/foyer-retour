@@ -55,9 +55,19 @@ async def lifespan(app: FastAPI):
     data_dir: Path | None = getattr(app.state, "data_dir", None)
     etat = construire_etat(settings, data_dir=data_dir)
     app.state.foyer = etat
+    # Story 5.6 (T5) : le maintien au chaud des préfixes est une tâche de fond de **l'application**,
+    # donc démarrée et arrêtée par le seul endroit qui connaît la vie du processus. Il n'existe que
+    # sous `--min-instances=1` avec une clé fournisseur (`api/etat._caches`) ; partout ailleurs
+    # l'attribut est `None` et ces deux lignes ne font rien.
+    if etat.maintien_prefixes is not None:
+        etat.maintien_prefixes.demarrer()
     try:
         yield
     finally:
+        if etat.maintien_prefixes is not None:
+            # Avant `aclose()` : la tâche parle au client, et un pool fermé sous elle rendrait une
+            # erreur d'arrêt là où il n'y a qu'un arrêt.
+            await etat.maintien_prefixes.fermer()
         # Le client Anthropic détient un pool de connexions HTTP. Cloud Run recycle ses instances et
         # une suite de tests ouvre l'application plusieurs fois : sans fermeture, les sockets restent
         # ouvertes jusqu'au ramasse-miettes, et le fait de ne rien fermer serait un état muté qu'on

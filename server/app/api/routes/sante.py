@@ -21,7 +21,42 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from server.app.api.schemas import EtatDictionnaire, SanteResponse
+from server.app.api.schemas import (
+    EtatCacheReponses,
+    EtatCaches,
+    EtatDictionnaire,
+    EtatMaintienPrefixes,
+    SanteResponse,
+)
+
+
+def _etat_des_caches(etat) -> EtatCaches:  # type: ignore[no-untyped-def]
+    """Story 5.6 (T5) — les deux caches, publiés parce qu'ils décident de la facture.
+
+    `compte_des_entrees()` compte des fichiers ; c'est la seule lecture de disque de cette route, et
+    elle est bornée par `response_cache_max_entries`. Un cache non armé rend l'objet par défaut :
+    tous les compteurs à zéro et `actif=false`.
+    """
+    cache = etat.cache_reponses
+    reponses = EtatCacheReponses()
+    if cache is not None:
+        c = cache.compteurs
+        reponses = EtatCacheReponses(
+            actif=True, hits=c.hits, misses=c.misses, ecritures=c.ecritures,
+            evictions=c.evictions, invalides=c.invalides,
+            entrees=cache.compte_des_entrees())
+    maintien = etat.maintien_prefixes
+    prefixes = EtatMaintienPrefixes()
+    if maintien is not None:
+        e = maintien.etat
+        prefixes = EtatMaintienPrefixes(
+            actif=e.actif, prefixes=e.prefixes, maintiens=e.maintiens,
+            ignores=e.ignores, echecs=e.echecs,
+            cout_cumule_eur=round(e.cout_cumule_eur, 4),
+            cout_du_jour_eur=round(e.cout_du_jour_eur, 4),
+            plafond_du_jour_atteint=e.plafond_du_jour_atteint)
+    return EtatCaches(reponses=reponses, prefixes=prefixes)
+
 
 router = APIRouter()
 
@@ -56,4 +91,5 @@ async def sante(request: Request) -> SanteResponse:
                                     corpus_ok=etat.dictionnaire.corpus_ok,
                                     refus_zero_hit_actif=etat.dictionnaire.court_circuit_actif),
         alerts=etat.alerts,
-        thresholds=etat.settings.thresholds())
+        thresholds=etat.settings.thresholds(),
+        caches=_etat_des_caches(etat))

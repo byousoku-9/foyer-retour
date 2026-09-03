@@ -79,6 +79,14 @@ SHA_COURT = 7
 _HEX = frozenset("0123456789abcdef")
 
 
+# Durée de vie du cache de préfixe des modèles servis, en secondes. C'est le `"1h"` que
+# `llm/models.MODEL_CAPS` déclare par modèle (AD-9), exprimé dans l'unité qu'un intervalle de
+# maintien peut comparer — `config` ne peut pas importer `llm` (table des couches), et une chaîne
+# `"1h"` ne se compare à rien. `tests/test_caches.py` relit `MODEL_CAPS` pour que les deux textes ne
+# puissent pas diverger.
+PREFIX_CACHE_TTL_S = 3600.0
+
+
 def _est_revision_complete(valeur: str) -> bool:
     """40 hexadécimaux — la seule forme qui identifie un commit sans ambiguïté."""
     return len(valeur) == 40 and all(c in _HEX for c in valeur.lower())
@@ -1247,6 +1255,54 @@ class Settings(BaseSettings):
     fetch_timeout_s: float = Field(30.0, gt=0)
     metadata_timeout_s: float = Field(2.0, gt=0)  # serveur de métadonnées GCP (jeton du repli gs://)
 
+    # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
+    # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
+    # une première requête après expiration du préfixe paie ≈ 0,28 € d'écriture de cache, contre
+    # ≈ 0,015 € à chaud. Deux caches, deux places : l'un chez le fournisseur (on relit le préfixe
+    # avant qu'il ne refroidisse), l'autre ici (on ne repaie pas une question déjà posée mot pour
+    # mot). Aucun des deux ne choisit quoi que ce soit à la place du modèle — c'est la condition
+    # posée par l'amendement AD-1 du 03/09/2026.
+    #
+    # `prefix_keepalive_enabled` — **faux par défaut**, et c'est la borne du cahier : le maintien n'a
+    # de sens que sous `--min-instances=1`, drapeau que `deploy.yml` décide seul (AD-13, convention
+    # Seuils : jamais deux textes autoritaires sur la même valeur). Le workflow pose la variable à
+    # côté du drapeau, et `tests/test_workflows.py` refuse que l'un existe sans l'autre. Hors de là
+    # — poste de développement, révision candidate, suite hermétique — rien ne démarre.
+    prefix_keepalive_enabled: bool = False
+    # `prefix_keepalive_s` — **dérivé du TTL**, jamais choisi : le cache de préfixe des modèles servis
+    # vit une heure (`llm/models.MODEL_CAPS[...]["cache_ttl"] == "1h"`, AD-9), soit
+    # `PREFIX_CACHE_TTL_S` = 3 600 s. 3 000 s laissent 600 s de marge sous l'expiration — de quoi
+    # absorber un réveil tardif de la boucle, un tour de maintien qui traîne sur plusieurs préfixes
+    # et le délai d'appel lui-même. Un intervalle au-delà du TTL ne maintiendrait rien : le validateur
+    # de cohérence le refuse au démarrage.
+    prefix_keepalive_s: float = Field(3000.0, gt=0)
+    # Combien de préfixes distincts on accepte de tenir au chaud. Le registre est alimenté par le
+    # trafic (quatre étapes × documents × langues) : sans borne, le maintien croîtrait avec l'usage,
+    # c'est-à-dire à l'inverse de ce pour quoi il existe. 12 couvre les quatre étapes des deux
+    # documents servis, avec de la place ; au-delà, le nouveau venu est refusé, jamais un ancien
+    # évincé (une rotation ferait payer une écriture à chaque tour).
+    prefix_keepalive_max_prefixes: int = Field(12, ge=1)
+    # Le plafond dur de ce que le maintien peut coûter par jour, quantième UTC. Un préfixe tenu en
+    # continu coûte ≈ 0,015 € × 86 400 / 3 000 ≈ 0,43 €/jour : 1,00 € tient deux préfixes chauds en
+    # permanence et **arrête** le reste au lieu de laisser la facture suivre le nombre de préfixes.
+    # `/sante` publie le coût cumulé et dit si le plafond du jour est atteint.
+    prefix_keepalive_max_cost_eur_per_day: float = Field(1.0, ge=0)
+    # `response_cache_*` — le cache interne de réponses. Actif par défaut, mais **jamais armé sans
+    # clé fournisseur** (`api/etat.py`) : un service qui ne peut rien payer n'a rien à économiser, et
+    # cette règle — la même que celle de `ok` dans `/sante` — laisse toute exécution hors ligne, la
+    # suite hermétique comprise, sans état sur disque qu'elle n'a pas demandé.
+    response_cache_enabled: bool = True
+    # Sept jours : au-delà, ce n'est plus « la même question qu'hier », c'est un stock. La borne
+    # utile est de toute façon celle des empreintes — une réingestion, un prompt ou un seuil qui
+    # bouge périment l'entrée avant son TTL, quel qu'il soit.
+    response_cache_ttl_s: float = Field(604800.0, gt=0)
+    # Deux bornes, parce qu'une seule ne borne rien : le nombre d'entrées empêche le magasin de
+    # devenir un journal, les octets empêchent quelques réponses très longues d'occuper la mémoire
+    # de l'instance (le disque de Cloud Run est en RAM, sous `--memory=1Gi` et `--concurrency=2`).
+    # 200 entrées × ~64 Kio de réponse+trace tiennent largement sous les 32 Mio.
+    response_cache_max_entries: int = Field(200, ge=1)
+    response_cache_max_bytes: int = Field(33_554_432, ge=4096)
+
     @model_validator(mode="before")
     @classmethod
     def _versioned_retrieval_default(cls, value: Any) -> Any:
@@ -1262,6 +1318,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _coherence(self) -> Settings:
+        if self.prefix_keepalive_s >= PREFIX_CACHE_TTL_S:
+            # Un maintien qui arrive après l'expiration ne maintient rien : il **paie** l'écriture
+            # qu'il prétendait éviter, à chaque tour. Le refus est au démarrage, pas dans la facture.
+            raise ValueError(
+                f"prefix_keepalive_s ({self.prefix_keepalive_s}) doit être < la durée de vie du "
+                f"cache de préfixe ({PREFIX_CACHE_TTL_S})")
         if self.llm_timeout_s >= self.deadline_s:
             raise ValueError(f"llm_timeout_s ({self.llm_timeout_s}) doit être < deadline_s ({self.deadline_s})")
         if self.llm_retry_margin_s >= self.deadline_s:
@@ -1592,6 +1654,18 @@ class Settings(BaseSettings):
             "dedent_starter_max_lines": self.dedent_starter_max_lines,
             "fetch_timeout_s": self.fetch_timeout_s,
             "metadata_timeout_s": self.metadata_timeout_s,
+            # Story 5.6 (T5) : les deux caches entrent dans les seuils publiés, et donc dans la
+            # **clé** du cache de réponses lui-même — un TTL ou une borne qui bouge périme le stock
+            # au lieu de servir des entrées produites sous d'autres règles. Même patron numérique
+            # que `baseline_tiers` pour les booléens : 1 = actif.
+            "prefix_keepalive_enabled": int(self.prefix_keepalive_enabled),
+            "prefix_keepalive_s": self.prefix_keepalive_s,
+            "prefix_keepalive_max_prefixes": self.prefix_keepalive_max_prefixes,
+            "prefix_keepalive_max_cost_eur_per_day": self.prefix_keepalive_max_cost_eur_per_day,
+            "response_cache_enabled": int(self.response_cache_enabled),
+            "response_cache_ttl_s": self.response_cache_ttl_s,
+            "response_cache_max_entries": self.response_cache_max_entries,
+            "response_cache_max_bytes": self.response_cache_max_bytes,
         }
 
 

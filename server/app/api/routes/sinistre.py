@@ -40,12 +40,14 @@ from server.app.api.presenter import champs_de_journal, clauses_de
 from server.app.api.routes.chat import verifier_quota
 from server.app.api.schemas import (
     VIA,
+    VIA_CACHE,
     ConversationView,
     SinistreConversationResponse,
     SinistreFollowupRequest,
     SinistreRequest,
     SinistreResponse,
 )
+from server.app.cache import EntreeDeCache, composantes_de_cle
 from server.app.domain.conversation import ContinuationState, initialiser
 from server.app.domain.errors import InvalidRequest, PipelineError
 from server.app.pipelines.sinistre import run_followup
@@ -73,6 +75,29 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
                              "conditions générales, et ce document n'en porte aucune (voir "
                              "GET /api/v1/documents, champ `kind`)")
 
+    # Story 5.6 (T5) — le cache de réponses, **avant** le budget et avant tout appel facturé, mais
+    # après les deux refus 400 : un `doc_id` inconnu ou qui n'est pas un contrat reste une faute
+    # d'appel, et un cache ne doit jamais changer le code d'une erreur d'entrée. Les faits du
+    # sinistre entrent dans la clé **mot pour mot** — c'est la moitié de la question, et rien n'y est
+    # normalisé : « fenêtre ouverte » et « fenetre ouverte » ne décrivent pas le même dossier.
+    cache = etat.cache_reponses
+    cle = None
+    if cache is not None:
+        composantes = composantes_de_cle(
+            etat=etat, route="sinistre", doc_id=demande.doc_id, question=demande.question,
+            lang=demande.lang,
+            # La route ne transmet aucune variante au pipeline (AD-1 : aucun dispatch) ; la clé
+            # nomme donc celle qui sert réellement, pour qu'une promotion de variante périme le stock.
+            variant=etat.settings.retrieval_variant,
+            entree={"faits": demande.faits.model_dump(mode="json")
+                    if demande.faits is not None else None},
+            dictionnaire=etat.dictionnaires.get(demande.doc_id))
+        if composantes is not None:
+            cle = cache.cle(composantes)
+            if (entree := cache.lire(cle)) is not None:
+                return _servir(request, etat, demande, entree.answer, entree.trace,
+                               via=VIA_CACHE, cout_de_la_requete=0.0)
+
     budget = etat.client.new_budget()  # AD-9 : deadline monotone armée ici, à l'entrée de la route
     answer, trace = await etat.pipeline_sinistre(
         demande.doc_id, demande.question, demande.faits,
@@ -91,12 +116,32 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         # avant le premier appel facturé.
         pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
 
+    reponse = _servir(request, etat, demande, answer, trace, via=VIA,
+                      cout_de_la_requete=trace.total_cost_eur)
+    # Écrit **après** la projection, donc après que `clauses_de` a confirmé chaque clause dans le
+    # corpus servi : on ne conserve jamais un verdict qui n'aurait pas pu être servi.
+    if cache is not None and cle is not None:
+        cache.ecrire(cle, EntreeDeCache(answer=answer, trace=trace,
+                                        decision_claims=list(answer._decision_claims)))
+    return reponse
+
+
+def _servir(request: Request, etat, demande: SinistreRequest, answer, trace, *,  # type: ignore[no-untyped-def]
+            via: str, cout_de_la_requete: float) -> SinistreResponse | JSONResponse:
+    """La projection d'AD-11, la ligne d'AD-10 et le fil 3.7, partagés par le chemin payé et le cache.
+
+    Le fil de conversation vaut sur un hit comme sur un miss : `Answer._decision_claims` — l'état
+    interne d'AD-6, exclu de toute projection HTTP — est conservé dans l'entrée de cache et reposé à
+    la relecture. Sans lui, une réponse re-servie aurait ouvert un fil sans aucune claim à continuer,
+    c'est-à-dire un fil qui refuse toute question de suivi sans rien pouvoir en dire.
+    """
     try:
         sources = clauses_de(answer, etat.index, etat.corpus)
     except PipelineError as exc:
         # AD-3/AD-16 : une clause que le corpus servi ne confirme pas est un échec terminal, pas un
         # verdict amputé de ses clauses — c'est sous un verdict que « phrase sans source » coûte le
-        # plus cher. La trace suit l'erreur (AD-10 : le coût engagé reste mesurable).
+        # plus cher. La trace suit l'erreur (AD-10 : le coût engagé reste mesurable). Le cache passe
+        # par ici aussi : un verdict conservé dont une clause a disparu du corpus servi échoue.
         exc.trace = trace
         raise
     # AD-10 : des champs, jamais du texte — ni la question, ni la description du sinistre, ni les
@@ -107,8 +152,10 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         # Story 4.2f : la cause de l'issue, nommée par `presenter.champs_de_journal` — une seule
         # règle pour les deux routes, qui écrivent le même champ.
         **champs_de_journal(answer),
-        cost_eur=trace.total_cost_eur)
-    response = SinistreResponse(answer=answer, sources=sources, via=VIA, trace=trace)
+        # AD-10 : `CHAMPS_DE_LOG` est close — `via` n'y entre pas ; un hit se lit dans `cost_eur=0.0`
+        # et dans les compteurs de `/sante`.
+        cost_eur=cout_de_la_requete)
+    response = SinistreResponse(answer=answer, sources=sources, via=via, trace=trace)
     # Compatibilité explicite : les appelants one-shot conservent leur contrat exact. La page 3.7
     # demande le fil par un en-tête ; une Response directe contourne seulement la projection FastAPI
     # qui retirerait le champ ajouté, pas la validation pydantic ci-dessous.
@@ -126,7 +173,7 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         active_questions_max=etat.settings.conversation_active_questions_max)
     conversation = _view(state, signer(state, etat.conversation_secret))
     payload = SinistreConversationResponse(
-        answer=answer, sources=sources, via=VIA, trace=trace, conversation=conversation)
+        answer=answer, sources=sources, via=via, trace=trace, conversation=conversation)
     return JSONResponse(content=payload.model_dump(mode="json"))
 
 

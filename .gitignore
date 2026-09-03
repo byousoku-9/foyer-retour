@@ -52,6 +52,9 @@ data/*/.type-clauses.lock
 
 # Artefacts locaux/CI du harness d'évals (cache et rapports reproductibles, jamais committés)
 .cache/evals/
+# Story 5.6 (T5) : le cache interne de réponses du serveur. Des octets produits par une exécution,
+# indexés par les empreintes de l'image qui les a produits — jamais du contenu servi.
+.cache/reponses/
 .evals/
 .audit/
 eval-results.json

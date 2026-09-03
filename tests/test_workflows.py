@@ -166,6 +166,26 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
     assert "ALLOW_UNGATED" not in avec["env_vars"]
 
 
+def test_le_maintien_des_prefixes_est_pose_avec_le_drapeau_qui_le_rend_legitime() -> None:
+    """Story 5.6 (T5) : `PREFIX_KEEPALIVE_ENABLED` **si et seulement si** `--min-instances=1`.
+
+    Le maintien au chaud d'un préfixe suppose une instance qui tourne entre deux requêtes. Sous
+    `--min-instances=0`, la tâche de fond ne s'exécute pas — ou s'exécute quand Cloud Run rend le CPU
+    à une instance gelée : on paierait des maintiens sans jamais tenir le préfixe chaud.
+
+    La convention Seuils interdit deux textes autoritaires sur la même valeur : le **nombre** reste
+    décidé par le seul drapeau, et le processus reçoit la conséquence, pas une copie. Ce test est ce
+    qui empêche les deux de diverger — retirer `--min-instances=1` sans retirer la variable, ou
+    l'inverse, rougit ici.
+    """
+    avec = deploiement()
+    pose = "PREFIX_KEEPALIVE_ENABLED=true" in avec["env_vars"]
+    chaud = "--min-instances=1" in avec["flags"]
+    assert pose == chaud, (
+        "PREFIX_KEEPALIVE_ENABLED et --min-instances=1 vont ensemble ou pas du tout : "
+        f"variable={pose}, drapeau={chaud}")
+
+
 @pytest.mark.parametrize("drapeau", ["--allow-unauthenticated", "--max-instances=1",
                                      "--concurrency=2", "--timeout=300", "--min-instances=1"])
 def test_les_cinq_drapeaux_de_dimensionnement_dad_13(drapeau: str) -> None:

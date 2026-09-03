@@ -169,8 +169,18 @@ jobs:
           region: ${{ env.REGION }}
           no_traffic: true
           tag: ${{ env.TAG }}
+          # `PREFIX_KEEPALIVE_ENABLED` est posé **ici**, et nulle part ailleurs, parce que
+          # c'est ici que `--min-instances=1` est décidé (story 5.6, T5). Le maintien au chaud
+          # des préfixes relit un préfixe caché avant son expiration d'une heure — ≈ 0,015 € au
+          # lieu de ≈ 0,28 € d'écriture pour la requête suivante. Il suppose une instance qui
+          # tourne entre deux requêtes : sous `--min-instances=0`, la tâche de fond ne
+          # s'exécuterait pas, ou s'exécuterait quand Cloud Run rend le CPU à une instance
+          # gelée — on paierait des maintiens sans jamais tenir le préfixe chaud. Le drapeau
+          # reste la seule autorité sur le nombre ; la variable en est la conséquence, et
+          # `tests/test_workflows.py` refuse que l'un existe sans l'autre.
           env_vars: |-
             GIT_SHA=${{ steps.sha.outputs.sha40 }}
+            PREFIX_KEEPALIVE_ENABLED=true
           env_vars_update_strategy: overwrite
           secrets: |-
             ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:1

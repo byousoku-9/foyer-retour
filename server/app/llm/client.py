@@ -35,7 +35,7 @@ from server.app.domain.trace import CheckResult, LLMCall, StepTrace, Usage
 
 from .budget import RequestBudget
 from .audit import AuditSink, ExactLlmAuditEvent, ProjectionAuditSink
-from .models import EFFORT, MODEL_CAPS, Tier, model_for
+from .models import CACHE_TTL_S, EFFORT, MODEL_CAPS, Tier, model_for
 from .pricing import cost_from_usage, estimate_cost
 from .prompting import untrusted
 
@@ -85,6 +85,15 @@ MARQUEURS_COMPTE_FOURNISSEUR: tuple[str, ...] = ("credit balance", "billing", "q
 # — rien ne s'y règle, aucune mesure ne le déplace —, il vit donc avec le seul code qui l'emploie,
 # comme `LISTE_MAX_ITEMS` vit avec le schéma qu'il borne.
 DIAGNOSTIC_LOG_MAX_CHARS = 500
+
+# Story 5.6 (T5) — l'appel de **maintien** d'un préfixe caché : le plus petit qui existe. Un jeton de
+# sortie, un message d'un caractère. On ne lit pas ce qu'il rend : le but est la relecture du
+# préfixe, qui en repousse l'expiration, pas la réponse. Ce ne sont pas des seuils de produit (rien
+# ne s'y règle, aucune mesure ne les déplace) : ils définissent « appel minimal » et vivent avec le
+# seul code qui les emploie, comme `DIAGNOSTIC_LOG_MAX_CHARS` juste au-dessus. Le message est une
+# constante, donc jamais du texte d'un document ni d'un appelant (AD-15).
+MAINTIEN_MAX_TOKENS = 1
+MAINTIEN_MESSAGE = "."
 
 
 def _diagnostic_fournisseur(exc: Exception) -> tuple[str, str]:
@@ -283,6 +292,12 @@ class LlmClient:
                  campaign_cost_recorder: Callable[[float], None] | None = None) -> None:
         self._settings = settings
         self._cache = cache
+        # Story 5.6 (T5) : le registre des préfixes **réellement cachés** par le fournisseur, posé
+        # par `api/etat.py` quand le maintien au chaud est armé, `None` partout ailleurs. Il est
+        # annoté `Any` et jamais importé : la couche `cache` est un service de la couche HTTP, et
+        # `llm` n'a pas à en connaître le type (elle ne connaît pas davantage celui du corpus).
+        # Sans lui, ce client se comporte exactement comme avant ce correctif.
+        self.prefix_registry: Any | None = None
         # Le défaut sert l'API partagée : l'enveloppe exacte n'y survit jamais à sa projection.
         # Les runners/ingestions injectent explicitement leur sink exact hors ligne borné.
         self.audit_sink: AuditSink = audit_sink or ProjectionAuditSink()
@@ -372,6 +387,59 @@ class LlmClient:
         resultat = fermer()
         if hasattr(resultat, "__await__"):
             await resultat
+
+    def _noter_prefixe_servi(self, prefix_digest: str, *, model: str, system: Any,
+                             tools: Any, output_config: Any = None) -> None:
+        """Enregistre un préfixe que le fournisseur vient d'écrire ou de relire (story 5.6, T5).
+
+        Appelé **exactement** là où `budget.note_prefix` l'est, donc jamais pour un préfixe trop
+        court pour être cachable ni pour un appel en échec : on ne maintient au chaud que ce qui est
+        réellement chaud. Un registre absent ou saturé n'est pas une erreur d'appel.
+        """
+        registre = self.prefix_registry
+        if registre is None:
+            return
+        registre.noter(prefix_digest, model=model, system=system, tools=tools,
+                       output_config=output_config,
+                       # La durée de vie du préfixe **de ce modèle-là** : tous ne la déclarent pas
+                       # égale (`MODEL_CAPS` : « 1h » pour `reason`, « 5m » pour `ingest` et
+                       # `micro`). Sans elle, le maintien aurait payé une écriture par tour sur un
+                       # préfixe déjà froid depuis quarante-cinq minutes.
+                       cache_ttl_s=CACHE_TTL_S[str(MODEL_CAPS[model]["cache_ttl"])])
+
+    async def maintenir_prefixe(self, entree: Any, *, timeout_s: float) -> float:
+        """Relit un préfixe déjà servi avec l'appel le plus petit possible ; rend son coût en euros.
+
+        Ce n'est **pas** un appel de pipeline : il n'a ni budget de requête, ni deadline, ni trace,
+        ni audit — il ne répond à personne et ne produit aucun contenu. Il ne passe donc pas par
+        `parse()`, dont chaque garde suppose une requête HTTP en cours. Ce qu'il partage avec elle,
+        et qui est tout ce qui compte ici : le préfixe est rejoué **à l'octet près** (même modèle,
+        même bloc système avec son `cache_control`, mêmes outils, même schéma de sortie), sans quoi
+        le fournisseur écrirait un second préfixe au lieu de relire le premier.
+
+        Le coût est compté dans le budget de campagne comme n'importe quel appel : un maintien est
+        une dépense, et une dépense que rien ne compterait serait précisément le trou de facture que
+        cette story vient fermer.
+        """
+        self._exiger_un_fournisseur()
+        kwargs: dict[str, Any] = {
+            "model": entree.model,
+            "max_tokens": MAINTIEN_MAX_TOKENS,
+            "system": entree.system,
+            "messages": [{"role": "user", "content": MAINTIEN_MESSAGE}],
+            "timeout": timeout_s,
+        }
+        if entree.tools is not None:
+            kwargs["tools"] = entree.tools
+        if entree.output_config is not None:
+            kwargs["output_config"] = entree.output_config
+        try:
+            message = await self._anthropic.messages.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 — même mapping total que les deux coutures d'appel
+            raise map_provider_error(exc) from exc
+        usage = cost_from_usage(entree.model, message.usage, self._settings.usd_eur)
+        self._noter_campagne(usage)
+        return usage.cost_eur
 
     def new_budget(self, deadline_s: float | None = None) -> RequestBudget:
         """Budget d'une requête, réglé sur les seuils actifs (AD-9 : deadline, appels, euros).
@@ -512,6 +580,8 @@ class LlmClient:
                 # `estimate_cost` cesserait de majorer. Constaté sur les fixtures live de *comprendre*
                 # (préfixe ≈ 900 tokens : `cache_creation` et `cache_read_input_tokens` à 0).
                 budget.note_prefix(prefix_digest)
+                self._noter_prefixe_servi(prefix_digest, model=model, system=system, tools=tools,
+                                          output_config=output_config)
             call = LLMCall(model=message.model, ms=ms, usage=usage,
                            cache_read=usage.cached, cache_write=cache_write,
                            tools=tool_names)
@@ -700,6 +770,8 @@ class LlmClient:
         cache_write = self._cache_write_tokens(message.usage)
         if prompt_cache and (cache_write or usage.cached):
             budget.note_prefix(prefix_digest)
+            self._noter_prefixe_servi(prefix_digest, model=model, system=system, tools=tools,
+                                      output_config=output_config)
         call = LLMCall(model=message.model, ms=ms, usage=usage,
                        cache_read=usage.cached, cache_write=cache_write, tools=tool_names)
         projection = self._audit_call(

@@ -45,6 +45,12 @@ from server.app.domain.trace import Trace
 from server.app.pipelines.guide import VARIANTS
 
 VIA = "api/v1"
+# Story 5.6 (T5) : la même réponse, servie du cache interne au lieu d'être recalculée. Le champ
+# `via` existait pour dire **par où** une réponse arrive ; il le dit désormais aussi quand elle
+# n'arrive de nulle part. C'est le seul signal de premier niveau du cache : la trace publiée reste
+# celle de la requête qui a payé, avec son `request_id` et son `total_cost_eur` d'origine, et le
+# journal de cette requête-ci porte `cost_eur=0.0`.
+VIA_CACHE = "cache"
 
 # Convention Nommage du spine : « `doc_id` slug (`axa-lu-optihome-2017`, `lux-guide`) ». Le motif et
 # la borne viennent du domaine `Document`, puis sont réexportés ici pour les contrats HTTP : un
@@ -145,6 +151,52 @@ class EtatDictionnaire(BaseModel):
     refus_zero_hit_actif: bool = False
 
 
+class EtatCacheReponses(BaseModel):
+    """Story 5.6 (T5) — ce que le cache de réponses a fait depuis le démarrage.
+
+    Des **comptes**, jamais une question ni un texte (AD-10, AD-15). `actif=false` dit qu'aucun cache
+    n'est armé — sans clé fournisseur, il n'y a rien à économiser — et distingue ce cas de celui d'un
+    cache armé qui n'a encore rien servi.
+    """
+
+    actif: bool = False
+    hits: int = 0
+    misses: int = 0
+    ecritures: int = 0
+    evictions: int = 0
+    # Entrées écartées parce qu'illisibles, d'une autre version de schéma ou d'une autre clé. Elles
+    # comptent aussi dans `misses` : une entrée douteuse n'est jamais servie « au mieux ».
+    invalides: int = 0
+    entrees: int = 0
+
+
+class EtatMaintienPrefixes(BaseModel):
+    """Story 5.6 (T5) — ce que le maintien au chaud des préfixes a coûté, publié parce qu'il coûte.
+
+    Un cache qui dépense en silence est un trou de facture : c'est précisément ce que cette story
+    ferme. Le coût cumulé est celui du processus courant ; celui du jour se remet à zéro au quantième
+    UTC, et `plafond_du_jour_atteint` dit que le maintien s'est **arrêté**, pas qu'il a échoué.
+    """
+
+    actif: bool = False
+    prefixes: int = 0
+    maintiens: int = 0
+    # Préfixes servis dont le modèle déclare un TTL plus court que l'intervalle de maintien : ils ne
+    # sont pas maintenables, et le dire vaut mieux que de les compter comme chauds.
+    ignores: int = 0
+    echecs: int = 0
+    cout_cumule_eur: float = 0.0
+    cout_du_jour_eur: float = 0.0
+    plafond_du_jour_atteint: bool = False
+
+
+class EtatCaches(BaseModel):
+    """Les deux caches de la story 5.6, côte à côte : celui d'ici et celui du fournisseur."""
+
+    reponses: EtatCacheReponses = Field(default_factory=EtatCacheReponses)
+    prefixes: EtatMaintienPrefixes = Field(default_factory=EtatMaintienPrefixes)
+
+
 class SanteResponse(BaseModel):
     """`GET /api/v1/sante` (et son alias `/sante`) — sondé par `testerApi()` à chaque page."""
 
@@ -175,6 +227,11 @@ class SanteResponse(BaseModel):
     dictionary: EtatDictionnaire = Field(default_factory=EtatDictionnaire)
     alerts: list[Alerte] = Field(default_factory=list)
     thresholds: dict[str, float | int] = Field(default_factory=dict)
+    # Story 5.6 (T5) : les deux caches décidés le 03/09. Ce sont les seuls champs de `/sante` qui ne
+    # soient pas calculés au démarrage — mais ils ne coûtent rien pour autant : ce sont des
+    # compteurs de processus, lus tels quels. Ils sont ici parce que c'est ici qu'on dit ce que le
+    # service fait de l'argent, à côté des seuils qui le bornent.
+    caches: EtatCaches = Field(default_factory=EtatCaches)
 
 
 # --- Story 1.9 : l'outil sinistre (AD-11) ---------------------------------
