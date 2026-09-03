@@ -289,10 +289,33 @@ class Settings(BaseSettings):
     # test_le_timeout_cloud_run_couvre_la_deadline_du_serveur` — l'ordre d'AD-11 est conservé sans
     # toucher au `--timeout` : **315 s > 300 s > 250 s**, la patience du client restant à 315 s parce
     # que `client_abort_margin_s` est re-dérivée avec (150 → 65).
+    #
+    # **290 s depuis le 03/09/2026 (T1d).** Un seul terme bouge, et c'est celui que T1c avait
+    # justement laissé lire sur la configuration : *vérifier* passe de 4 096 à
+    # `verifier_sinistre_max_tokens` = **6 144**, re-dérivé sur la mesure censurée à `medium` (voir
+    # `verifier_thinking_reserve_tokens`). Le terme entre **deux fois** dans le pire chemin — l'appel
+    # et la relance atomique d'AD-3 —, donc +4 096 tokens : 22 523 tokens, soit 265,0 s d'écriture à
+    # 85 tokens/s plus les mêmes 24 s d'amorçage = **289,0 s**. 290 s les couvre avec 0,3 %, et la
+    # marge est mince par construction : les quatre majorations empilées décrites ci-dessus **sont**
+    # la marge, et elles ne se produisent jamais ensemble.
+    #
+    # **Ce que ce relèvement consomme, et qu'il faut dire.** L'ordre d'AD-11 tient toujours sans
+    # toucher au `--timeout` de Cloud Run — **315 s > 300 s > 290 s**, la patience du client restant
+    # à 315 s parce que `client_abort_margin_s` est re-dérivée avec (65 → 25) —, mais l'écart entre
+    # la deadline serveur et la coupure de l'infrastructure tombe de 50 s à **10 s**. Ce sont dix
+    # secondes pour sérialiser et rendre une réponse déjà calculée, ce qui suffit très largement ;
+    # ce ne sont plus dix secondes de croissance disponible. **Le prochain terme qui monte n'a plus
+    # de place ici** : il faudra relever le `--timeout` de Cloud Run dans
+    # `.github/workflows/deploy.yml` (et la patience du client avec, l'ordre d'AD-11 étant tenu par
+    # `tests/test_workflows.py::test_le_timeout_cloud_run_couvre_la_deadline_du_serveur`), ou
+    # rendre le pire chemin moins conservateur. Le second levier est déjà tiré : les 7 tours
+    # d'outils sont comptés à **729** tokens, leur pire mesuré, et non à
+    # `retrouver_outils_max_tokens` (1 024) — les compter au plafond ajouterait 2 065 tokens, soit
+    # 24 s de plus, qui ne tiendraient pas.
     # `[HYPOTHÈSE]` : ni le nombre de tours (2 à 4 observés, jamais 8) ni la sortie de *vérifier* à
-    # `medium` ne sont mesurés sur le chemin **servi**. La campagne `--repeat 3` doit donner les deux,
-    # et c'est elle qui resserrera cette borne — pas un arbitrage.
-    deadline_s: float = Field(250.0, gt=0)
+    # `medium` ne sont mesurés sur le chemin **servi** — la campagne T1c l'a cherchée et n'a obtenu
+    # que des saturations. C'est elle qui resserrera cette borne — pas un arbitrage.
+    deadline_s: float = Field(290.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
@@ -328,14 +351,22 @@ class Settings(BaseSettings):
     # du vérificateur sinistre à l'effort `medium`. Soit 4 096 / 85 + 5 = **53,2 s** — 3,3 % sous les
     # 55 s. La marge est mince et c'est le contrôle qui la surveille : un plafond de plus, ou une
     # réserve de réflexion de plus, et la configuration refusera de démarrer tant que ce délai n'aura
-    # pas été re-dérivé avec elle. Le prototype ne
+    # pas été re-dérivé avec elle. C'est arrivé au tour suivant. Le prototype ne
     # déplace pas ce majorant : son plus long tour rend 900 tokens (15,6 s majorées), et son tour
     # le plus réfléchi 729 dont 657 de réflexion (13,6 s). Relever ce délai sans que le plafond de
     # sortie d'une étape ait bougé n'achèterait rien et retarderait la détection d'un appel pendu.
     # L'invariante ci-dessous mord toujours : si un tour de navigation-rédaction se voit doter d'une
     # réserve de réflexion qui pousse son plafond au-delà de 4 250 tokens, la configuration refusera
     # de démarrer, et c'est là — pas ici — qu'il faudra re-mesurer.
-    llm_timeout_s: float = Field(55.0, gt=0)
+    #
+    # **78 s depuis le 03/09/2026 (T1d), et le contrôle avait raison de mordre.** Rien n'a changé
+    # dans la dérivation : c'est son entrée qui a bougé. `verifier_sinistre_max_tokens` passe de
+    # 4 096 à **6 144** (1 024 de contrat + 5 120 de réflexion, voir ces deux champs), et reste la
+    # plus longue sortie d'étape. 6 144 / 85 + 5 = **77,3 s**, que 78 majore de 0,9 %. Baisser le
+    # plafond à la place n'était pas une option : c'est lui qui vient d'être re-dérivé sur la
+    # mesure. Ce délai borne l'**appel**, pas la chaîne — la chaîne, c'est `deadline_s`, qui est
+    # re-dérivée avec (250 → 290).
+    llm_timeout_s: float = Field(78.0, gt=0)
     # Débit de sortie **minoré** du fournisseur, réflexion comprise, tel que l'audit le mesure :
     # 89,4 tokens/s en régression sur les quatre appels du vérificateur sinistre (89 à 95 selon
     # l'appel, ordonnée à l'origine ≈ 0). 85 le minore de 5 % — un minorant, parce qu'il sert à
@@ -379,12 +410,19 @@ class Settings(BaseSettings):
     # Cloud Run a coupé —, ce qui n'ajoute rien à ce que la page peut apprendre et retire tout à ce
     # que l'utilisateur peut faire. Ce qui est publié sur `/sante` reste la somme, et elle ne bouge
     # pas : les replis de `web/app/chat.js` (165 + 150) totalisent toujours les mêmes 315 s.
+    #
+    # **25 s depuis le 03/09/2026 (T1d), pour la troisième fois par le même reste.** La deadline
+    # serveur passe à 290 s, la patience du client vaut toujours 315 s, donc la marge vaut 25. Ce
+    # que la page perd n'est pas de la patience — elle en a exactement autant qu'avant — mais la
+    # latitude de ce reste : à la prochaine hausse de `deadline_s`, il n'y aura plus de reste à
+    # prendre, et c'est la patience elle-même, donc le `--timeout` de Cloud Run, qu'il faudra
+    # relever (voir `deadline_s`).
     # **Ce n'est pas une attente** : c'est le délai au bout duquel le navigateur renonce. Une
     # requête normale rend la main en 20 à 30 s, et un 503 est affiché dès qu'il arrive.
     # `tests/test_workflows.py::test_le_timeout_cloud_run_couvre_la_deadline_du_serveur` est le seul
     # endroit où les trois nombres se rencontrent — ils vivent dans trois fichiers qui ne se lisent
     # pas l'un l'autre.
-    client_abort_margin_s: float = Field(65.0, gt=0)
+    client_abort_margin_s: float = Field(25.0, gt=0)
     # Story 3.5 : les raisons de quarantaine sont affichées sur deux surfaces publiques
     # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
     # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
@@ -519,6 +557,22 @@ class Settings(BaseSettings):
     # sous 1 024.
     # Le run à cinq affirmations remplissait déjà 96 % de l'ancien contrat : la borne ne tenait plus
     # qu'à ce que le modèle juge moins de claims que la borne ne lui en annonce.
+    #
+    # **1 024, inchangé, mais re-dérivé le 03/09/2026 (T1d) sur 27 appels au lieu de 3, et par une
+    # autre méthode — celle du tour précédent aurait exigé de le relever à tort.** Les 161
+    # tokens/claim n'étaient pas une mesure du contrat, c'était le pire *rapport* `JSON / claims`
+    # d'un run ; or ce rapport charge l'affirmation d'une ponctuation fixe qu'on ne paie **qu'une
+    # fois**. Étendu aux 27 appels du vérificateur sinistre non tronqués de T1b (audit
+    # `a16-t1b/llm-calls.jsonl`, `output_tokens` moins `thinking_tokens`), le pire rapport monte à
+    # 190 (l'appel à **une** claim : 190 tokens, presque tous fixes) et prescrirait 1 140 à six —
+    # au-dessus de ce contrat. La sortie réelle dit l'inverse, parce qu'elle est **affine** :
+    #   — la droite des moindres carrés sur les 27 points donne **64 de fixe + 121 par affirmation**,
+    #     soit **791** à six ;
+    #   — l'enveloppe mesurée, qui ne suppose aucune forme : le plus gros JSON observé vaut 738 à
+    #     **cinq** affirmations, et le pire écart marginal d'une affirmation à la suivante vaut 166
+    #     (1 → 2) ; 738 + 166 = **904** à six.
+    # 1 024 majore la plus haute des deux lectures de 13 %. Le rapport, lui, ne majore rien : il
+    # extrapole une constante six fois.
     verifier_sinistre_json_tokens: int = Field(1024, ge=1)
     # 2 048 pour 1 904 mesurés : ~7 % de marge, sur une mesure qui ne couvre qu'un contrat et un
     # cas-témoin. `[HYPOTHÈSE]`, à resserrer quand d'autres cas décisoires auront été joués.
@@ -545,14 +599,42 @@ class Settings(BaseSettings):
     # 3 072 majore de 23 % le pire mesuré à `low`. Surtout, la troncature du 02/09 tient à un
     # **total** de 3 072 partagé avec le JSON, et `max_tokens` est un total : la place dont la
     # réflexion dispose avant de tronquer passe de 3 072 à `verifier_sinistre_max_tokens` = **4 096**,
-    # soit un tiers de plus, le contrat JSON ayant en outre sa part propre. La somme vaut de nouveau
-    # **exactement** `llm_max_output_tokens` (4 096) : `_coherence` mord, et toute croissance future
-    # exigera de relever d'abord le plafond du client au lieu de rogner en silence sur la réflexion.
-    # `[HYPOTHÈSE]`, et c'est la plus faible de ce fichier : personne n'a mesuré la réflexion de cet
-    # appel à `medium` sur la chaîne de navigation. La campagne `--repeat 3` doit la relever ; si elle
-    # dépasse 3 072, c'est `llm_max_output_tokens` **et** `llm_timeout_s` qu'il faudra re-dériver
-    # ensemble, jamais la réserve seule.
-    verifier_thinking_reserve_tokens: int = Field(3072, ge=0)
+    # soit un tiers de plus, le contrat JSON ayant en outre sa part propre.
+    #
+    # **5 120 depuis le 03/09/2026 (T1d), et la campagne annoncée ci-dessus est celle qui a répondu.**
+    # Elle a répondu par un refus : les trois réponses A16 de T1c sont sorties en 503, et l'audit
+    # (`a16-t1c/llm-calls.jsonl`) montre que le vérificateur sinistre n'a **jamais** rendu de JSON à
+    # `medium` — ses deux seuls appels (premier essai et retry du même témoin) rendent
+    # `output_tokens = 4 096` dont **4 096 et 4 095 de réflexion**, `stop_reason=max_tokens`, zéro et
+    # un token de contrat. La réserve de 3 072 n'était pas trop petite de peu : à `medium`, la
+    # réflexion a mangé le plafond **entier**, contrat compris.
+    #
+    # Ce que cette mesure ne donne pas, et il faut le dire : **un maximum**. Les deux observations
+    # sont **censurées** — elles disent « ≥ 4 096 », pas « = 4 096 ». C'est structurel, pas un défaut
+    # de la campagne : sur Sonnet 5 la réflexion est *adaptative* et `budget_tokens` a été retiré de
+    # l'API (un `budget_tokens` envoyé est refusé en 400). Rien, dans la requête, ne **réserve** quoi
+    # que ce soit : `effort` règle la profondeur, `max_tokens` est le seul plafond, et il est
+    # commun à la réflexion et au contrat. Cette « réserve » n'est donc pas un ordre donné au
+    # modèle, c'est notre pari sur ce qu'il va dépenser — et le pari se re-fait à chaque changement
+    # d'effort.
+    #
+    # Dérivation, sur ce que l'audit mesure vraiment :
+    #   — à `low`, 27 appels non tronqués : réflexion médiane **1 434**, p90 **2 394**, pire **2 932**
+    #     (un 28ᵉ appel a saturé son plafond de 3 456 : la queue est lourde, elle n'est pas rare).
+    #     La règle du palier — majorer le pire mesuré de 25 % — y prescrirait 3 665 ; l'ancienne
+    #     valeur de 3 072 ne majorait le pire de `low` que de 4,8 %, et c'est cet appel-là qui
+    #     tronquait déjà à `low` ;
+    #   — à `medium`, la mesure censurée vaut 4 096. La même règle donne 4 096 × 1,25 = **5 120**.
+    # 5 120 est donc le majorant d'un **minorant** : c'est un plancher honnête, pas un plafond
+    # démontré. Il faut le lire ainsi, et la prochaine campagne peut encore le démentir. Deux
+    # protections encadrent ce pari : la somme vaut de nouveau **exactement**
+    # `llm_max_output_tokens` (6 144), donc `_coherence` mord ; et si un appel `medium` sature encore
+    # 6 144, la mesure aura dit que cette tâche n'a pas de plafond de réflexion à cet effort — et le
+    # repli n'est alors pas d'ajouter un palier de plus, c'est de revenir à `low`, où la dépense est
+    # mesurée, non censurée, et majorée par 3 665.
+    # `[HYPOTHÈSE]` — n = **1 cas** (le témoin bougie), deux essais. La campagne `--repeat 3` doit
+    # rendre une réflexion **non saturée** avant que ce nombre cesse d'être un pari.
+    verifier_thinking_reserve_tokens: int = Field(5120, ge=0)
 
     @property
     def verifier_sinistre_max_tokens(self) -> int:
@@ -838,7 +920,14 @@ class Settings(BaseSettings):
     # invalide, heuristique d'estimation avant appel (caractères par token et marge tokenizer, calibrés pour que
     # 2,0/1,3 ≈ 1,54 car./token majore le pire mesuré — 1,65 sur le sommaire du contrat, revue Codex 1.3 B5),
     # délai de `count_tokens`.
-    llm_max_output_tokens: int = Field(4096, ge=1)
+    # **6 144 depuis le 03/09/2026 (T1d), et c'est un plafond de sûreté, pas une cible.** Il ne
+    # décide d'aucune sortie : chaque étape envoie le sien (`_coherence` les garde tous en dessous),
+    # et ce nombre est ce qu'un appel sans plafond propre reçoit et ce qu'aucun ne peut dépasser.
+    # Il suit `verifier_sinistre_max_tokens` (1 024 + 5 120), la plus longue sortie d'étape, parce
+    # que l'égalité est ce qui force à re-dériver `llm_timeout_s` et `deadline_s` **avec** lui
+    # plutôt que de rogner en silence sur la réflexion — ce qui tronque la sortie et rend un
+    # `LlmParse` terminal sur un sinistre nominal.
+    llm_max_output_tokens: int = Field(6144, ge=1)
     llm_retry_margin_s: float = Field(5.0, ge=0)
     # Étapes (story 1.4, NFR4) : sortie maximale par étape — le majorant `estimate_cost` compte la sortie
     # à `max_tokens` ; des plafonds par étape gardent chaque appel sous le plafond par requête (0,18 €).

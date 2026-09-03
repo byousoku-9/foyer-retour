@@ -79,8 +79,17 @@ EFFORT_PAR_PROMPT: dict[str, str] = {
     # est aujourd'hui un tiers plus grand, et le contrat JSON a sa propre part. `_coherence` tient
     # les deux bouts : le plafond reste sous `llm_max_output_tokens`, et `llm_timeout_s` (55 s) laisse
     # le temps de l'écrire (4 096 / 85 + 5 = 53,2 s).
-    # `[HYPOTHÈSE]` : la réflexion à `medium` **n'est pas mesurée** sur cette chaîne — la campagne
-    # `--repeat 3` doit la relever et resserrer la réserve.
+    #
+    # **T1d, 03/09/2026 : la campagne a mesuré, et elle a démenti ces 4 096.** Les deux seuls appels
+    # `medium` de cette chaîne ont saturé leur plafond — 4 096 et 4 095 tokens de **réflexion** pour
+    # 4 096 de sortie, aucun JSON rendu, `LlmParse` terminal. Sur Sonnet 5 la réflexion est
+    # adaptative et `budget_tokens` est refusé : rien ne la borne que `max_tokens`, qu'elle partage
+    # avec le contrat. La borne de cet appel vaut donc désormais 1 024 + 5 120 = **6 144**, et
+    # `llm_timeout_s` est passé à 78 s pour laisser le temps de l'écrire (6 144 / 85 + 5 = 77,3 s).
+    # `[HYPOTHÈSE]` : la mesure à `medium` est **censurée** (elle dit « ≥ 4 096 »), sur un seul cas.
+    # Si un appel sature encore 6 144, le repli est de revenir à `low` — où la dépense est mesurée,
+    # non censurée — et non d'ajouter un palier de plus. Voir `config.py`,
+    # `verifier_thinking_reserve_tokens`.
 }
 
 
