@@ -893,4 +893,58 @@ il a été engagé.
 Aucune campagne payante n'a été lancée dans ce tour : les nombres ci-dessus sont des dry-runs à clé
 vide. Le dictionnaire AXA reste à générer, et sa validation humaine reste due.
 
+## Un terme s'élargit à un seul groupe — l'amendement de I1, et pourquoi il ne le contredit pas
+
+*03/09/2026 — correctif du tour 5b (E1), après génération du dictionnaire AXA (698 canoniques,
+2 682 variantes, non signé).*
+
+La revue Codex 2.1 (I1) avait établi qu'« une forme partagée par deux canoniques élargit vers les
+deux ». La règle antérieure gardait le premier groupe rencontré, ce qui rendait les variantes du
+second **inatteignables** : une fiche qui existe restait fermée et, dictionnaire signé, la question
+ressortait en refus « zéro hit » — le faux refus qu'AD-5 dit prévenir. La décision était juste, et
+elle a été prise sur le dictionnaire du **guide**, dont les groupes sont des **catégories** :
+réunir « assurance » de l'habitation et « assurance » du véhicule n'ajoute que des synonymes.
+
+Le dictionnaire d'un **contrat généré** ne se comporte pas ainsi, et c'est mesuré. Ses groupes sont
+pour partie des **énumérations** — « garanties du contrat » liste toutes les garanties, l'exclusion
+`p50:18` liste tous les périls exclus. La même règle y produit des expansions transitives :
+
+- `expand("bris de vitrages")` rendait **10 formes**, dont `garanties du contrat`, `assistance
+  handyman`, `vol`, `tempête et grêle`, `dégâts électriques` — pour une question de vitre brisée.
+  Le terme est à la fois le **canonique** de son groupe et une **variante** du groupe d'énumération.
+- `expand("fumée")` rendait **9 formes**, dont `explosion`, `implosion`, `déplacement du sol`,
+  `dommages par le feu`, parce que l'exclusion les énumère.
+- Sur le classement `chercher` du navigateur des trois runs A16, `p50:18` — une exclusion de
+  **responsabilité civile immeuble** sans rapport avec le sinistre, déjà faux positif au tour 2 —
+  passait **rang 2 en correspondance pleine**, et `p34:12`, la clause du cas, était **évincée du
+  top 20**.
+
+**La règle devient donc :** un terme qui **est** un canonique s'élargit à son propre groupe ; un
+terme qu'un seul groupe revendique s'élargit à celui-là ; une forme que plusieurs groupes
+revendiquent sans qu'aucun ne la nomme est **ambiguë** et n'élargit rien. Le compte des formes
+ambiguës rencontrées est publié dans la trace (`variantes_ambigues`), jamais leur liste — ce serait
+du vocabulaire du dictionnaire, qu'AD-4 n'autorise pas à sortir.
+
+**Ce que I1 fermait ne se rouvre pas.** Le faux refus venait de ce qu'une variante ne trouvait
+**aucun** groupe et n'ouvrait donc pas la fiche qui répond ; ce cas — une forme revendiquée par un
+seul groupe, comme « Arbeitsamt » pour « ADEM » — élargit exactement comme avant. Ce que l'on cesse
+d'inventer est une **réunion arbitraire de sens** quand deux groupes revendiquent la même forme sans
+qu'aucun ne la nomme : là, garder le premier était un tirage au sort, les réunir un autre, et le
+terme reste de toute façon cherché tel quel.
+
+**Coût mesuré, document par document** (formes tues / formes qui élargissent) :
+
+| dictionnaire | canoniques | formes élargissantes | formes tues |
+|---|---|---|---|
+| `lux-guide` | 244 | 1 325 | **39** |
+| `baloise-lu-home-2-2024` | 540 | 2 794 | **290** |
+| `axa-lu-optihome-2017` | 698 | 2 841 | **186** |
+
+Et ce que les formes utiles continuent de faire, vérifié hors ligne sur les trois artefacts :
+`ADEM → arbeitsamt`, `déclaration d'arrivée → inscription à la commune`, `recherche de logement →
+wohnungssuche` (guide) ; `bris des glaces → bris de vitres`, `vitrages assurés → fenêtres et baies
+vitrées`, `dégât des eaux → fuite d'eau` (Baloise) ; `bris de vitrages → glasbruch`, `incendie →
+garantie incendie` (AXA). Sur le guide, la seule perte notable est `assurance`, qui est exactement
+l'exemple de catégorie que I1 citait — et le terme reste cherché.
+
 </details>

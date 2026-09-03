@@ -18,7 +18,13 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # précisément l'endroit où elles se consignent. Rien n'a été retiré ni réécrit : la section du
 # 27/08/2026 sur le dictionnaire Baloise reste telle quelle, et la nouvelle dit en quoi ses 35
 # unités ne sont plus atteignables.
-ANNEXE_SHA256 = "72a92243e0d6da53d441a9541d44fad21082775d7be865074de71483b34d4897"
+# Bougé le 03/09/2026 : le registre gagne « un terme s'élargit à un seul groupe », l'amendement de
+# la revue Codex 2.1 (I1) après génération du dictionnaire AXA. La décision de I1 avait été mesurée
+# sur le dictionnaire du guide, dont les groupes sont des catégories ; sur un dictionnaire de contrat
+# généré, dont certains groupes sont des énumérations, la même règle élargissait « fumée » vers
+# « explosion » et « déplacement du sol ». Rien n'a été retiré ni réécrit : la section de I1 reste
+# telle quelle, et la nouvelle dit en quoi son domaine de validité s'arrête au guide.
+ANNEXE_SHA256 = "07bb70ed5d635cf7861b487e8880eef11761fd98c1c3cf213017875790f276d0"
 
 
 def _document() -> str:

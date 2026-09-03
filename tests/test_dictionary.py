@@ -353,24 +353,50 @@ def test_le_dictionnaire_inerte_est_le_defaut(tmp_path: Path) -> None:
     assert inerte.expand(["x"]) == {"x": []} and inerte.variants_count(["x"]) == 0
 
 
-def test_une_forme_partagee_par_deux_canoniques_elargit_vers_les_deux(tmp_path: Path) -> None:
-    """Revue Codex 2.1 (I1) : garder le premier groupe rendait le second **inatteignable**.
+def test_une_forme_que_deux_groupes_revendiquent_nelargit_rien(tmp_path: Path) -> None:
+    """Correctif du tour 5b (E1), qui **amende** la revue Codex 2.1 (I1).
 
-    L'artefact livré porte 62 formes ambiguës. Sous l'ancienne règle, une question employant l'une
-    d'elles n'ouvrait jamais la fiche du second canonique — et, dictionnaire signé, ressortait en
-    refus « zéro hit » sur un sujet que le guide traite : le « faux refus » qu'AD-5 dit prévenir.
-    Élargir vers les deux n'affirme rien (AD-3 vérifie chaque phrase affichée contre le corpus) ;
-    l'ordre reste celui du fichier, que l'ingestion écrit trié, donc la réunion est déterministe.
+    I1 avait remplacé « garder le premier groupe » par « élargir vers les deux », sur le
+    dictionnaire du **guide**, dont les groupes sont des catégories : réunir « assurance » de
+    l'habitation et du véhicule ne coûtait rien, et refuser d'élargir fermait une fiche qui existe.
+
+    Sur un dictionnaire de **contrat généré**, la même règle réunit des **énumérations**. Mesuré sur
+    l'artefact livré : « bris de vitrages », canonique de son groupe et variante du groupe
+    « garanties du contrat », s'élargissait vers `vol`, `tempête et grêle`, `dégâts électriques`,
+    `assistance handyman` ; « fumée » vers `explosion`, `implosion`, `déplacement du sol`, parce que
+    l'exclusion `p50:18` les énumère. Résultat sur le classement du navigateur : `p50:18` — une
+    exclusion de responsabilité civile immeuble — passait rang 2 en correspondance pleine, et la
+    clause du cas était évincée du top 20.
+
+    Le faux refus que I1 fermait ne se rouvre pas : la forme reste **cherchée telle quelle**, et
+    c'est une réunion arbitraire de sens que l'on cesse d'inventer.
     """
     d = load_dictionary(_ecrire(tmp_path, corpus={"a": ["partagee", "sœur-a"],
                                                   "b": ["partagee", "sœur-b"]}),
                         _corpus(), DOC_ID)
-    assert d.expand(["partagee"])["partagee"] == ["a", forme("sœur-a"), "b", forme("sœur-b")]
-    # Une forme **non** ambiguë ne gagne rien au passage : seule celle qui relève des deux groupes
-    # les réunit.
-    assert d.expand(["sœur-a"])["sœur-a"] == ["a", "partagee"]  # non ambiguë : son groupe, seul
-    # AD-4 : la preuve d'absence nomme alors les **deux** canoniques, et jamais une variante.
-    assert d.canoniser(["partagee"]) == ["a", "b"]
+    assert d.expand(["partagee"])["partagee"] == []
+    assert d.variantes_ambigues(["partagee"]) == 1
+    # Une forme que **son** groupe nomme n'est jamais ambiguë : seule celle que deux groupes
+    # revendiquent sans la nommer se tait.
+    assert d.expand(["sœur-a"])["sœur-a"] == ["a", "partagee"]
+    assert d.variantes_ambigues(["sœur-a"]) == 0
+    # AD-4 : rien n'ayant été cherché sous un canonique, la preuve d'absence dit le terme lui-même.
+    assert d.canoniser(["partagee"]) == ["partagee"]
+    assert d.canoniser(["sœur-a"]) == ["a"]
+
+
+def test_un_canonique_egalement_variante_ailleurs_reste_dans_son_propre_groupe(
+        tmp_path: Path) -> None:
+    """Le cas mesuré sur le contrat : le nom d'un groupe l'emporte sur toute revendication.
+
+    « bris de vitrages » **est** un canonique ; le groupe d'énumération « garanties du contrat » le
+    cite parmi ses variantes. Sans cette priorité, un terme qui nomme exactement une garantie
+    deviendrait ambigu et cesserait d'élargir — on perdrait le groupe le plus sûr qui soit.
+    """
+    d = load_dictionary(_ecrire(tmp_path, corpus={"a": ["sœur-a"], "b": ["a", "sœur-b"]}),
+                        _corpus(), DOC_ID)
+    assert d.expand(["a"])["a"] == [forme("sœur-a")]
+    assert d.canoniser(["a"]) == ["a"] and d.variantes_ambigues(["a"]) == 0
 
 
 def test_le_verrou_de_corpus_nomme_le_document_quon_va_servir(tmp_path: Path) -> None:
@@ -572,11 +598,14 @@ def test_le_dictionnaire_livre_relies_les_formulations_commune_et_logement_sans_
             assert any(node_id == fiche for _block_id, node_id in hits), forme_usuelle
             assert len(hits) <= reglages.search_limit
 
-    # Les formes partagées réunissent bien les groupes existants et les nouveaux.
-    assert {forme("choix commune"), forme("quelle commune")} <= \
-        set(d.expand(["choix de la commune"])["choix de la commune"])
-    assert {forme("recherche logement"), forme("marché immobilier")} <= \
-        set(d.expand(["recherche de logement"])["recherche de logement"])
+    # Correctif du tour 5b (E1) : une forme partagée ne **réunit** plus les deux groupes, et les
+    # fiches restent pourtant reliées — le groupe qui la nomme porte l'autre formulation.
+    assert forme("choisir sa commune") in d.expand(["choix de la commune"])["choix de la commune"]
+    assert forme("choix de la commune") in d.expand(["quelle commune"])["quelle commune"]
+    assert forme("recherche de logement") in d.expand(["marché immobilier"])["marché immobilier"]
+    # Aucun de ces termes n'est ambigu : chacun est nommé par un groupe, ou revendiqué par un seul.
+    assert d.variantes_ambigues(["choix de la commune", "quelle commune", "marché immobilier",
+                                 "recherche de logement"]) == 0
     assert brut.validated is False and brut.validated_by is None and brut.validated_at is None
 
 
@@ -688,3 +717,35 @@ def test_un_dictionnaire_absent_nexplique_rien_et_ne_leve_jamais(tmp_path: Path)
     d = load_dictionary(tmp_path, _corpus(), DOC_ID)
     assert d.charge is False
     assert d.declencheurs("meteo") == () and d.confirme("meteo", "météo") == (0, 0)
+
+
+def test_les_trois_dictionnaires_livres_gardent_leurs_formes_utiles(tmp_path: Path) -> None:
+    """E1/E2 mesurés sur les artefacts réellement servis, guide et contrats.
+
+    L'écart avec I1 se paie en formes **tues**, et il faut le chiffrer plutôt que l'affirmer : 39 sur
+    le guide, 290 sur Baloise, 186 sur AXA. Ce qui compte est que les formes dont dépend le rappel
+    continuent d'élargir — c'est ce que ce témoin fixe, document par document.
+    """
+    from server.app.config import REPO_ROOT, Settings
+    from server.app.corpus.loader import load_corpus
+
+    reglages = Settings(_env_file=None)
+    corpus = load_corpus(REPO_ROOT / "data", allow_ungated=True,
+                         perimetre_max_chars=reglages.perimetre_max_chars)
+    attendu = {
+        reglages.guide_doc_id: (39, {"ADEM": "arbeitsamt",
+                                     "déclaration d'arrivée": "inscription a la commune",
+                                     "recherche de logement": "wohnungssuche"}),
+        "baloise-lu-home-2-2024": (290, {"bris des glaces": "bris de vitres",
+                                         "vitrages assurés": "fenetres et baies vitrees",
+                                         "dégât des eaux": "fuite d eau"}),
+        "axa-lu-optihome-2017": (186, {"bris de vitrages": "glasbruch",
+                                       "incendie": "garantie incendie",
+                                       "vol": "soustraction frauduleuse"}),
+    }
+    for doc_id, (ambigues, temoins) in attendu.items():
+        d = load_dictionary(REPO_ROOT / "data", corpus, doc_id)
+        assert d.utilisable is True, doc_id
+        assert len(d._ambigues) == ambigues, doc_id
+        for terme, forme_attendue in temoins.items():
+            assert forme_attendue in d.expand([terme])[terme], (doc_id, terme)

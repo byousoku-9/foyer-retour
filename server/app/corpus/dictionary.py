@@ -107,6 +107,13 @@ class Dictionnaire:
     # Nœud répondant → formulations validées à l'ingestion. Contrairement aux variantes
     # lexicales, cette table peut proposer un nœud même si le texte de sa fiche n'a aucun hit.
     _candidate_questions: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
+    # Formes qu'au moins **deux** groupes revendiquent sans qu'aucun ne soit le leur en propre
+    # (correctif du tour 5b, E1). Elles n'élargissent rien, et le pipeline en publie le **compte** —
+    # jamais la liste, qui serait du vocabulaire du dictionnaire (AD-4).
+    # Un **tuple trié**, pas un ensemble : cette table entre dans `_empreinte_dictionnaire`, donc
+    # dans le digest de namespace du cache d'évals, qui sérialise en JSON — et un ensemble n'y a ni
+    # sérialisation ni ordre stable.
+    _ambigues: tuple[str, ...] = field(default_factory=tuple, repr=False)
 
     @property
     def utilisable(self) -> bool:
@@ -150,8 +157,9 @@ class Dictionnaire:
         Dictionnaire inutilisable ⇒ chaque terme sort seul : `chercher` fait alors exactement ce
         qu'il faisait avant cette story.
 
-        Une forme partagée par deux canoniques élargit vers **les deux** (revue Codex 2.1, I1) —
-        voir `load_dictionary`.
+        Une forme que plusieurs groupes revendiquent sans être le canonique d'aucun est **ambiguë** :
+        elle n'élargit rien et reste cherchée telle quelle (correctif du tour 5b, E1, qui amende la
+        revue Codex 2.1 I1) — voir `load_dictionary`.
 
         **`part_du_mot` borne les variantes d'un seul mot** (correctif du tour 5, C8). Le
         dictionnaire ne sait rien du document qu'on interroge ; l'appelant, lui, dispose de la
@@ -165,10 +173,10 @@ class Dictionnaire:
         """
         sortie: dict[str, list[str]] = {}
         for terme in termes:
-            cle = forme(terme)
-            groupe = self._groupes.get(cle, ()) if self.utilisable else ()
+            base = forme(terme)
+            groupe = self._groupes.get(base, ()) if self.utilisable else ()
             sortie[terme] = [f for f in groupe
-                             if f != cle and not self._trop_frequente(f, part_du_mot, part_max)]
+                             if f != base and not self._trop_frequente(f, part_du_mot, part_max)]
         return sortie
 
     @staticmethod
@@ -181,6 +189,18 @@ class Dictionnaire:
             return part_du_mot(variante) > part_max
         except KeyError:  # pragma: no cover — document servi, garanti par l'appelant
             return False
+
+    def variantes_ambigues(self, termes: list[str]) -> int:
+        """Combien de **formes distinctes** parmi les termes cherchés n'ont rien élargi, faute d'un
+        groupe unique (correctif du tour 5b, E1).
+
+        Un compte, jamais la liste : les formes ambiguës sont du vocabulaire du dictionnaire, et
+        AD-4 n'autorise à publier que les canoniques effectivement cherchés. Le nombre suffit à ce
+        qu'un audit sache qu'une expansion s'est tue, et pourquoi.
+        """
+        if not self.utilisable:
+            return 0
+        return len({f for f in (forme(t) for t in termes) if f in self._ambigues})
 
     def variants_count(self, termes: list[str], *,
                        part_du_mot: Callable[[str], float] | None = None,
@@ -215,13 +235,13 @@ class Dictionnaire:
         dictionnaire est son propre canonique et sort inchangé ; dictionnaire inutilisable ⇒ tous les
         termes sortent inchangés, comme avant cette story.
 
-        Une forme ambiguë relève de plusieurs canoniques : ils sortent tous, dans l'ordre du fichier
-        — c'est exactement l'ensemble des groupes que `expand` a fait chercher.
+        Une forme ambiguë ne relève d'aucun groupe retenu (E1) : `expand` n'a rien élargi pour elle,
+        et elle sort donc telle quelle. Les deux tables continuent de dire la même chose — le
+        canonique publié est exactement le groupe que la recherche a employé.
         """
         sortie: list[str] = []
         for terme in termes:
-            cle = forme(terme)
-            canons = self._canoniques.get(cle, ()) if self.utilisable else ()
+            canons = self._canoniques.get(forme(terme), ()) if self.utilisable else ()
             for candidat in (canons or (terme,)):
                 if candidat not in sortie:
                     sortie.append(candidat)
@@ -393,8 +413,34 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str, *,
                     doc_id=doc_id,
                     raison=(f"{DICTIONARY_FILE} non conforme : candidate_questions nomme le nœud "
                             f"inexistant {node_id!r} dans le document {doc_id!r}")[:500])
-    groupes: dict[str, list[str]] = {}
-    canoniques: dict[str, list[str]] = {}
+    # **Un terme s'élargit à un seul groupe, jamais à la réunion de plusieurs** (correctif du tour
+    # 5b, E1 ; il amende la revue Codex 2.1, I1).
+    #
+    # I1 avait établi qu'« une forme partagée par deux canoniques élargit vers les deux », parce que
+    # garder le premier groupe rencontré rendait les variantes du second inatteignables — une fiche
+    # qui existe restée fermée, et le « faux refus » qu'AD-5 dit prévenir. Cette décision a été prise
+    # sur le dictionnaire du **guide**, où les groupes sont des **catégories** (« ADEM »,
+    # « assurance ») et où réunir deux catégories voisines ne coûte rien.
+    #
+    # Sur un dictionnaire de **contrat généré**, la même règle réunit des **énumérations**, et le
+    # résultat est mesuré : `bris de vitrages` est à la fois le canonique de son groupe et une
+    # variante du groupe « garanties du contrat » (qui énumère toutes les garanties), si bien qu'il
+    # s'élargissait à `vol`, `tempête et grêle`, `dégâts électriques`, `assistance handyman` — dix
+    # formes pour une question de vitre. `fumée` s'élargissait de même vers `explosion`, `implosion`,
+    # `déplacement du sol`, parce que l'exclusion `p50:18` les énumère. Conséquence sur le classement
+    # du navigateur : `p50:18` — une exclusion de responsabilité civile immeuble sans rapport avec le
+    # sinistre — passait **rang 2 en correspondance pleine**, et `p34:12`, la clause du cas, était
+    # **évincée du top 20**.
+    #
+    # La règle devient donc : un terme qui **est** un canonique s'élargit à son propre groupe ; un
+    # terme qui n'est variante que d'**un** groupe s'élargit à celui-là ; une forme que plusieurs
+    # groupes revendiquent sans être le canonique d'aucun est **ambiguë** et n'élargit rien. Le
+    # « faux refus » que I1 fermait ne se rouvre pas : la forme reste cherchée telle quelle, et
+    # c'est **une réunion arbitraire** de sens que l'on cesse d'inventer, pas un groupe que l'on
+    # perd. Le compte des formes ambiguës est publié dans la trace (`variantes_ambigues`).
+    formes_par_canonique: dict[str, list[str]] = {}
+    canons_par_forme: dict[str, list[str]] = {}
+    canoniques_propres: dict[str, list[str]] = {}
     for canonique, variantes in fichier.corpus.items():
         formes: list[str] = []
         for texte in (canonique, *variantes):
@@ -403,21 +449,30 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str, *,
                 formes.append(f)
         if not formes:
             continue
+        formes_par_canonique[canonique] = formes
+        proprietaires = canoniques_propres.setdefault(formes[0], [])
+        if canonique not in proprietaires:
+            proprietaires.append(canonique)
         for f in formes:
-            # **Une forme partagée par deux canoniques élargit vers les deux** (revue Codex 2.1, I1).
-            # Elle gardait le premier groupe rencontré, pour ne pas mêler deux sens (« assurance » de
-            # l'habitation et du véhicule) ; mais l'artefact livré porte 62 formes ambiguës, et les
-            # variantes du second groupe devenaient inatteignables — donc une fiche qui existe restée
-            # fermée, et, dictionnaire signé, un refus « zéro hit » sur une question que le guide
-            # traite. C'est littéralement le « faux refus » qu'AD-5 dit prévenir, et le prix inverse
-            # est nul : élargir n'affirme rien, `chercher` classe par nombre de groupes touchés, et
-            # chaque phrase affichée reste vérifiée contre le corpus (AD-3). L'ordre reste celui du
-            # fichier, que l'ingestion écrit trié : la réunion est déterministe.
-            groupe = groupes.setdefault(f, [])
-            groupe.extend(g for g in formes if g not in groupe)
-            canons = canoniques.setdefault(f, [])
+            canons = canons_par_forme.setdefault(f, [])
             if canonique not in canons:
                 canons.append(canonique)
+    groupes: dict[str, list[str]] = {}
+    canoniques: dict[str, list[str]] = {}
+    ambigues: list[str] = []
+    for f, revendiquants in canons_par_forme.items():
+        proprietaires = canoniques_propres.get(f, [])
+        # Le canonique l'emporte sur toute revendication de variante : c'est le seul groupe dont
+        # cette forme est le nom. Deux canoniques qui se normalisent pareil restent ambigus — rien
+        # ne départage, et deviner serait précisément ce que I1 reprochait à l'ancienne règle.
+        retenu = (proprietaires[0] if len(proprietaires) == 1
+                  else revendiquants[0] if not proprietaires and len(revendiquants) == 1
+                  else None)
+        if retenu is None:
+            ambigues.append(f)
+            continue
+        groupes[f] = list(formes_par_canonique[retenu])
+        canoniques[f] = [retenu]
     # Story 2.5 : les déclencheurs d'intention, dédupliqués par forme normalisée et dans l'ordre du
     # fichier. Un doublon d'orthographe (« Météo » et « météo ») compterait deux fois dans le total
     # annoncé à l'utilisateur, et une seule dans les reconnus : le compte se contredirait lui-même.
@@ -440,5 +495,6 @@ def load_dictionary(data_dir: Path | str, corpus: Corpus, doc_id: str, *,
         _groupes={f: tuple(g) for f, g in groupes.items()},
         _intents=intents,
         _canoniques={f: tuple(c) for f, c in canoniques.items()},
+        _ambigues=tuple(sorted(ambigues)),
         _candidate_questions={node_id: tuple(questions) for node_id, questions
                               in fichier.candidate_questions.items()})
