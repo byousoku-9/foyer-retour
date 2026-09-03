@@ -1,4 +1,43 @@
 {
+  "claude-haiku-4-5-20251001:1d4905e202ed5486": {
+    "certificate": {
+      "messages_sha256": "013235a9669e6733fd678142f13d92d560174d8f0c99f9a1c9599fc0d4c2f83b",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:1d4905e202ed5486",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehMKij7tyVaCsbHMx6eQ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 836,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:1f290e270e32de1c": {
     "certificate": {
       "messages_sha256": "36d71984e6d66ed1b3a93f5666f0f2d1d0338c4c2d8c7c0f35fd2cff40366e02",
@@ -1425,6 +1464,94 @@
       }
     }
   },
+  "claude-sonnet-5:48e310721217cd64": {
+    "certificate": {
+      "messages_sha256": "eeec152126fd291e5df41b33d3dee72f0404c44a3efc2e5c674c4ad56e420d49",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:48e310721217cd64",
+    "response": {
+      "content": [
+        {
+          "text": "```json\n{\n  \"segments\": [\n    {\n      \"type\": \"factuel\",\n      \"text\": \"S'inscrire à l'Agence pour le développement de l'emploi (ADEM), le service public de l'emploi luxembourgeois, ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation. Un avantage particulier tient au fait que les employeurs sont légalement tenus de déclarer leurs postes vacants à l'ADEM, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs.\",\n      \"claim_ids\": [\"c1\"]\n    }\n  ],\n  \"claims\": [\n    {\n      \"claim_id\": \"c1\",\n      \"facette\": 0,\n      \"text\": \"S'inscrire à l'Agence pour le développement de l'emploi (ADEM), le service public de l'emploi luxembourgeois, ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation. Un avantage particulier tient au fait que les employeurs sont légalement tenus de déclarer leurs postes vacants à l'ADEM, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs.\",\n      \"quotes\": [\n        {\n          \"block_id\": \"lux-guide:femploi:3\",\n          \"text\": \"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation. Un détail vaut à lui seul l'inscription : les employeurs sont légalement tenus de lui déclarer leurs postes vacants, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs.\"\n        }\n      ]\n    }\n  ]\n}\n```",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehMJa4SpbMH41x8TAdgx",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8001,
+        "inference_geo": "global",
+        "input_tokens": 1694,
+        "output_tokens": 594,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:57a33d7a7296100e": {
+    "certificate": {
+      "messages_sha256": "fb62cca4a031d1a1aecf7986175d961d0fba758c9c7700c681ae70b2a5c0ed5f",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "ffdfafb00e65c5e48070dbcb254a0731ff9287396053eabc06dec061be97fd91",
+      "system_sha256": "a2377fdb68362c120a37c3deed507920f3926f22639a19008437d6830646ca04",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:57a33d7a7296100e",
+    "response": {
+      "content": [
+        {
+          "signature": "EpsECpABCBEYAipAPShRYc2ZwFHRpMilGBtXy6BPJadbq580CeETT0iPkIk6tBYKYbqCfzMGkkNCpdZ4lLS0TjrwclsCBqGNZorKGDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZD959QGEgzpoDk0JLM5JFnaWe8aDJm2lCiPV30wE98zmSIwoAlg9MnyCkqNK3rI1XnuYVsIW6VXjHPCqAbkj4D3QqDtJ6eDfDas4HaM6tV6UHxQKrcCGCjalEBXkkyVMJ8yfvBDOdVNNS/VnWe42eNKkcspza9XgUiTPLwb6PHig8z8/NW3voiq2TD30JwvQDRa/Lz2/rC08sQpdiydWoriasaaHLTmA7Q/myLUk6B9jnRY1w2jRV9ewvtuUMDL2FV+pahrFq3sfldluhIRIUks9+UcaRs/vC0w00E5n6MTb8MQhDVMlRH16H/mmtmEkV01sjk2ixNQ7ddxNjubWmeMR8HGuN4KeeaRiEjKMElxX1rScvzoddeMXx6rVNY7i1vgLEPj7MY54sN9LTQbrnLBgOFcvfRULb/+fFTVXsoMt7Pz3TpjpYgABLW8YKLc3D2xvFiJgtDN+09Nxff6fTb7SfLFYZF8G/aBVkiSKTZx9qe6HrKfBYl288hARqVApaEjIip9zzNHmKjmfjMYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehMKTFCZF7LBeLoXjEPm",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5214,
+        "inference_geo": "global",
+        "input_tokens": 1060,
+        "output_tokens": 220,
+        "output_tokens_details": {
+          "thinking_tokens": 120
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:673c7ccca453876b": {
     "certificate": {
       "messages_sha256": "7748256d1b0b646f30bbd431ef75d4de048df35ddc2ccdae7a2cd878895cb15b",
@@ -1466,6 +1593,48 @@
         "inference_geo": "global",
         "input_tokens": 4087,
         "output_tokens": 63,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:68dd6391f5aec6cb": {
+    "certificate": {
+      "messages_sha256": "534f4bdf3d1604f49ef71a13b7acca264e85a8efd8d10ce151fbaad4010406de",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:68dd6391f5aec6cb",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Die Anmeldung bei der ADEM (Agence pour le développement de l'emploi), dem staatlichen Arbeitsamt Luxemburgs, eröffnet den Zugang zu Betreuung, Weiterbildungen und, unter bestimmten Bedingungen, zu einer Entschädigung. Ein besonderer Vorteil besteht darin, dass Arbeitgeber gesetzlich verpflichtet sind, ihre offenen Stellen der ADEM zu melden, wodurch sie Zugang zu Stellenangeboten erhalten, die nicht immer anderswo veröffentlicht werden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der ADEM (Agence pour le développement de l'emploi), dem staatlichen Arbeitsamt Luxemburgs, eröffnet den Zugang zu Betreuung, Weiterbildungen und, unter bestimmten Bedingungen, zu einer Entschädigung. Ein besonderer Vorteil besteht darin, dass Arbeitgeber gesetzlich verpflichtet sind, ihre offenen Stellen der ADEM zu melden, wodurch sie Zugang zu Stellenangeboten erhalten, die nicht immer anderswo veröffentlicht werden.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation. Un détail vaut à lui seul l'inscription : les employeurs sont légalement tenus de lui déclarer leurs postes vacants, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs.\"}],\"facette\":0}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehMJxSM8x8EwBGt72qxu",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9691,
+        "inference_geo": "global",
+        "input_tokens": 2448,
+        "output_tokens": 645,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1655,11 +1824,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Welche Vorteile bietet die Anmeldung bei der ADEM?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"ADEM\",\"recherche d'emploi\",\"chercher un emploi\"],\"themes\":[],\"facettes\":[\"avantages de l'inscription à l'ADEM\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Welche Vorteile bietet die Anmeldung bei der ADEM?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"ADEM\",\"chercher un emploi\",\"inscription demandeur d'emploi\"],\"themes\":[],\"facettes\":[\"avantages de l'inscription à l'ADEM\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CehK5qLcVDodya3CDWrDh",
+      "id": "msg_011CehMJ5WyBnpWMTdFozk3N",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1675,7 +1844,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 91,
-        "output_tokens": 145,
+        "output_tokens": 149,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2025,6 +2194,58 @@
         "output_tokens": 566,
         "output_tokens_details": {
           "thinking_tokens": 383
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b7c5f28f74e689d0": {
+    "certificate": {
+      "messages_sha256": "30a6ecef316c1b10b9c3511a0f2aad9a383eeca1b48493a28f58fe3f2bc27f31",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:b7c5f28f74e689d0",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_018QpLocdrpexoxATZnHQESv",
+          "input": {
+            "node_id": "lux-guide:femploi"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehMJSGt67PdPncDjb31n",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8001,
+        "inference_geo": "global",
+        "input_tokens": 944,
+        "output_tokens": 69,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
@@ -2499,6 +2720,59 @@
         "output_tokens": 63,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:f323299d92515d4a": {
+    "certificate": {
+      "messages_sha256": "740e5e16b8625817af64845f2aa9248d0927f84773af7ab0476873bc942b3bf3",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:f323299d92515d4a",
+    "response": {
+      "content": [
+        {
+          "signature": "Eo0CCpABCBEYAipAUaI91GiCKYXcO8X/Pa675aZCrzg1dmNgqkdyIVSAJgaCLyoaerZxDf71zqc30jcJ14+Yn2cNUbEmtW3FEBbTzTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYD959QGEgxMxEbA3qO/J/z2+Q4aDGx6vxbWmZb7w9Xu5SIwHHAlyqApbzxqjYLOwEEyanYDb6UTSDeygTRxO4EXeeytgLfcXvFeZhxKF0BlwSJvKiqaFLhqIjHTVpIlNTIuZtqAOpjZl27vYB5IL3MYiZmJv9396mhdxRigJ6UYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01FkncjUsrv3im9A4ByhFToV",
+          "input": {
+            "node_id": "lux-guide:femploi"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehMJH7yNL8QSTueLPW46",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8001,
+        "inference_geo": "global",
+        "input_tokens": 188,
+        "output_tokens": 75,
+        "output_tokens_details": {
+          "thinking_tokens": 11
         },
         "service_tier": "standard"
       }

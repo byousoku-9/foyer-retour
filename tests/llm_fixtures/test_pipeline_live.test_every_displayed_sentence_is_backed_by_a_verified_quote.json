@@ -88,6 +88,89 @@
       }
     }
   },
+  "claude-sonnet-5:1fbc500d123ac2d8": {
+    "certificate": {
+      "messages_sha256": "be780c0a8d332350db422f5ec0ec4e909bcc4fac19bea5c13a5024908f195c5d",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:1fbc500d123ac2d8",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus longue de l'installation et doit être engagée avant même la recherche de logement : trois voies coexistent (école publique gratuite et multilingue, écoles européennes/internationales, établissements privés). L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance, il faut donc vérifier la disponibilité de la section linguistique visée et pas seulement celle de l'établissement. Avant de quitter son pays d'origine, il faut demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années, presque toujours exigés et difficiles à obtenir une fois parti. La rentrée se situe au début du mois de septembre.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le montant de base des allocations familiales s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, ces valeurs étant applicables au 1er juin 2026. Une allocation de rentrée scolaire s'y ajoute automatiquement chaque année en août, sans aucune demande, de 115 euros pour un enfant de plus de six ans et de 235 euros au-delà de douze ans. Ces prestations sont versées par la Caisse pour l'avenir des enfants pour tout enfant résidant au Luxembourg, sans condition de nationalité, seule la demande initiale nécessitant une démarche auprès de la caisse, en ligne via MyGuichet ou par formulaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue de l'installation et doit être engagée avant même la recherche de logement : trois voies coexistent (école publique gratuite et multilingue, écoles européennes/internationales, établissements privés). L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance, il faut donc vérifier la disponibilité de la section linguistique visée et pas seulement celle de l'établissement. Avant de quitter son pays d'origine, il faut demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années, presque toujours exigés et difficiles à obtenir une fois parti. La rentrée se situe au début du mois de septembre.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement. Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti. La rentrée se situe au début du mois de septembre.\"}],\"facette\":0,\"rattachement\":\"lux-guide:fecole\"},{\"claim_id\":\"c2\",\"text\":\"Le montant de base des allocations familiales s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, ces valeurs étant applicables au 1er juin 2026. Une allocation de rentrée scolaire s'y ajoute automatiquement chaque année en août, sans aucune demande, de 115 euros pour un enfant de plus de six ans et de 235 euros au-delà de douze ans. Ces prestations sont versées par la Caisse pour l'avenir des enfants pour tout enfant résidant au Luxembourg, sans condition de nationalité, seule la demande initiale nécessitant une démarche auprès de la caisse, en ligne via MyGuichet ou par formulaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fallocations:4\",\"quote\":\"Le montant de base s'élève à 315,04 euros par mois et par enfant, majoré de 23,81 euros au-delà de six ans et de 59,44 euros au-delà de douze ans, valeurs applicables au 1er juin 2026. S'y ajoute chaque année, en août, une allocation de rentrée scolaire de 115 euros pour un enfant de plus de six ans et de 235 euros au-delà de douze ans, versée automatiquement, sans aucune demande.\"},{\"block_id\":\"lux-guide:fallocations:3\",\"quote\":\"Les prestations familiales sont versées par la Caisse pour l'avenir des enfants, et elles sont dues pour tout enfant résidant au Luxembourg, sans condition de nationalité.\"},{\"block_id\":\"lux-guide:fallocations:5\",\"quote\":\"Seule la demande initiale nécessite une démarche, auprès de la caisse, en ligne via MyGuichet ou par formulaire.\"}],\"facette\":1,\"rattachement\":\"lux-guide:fallocations\"}],\"blocs_ecartes\":[]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehM591wtJ1Ed5M3oTREg",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9691,
+        "inference_geo": "global",
+        "input_tokens": 2594,
+        "output_tokens": 1895,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:24491252c85df4bb": {
+    "certificate": {
+      "messages_sha256": "10463a4292be1fd97178a9ed52aee2ab4d069d87565e7434ac00b53759326e7b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:24491252c85df4bb",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehM53NNLDRwt9YtNJ8fy",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8001,
+        "inference_geo": "global",
+        "input_tokens": 2428,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:439aead7f16ae61d": {
     "certificate": {
       "messages_sha256": "b6ac32d3531fdc5df2d330a399338d5e5c949f9a1f2946705f848e6dba98844f",
@@ -124,6 +207,53 @@
         "output_tokens": 7,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:45b3474dddeb7929": {
+    "certificate": {
+      "messages_sha256": "ae5b30b56108cf594c2012e9cf39021cc17dc61005ed3716b197287fe38a601f",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "ffdfafb00e65c5e48070dbcb254a0731ff9287396053eabc06dec061be97fd91",
+      "system_sha256": "a2377fdb68362c120a37c3deed507920f3926f22639a19008437d6830646ca04",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:45b3474dddeb7929",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[0]},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]},{\"facette\":1,\"claim_ids\":[\"c2\"]}],\"segments\":[]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehM6GxiNHGXvm7q2mXH6",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5214,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 5214,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2821,
+        "output_tokens": 778,
+        "output_tokens_details": {
+          "thinking_tokens": 633
         },
         "service_tier": "standard"
       }
@@ -185,6 +315,70 @@
         "cache_read_input_tokens": 8001,
         "inference_geo": "global",
         "input_tokens": 343,
+        "output_tokens": 140,
+        "output_tokens_details": {
+          "thinking_tokens": 15
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:85be71f131efeada": {
+    "certificate": {
+      "messages_sha256": "f6f0fbffcc55e4915246c920526e036d988b178cb82f3f704728352129228edd",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "6966727854d0ea44c5d8a92c1c59ddc9258de7fa6c4e039079bae0ecfa28d1e2",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:85be71f131efeada",
+    "response": {
+      "content": [
+        {
+          "signature": "EpcCCpABCBEYAipAkqjttqcGCfnjsinpPDXOYp1Q7PSOKLqQbgyEoZWZpAlFw59k4PT/ewV1Mey8GFRUe/hQM1yExD0GyJhsMGdx6jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcr759QGEgyFxHpscqtEsJ9yKw8aDD8jNqjigUNPjN4MsyIwe26J0Jp90mjcsiwSceR+iApjmJ+puoNxgCOZrkRV0V+3Q75BMaFRTt+cBRcszErKKjRUpJXDBCMwOY+zB87yT/GRwPmWMppxgeI2kV+8QXuam7nfaaDXG9VKsbNkHjhlrfu2gFlKGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_019ZYMDcLuhdRCjFShKSUQRT",
+          "input": {
+            "node_id": "lux-guide:fecole"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_0169xdEAzhgMja5M6M5ZyNYL",
+          "input": {
+            "node_id": "lux-guide:fallocations"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehM4u63MKNphdrP5fzuu",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8001,
+        "inference_geo": "global",
+        "input_tokens": 369,
         "output_tokens": 140,
         "output_tokens_details": {
           "thinking_tokens": 15
@@ -489,17 +683,12 @@
     "response": {
       "content": [
         {
-          "signature": "Ev4GCpABCBEYAipA9F2/CBxepbW4rTETLvM0lPILTiiVvmJ589JiLLMsVPKyQyPBbCQjekqqwoeQJmNV0S5EvtdKVazaF9vkEWVrizIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZ7u59QGEgyGw8NAtAjY+/cr9LkaDFbOv6TTXa/glGb0uSIwb+DqQ0Txmv5nkK8JUBqDMmdMr4lGdlWtjctCrX2HGP1GpSiBkcRzgcVs7AGZKvBZKpoFRMDP1Ti9cvQVq1sTFV1XMX/YdIC3cFDuDZZypam/cgL38byTHLav0c1+sPIq5x4s2IGIec9Gh43aVssw7O1MpkKYD+CImbTP6R4K+CHXNhygzkgiSFoq8KW1cNmOpxOorpG6rMV7eWjDGDIzM5uO86sm/2LfI2nk4m9tPhDJdWW1dNUrOa/lnOjO8nro+oRM/IrSgdMOzaBxcpnRAbRPBdZPL9NiB40GpHKDIgLI6LxdhLZ0tmgsxAFUMsSWd38qY2aC4UAnXxb/QlIgTKnDrHUOETK/uy1pp8PfYa7uab1j5CI33UApzGNyPH5tHan0G9i/+Qd7QRAjgEangZEHLx1irxW0sy8ubNlGfc//snfKtOg8J1uICRppQz2di/7MTWUJZv4Cj16wfITLTozL9cjp19YG1u63VbYvPeMZ/h3CnOMv7Sj8giVv/I2NxScPYlVeneMloSHuXJeSUrZPz1r90GL+x7yYtUMg4P/RxRKtaQdS5c3x09YlM6X4rVxzB9hwHiCdvyrWON3VshZB1nh8Ue1oCLjAj5LF8xn07xE4ryfz14a7B8S3TCEeU8rEWwDIcZBQO/PbdfGyqYWLVB8wqQq7s7XeZ/81E2k0Y08i5Qz6M6d9/7qMbuUT6Kss9Y3oNpc9MZgv/6OWiG341gyhLp/MoEmH+UZzjaBd0hmc0rSKT74KE6Pz5Gv2nQh6yrgt4C6CW7SfdslE7m1htg8ApNFpYomgdKyaC/b+G3UelQZ1lvexaunZehRPCGf3psbLGx/2+dsFdtCl39/LZTK3aPWxvL7uL8kDuuAC7LZsw0o7x12te+afkvpCdn7gUxRcFL7+W/ikRHnaH3oOHV2oQfSIiNvW+tEtUla/ZD5V0Z0Xn2b2dl7QGAE=",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"école\",\"allocations familiales\"],\"themes\":[],\"facettes\":[\"comment inscrire ses enfants à l'école\",\"quel est le montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école, et quel est le montant des allocations familiales ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"scolarisation des enfants\",\"allocations familiales\",\"montant des allocations\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"comment inscrire ses enfants à l'école\",\"quel est le montant des allocations familiales\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CehJtqWizyRzdLohK5YPQ",
+      "id": "msg_011CehM4et2JFm1gLgkRsivV",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -515,9 +704,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 104,
-        "output_tokens": 360,
+        "output_tokens": 187,
         "output_tokens_details": {
-          "thinking_tokens": 198
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
