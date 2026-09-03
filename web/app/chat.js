@@ -965,6 +965,7 @@ window.CHAT = (function () {
     corrections_non_retenues: "des corrections de la relance dépassaient la borne : écartées après les acquis",
     limites_non_reconduites: "des réserves n'ont pas pu être reconduites sous la borne de segments",
     pertinence_incomplete: "des affirmations sont restées sans verdict de pertinence",
+    phrases_de_claim_retirees: "des phrases d'une affirmation retenue avancent plus que ses passages : retirées, le reste est affiché",
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_etablie_par_qualification: "une qualité que la clause nomme est remplie par le fait déclaré",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
