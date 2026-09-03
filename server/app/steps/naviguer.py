@@ -57,6 +57,7 @@ from server.app.domain.retrieval import BudgetSnapshot, RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient, ToolUseDemande
+from server.app.llm.models import MODEL_CAPS, model_for
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
@@ -536,6 +537,13 @@ class Navigation:
                     output_model=AnswerDraft, budget=self.request_budget, step=step,
                     tools=OUTILS, tool_choice=TOOL_CHOICE_AUCUN,
                     max_tokens=settings.navigation_rediger_max_tokens,
+                    # L'effort ne se relève **que** sur ce tour-ci (`navigation_draft_effort`,
+                    # `config.py`) : c'est l'unique appel de la chaîne qui choisit quelles clauses
+                    # sont citées, et les trois runs A16 de `f858a28` le mesurent à 0 token de
+                    # réflexion. Un palier épinglé sur un modèle sans `effort` n'en reçoit aucun —
+                    # le client refuserait le paramètre (AD-9), même idiome que *rédiger*.
+                    effort=(settings.navigation_draft_effort
+                            if MODEL_CAPS[model_for(self.tier)]["effort"] else None),
                     thinking=REFLEXION_ADAPTATIVE)
             except ToolUseDemande as exc:
                 if self.tours >= settings.navigation_max_llm_turns:

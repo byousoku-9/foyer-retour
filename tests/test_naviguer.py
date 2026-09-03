@@ -22,7 +22,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.question import Faits, ParsedQuestion, QuestionScope
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import TIERS
+from server.app.llm.models import EFFORT, TIERS
 from server.app.llm.pricing import estimate_tokens
 from server.app.steps.naviguer import (OUTILS, TOOL_CHOICE_AUCUN, Navigation, _rendre_blocs,
                                        blocs_du_noeud, sommaire_complet)
@@ -168,6 +168,33 @@ async def test_chaque_requete_demande_la_reflexion_adaptative_et_le_meme_prefixe
     assert sommaire_complet(corpus, DOC_ID) in prefixe
     assert all(requete["system"][0]["cache_control"]["type"] == "ephemeral"
                for requete in fake.requests)
+
+
+async def test_seul_le_tour_terminal_paie_leffort_releve() -> None:
+    """Story 5.6, T11 — `navigation_draft_effort` ne touche que l'appel qui choisit les clauses.
+
+    Les tours d'outils ouvrent des nœuds : ils réfléchissent déjà (62 à 574 tokens mesurés) et
+    gardent le défaut de leur palier. Le tour terminal, lui, est mesuré à **0 token** sur les trois
+    runs A16 de `f858a28`, et c'est le seul appel de la chaîne qui arrête quelles clauses sont
+    citées — les deux omissions de la matinée du 03/09/2026 y tombent toutes les deux.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _ebauche(), _ebauche()], navigation_draft_effort="high")
+
+    await navigation.lire()
+    await navigation.rediger()
+    # La relance est le même appel dans le même fil : elle paie le même effort.
+    await navigation.relancer("motif")
+
+    outils, _fin, terminal, relance = fake.requests
+    defaut_du_palier = EFFORT["reason"]
+    assert [requete["output_config"]["effort"] for requete in (outils, _fin)] == \
+        [defaut_du_palier] * 2
+    assert terminal["output_config"]["effort"] == "high" != defaut_du_palier
+    assert relance["output_config"]["effort"] == "high"
+    # Le plafond, lui, ne bouge pas : `high` achète de la profondeur dans la place déjà dérivée.
+    assert terminal["max_tokens"] == _settings().navigation_rediger_max_tokens
 
 
 # --- 2. le budget de lecture -------------------------------------------------------------

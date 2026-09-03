@@ -57,6 +57,10 @@ def test_defaults_match_spine_hypotheses() -> None:
     # relance de `pipelines/sinistre.py` s'y borne sans savoir quel étage a rédigé.
     assert s.navigation_draft_max_claims == 6 and s.navigation_draft_max_segments == 9
     assert s.navigation_rediger_max_tokens == 3072
+    # Story 5.6 T11 : l'effort du **seul** tour terminal. Mesuré à 0 token de réflexion sur
+    # les trois runs A16 de `f858a28`, alors que c'est l'unique appel qui choisit les
+    # clauses citées. Les tours d'outils gardent le défaut de leur palier.
+    assert s.navigation_draft_effort == "high"
     assert s.draft_max_claims == 6 and s.draft_max_segments == 9
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
@@ -155,6 +159,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             # amendement AD-1 du 03/09/2026 (T2) : la part des blocs au-delà de laquelle une forme
             # de nombre n'élargit plus la requête de `chercher`
             "variante_nombre_max_part",
+            # story 5.6 (T11) : l'effort du tour terminal, publié comme `navigation_tier_reason`
+            # — un opérateur doit pouvoir lire dans la trace si ce tour a payé la profondeur
+            "navigation_draft_effort_high",
             # story 3.1 : seuils génériques de densité, OCR et qualité PDF
             "mixed_page_image_density", "ocr_dpi", "quality_min_words", "foreign_signal_min",
             "french_signal_ratio_min",
@@ -760,13 +767,27 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     réponses A16 du pipeline intégré (`.../a16-t1b/a16-r{1,2,3}.json`) donnent celles de *comprendre*
     et du tour terminal.
 
-    **Le terme de *vérifier* n'est pas un maximum mesuré, et c'est délibéré.** Le témoin lit le
-    plafond réellement envoyé, `verifier_sinistre_max_tokens`, au lieu de figer un nombre que la
-    prochaine mesure démentira — c'était vrai quand l'effort de cet appel était `medium` et que sa
-    sortie n'avait jamais été mesurée à cet effort (T1c) ; ça l'est encore depuis qu'il est
-    redescendu à `low` (T10), où le plafond est conservé comme **borne large** au-dessus d'une
-    dépense mesurée à 2 492 tokens. Un plafond qui majore largement la mesure majore la durée à
-    couvrir : la deadline reste dérivée contre lui, jamais contre le pari du jour.
+    **La règle des termes, depuis T11 (03/09/2026) : mesuré quand la mesure existe à l'effort
+    servi, plafond envoyé sinon.** Elle a changé de camp pour deux termes en même temps, et pour la
+    même raison — c'est l'effort de chaque appel qui décide lequel des deux est honnête :
+
+    - *le tour terminal* passe au **plafond envoyé** (`navigation_rediger_max_tokens`). Jusqu'ici
+      son terme était mesuré (2 386 = 1 890 de JSON + 496 de réflexion) parce que sa réflexion
+      l'avait été. Depuis que `navigation_draft_effort` le sert à `high`, plus aucune mesure ne
+      décrit sa réflexion, et sur Sonnet 5 rien ne la borne que `max_tokens` (`llm/models.py`,
+      T1d/T10) : le seul majorant non inventé est le plafond lui-même ;
+    - *vérifier* passe au **maximum mesuré majoré**. Son terme lisait le plafond envoyé
+      (`verifier_sinistre_max_tokens` = 6 144) parce que sa dépense n'avait jamais été mesurée à
+      l'effort servi — c'était vrai à `medium` (T1c/T1d, mesure censurée « ≥ 4 096 »). Depuis le
+      repli à `low` de T10, elle l'est : 1 732 / 1 971 / 2 175 tokens de réflexion sur les trois
+      runs A16 de `f858a28` (`.../a16-final2/`), pour un contrat JSON de 1 024. C'est cette
+      mesure-là qui majore, et l'assertion sur `EFFORT_PAR_PROMPT` plus bas est ce qui la tient :
+      remonter l'effort de cet appel rougit ce témoin **avant** de coûter une deadline.
+
+    Ce que le témoin n'affirme donc plus, et qu'il faut savoir : aux deux **plafonds envoyés** pris
+    ensemble (3 072 + 6 144, deux fois), la queue majorée vaut 305,1 s et dépasse `deadline_s`. La
+    deadline couvre le chemin servi, pas un vérificateur qui saturerait sa réserve de réflexion —
+    ce que seul un retour à `medium` rendrait à nouveau atteignable, et que l'assertion interdit.
 
     Le témoin est écrit contre la **cible du spine** (8 tours), et non contre le plafond du code :
     la deadline doit couvrir le chemin que l'architecture rend légitime. La seconde assertion tient
@@ -776,6 +797,7 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     n'est plus servie et n'existe plus.
     """
     from server.app.config import Settings
+    from server.app.llm.models import EFFORT_PAR_PROMPT
 
     # AD-1, amendement du 03/09/2026 : « navigation par le modèle sur sommaire complet en 6–8 tours ».
     TOURS_CIBLE_AD1 = 8
@@ -790,7 +812,8 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # terminal, dont 496 / 0 / 0 de réflexion — soit 1 078 / 1 181 / 1 259 de JSON à quatre claims,
     # au pire ≈ 315 par claim. À six claims : 6 × 315 ≈ 1 890 de JSON, plus les 496 tokens de
     # réflexion réellement observés sur ce tour.
-    TOUR_TERMINAL = 2_386   # l'ébauche `AnswerDraft` à six claims : 1 890 de JSON + 496 de réflexion
+    # T11 : plus de nombre figé ici — le plafond envoyé, pour la raison dite dans la docstring.
+    # Il vaut 3 072 : 1 890 de contrat JSON à six claims, 1 182 laissés à la réflexion de `high`.
     # Pire tour d'outils du prototype : 729 tokens, dont 657 de réflexion adaptative (A16 run 1,
     # tour 3). Les tours terminaux mesurés du prototype (709 à 900) restent sous `TOUR_TERMINAL`.
     TOUR_D_OUTILS = 729
@@ -800,9 +823,15 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     LATENCE_PAR_APPEL_S = 2.0
 
     s = Settings(_env_file=None, anthropic_api_key="")
-    # Le seul terme lu sur la configuration, pour la raison dite dans la docstring : le plafond
-    # envoyé borne la sortie de *vérifier*, et il la majore largement depuis le retour à `low`.
-    VERIFIER = s.verifier_sinistre_max_tokens
+    TOUR_TERMINAL = s.navigation_rediger_max_tokens
+    # *vérifier* à `low` : 1 024 de contrat JSON, plus 2 432 de réflexion — le pire des trois runs
+    # A16 (2 175) majoré de 12 %. Le terme vaut donc 3 456, et il n'est vrai qu'à cet effort-là.
+    VERIFIER = 3_456
+    assert EFFORT_PAR_PROMPT["verifier_sinistre"] == "low", (
+        "le terme de *vérifier* de cette dérivation est la dépense **mesurée** à `low` ; à un "
+        "autre effort elle n'est plus mesurée, et la deadline doit être re-dérivée sur le plafond "
+        f"envoyé ({s.verifier_sinistre_max_tokens} tokens) avant de servir cet effort")
+    assert s.navigation_draft_effort in ("low", "medium", "high")
     assert s.navigation_max_llm_turns <= TOURS_CIBLE_AD1, (
         f"navigation_max_llm_turns ({s.navigation_max_llm_turns}) dépasse la cible d'AD-1 "
         f"({TOURS_CIBLE_AD1}) : la deadline a été dérivée pour ce nombre de tours, il faut la "

@@ -1552,6 +1552,35 @@ class Settings(BaseSettings):
     # `max_tokens` ne facture pas : seul le majorant de préflight bouge, des tokens ajoutés au tarif
     # de sortie du tier servi.
     navigation_rediger_max_tokens: int = Field(3072, ge=1)
+    # `navigation_draft_effort` : l'effort du **seul** appel qui choisit les clauses citées.
+    #
+    # **Ce que la mesure dit.** Le tour terminal est le tour qui décide : il a sous les yeux tout ce
+    # que la lecture a ouvert et il arrête, en une passe, quelle clause devient une affirmation. Sur
+    # les trois runs A16 de `f858a28`
+    # (`automation/runs/20260902-structure-index/a16-final2/a16-r{1,2,3}.json`), ce tour réfléchit
+    # **0 token** — sur les trois. Les deux omissions de la matinée du 03/09/2026 (r3 de la série
+    # finale, où `p34:12` est lu, ouvert, transmis, et remplacé dans l'ébauche par la définition
+    # `p34:7`) tombent toutes les deux sur un tour terminal à 0 token de réflexion, quand la
+    # navigation, elle, en dépense 62 à 574. La réflexion est adaptative (`REFLEXION_ADAPTATIVE`,
+    # `steps/naviguer.py`) : le modèle décide seul d'y dépenser ou non, et sur ce tour-là il n'y
+    # dépense rien. `effort` est le seul levier qui déplace ce choix.
+    #
+    # **Ce que ça coûte, majoré** : +0,03 € et +20 s sur la requête, sur une chaîne mesurée à
+    # 0,13 € et 55–70 s pour une `deadline_s` de 290 s. Le témoin
+    # `test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele` est re-dérivé avec ce
+    # changement : il majore désormais ce tour par le plafond réellement envoyé
+    # (`navigation_rediger_max_tokens`), puisqu'aucune mesure n'existe à cet effort.
+    #
+    # `[HYPOTHÈSE]` — sur Sonnet 5 la réflexion adaptative n'a **pas** de budget propre : elle
+    # partage `max_tokens` avec le contrat JSON (voir `llm/models.py`, T1d et T10, où le
+    # vérificateur a saturé successivement 3 072 puis 6 144 tokens de réflexion sans rendre un
+    # caractère). Si un tour terminal sature `navigation_rediger_max_tokens` à cet effort, le repli
+    # est de redescendre ce champ à `medium` — **pas** de relever le plafond : le relever sortirait
+    # la chaîne de sa deadline, que le témoin ci-dessus tient à 48 s près.
+    #
+    # Il ne s'applique qu'à l'appel terminal. Les tours d'outils gardent le défaut de leur palier :
+    # ils ouvrent des nœuds, ils ne choisissent pas de clause, et ils réfléchissent déjà.
+    navigation_draft_effort: Literal["low", "medium", "high"] = "high"
     # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
     # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
     # une première requête après expiration du préfixe paie ≈ 0,28 € d'écriture de cache, contre
@@ -1793,6 +1822,10 @@ class Settings(BaseSettings):
             "navigation_draft_max_claims": self.navigation_draft_max_claims,
             "navigation_draft_max_segments": self.navigation_draft_max_segments,
             "navigation_rediger_max_tokens": self.navigation_rediger_max_tokens,
+            # Même idiome que `navigation_tier_reason` : un littéral fermé se publie par
+            # le seul fait qu'un opérateur doit lire dans la trace, « ce tour a-t-il
+            # payé la profondeur ? ».
+            "navigation_draft_effort_high": int(self.navigation_draft_effort == "high"),
             "navigation_tier_reason": int(self.navigation_tier == "reason"),
             "variante_nombre_max_part": self.variante_nombre_max_part,
             "node_window": self.node_window,
