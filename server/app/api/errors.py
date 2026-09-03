@@ -123,8 +123,17 @@ async def gestionnaire_pipeline(request: Request, exc: PipelineError) -> Respons
     _noter(request, error_code=exc.code.value)
     message = exc.message
     if exc.code is ErrorCode.internal:
+        # AD-16 : « **le détail part dans le log serveur**, corrélé par le `request_id` ». Le message
+        # d'un `internal` fabriqué par une garde de pipeline est réduit à un nom de classe
+        # (`sinistre.py` : « OSError dans la chaîne sinistre ») — ce n'est pas « le détail ». Le
+        # détail existe pourtant déjà en mémoire : `raise interne from exc` a attaché l'exception
+        # d'origine en `__cause__`, avec son `errno`, son `strerror` et sa pile. `exc_info` la lit,
+        # et rien de plus n'est collecté. Sans cette lecture, un disque plein sortait en 500 sans une
+        # ligne nommant sa cause (enquête du 03/09/2026). C'est exactement ce que `request_id.py`
+        # fait déjà pour l'exception qui s'échappe : la symétrie est rétablie, pas une politique
+        # inventée. Rien ne change dans l'enveloppe — `MESSAGE_INTERNE` y reste seul.
         logger_http.error("erreur interne (%s) : %s", request_id_de(request) or "sans request_id",
-                          exc.message)
+                          exc.message, exc_info=exc.__cause__ or exc)
         message = MESSAGE_INTERNE
     if exc.trace is not None:
         # AD-10 : le coût déjà engagé par une requête qui échoue reste mesurable.

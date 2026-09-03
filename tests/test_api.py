@@ -44,7 +44,8 @@ from server.app.domain.answer import (
     VerifiedQuote,
 )
 from server.app.domain.document import Document, Node, Source
-from server.app.domain.errors import BudgetExceeded, CorpusUnavailable, LlmUnavailable, Timeout
+from server.app.domain.errors import (BudgetExceeded, CorpusUnavailable, ErrorCode, LlmUnavailable,
+                                      PipelineError, Timeout)
 from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.trace import BlocTrace, GateTrace, StepTrace, Trace
@@ -1310,6 +1311,38 @@ async def test_nos_propres_503_gardent_leur_statut_et_leur_code() -> None:
     reponse = await gestionnaire_pipeline(requete, LlmUnavailable("fournisseur injoignable"))
     assert reponse.status_code == 503
     assert json.loads(reponse.body)["error"]["code"] == "llm_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_une_erreur_interne_journalise_la_pile_et_l_errno_de_sa_cause(
+        caplog: pytest.LogCaptureFixture) -> None:
+    """AD-16 : « le détail part dans le log serveur ». Le détail, c'est la cause, pas le nom de classe.
+
+    Les gardes de pipeline convertissent toute exception inattendue en
+    `PipelineError(internal, "<Classe> dans la chaîne …")` et attachent l'originale en `__cause__`.
+    Le message est volontairement muet (revue Codex 1.6, NB1) ; c'est donc `exc_info` qui doit porter
+    l'`errno`, le chemin et la pile — sans quoi un `ENOSPC` sur l'écriture d'audit sortait en 500
+    sans une ligne nommant le disque (enquête du 03/09/2026).
+    """
+    requete = Request({"type": "http", "method": "POST", "path": "/api/v1/sinistre", "headers": [],
+                       "state": {"request_id": "r-enospc", "log_fields": {}}})
+    try:
+        raise OSError(28, "No space left on device", "/tmp/.audit/llm-calls.jsonl")
+    except OSError as cause:
+        interne = PipelineError(ErrorCode.internal, "OSError dans la chaîne sinistre")
+        interne.__cause__ = cause
+
+    with caplog.at_level(logging.ERROR, logger="foyer.error"):
+        reponse = await gestionnaire_pipeline(requete, interne)
+
+    assert reponse.status_code == 500
+    assert json.loads(reponse.body)["error"]["message"] == MESSAGE_INTERNE
+    assert b"OSError" not in reponse.body  # rien de neuf dans l'enveloppe
+    [ligne] = [r for r in caplog.records if r.name == "foyer.error"]
+    assert ligne.exc_info is not None and ligne.exc_info[1] is interne.__cause__
+    trace = ligne.exc_text or logging.Formatter().formatException(ligne.exc_info)
+    assert "Errno 28" in trace and "llm-calls.jsonl" in trace
+    assert "Traceback" in trace
 
 
 def test_aucune_configuration_cors(prod: TestClient) -> None:
