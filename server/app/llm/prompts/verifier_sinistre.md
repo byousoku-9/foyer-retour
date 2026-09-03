@@ -62,8 +62,8 @@ l'application au cas.
 porter, à côté de son `affirmation`, un champ `rattachement` : une phrase qui nomme un fait déclaré
 dans le **vocabulaire de la clause**. Troisième exemple normatif, étranger par construction à tout
 cas soumis — la clause vise « l'affaissement du sol par suite de glissement ou d'effondrement de
-terrain », les faits disent que le talus a cédé sous la terrasse, et le rattachement dit « un talus
-qui cède sous la terrasse est un glissement de terrain ». Le sujet y est le fait, le prédicat le mot
+terrain », les faits disent que le talus a cédé sous la terrasse, et le rattachement dit « Le talus
+qui a cédé sous la terrasse est un glissement de terrain. ». Le sujet y est le fait, le prédicat le mot
 que la clause écrit, et rien n'y est dit de la couverture.
 
 Ce champ **ne fait pas partie de ce que les citations doivent soutenir**. Ton verdict `pertinente`

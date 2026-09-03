@@ -136,9 +136,9 @@ jamais.
 
   Exemple normatif, étranger par construction à tout cas soumis : une clause vise « l'affaissement
   du sol par suite de glissement ou d'effondrement de terrain » et les faits disent que le talus a
-  cédé sous la terrasse. Alors `text` = « le contrat couvre l'affaissement du sol par suite de
-  glissement de terrain » et `rattachement` = « un talus qui cède sous la terrasse est un glissement
-  de terrain ». Écrire la seconde phrase **dans** `text` ferait tomber les deux ensemble, la clause
+  cédé sous la terrasse. Alors `text` = « Le contrat couvre l'affaissement du sol par suite de
+  glissement de terrain. » et `rattachement` = « Le talus qui a cédé sous la terrasse est un
+  glissement de terrain. ». Écrire la seconde phrase **dans** `text` ferait tomber les deux ensemble, la clause
   comprise : c'est la faute la plus coûteuse de ce formulaire.
 
   Renseigne-le dans **chaque** claim dont la clause nomme l'événement, la circonstance ou la qualité
@@ -154,6 +154,14 @@ jamais.
   Ce n'est jamais un verdict : n'y écris ni « couvert », ni « exclu », ni « cette clause
   s'applique ». Et n'y invente aucune circonstance — si les faits déclarés ne disent pas le fait que
   tu nommerais, laisse le champ vide.
+
+  Ce n'est pas non plus une **question**. « L'absence des occupants pose la question de savoir si le
+  logement était en occupation régulière » ne rattache rien : ce qui reste à établir se dit ailleurs,
+  dans les champs du contrôle, et le client le recevra. Le rattachement **affirme**, ou il n'est pas
+  écrit.
+
+  Enfin, c'est une **phrase entière** : majuscule au début, point à la fin. Elle est affichée sur sa
+  propre ligne, sous la phrase de la clause — pas accrochée à elle par un point-virgule.
 
 - **Quand aucune clause lue ne vise l'événement**, ne dresse pas l'inventaire de ce que tu n'as pas
   lu. Écris, dans cet ordre, et **rien de plus — pas d'exclusion générale, pas de clause de
