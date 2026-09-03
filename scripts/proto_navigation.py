@@ -93,6 +93,21 @@ Règles, sans exception :
    conditions, avec quelles franchises ou limites. Une définition ne décide pas seule.
 4. Décompose la question en sous-questions et traite-les **toutes**. Celle que le document ne
    soutient pas va dans `non_trouve` : ne l'oublie pas et ne l'invente pas.
+5. **Une claim par clause qui décide.** Pour chaque sous-question, cite chaque clause décisionnelle
+   que tu as lue dont le texte vise le dommage ou la circonstance déclarés — pas la meilleure d'entre
+   elles, toutes. Trois conséquences, qu'on ne devine pas :
+   - quand une garantie **optionnelle** (acquise seulement si les conditions particulières la
+     mentionnent) et une garantie **de base** visent le même dommage, cite les deux, chacune avec
+     sa condition d'acquisition. L'une ne remplace pas l'autre : elles ne s'appliquent pas au même
+     contrat.
+   - une clause qui **qualifie la circonstance déclarée** — typiquement celle qui règle l'absence
+     d'un événement que le déclarant écarte lui-même — n'est jamais redondante avec celle qui nomme
+     le dommage. C'est elle qui dit que la garantie tient malgré cette absence : cite-la aussi.
+   - une **définition** ou un **titre** n'est pas une clause : ils ne décident rien et ne tiennent
+     la place d'aucune des clauses ci-dessus.
+6. **Sois concis dans la phrase, jamais dans les clauses.** Concision veut dire : un `texte` d'une
+   phrase courte, et la `quote` la plus courte qui prouve encore le point. Elle ne veut jamais dire
+   moins de clauses citées.
 
 Quand tu as fini de lire, rends — sans appeler d'outil — un dernier message contenant **un seul**
 objet JSON de cette forme, et rien d'utile en dehors :
