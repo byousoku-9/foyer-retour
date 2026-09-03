@@ -127,8 +127,14 @@ d'écriture. Prochain gisement, inchangé : borner ce sommaire (AD-9). Mesures :
 ## Limites honnêtes
 
 La porte de lecture change l'identité publiée. Un artefact committé non réingéré est déclaré périmé
-ici (`empreinte-committee-perimee: <doc>`) jusqu'à sa réingestion. Au 02/09/2026, les deux contrats
-sont réingérés avec le parseur courant : aucune déclaration active.
+ici (`empreinte-committee-perimee: <doc>`) jusqu'à sa réingestion. Au 03/09/2026, les deux contrats
+sont déclarés périmés — `empreinte-committee-perimee: axa-lu-optihome-2017` et
+`empreinte-committee-perimee: baloise-lu-home-2-2024` : la convention Texte passe à
+`normalize_version` 3 (la coupure de ligne après une barre oblique est une coupure, plus un espace),
+et `normalize_version` entre dans `ingest_fingerprint`. Les artefacts servis, eux, ne sont pas
+périmés : `text_norm` est recalculé au chargement, donc les blocs servis portent bien la règle 3.
+Seule la chaîne de provenance committée reste celle de la version 2, et elle ne se rétablit qu'à la
+réingestion, qui exige les PDF réels (non committés).
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
   réseau forgée empêchent d'en faire un quota global.
