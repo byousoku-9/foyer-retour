@@ -21,12 +21,17 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
-    # 75 s : mesurée sur les cinq appels Sonnet du chemin nominal, queue dispersée comprise
-    # (02/09/2026) ; 40 s : AD-16 amendé en 1.9, sur mesure.
-    # `llm_timeout_s` : 55 depuis le correctif du tour 3 — à 40, le plafond de sortie du
-    # vérificateur sinistre était inatteignable dans le temps qu'on lui laissait (46 s pour 4 096
-    # tokens au débit mesuré), et une réponse valide mourait sur son délai d'appel.
-    assert s.deadline_s == 100 and s.llm_timeout_s == 55
+    # `deadline_s` : 165 depuis la story 5.6 (T3, 03/09/2026) — la navigation par le modèle
+    # (AD-1 amendé, 6 à 8 tours, *rédiger* fusionné) majore à 141,4 s le pire chemin nominal
+    # mesuré sur le prototype validé ; 100 s le laissait sortir en 503.
+    # `llm_timeout_s` : 55 depuis le correctif du tour 3, et **inchangé** par 5.6 — il borne un
+    # appel, pas la chaîne, et la plus longue sortie d'étape (3 456 tokens) demande 45,7 s. À 40, le
+    # plafond de sortie du vérificateur sinistre était inatteignable dans le temps qu'on lui
+    # laissait, et une réponse valide mourait sur son délai d'appel.
+    # `client_abort_margin_s` : 150 depuis 5.6 — l'ordre d'AD-11 (client 315 s > Cloud Run 300 s >
+    # serveur 165 s) la dicte ; elle ne se choisit plus « un peu au-dessus de la deadline ».
+    assert s.deadline_s == 165 and s.llm_timeout_s == 55
+    assert s.client_abort_margin_s == 150
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     # `max_llm_turns` : trois depuis le correctif du tour 2 — à deux, le verdict terminal de la
@@ -680,3 +685,63 @@ def test_le_delai_dappel_laisse_ecrire_la_plus_longue_sortie_detape() -> None:
         # c'est bien le temps d'écriture qui refuse.
         Settings(_env_file=None, anthropic_api_key="", llm_max_output_tokens=6000,
                  rediger_max_tokens=6000)
+
+
+def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
+    """Story 5.6, T3 — la deadline doit couvrir le chemin qu'AD-1 rend nominal, pas l'ancien.
+
+    L'amendement AD-1 du 03/09/2026 remplace la retrouvaille par heuristiques par une **navigation
+    par le modèle en 6 à 8 tours**, *rédiger* fusionné dans la même conversation. La deadline de
+    100 s était dérivée d'un chemin à **deux** tours dont la sélection était faite par le code : le
+    chemin nominal d'AD-1 la dépasse, et le dépasser signifie un `Timeout` **terminal** (503) sur
+    une question parfaitement nominale — les deux mécanismes qui le produisent, `remaining() <= 0`
+    avant chaque étape et `timeout_for_call() = min(llm_timeout_s, remaining())`, vivent hors de
+    tout `except`.
+
+    Les termes sont **mesurés**, pas choisis. Le prototype validé (`automation/runs/
+    20260902-structure-index/proto-runs/serie2/`, 03/09/2026 07 h 00, A16 ×3 + bougie ×1, sommaire
+    AXA complet de 42 967 tokens en préfixe caché) donne les charges de navigation ; les charges de
+    *comprendre*, *rédiger* et *vérifier* restent les maxima des 108 réponses Sonnet enregistrées,
+    déjà retenus par `tests/test_budget.py`.
+
+    Le témoin est écrit contre la **cible du spine** (8 tours), et non contre `max_llm_turns` : la
+    deadline doit couvrir le chemin que l'architecture rend légitime, que le code de l'étape ait
+    déjà été réécrit ou non. La seconde assertion tient l'autre bout — une configuration qui
+    autoriserait plus de tours que la cible sortirait de la dérivation sans que rien ne rougisse.
+    """
+    from server.app.config import Settings
+
+    # AD-1, amendement du 03/09/2026 : « navigation par le modèle sur sommaire complet en 6–8 tours ».
+    TOURS_CIBLE_AD1 = 8
+    # Maxima enregistrés (108 réponses Sonnet, cf. `deadline_s` dans `config.py`).
+    COMPRENDRE = 220
+    TOUR_TERMINAL = 1_509   # l'ébauche `AnswerDraft` : pire *rédiger* enregistré
+    VERIFIER = 820          # pire *vérifier* enregistré
+    # Pire tour d'outils du prototype : 729 tokens, dont 657 de réflexion adaptative (A16 run 1,
+    # tour 3). Les tours terminaux mesurés du prototype (709 à 900) restent sous `TOUR_TERMINAL`.
+    TOUR_D_OUTILS = 729
+    # Latence d'amorçage par appel, **majorée**. Mesurée sur la série 2, une fois le débit minoré à
+    # 85 tokens/s : 0,77 s (run 1, 4 appels), 0,22 s (run 2), 0 s (run 3, plus rapide que le
+    # minorant), 0,98 s (bougie). Aucun appel au-dessus de 1 s ; on majore du double.
+    LATENCE_PAR_APPEL_S = 2.0
+
+    s = Settings(_env_file=None, anthropic_api_key="")
+    assert s.max_llm_turns <= TOURS_CIBLE_AD1, (
+        f"max_llm_turns ({s.max_llm_turns}) dépasse la cible d'AD-1 ({TOURS_CIBLE_AD1}) : la "
+        "deadline a été dérivée pour ce nombre de tours, il faut la re-dériver avant de le franchir")
+
+    # Le pire chemin nominal : *comprendre*, sept tours d'outils, le tour terminal qui rend
+    # l'ébauche, *vérifier*, puis la relance atomique d'AD-3 — *rédiger* et *vérifier* indissociables.
+    tokens = (COMPRENDRE + (TOURS_CIBLE_AD1 - 1) * TOUR_D_OUTILS + TOUR_TERMINAL + VERIFIER
+              + TOUR_TERMINAL + VERIFIER)
+    appels = 1 + TOURS_CIBLE_AD1 + 1 + 2
+    queue = tokens / s.llm_output_tokens_per_s_min + appels * LATENCE_PAR_APPEL_S
+
+    assert s.deadline_s >= queue, (
+        f"deadline {s.deadline_s} s sous la queue majorée du chemin de navigation d'AD-1 "
+        f"({queue:.1f} s pour {tokens} tokens à {s.llm_output_tokens_per_s_min} tokens/s et "
+        f"{appels} appels) : un `Timeout` terminal reste atteignable sur une question nominale")
+    # Le débit publié **minore** encore la mesure : 85,3 tokens/s au plus lent des quatre runs du
+    # prototype (bougie : 1 194 tokens de sortie en 16,0 s, deux appels).
+    assert s.llm_output_tokens_per_s_min <= 85.3
+    assert s.llm_timeout_s < s.deadline_s and s.llm_retry_margin_s < s.deadline_s

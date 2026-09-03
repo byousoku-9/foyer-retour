@@ -88,6 +88,25 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", env_file_encoding="utf-8",
                                       env_ignore_empty=True, extra="ignore")
 
+    # **Le temps qu'un front accepte d'attendre pour un petit GET** — `/api/v1/sante`,
+    # `/api/v1/documents`, un rapport d'ingestion. Aucune de ces routes n'appelle un modèle : tout y
+    # est calculé au démarrage du serveur, et dix secondes sont une éternité pour elles.
+    #
+    # **Pourquoi ce champ existe depuis la story 5.6 (T3, 03/09/2026).** Ce budget-là n'avait pas de
+    # nom : les trois fronts qui sondent (`web/app/chat.js`, `tools/accueil/accueil.js`,
+    # `tools/sinistre/ingestion.js`) empruntaient `client_abort_margin_s`, parce qu'elle valait 10 s
+    # et que ça tombait bien. L'emprunt tenait par coïncidence, pas par raison : la marge d'abandon
+    # est ce que le **navigateur** ajoute à la deadline d'un appel de **pipeline**, et l'amendement
+    # AD-1 du 03/09/2026 la fait dépendre du `--timeout` de Cloud Run — elle vaut 150 s. Une sonde
+    # de santé bornée à 150 s laisse la page « en chargement » pendant deux minutes et demie devant
+    # un serveur mort, et `chat.js` **attend** sa sonde avant la première question : la saisie
+    # serait restée verrouillée d'autant. Le seuil est donc nommé pour ce qu'il est, et les deux
+    # valeurs peuvent désormais bouger sans se traîner l'une l'autre.
+    #
+    # 10 s : la valeur que les trois fronts servaient déjà, et qu'aucune mesure ne conteste — ces
+    # routes répondent en quelques millisecondes. `[HYPOTHÈSE]`, comme les autres bornes de temps.
+    client_probe_timeout_s: float = Field(10.0, gt=0)
+
     env: Literal["dev", "prod"] = "dev"
     # Dérogation d'AD-7 : servir un document sans gate valide, avec l'alerte `sans_gate`. AD-7 la
     # cadre — « dev / J+1 avant le premier gate » — et l'AC de 1.10 la ferme : « `ALLOW_UNGATED` est
@@ -176,7 +195,62 @@ class Settings(BaseSettings):
     # mesurés avec 25 % de marge, reste sous `--timeout=120` de Cloud Run avec la marge
     # d'abandon du navigateur (`client_abort_margin_s` : 110 s au pire, lue sur `/sante`), et ne
     # rallonge aucune requête : une question à un cycle finit toujours en 20 à 30 s.
-    deadline_s: float = Field(100.0, gt=0)
+    # **165 s, et non 100 (03/09/2026, story 5.6 T3, sur la mesure du prototype validé).**
+    # Le chiffrage à 100 s décrivait un chemin dont le **code** choisissait ce que la rédaction
+    # voyait : deux tours de navigation outillés, la sélection faite par des passes lexicales.
+    # L'amendement AD-1 du 03/09/2026 le périme — « le modèle navigue, le code vérifie » : la
+    # navigation se fait par le modèle sur le **sommaire complet**, en 6 à 8 tours, *rédiger*
+    # fusionné dans la même conversation. Ce n'est pas la même chaîne, donc pas la même borne.
+    #
+    # **La mesure.** Prototype validé, `automation/runs/20260902-structure-index/proto-runs/serie2/`
+    # (03/09/2026 07 h 00–07 h 01 ; A16 ×3 et bougie ×1 sur le contrat AXA, sommaire complet de
+    # 42 967 tokens en préfixe caché 1 h, trois outils `sommaire`/`ouvrir_noeud`/`chercher`) :
+    #   — A16 #1 : 4 tours, 2 069 tokens de sortie, **27,4 s** (réflexion adaptative 831 tokens,
+    #     dont 657 au seul tour 3) ;
+    #   — A16 #2 : 2 tours, 1 009 tokens, 12,3 s ; A16 #3 : 2 tours, 1 435 tokens, 16,0 s ;
+    #   — bougie : 2 tours, 1 194 tokens, 16,0 s.
+    # Débit d'écriture, une fois la latence d'amorçage retirée : **85,3 à 102,5 tokens/s** — le
+    # minorant publié (`llm_output_tokens_per_s_min` = 85) tient, et c'est lui qui majore ci-dessous.
+    # Latence d'amorçage résiduelle, au même minorant : 0,77 / 0,22 / 0 / 0,98 s par appel — aucun
+    # appel au-dessus d'une seconde ; on la majore du double, **2 s par appel**.
+    #
+    # **La dérivation, sur le pire chemin nominal qu'AD-1 rend légitime** (8 tours, la borne haute
+    # de « 6–8 ») : *comprendre* (1 appel), sept tours d'outils, le tour terminal qui rend
+    # l'`AnswerDraft`, *vérifier* (appel distinct sur contexte propre), puis la **relance atomique**
+    # d'AD-3 — *rédiger* et *vérifier* indissociables. Douze appels.
+    #   — *comprendre* 220 tokens (max des 108 réponses Sonnet enregistrées) ;
+    #   — 7 tours d'outils × 729 (pire tour d'outils mesuré, réflexion comprise) = 5 103 ;
+    #   — tour terminal 1 509 (pire *rédiger* enregistré ; les tours terminaux du prototype, 709 à
+    #     900 tokens de texte libre, restent dessous) ;
+    #   — *vérifier* 820 (pire enregistré) ; relance 1 509 + 820 = 2 329.
+    # Soit **9 981 tokens**, à 85 tokens/s = 117,4 s d'écriture, plus 12 × 2 s d'amorçage = 24 s :
+    # **141,4 s**. 165 s les couvre avec **16,7 %** de marge, et tombe dans la fenêtre
+    # `[HYPOTHÈSE : 150–180 s]` qu'AD-1 annonce.
+    #
+    # **Ce que ce relèvement ne fait pas, et c'est le même argument qu'à 75 puis 100 s : rallonger
+    # une requête.** La deadline est un **budget**, jamais une attente — rien n'attend qu'elle
+    # s'écoule, `remaining()` n'est lu que pour **refuser**. Les runs du prototype finissent en 12 à
+    # 27 s et continueront ; ce qui change est qu'une navigation longue **aboutit** au lieu de sortir
+    # en 503, et que la relance d'AD-3 redevient atteignable au lieu d'être refusée avant tout appel
+    # sur tout chemin à plus de deux tours.
+    # **Ce qu'elle ne couvre toujours pas, et c'est voulu** : la reprise de 4.2e (un appel de plus)
+    # reste refusée avant envoi quand la place manque (`reprise_sans_place`), et l'acquis est servi
+    # en 200 — jamais un `Timeout`.
+    #
+    # **L'ordre imposé par AD-11 (amendement AD-1)** : délai d'attente du client **>** `--timeout`
+    # Cloud Run **>** deadline serveur, soit **315 s > 300 s > 165 s**. Le `--timeout` passe à 300 s
+    # dans `.github/workflows/deploy.yml`, et la patience du navigateur est
+    # `deadline_s + client_abort_margin_s` (voir ce champ), lue sur `/sante`.
+    #
+    # **La valeur couvrante mesurée**, sous laquelle la deadline ne doit pas redescendre sans une
+    # nouvelle mesure : **141,4 s**. Elle est tenue par
+    # `tests/test_config.py::test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele`, et
+    # l'ordre des trois délais par `tests/test_workflows.py::
+    # test_le_timeout_cloud_run_couvre_la_deadline_du_serveur`.
+    # `[HYPOTHÈSE]` : le prototype a mesuré 2 à 4 tours, jamais 8. La dérivation majore huit tours
+    # avec le pire tour observé ; elle se resserre dès que la campagne `--repeat 3` de T5 aura donné
+    # la distribution du nombre de tours sur le chemin **servi**.
+    deadline_s: float = Field(165.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
@@ -204,12 +278,27 @@ class Settings(BaseSettings):
     # laissait encore 73 s. Baisser `max_tokens` à la place aurait tronqué la sortie, donc rendu un
     # `LlmParse` terminal : le même 503, pour une raison pire. L'invariante `_coherence` ci-dessous
     # lie désormais les deux nombres, pour qu'ils ne puissent plus diverger en silence.
+    #
+    # **Re-dérivé le 03/09/2026 (story 5.6 T3) et inchangé : 55 s.** La navigation par le modèle
+    # allonge la **chaîne**, pas l'appel. Ce que ce délai doit couvrir reste ce que `_coherence`
+    # calcule : la plus longue sortie d'**étape**, c'est-à-dire `verifier_sinistre_max_tokens`
+    # (768 + 2 688 = 3 456), soit 3 456 / 85 + 5 = **45,7 s** — 17 % sous les 55 s. Le prototype ne
+    # déplace pas ce majorant : son plus long tour rend 900 tokens (15,6 s majorées), et son tour
+    # le plus réfléchi 729 dont 657 de réflexion (13,6 s). Relever ce délai sans que le plafond de
+    # sortie d'une étape ait bougé n'achèterait rien et retarderait la détection d'un appel pendu.
+    # L'invariante ci-dessous mord toujours : si un tour de navigation-rédaction se voit doter d'une
+    # réserve de réflexion qui pousse son plafond au-delà de 4 250 tokens, la configuration refusera
+    # de démarrer, et c'est là — pas ici — qu'il faudra re-mesurer.
     llm_timeout_s: float = Field(55.0, gt=0)
     # Débit de sortie **minoré** du fournisseur, réflexion comprise, tel que l'audit le mesure :
     # 89,4 tokens/s en régression sur les quatre appels du vérificateur sinistre (89 à 95 selon
     # l'appel, ordonnée à l'origine ≈ 0). 85 le minore de 5 % — un minorant, parce qu'il sert à
     # majorer une durée : le surestimer ferait passer une configuration qui expire en réel.
     # `[HYPOTHÈSE]`, à re-mesurer dès qu'un autre modèle ou un autre effort est servi.
+    # **Reconfirmé le 03/09/2026** sur les dix appels de navigation du prototype validé (série 2) :
+    # 85,3 / 97,9 / 102,5 / 88,4 tokens/s par run, une fois retirée la latence d'amorçage. Le plus
+    # lent des quatre runs (bougie, 1 194 tokens en 16,0 s) donne 85,3 : le minorant tient de
+    # justesse, et c'est ce qu'on lui demande. La valeur ne bouge pas.
     llm_output_tokens_per_s_min: float = Field(85.0, gt=0)
     # Marge laissée entre la durée majorée de la plus longue sortie et le délai d'un appel : le
     # temps que le fournisseur met à commencer à répondre, et la latence réseau. Mesurée sur les
@@ -221,7 +310,27 @@ class Settings(BaseSettings):
     # `GET /sante` la publie pour que le front la lise au lieu de la recopier. Sous la deadline du
     # serveur, le navigateur couperait une requête à laquelle il aurait répondu : la marge est donc
     # strictement positive (`gt=0`), et s'ajoute à `deadline_s` au lieu de la remplacer.
-    client_abort_margin_s: float = Field(10.0, gt=0)
+    #
+    # **150 s, et non 10 (03/09/2026, story 5.6 T3).** Ce n'est pas la deadline qui a triplé qui
+    # déplace cette marge, c'est un **ordre** que l'amendement AD-1 du 03/09/2026 rend explicite
+    # dans AD-11 : « délai d'attente du client (`web/app/chat.js`) **>** `--timeout` Cloud Run
+    # (**300 s**) **>** deadline serveur ». Les trois délais étaient jusqu'ici rangés autrement — le
+    # navigateur abandonnait à 110 s quand Cloud Run coupait à 120 —, et cet ordre-là a un défaut
+    # que la deadline courte masquait : une requête tuée par l'**infrastructure** n'était jamais vue
+    # comme telle par la page, qui avait déjà coupé la sienne. L'utilisateur lisait « assistant
+    # indisponible » sans qu'aucun 503 ni aucune panne réseau ne l'ait causé, c'est-à-dire le repli
+    # sans échec réel qu'AD-11 interdit. Le navigateur doit rester en écoute assez longtemps pour
+    # **recevoir** le 504 de Cloud Run et le montrer pour ce qu'il est.
+    # Dérivation : la patience du client vaut `deadline_s + client_abort_margin_s`, et doit dépasser
+    # les 300 s de Cloud Run. 165 + 150 = **315 s**, soit 15 s au-dessus — de quoi laisser la
+    # coupure de l'infrastructure et sa réponse traverser le réseau, sans rendre le verrou de saisie
+    # éternel si tout se tait.
+    # **Ce n'est pas une attente** : c'est le délai au bout duquel le navigateur renonce. Une
+    # requête normale rend la main en 20 à 30 s, et un 503 est affiché dès qu'il arrive.
+    # `tests/test_workflows.py::test_le_timeout_cloud_run_couvre_la_deadline_du_serveur` est le seul
+    # endroit où les trois nombres se rencontrent — ils vivent dans trois fichiers qui ne se lisent
+    # pas l'un l'autre.
+    client_abort_margin_s: float = Field(150.0, gt=0)
     # Story 3.5 : les raisons de quarantaine sont affichées sur deux surfaces publiques
     # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
     # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
@@ -1303,6 +1412,7 @@ class Settings(BaseSettings):
             "llm_output_tokens_per_s_min": self.llm_output_tokens_per_s_min,
             "llm_latence_marge_s": self.llm_latence_marge_s,
             "client_abort_margin_s": self.client_abort_margin_s,
+            "client_probe_timeout_s": self.client_probe_timeout_s,
             "raison_publiable_max_chars": self.raison_publiable_max_chars,
             "quote_min_chars": self.quote_min_chars,
             "quote_min_ratio": self.quote_min_ratio,

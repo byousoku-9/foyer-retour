@@ -180,6 +180,15 @@ jobs:
           # Le passage à 2 instances et 8 requêtes concurrentes n'aura lieu qu'après un test
           # mémoire/latence, et le README porte cette règle.
           #
+          # `--timeout=300` : **300 s, et non 120 (03/09/2026, story 5.6 T3).** L'amendement AD-1
+          # du 03/09/2026 remplace la retrouvaille par heuristiques par une navigation du modèle en
+          # 6 à 8 tours ; la deadline serveur re-dérivée sur la mesure du prototype vaut 165 s
+          # (`config.deadline_s`). AD-11 impose l'ordre — délai d'attente du client **>** ce
+          # `--timeout` **>** deadline serveur —, et le spine écrit ce 300 s nommément. À 120 s,
+          # l'infrastructure aurait coupé, sans rien pouvoir en dire, des requêtes que le pipeline
+          # honore encore : le 503 serait venu d'elle au lieu de la seule autorité qui sait pourquoi
+          # (AD-16). `tests/test_workflows.py` relit les trois nombres et refuse tout autre ordre.
+          #
           # `--memory=1Gi` : sans lui, Cloud Run sert **512 Mio**, et le README reconnaissait déjà
           # que deux requêtes de pipeline concurrentes avec PyMuPDF chargé n'y tiennent pas — alors
           # que le service sert précisément deux requêtes de front. La limite était documentée et
@@ -189,7 +198,7 @@ jobs:
             --allow-unauthenticated
             --max-instances=1
             --concurrency=2
-            --timeout=120
+            --timeout=300
             --min-instances=1
             --memory=1Gi
             --service-account=foyer-retour-run@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com

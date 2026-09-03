@@ -167,7 +167,7 @@ def test_le_workflow_est_lautorite_sur_les_variables_du_service() -> None:
 
 
 @pytest.mark.parametrize("drapeau", ["--allow-unauthenticated", "--max-instances=1",
-                                     "--concurrency=2", "--timeout=120", "--min-instances=1"])
+                                     "--concurrency=2", "--timeout=300", "--min-instances=1"])
 def test_les_cinq_drapeaux_de_dimensionnement_dad_13(drapeau: str) -> None:
     """AD-13 : le dimensionnement initial, et le plafond dur de la facture."""
     assert drapeau in deploiement()["flags"]
@@ -381,13 +381,26 @@ def test_le_timeout_cloud_run_couvre_la_deadline_du_serveur() -> None:
     valeurs = re.findall(r"--timeout=([0-9]+)", drapeaux)
     assert len(valeurs) == 1, f"un seul `--timeout` attendu dans les drapeaux : {valeurs}"
     # **Strictement** supérieur (tour « budgets Sonnet », 02/09/2026) : `>=` laissait passer
-    # l'égalité, où une requête honorée à la milliseconde près est coupée par l'infrastructure. La
-    # marge que le navigateur s'ajoute (`client_abort_margin_s`) n'entre pas dans cette comparaison :
-    # elle rend le client plus patient que le serveur, elle ne demande rien à Cloud Run.
+    # l'égalité, où une requête honorée à la milliseconde près est coupée par l'infrastructure.
     assert float(valeurs[0]) > settings.deadline_s, (
         f"--timeout={valeurs[0]} s ne laisse pas au serveur ses {settings.deadline_s} s : à égalité "
         "Cloud Run couperait une requête que le pipeline honore encore, et le 503 viendrait de "
         "l'infrastructure au lieu de la seule autorité qui sait pourquoi (AD-16)")
+
+    # **Et le navigateur est le plus patient des trois (story 5.6, T3).** L'amendement AD-1 du
+    # 03/09/2026 impose l'ordre complet : « délai d'attente du client (`web/app/chat.js`) **>**
+    # `--timeout` Cloud Run (**300 s**) **>** deadline serveur ». La marge du navigateur entre donc
+    # bien dans cette comparaison, et elle n'y entrait pas avant : le client abandonnait à 110 s
+    # quand Cloud Run coupait à 120, si bien qu'une requête tuée par l'infrastructure était vue par
+    # la page comme un abandon local — le bandeau « assistant indisponible » sans qu'aucun 503 ni
+    # aucune panne réseau ne l'ait causé, c'est-à-dire exactement le repli sans échec réel qu'AD-11
+    # interdit. Le client doit rester en écoute assez longtemps pour **recevoir** le 504 de Cloud
+    # Run et le montrer pour ce qu'il est.
+    patience_client = settings.deadline_s + settings.client_abort_margin_s
+    assert patience_client > float(valeurs[0]), (
+        f"le navigateur abandonne à {patience_client} s, avant le --timeout={valeurs[0]} s de Cloud "
+        "Run : une requête coupée par l'infrastructure serait affichée comme un abandon du client, "
+        "sans échec réel derrière (AD-11, amendement AD-1 du 03/09/2026)")
 
 
 def test_le_readme_cite_les_drapeaux_du_workflow_sans_les_reecrire() -> None:
