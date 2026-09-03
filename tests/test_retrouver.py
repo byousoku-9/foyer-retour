@@ -36,6 +36,7 @@ from server.app.steps.retrouver import (
     _mappings_facettes,
     OUTILS_RECHERCHE,
     _score_positif,
+    part_du_mot_borne,
     retrouver_deterministe,
     retrouver_full_context,
     retrouver_outils,
@@ -4887,3 +4888,55 @@ async def test_une_forme_absente_du_document_ne_peut_jamais_etre_en_tete() -> No
     for facette in result.facettes:
         if facette.forme_gagnante is not None:
             assert facette.part_des_blocs > 0, facette
+
+
+# --- Correctif du tour 5 (C8) : une variante d'un mot ne devient pas un plein partout -------------
+
+
+def test_une_variante_dun_mot_frequent_ne_devient_pas_un_plein_partout() -> None:
+    """La garde de fréquence des formes de nombre, appliquée aux variantes écrites du dictionnaire.
+
+    Le raisonnement est celui du tour 3, mot pour mot : une forme d'un seul mot que le document
+    porte partout est pleinement couverte par des dizaines de blocs, et `full_matches` — sur lequel
+    toute la sélection par sous-question repose depuis R1 — redevient inerte. Une variante de
+    plusieurs mots n'est jamais bornée : une phrase entièrement couverte dit quelque chose quelle
+    que soit la fréquence de ses mots pris un à un.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    part_max = _s().dictionnaire_variante_max_part
+    # Mesuré sur le contrat servi : « incendie » nomme le sujet, « fumees » désigne une clause.
+    assert index.part_des_blocs("incendie", doc_id=doc_id) > part_max
+    assert 0 < index.part_des_blocs("fumees", doc_id=doc_id) <= part_max
+
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id=doc_id,
+        _groupes={"sinistre du foyer": ("sinistre du foyer", "incendie", "fumees",
+                                        "action subite de la chaleur")},
+        _canoniques={"sinistre du foyer": ("sinistre du foyer",)})
+    borne = {"part_du_mot": part_du_mot_borne(index, doc_id, part_max=part_max),
+             "part_max": part_max}
+    assert dictionnaire.expand(["sinistre du foyer"], **borne) == {
+        "sinistre du foyer": ["fumees", "action subite de la chaleur"]}
+    # Le compte publié dit ce qui a été cherché, donc il porte la même borne.
+    assert dictionnaire.variants_count(["sinistre du foyer"], **borne) == 2
+    assert dictionnaire.variants_count(["sinistre du foyer"]) == 3
+
+
+def test_sur_un_document_trop_court_la_borne_de_frequence_sabstient() -> None:
+    """Un seuil en part n'est une mesure que si le document a de quoi la porter.
+
+    La plus fine part qu'un document de `N` blocs sache exprimer vaut `1/N`. Tant que le seuil ne
+    vaut pas un bloc entier, « dépasser le seuil » et « figurer dans le document » sont la même
+    chose, et la borne dirait « cette forme existe » au lieu de « cette forme nomme le sujet ». Elle
+    s'abstient — et l'abstention est le bon sens : une variante de dictionnaire est une équivalence
+    **écrite** (AD-5), pas une forme dérivée par le code, et la refuser sans mesure désarmerait en
+    silence le rappel qu'AD-5 apporte.
+    """
+    corpus, _parsee = _corpus_a_recouvrement_partiel()
+    index = Index(corpus)
+    petit = len(corpus.documents["d"].blocks)
+    assert petit * _s().dictionnaire_variante_max_part < 1
+    assert part_du_mot_borne(index, "d", part_max=_s().dictionnaire_variante_max_part) is None
+    # Et la mesure existe pourtant : c'est bien l'abstention qui est décidée, pas une absence.
+    assert index.part_des_blocs("dommages", doc_id="d") > 0

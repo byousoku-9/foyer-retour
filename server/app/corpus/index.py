@@ -450,14 +450,30 @@ class Index:
         mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
 
         def groupes(mapping_: dict[str, list[str]]) -> list[list[frozenset[str]]]:
+            # **Un groupe est son ensemble de formes, pas la clé qui l'a demandé** (correctif du
+            # tour 5, C8). La déduplication ne portait que sur la forme du canonique, c'est-à-dire
+            # sur le terme de la question. Trois termes synonymes que le dictionnaire ramène au
+            # **même** groupe produisaient donc trois groupes identiques, et un bloc couvert par une
+            # seule de leurs formes marquait `full_matches = 3` : la seule chose que ce score doit
+            # dire — combien de canoniques distincts ce bloc satisfait entièrement — devenait un
+            # compte de synonymes. Mesuré sur un dictionnaire simulé aux bornes du prompt contrat :
+            # `p50:18`, une exclusion de responsabilité civile immeuble sans rapport avec le
+            # sinistre, remontait rang 1 avec `full = 3` là où le même bloc vaut `full = 1`.
+            #
+            # La déduplication par canonique **reste**, en plus : deux clés qui se normalisent
+            # identiquement désignaient déjà un seul groupe, et l'ajout n'en retire aucun. Sans
+            # dictionnaire, chaque terme sort seul et les deux règles coïncident — `question_uid`
+            # ne bouge pas, et c'est ce qu'un témoin de non-régression fixe.
             resultat: list[list[frozenset[str]]] = []
             seen_canon: set[str] = set()
+            seen_forms: set[frozenset[frozenset[str]]] = set()
             for canon, variants in mapping_.items():
                 forms = {frozenset(words(normalize(v))) for v in (canon, *variants)} - {frozenset()}
                 canon_form = " ".join(words(normalize(canon)))
-                if not forms or canon_form in seen_canon:
+                if not forms or canon_form in seen_canon or frozenset(forms) in seen_forms:
                     continue
                 seen_canon.add(canon_form)
+                seen_forms.add(frozenset(forms))
                 resultat.append(sorted(forms, key=lambda form: tuple(sorted(form))))
             return resultat
 

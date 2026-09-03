@@ -82,7 +82,8 @@ from server.app.pipelines.commun import (
 from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
-from server.app.steps.retrouver import (couvrir_facettes, retrouver_deterministe,
+from server.app.steps.retrouver import (couvrir_facettes, part_du_mot_borne,
+                                       retrouver_deterministe,
                                         retrouver_outils, satisfaire_demande)
 from server.app.steps.verifier import verifier
 
@@ -642,7 +643,15 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
         return AbsenceProof(kind=kind,
                             terms_searched=dictionnaire.canoniser(termes) if elargi else termes,
-                            variants_count=dictionnaire.variants_count(termes) if elargi else 0,
+                            # C8 : le compte dit ce qui a **été cherché**, donc il porte la même
+                            # borne de fréquence que la recherche elle-même (AD-4).
+                            variants_count=(dictionnaire.variants_count(
+                                termes,
+                                part_du_mot=part_du_mot_borne(
+                                    index, doc_id,
+                                    part_max=settings.dictionnaire_variante_max_part),
+                                part_max=settings.dictionnaire_variante_max_part)
+                                if elargi else 0),
                             blocks_scanned=len(document.blocks) if document is not None else 0,
                             documents=[doc_id] if document is not None else [])
 
