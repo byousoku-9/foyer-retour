@@ -1495,6 +1495,33 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     detail=f"{len(non_etablies)} qualité(s) exigée(s) par une clause citée ne sont pas "
                            "établies par les faits déclarés : l'affirmation est traitée comme `humain`"))
 
+    # Le prompt énonce déjà l'invariante que ce recoupement fait respecter : nommer un fait manquant
+    # ou une qualité exigée, c'est avoir jugé que la clause **vise** le cas ; ranger une affirmation
+    # dans une sous-question, c'est dire qu'elle y répond. Écrire cela et rendre `hors_objet` dans le
+    # même objet JSON est une contradiction interne, lisible sans rien connaître du fond — c'est
+    # exactement la sortie mesurée sur un run réel, où la clause décisive du dossier a été écartée
+    # pour un motif que ses propres champs typés démentaient.
+    #
+    # Seul recoupement du fichier qui **rouvre** un verdict au lieu de le fermer : il ne juge pas la
+    # pertinence, il retire un motif que la sortie contredit. Le filet reste tendu en aval — la claim
+    # récupérée garde ses qualités non établies, donc vaut `humain`, jamais un « oui » — et une claim
+    # vraiment étrangère au passage cité reste écartée par `non_soutenue`, que rien ici ne touche.
+    rangees = {cid for ids in couverture.values() for cid in ids}
+    for cid in [c for c, pertinente in verdicts.items() if pertinente is False]:
+        if raisons.get(cid) != "hors_objet":
+            continue
+        champs = applicabilites.get(cid)
+        vise_le_cas = champs is not None and bool(champs.fait_manquant or champs.qualites_exigees)
+        if not vise_le_cas and cid not in rangees:
+            continue
+        verdicts[cid] = True
+        raisons.pop(cid, None)
+        step.checks.append(CheckResult(
+            name="hors_objet_incoherent", ok=False,
+            detail="une affirmation déclarée hors de l'objet de la question porte une applicabilité "
+                   "qui dit que sa clause vise ce cas, ou est rangée dans une sous-question : le "
+                   "motif est écarté"))
+
     demande, demande_refusee = _demande_de_contexte(
         result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
         qualites_rendues=qualites_rendues, applicabilites=applicabilites, step=step)
