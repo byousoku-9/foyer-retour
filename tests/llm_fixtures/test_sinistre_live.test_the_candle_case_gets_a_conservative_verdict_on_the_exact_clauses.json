@@ -1022,11 +1022,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le mobilier de salon (canapé) endommagé par une bougie tombée dessus, brûlé partiellement sans embrasement ni commencement d'incendie ni dégât au bâtiment, est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier\",\"dommage par brûlure sans incendie\",\"canapé\",\"commencement d'incendie\",\"garantie incendie\"],\"themes\":[],\"facettes\":[\"La garantie peut-elle intervenir pour ce dommage ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du canapé par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé\",\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le contrat couvre-t-il le mobilier de salon (canapé) brûlé partiellement par une bougie allumée tombée sur celui-ci, sans embrasement ni commencement d'incendie, sans propagation de flammes ni dégât au bâtiment, survenu dans le salon du domicile assuré ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât par brûlure\",\"incendie\",\"commencement d'incendie\",\"bougie\"],\"themes\":[],\"facettes\":[\"Le contrat couvre-t-il ce dommage au mobilier causé par une brûlure sans incendie caractérisé ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du canapé par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé, sans propagation de flammes\",\"moment\":\"2026-08-01\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011Cefz1y9qRuSswZHNzK9gF",
+      "id": "msg_011Ceg26SoakaSGZ2ddgMPDP",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1035,14 +1035,14 @@
       "type": "message",
       "usage": {
         "cache_creation": {
-          "ephemeral_1h_input_tokens": 3996,
+          "ephemeral_1h_input_tokens": 0,
           "ephemeral_5m_input_tokens": 0
         },
-        "cache_creation_input_tokens": 3996,
-        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3996,
         "inference_geo": "global",
         "input_tokens": 249,
-        "output_tokens": 293,
+        "output_tokens": 347,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1430,6 +1430,53 @@
       }
     }
   },
+  "claude-sonnet-5:4476ceb35baa5236": {
+    "certificate": {
+      "messages_sha256": "6b862f4e14691b703e006a6a6db6ed3d76921b158b66a97d9d74dcccc6fccd12",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "df010e1b47f46a386815ef3b25a7de2cdc8abc64d448649eee1f12cf4979eb6b",
+      "system_sha256": "df381ad66b7314d46dac925ced1241fe1bb838c4dbcfd525f41f6d27d4c3f454",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:4476ceb35baa5236",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\"]}],\"segments\":[{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":true}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'action de la chaleur ou contact direct et immédiat avec un foyer incandescent\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur\",\"contact direct et immédiat avec un foyer ou substance incandescente\"],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg2845twvCFEFBqZ1FDo",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 13247,
+        "inference_geo": "global",
+        "input_tokens": 1121,
+        "output_tokens": 2239,
+        "output_tokens_details": {
+          "thinking_tokens": 1871
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:4ab9957673934f5f": {
     "certificate": {
       "messages_sha256": "086c13a997522bf247f7a150e0bf39ff7733f9bcc889f478299aab5de4fa37e2",
@@ -1568,6 +1615,48 @@
         "inference_geo": "global",
         "input_tokens": 435,
         "output_tokens": 97,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:692eb976ba4e6376": {
+    "certificate": {
+      "messages_sha256": "3034559a8bfe50fb6c9a524cd97eee5f2584a8729539109b2693280cf7e39a34",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:692eb976ba4e6376",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La garantie « Incendie et périls assimilés » énumère les périls couverts pour les biens désignés.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou par contact direct avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Ce même contrat définit par ailleurs l'incendie proprement dit comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Ma lecture ne m'a pas permis de vérifier si une exclusion générale ou spécifique s'applique par ailleurs à ce type de dégât par brûlure sans incendie.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou par contact direct avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain,\\nrésultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou\\nune substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement\\nd’incendie.\"}]},{\"claim_id\":\"c2\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie,\\nc’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en\\ndehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de\\nbrûler\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg27McpKWBYSkq7FWTNk",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 46560,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 46560,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2325,
+        "output_tokens": 865,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1773,6 +1862,47 @@
         "inference_geo": "global",
         "input_tokens": 11558,
         "output_tokens": 149,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b1237e8a3109c9f5": {
+    "certificate": {
+      "messages_sha256": "286ba6a03cc1eb27b1d82c0558dc79a9c3ee1d04090f4cf03c09e32478e5cecb",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:b1237e8a3109c9f5",
+    "response": {
+      "content": [
+        {
+          "text": "This is exactly what I need. Clause 3.1.1.1.6 directly addresses burns without embrasement/incendie. Let me also check exclusions in a2.10 or a3.1.1.2 for completeness, but the clause found already answers. I have enough.\n\nPRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg278Ks3pDuUViop1CSL",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45663,
+        "inference_geo": "global",
+        "input_tokens": 2114,
+        "output_tokens": 92,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2388,6 +2518,74 @@
         "output_tokens": 98,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:edd6a2aee8847cdf": {
+    "certificate": {
+      "messages_sha256": "287e76dc6f3f854db902475cb07086de8f8505405cde8b73f8f1adbb7da5cd90",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:edd6a2aee8847cdf",
+    "response": {
+      "content": [
+        {
+          "signature": "EuADCpABCBEYAipAVKh4rzsav/8qLHU6fNY7Fe6tlp9uthnZ5ltKYrJuSYZGmE8GZOcjiGcnT8IB9WTqSwDVNm35OJDbZx/x7kRHVzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbyi5NQGEgyRRDCxJMrHeYvwMkgaDLhr1HXFhMFglQiFriIwbZEVSSIlvg8x/yf8p44vVQSdVih4ugqbvHJ9BtPYmcTUr24HwVeaLR5OwVDf5wM+KvwBIjkIWAx8xT8UYY/AOFsREP2TYz+uBGTFyi361bToodHvMTfcyechvzsFIO/aCXvteiPKEGgM3HUKW5Yp/Uj2/H3emP78WBF0NCP1dajC4DRtcOHIBfSTM5Yvt3CxcOYV2flyHI52JSIc4F2x4090fgRu+b6bUYVWwCwRAKeEE60SZuP0JTtE8OulX6OaWyyqlTcRYm4waBOziMgnujY6VL/9E1RFeHMILAq4TE2ZWvLZDTxFjTczm+vmR5EoW0yBpNU7z9jSH7o+MZ4VYitUZSVz87RqHYL6NahWIRMxIJwof+8pVNE/aDyg+GglUGN5kEr8t+JtA9+1OTomGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_012rcwQwcY8xQaE6BqXzFMWe",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_013XwZV2Ly6aADMVFXaWhF3H",
+          "input": {
+            "termes": [
+              "Accident",
+              "Accidentel",
+              "Incendie"
+            ]
+          },
+          "name": "definitions",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Ceg26nitrf7Eu4qad9hDd",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 45663,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 45663,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 448,
+        "output_tokens": 237,
+        "output_tokens_details": {
+          "thinking_tokens": 98
         },
         "service_tier": "standard"
       }
