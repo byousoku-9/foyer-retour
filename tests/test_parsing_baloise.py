@@ -82,8 +82,8 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     assert gate["cases"] == 3 and gate["countersigned"] is False
     assert not report.blocking
     assert report.stats["pages"] == report.stats["pages_avec_blocs"] == 48
-    assert report.stats["blocs"] == len(doc.blocks) == 1039
-    assert report.stats["noeuds"] == len(doc.nodes) == 2
+    assert report.stats["blocs"] == len(doc.blocks) == 1006  # 1 039 avant la réingestion du 02/09 21:07 (PARSER_VERSION 21)
+    assert report.stats["noeuds"] == len(doc.nodes) == 274  # 2 (racine plate) avant l'arbre Opus du 02/09
     assert report.stats["numeros_articles"] == 0
     assert report.stats["tables"] == 11
     assert report.stats["pages_ocr"] == report.stats["pages_non_francaises"] == 0
@@ -92,7 +92,7 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
         "blocs_non_citables", "tdm_imprimee", "definition_introuvable",
         "exclusion_sans_marqueur", "confiance_typage_faible", "kinds_non_confirmes",
     ]
-    assert "numéros annoncés absents de l'arbre" in next(
+    assert "numéros de l'arbre absents de la TdM" in next(
         check.detail for check in report.checks if check.name == "tdm_imprimee"
     )
 
