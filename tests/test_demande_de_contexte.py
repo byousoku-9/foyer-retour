@@ -8,10 +8,11 @@ de registre, et une garde de neutralité le vérifie à la fin du fichier.
 
 Deux propriétés dépassent la matrice, et ce sont elles qui interdisent la rustine :
 
-1. **l'identité du budget** — la passe de satisfaction reçoit *littéralement le même objet*
-   `RetrievalBudget` que la passe initiale (`is`, jamais `==`). AD-1 borne l'étape, pas la passe :
-   une seconde borne de même valeur rendrait le rappel deux fois plus large sans que rien ne bouge
-   dans la trace ;
+1. **l'identité du budget** — la passe de satisfaction reçoit *littéralement l'objet*
+   `RetrievalBudget` que le pipeline a hissé pour l'étape (`is`, jamais `==`). AD-1 borne l'étape,
+   pas la passe : une seconde borne de même valeur rendrait le rappel deux fois plus large sans que
+   rien ne bouge dans la trace, et c'est pourquoi le témoin compte aussi **combien de bornes** le
+   pipeline construit ;
 2. **l'invariance sous permutation** — bijection des `doc_id`/`block_id`/`claim_id`, décalage des
    pages, inversion de l'ordre de lecture déclaré, reformulation des libellés. Les décisions doivent
    être identiques ; le contrôle négatif prouve que la permutation ferait bien rougir un branchement
@@ -19,6 +20,14 @@ Deux propriétés dépassent la matrice, et ce sont elles qui interdisent la rus
 
 `FakeAnthropic` lève sur tout appel non scripté : **la longueur du script est une assertion**. C'est
 ainsi que « une satisfaction, une reprise, jamais deux » se vérifie sans compter les appels.
+
+**Amendement AD-1 du 03/09/2026 (story 5.6, T2).** Le retrieval initial n'est plus produit par une
+passe de code qui choisit : c'est le modèle qui lit, avec les quatre outils de `steps/naviguer.py`.
+Les scripts portent donc un tour d'`ouvrir_noeud` puis une fin de lecture, et le corpus range dans
+un nœud à part la définition que la clause lue emploie — ce que la fermeture d'un niveau ouvrait
+autrefois toute seule, le modèle l'ouvre maintenant lui-même. `satisfaire_demande`, elle, n'a pas
+changé d'un caractère : tout ce que ce fichier affirme sur la demande de contexte reste mesuré au
+même endroit, sur le même état ouvert.
 """
 
 from __future__ import annotations
@@ -54,8 +63,8 @@ QUESTION_RESOLUE = "Le dossier décrit relève-t-il de la prise en charge prévu
 FAITS = Faits(date="2030-01-02", lieu="local déclaré", montant_eur=100.0,
               description="Le dossier décrit un épisode répertorié ayant atteint la structure "
                           "porteuse dans le local déclaré ; aucun élément nominatif n'est joint.")
-# Les termes cherchés ne figurent **que** dans la section ouverte : c'est ce qui laisse l'annexe
-# fermée à la première passe, donc ce qui rend la demande de contexte observable.
+# Les termes cherchés ne figurent **que** dans la section que le modèle ouvre : c'est ce qui laisse
+# l'annexe fermée à la lecture, donc ce qui rend la demande de contexte observable.
 TERMES = ["structure porteuse", "épisode répertorié"]
 
 # `(clé, kind, texte, defines, refs)` — la **clé** est le rôle du bloc, la seule chose que les
@@ -70,22 +79,28 @@ SECTION_LUE = (
      "La prise en charge n'est acquise que si le local reste inscrit au registre déclaré.",
      None, ()),
 )
-# L'annexe n'a **aucun** hit pour les termes cherchés : la première passe ne l'ouvre pas. Ses deux
-# définitions sont communes (aucune portée déclarée), donc valides partout — c'est ce qui permet à
-# la satisfaction de les résoudre depuis la section lue (AD-2, remontée vers la commune).
-SECTION_FERMEE = (
-    # **Deux** renvois, et c'est délibéré (revue externe, I1) : ce bloc entre à la première passe
-    # comme *dépendance*, et la fermeture d'un niveau ne suit pas les `refs` d'une dépendance — ses
-    # deux cibles restent donc fermées, et une demande de `renvoi` qui le vise a exactement deux
-    # candidats. C'est ce qu'il faut pour exhiber une satisfaction **partielle** sous le budget.
+# La définition du terme que la clause lue emploie vit dans son propre nœud, et le modèle l'ouvre
+# avec la section : c'est l'état exact que la fermeture d'un niveau produisait avant l'amendement
+# AD-1 du 03/09/2026, obtenu maintenant par une ouverture que le modèle décide. Elle est **commune**
+# (aucune portée déclarée), donc valide partout (AD-2).
+SECTION_DEPENDANCE = (
+    # **Deux** renvois, et c'est délibéré (revue externe, I1) : les cibles de ce bloc restent
+    # fermées — `ouvrir_noeud` ne suit aucun renvoi —, si bien qu'une demande de `renvoi` qui le
+    # vise a exactement deux candidats. C'est ce qu'il faut pour exhiber une satisfaction
+    # **partielle** sous le budget de l'étape.
     ("definition_objet", "definition",
      "L'objet inventorié désigne tout élément porté au registre annexé.",
      "objet inventorié", ("bareme", "annexe_technique")),
+)
+# L'annexe n'a **aucun** hit pour les termes cherchés et le modèle ne l'ouvre pas. Ses définitions
+# sont communes elles aussi — c'est ce qui permet à la satisfaction de les résoudre depuis la
+# section lue (AD-2, remontée vers la commune).
+SECTION_FERMEE = (
     ("definition_valeur", "definition",
      "La valeur résiduelle désigne le montant retenu après application du barème annexé.",
      "valeur résiduelle", ()),
-    # Revue 4.2e (C) : ce terme-ci est employé par `definition_objet`, qui entre à la première passe
-    # comme dépendance de la clause lue. `Index.definitions(..., blocs_ouverts=…)` rend donc cette
+    # Revue 4.2e (C) : ce terme-ci est employé par `definition_objet`, que la lecture du modèle
+    # ouvre avec la clause. `Index.definitions(..., blocs_ouverts=…)` rend donc cette
     # définition pour **n'importe quel** terme demandé, par sa branche « rencontré dans un bloc
     # ouvert » — c'est le piège que la satisfaction doit refuser de prendre pour une réponse.
     ("definition_registre", "definition",
@@ -121,9 +136,11 @@ class Identite(NamedTuple):
 
     doc_id: str
     page_lue: int
+    page_dependance: int
     page_fermee: int
     seq_depart: int
     lue: str
+    dependance: str
     fermee: str
     racine: str
     claim: str
@@ -137,13 +154,14 @@ class Identite(NamedTuple):
         return list(reversed(TERMES)) if self.termes_inverses else list(TERMES)
 
 
-IDENTITE = Identite(doc_id="texte-neutre-e", page_lue=1, page_fermee=2, seq_depart=1,
-                    lue="e1", fermee="e2", racine="e0", claim="k1")
+IDENTITE = Identite(doc_id="texte-neutre-e", page_lue=1, page_dependance=2, page_fermee=3,
+                    seq_depart=1, lue="e1", dependance="e2", fermee="e3", racine="e0", claim="k1")
 # Permutation de pure identité : bijection du `doc_id`, renumérotation des pages, décalage des
 # `seq`, renommage des nœuds et de l'affirmation, inversion de l'ordre des termes **et** de l'ordre
 # de lecture déclaré. Aucune décision ne doit bouger.
-IDENTITE_PERMUTEE = Identite(doc_id="texte-neutre-f", page_lue=9, page_fermee=10, seq_depart=21,
-                             lue="w7", fermee="w8", racine="w6", claim="z9",
+IDENTITE_PERMUTEE = Identite(doc_id="texte-neutre-f", page_lue=9, page_dependance=10,
+                             page_fermee=11, seq_depart=21, lue="w7", dependance="w8",
+                             fermee="w9", racine="w6", claim="z9",
                              termes_inverses=True, ordre_lecture_inverse=True)
 
 
@@ -165,6 +183,7 @@ def _corpus_neutre(identite: Identite) -> CorpusNeutre:
     blocs: list[dict[str, Any]] = []
     noeuds: list[Node] = []
     sections = ((identite.lue, identite.page_lue, SECTION_LUE),
+                (identite.dependance, identite.page_dependance, SECTION_DEPENDANCE),
                 (identite.fermee, identite.page_fermee, SECTION_FERMEE))
     # Deux passes : les identifiants d'abord (un `refs` peut viser un bloc décrit plus loin).
     for nom, page, clauses in sections:
@@ -192,6 +211,7 @@ def _corpus_neutre(identite: Identite) -> CorpusNeutre:
         noeuds.append(Node(node_id=identite.noeud(nom), level=1, title=f"Section {nom}",
                            items=items))
     branches = [{"node_id": identite.noeud(identite.lue)},
+                {"node_id": identite.noeud(identite.dependance)},
                 {"node_id": identite.noeud(identite.fermee)}]
     if identite.ordre_lecture_inverse:
         branches.reverse()
@@ -206,6 +226,7 @@ def _corpus_neutre(identite: Identite) -> CorpusNeutre:
         ingest_fingerprint=f"fp-{identite.doc_id}", document_hash="sha-doc", edition="2030")}
     sommaire = "\n".join([f"# {document.title}",
                           f"- {identite.lue} Section {identite.lue}",
+                          f"- {identite.dependance} Section {identite.dependance}",
                           f"- {identite.fermee} Section {identite.fermee}"])
     return CorpusNeutre(
         index=Index(Corpus(documents={identite.doc_id: document}, manifest=manifest,
@@ -253,6 +274,26 @@ def _comprendre(corpus: CorpusNeutre) -> dict:
         "moment": "période déclarée"}))
 
 
+def _lecture(corpus: CorpusNeutre, *noms: str) -> list[dict]:
+    """*comprendre*, puis la lecture que le modèle fait lui-même (amendement AD-1 du 03/09/2026).
+
+    Un tour d'outils qui ouvre les nœuds nommés, puis un tour sans outil qui clôt la lecture : la
+    forme exacte d'une navigation (`steps/naviguer.Navigation.lire`). Par défaut, la section lue
+    **et** le nœud qui porte la définition qu'elle emploie — l'état d'entrée que tout ce fichier
+    suppose, et que la fermeture d'un niveau produisait avant que le modèle ne lise lui-même.
+    """
+    identite = corpus.identite
+    ouverts = noms or (identite.lue, identite.dependance)
+    return [
+        _comprendre(corpus),
+        fake_message(model=TIERS["reason"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": f"t{rang}", "name": "ouvrir_noeud",
+             "input": {"node_id": identite.noeud(nom)}}
+            for rang, nom in enumerate(ouverts)]),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+    ]
+
+
 def _rediger(corpus: CorpusNeutre) -> dict:
     cid = corpus.identite.claim
     return fake_message(model=TIERS["reason"], text=json.dumps({
@@ -298,7 +339,7 @@ async def _run(corpus: CorpusNeutre, script: list, *, settings: Settings | None 
     answer, trace = await sinistre.run(
         corpus.identite.doc_id, QUESTION, FAITS, corpus=corpus.index.corpus, index=corpus.index,
         client=client, settings=reglages, request_id="req-4-2e", budget=budget or _budget(),
-        variant="deterministe")
+        variant=sinistre.VARIANT)
     return answer, trace, fake
 
 
@@ -316,26 +357,24 @@ def _lacune(langue: str = "fr") -> str:
     return patron
 
 
-# --- 1. la première passe laisse bien l'annexe fermée ---------------------------------------------
+# --- 1. la lecture du modèle laisse bien l'annexe fermée -------------------------------------------
 
-async def test_la_premiere_passe_ne_lit_pas_lannexe_mais_sa_definition_rencontree(
-        neutre: CorpusNeutre) -> None:
+async def test_la_lecture_du_modele_laisse_lannexe_fermee(neutre: CorpusNeutre) -> None:
     """Prémisse de tout le fichier : sans demande, le contexte visé n'est **pas** dans l'entrée.
 
     Sans cette propriété, « la demande a rouvert quelque chose » ne prouverait rien : la définition
-    aurait été là de toute façon. La définition du terme *rencontré dans la clause lue* entre, elle,
-    par la fermeture d'un niveau déjà écrite — c'est le comportement d'avant le diff, et il ne bouge
-    pas.
+    aurait été là de toute façon. Ce que le modèle ouvre est ce qu'il a ouvert — `ouvrir_noeud` ne
+    suit ni renvoi ni définition —, et l'annexe reste donc entière hors de l'entrée.
     """
     _answer, trace, fake = await _run(
-        neutre, [_comprendre(neutre), _rediger(neutre), _verifier(neutre)])
+        neutre, [*_lecture(neutre), _rediger(neutre), _verifier(neutre)])
 
     assert fake.remaining_script == 0
     lus = set(neutre.cles(trace.steps[1].opened_block_ids))
     assert {"prise_en_charge", "inscription", "definition_objet"} <= lus
     assert "definition_valeur" not in lus and "bareme" not in lus
-    # `definition_registre` non plus : son terme n'est employé que par un bloc entré comme
-    # **dépendance**, dont les dépendances ne sont jamais suivies à leur tour (un niveau).
+    # `definition_registre` non plus : rien ne l'ouvre, alors même que son terme est employé par un
+    # bloc ouvert — c'est le piège que la satisfaction devra refuser plus bas.
     assert "definition_registre" not in lus
 
 
@@ -346,30 +385,35 @@ async def test_une_demande_de_definition_valide_est_satisfaite_puis_reprise_une_
     """AC 1 : une passe `retrouver` de plus sous **le même objet** budget, une reprise, et la trace.
 
     L'identité du budget est prouvée par `is` : AD-1 borne l'étape entière, pas chaque passe. Un
-    budget reconstruit à l'identique satisferait une égalité et doublerait pourtant le rappel.
+    budget reconstruit à l'identique satisferait une égalité et doublerait pourtant le rappel. Le
+    témoin compte donc les bornes **construites** par la chaîne : le pipeline en hisse exactement
+    une pour l'étape, et c'est cet objet-là — pas son sosie — que la satisfaction reçoit.
     """
+    construites: list[Any] = []
     bornes: list[Any] = []
-    reel_deterministe, reel_satisfaire = sinistre.retrouver_deterministe, sinistre.satisfaire_demande
+    reel_budget, reel_satisfaire = sinistre.retrieval_budget, sinistre.satisfaire_demande
 
-    def capture_initiale(*args: Any, **kw: Any):
-        bornes.append(kw["budget"])
-        return reel_deterministe(*args, **kw)
+    def capture_borne(*args: Any, **kw: Any):
+        borne = reel_budget(*args, **kw)
+        construites.append(borne)
+        return borne
 
     def capture_satisfaction(*args: Any, **kw: Any):
         bornes.append(kw["budget"])
         return reel_satisfaire(*args, **kw)
 
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_initiale)
+    monkeypatch.setattr(sinistre, "retrieval_budget", capture_borne)
     monkeypatch.setattr(sinistre, "satisfaire_demande", capture_satisfaction)
 
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE)),
         _verifier(neutre)])
 
     assert fake.remaining_script == 0
-    # Exactement deux passes de retrouver, et **le même objet** de bornes pour les deux.
-    assert len(bornes) == 2 and bornes[1] is bornes[0]
+    # Une seule borne pour l'étape entière, et c'est **cet objet-là** que la satisfaction reçoit.
+    assert len(construites) == 1 and len(bornes) == 1
+    assert bornes[0] is construites[0]
     assert bornes[0] == retrieval_budget(_settings(neutre.identite))
     # La trace nomme la demande, la satisfaction, les blocs rouverts et l'issue de la reprise.
     noms = _tous_les_checks(trace)
@@ -393,7 +437,7 @@ async def test_une_demande_de_renvoi_rouvre_la_cible_du_renvoi(neutre: CorpusNeu
     exprime. Un niveau, jamais deux.
     """
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "renvoi", neutre.bloc("definition_objet"),
                                            raison="renvoi_non_lu")),
         _verifier(neutre)])
@@ -408,7 +452,7 @@ async def test_une_demande_de_qualite_ne_vise_que_ce_que_le_modele_a_enumere(
         neutre: CorpusNeutre) -> None:
     """La cible `qualite` vit dans `qualites_exigees` — ce que le modèle a lui-même écrit."""
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, qualites=[QUALITE_DEMANDEE],
                   demande=_demande(neutre, "qualite", QUALITE_DEMANDEE,
                                    raison="qualite_non_verifiable")),
@@ -425,12 +469,12 @@ async def test_une_qualite_que_le_modele_na_pas_enumeree_nest_pas_une_cible(
         neutre: CorpusNeutre) -> None:
     """Le contrôle porte sur **cette** affirmation : une qualité jamais énumérée ne désigne rien."""
     answer, _trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, qualites=[],
                   demande=_demande(neutre, "qualite", QUALITE_DEMANDEE,
                                    raison="qualite_non_verifiable"))])
 
-    assert fake.remaining_script == 0  # aucune reprise : le script s'arrête à la première passe
+    assert fake.remaining_script == 0  # aucune reprise : le script s'arrête à la vérification
     assert not answer.complete and _lacune() in answer.unknown
 
 
@@ -440,7 +484,7 @@ async def test_une_categorie_hors_vocabulaire_ne_produit_aucune_demande(
         neutre: CorpusNeutre) -> None:
     """AC 2 : aucune exception, aucune boucle, aucune demande — et le lot reste jugé."""
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande={"kind": "relecture_libre", "cible": TERME_DEMANDE,
                                    "claim_id": neutre.identite.claim,
                                    "raison": "definition_manquante"})])
@@ -458,7 +502,7 @@ async def test_une_categorie_hors_vocabulaire_ne_produit_aucune_demande(
 async def test_une_raison_hors_vocabulaire_ne_produit_aucune_demande(neutre: CorpusNeutre) -> None:
     """Le second vocabulaire fermé compte autant que le premier : une demande ne se répare pas."""
     _answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE,
                                            raison="parce_que"))])
 
@@ -481,7 +525,7 @@ async def test_une_cible_absente_de_lentree_ne_produit_aucune_demande(
     """AC 2 : la cible doit être **dans ce qui a été soumis**, sinon la claim visée vaut `humain`."""
     visee = neutre.par_cle.get(cible, cible)
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, kind, visee, raison=raison))])
 
     assert fake.remaining_script == 0
@@ -504,7 +548,7 @@ async def test_un_objet_de_demande_entierement_vide_nest_pas_une_demande(
     for vide in ({}, {"kind": None, "cible": "", "claim_id": "", "raison": None},
                  {"cible": "   ", "claim_id": "  "}):
         answer, trace, fake = await _run(neutre, [
-            _comprendre(neutre), _rediger(neutre), _verifier(neutre, demande=vide)])
+            *_lecture(neutre), _rediger(neutre), _verifier(neutre, demande=vide)])
 
         assert fake.remaining_script == 0
         noms = _tous_les_checks(trace)
@@ -524,7 +568,7 @@ async def test_une_demande_qui_nest_pas_un_objet_ne_tue_pas_le_lot(
     base = json.loads(_verifier(neutre)["content"][0]["text"])
     base["demande_contexte"] = brut
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         fake_message(model=TIERS["reason"], text=json.dumps(base))])
 
     assert fake.remaining_script == 0  # aucun retry de parse : la sortie était exploitable
@@ -553,7 +597,7 @@ async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insati
     demandé n'avait jamais été trouvé. C'est la garantie fail-closed de la story qui tombait.
     """
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_SANS_DEFINITION))])
 
     assert fake.remaining_script == 0  # aucune reprise n'a été scriptée : aucune n'a eu lieu
@@ -576,7 +620,7 @@ async def test_un_claim_id_jamais_envoye_ne_designe_rien(neutre: CorpusNeutre) -
     n'est retenue : c'est la seule lecture fail-closed de « toute demande mal formée échoue fermée ».
     """
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE,
                                            claim_id="jamais-soumis"))])
 
@@ -592,7 +636,7 @@ async def test_une_demande_bien_formee_mais_insatisfaite_ferme_sans_reprise(
         neutre: CorpusNeutre) -> None:
     """AC 2 : `retrouver` ne rend aucun bloc neuf ⇒ aucune reprise, lacune typée, `ne_tranche_pas`."""
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "renvoi", neutre.bloc("inscription"),
                                            raison="renvoi_non_lu"))])
 
@@ -620,7 +664,7 @@ async def test_une_satisfaction_partielle_ne_declenche_aucune_reprise(
     """
     answer, trace, fake = await _run(
         neutre,
-        [_comprendre(neutre), _rediger(neutre),
+        [*_lecture(neutre), _rediger(neutre),
          _verifier(neutre, demande=_demande(neutre, "renvoi", neutre.bloc("definition_objet"),
                                             raison="renvoi_non_lu"))],
         settings=_settings(neutre.identite, retrieval_max_blocks=5))
@@ -647,9 +691,12 @@ async def test_sans_place_sous_le_budget_aucune_passe_et_aucun_appel(
 
     answer, trace, fake = await _run(
         neutre,
-        [_comprendre(neutre), _rediger(neutre),
+        [*_lecture(neutre), _rediger(neutre),
          _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE))],
-        budget=_budget(max_attempts=3))
+        # Cinq appels : *comprendre*, les deux tours de navigation, l'ébauche et la vérification.
+        # Le plafond les couvre exactement, et il ne reste pas la place du seul appel que la
+        # reprise coûterait.
+        budget=_budget(max_attempts=5))
 
     assert fake.remaining_script == 0 and appels == []
     noms = _tous_les_checks(trace)
@@ -666,14 +713,14 @@ async def test_sans_marge_de_deadline_aucune_passe(neutre: CorpusNeutre,
 
     answer, trace, fake = await _run(
         neutre,
-        [_comprendre(neutre), _rediger(neutre),
+        [*_lecture(neutre), _rediger(neutre),
          _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE))],
-        # Le temps s'épuise après les trois appels de la chaîne : il ne reste plus de quoi écrire
-        # la vérification de la reprise, qui en demande 45,7 au débit minoré. Depuis le correctif du
-        # tour 4, c'est ce que l'appel va écrire qui décide, pas une marge fixe — et une horloge
-        # figée ne pourrait pas distinguer la première vérification de la seconde, qui coûtent le
-        # même temps.
-        budget=_BudgetQuiSepuise(3))
+        # Le temps s'épuise après les cinq appels de la chaîne — *comprendre*, les deux tours de
+        # navigation, l'ébauche, la vérification : il ne reste plus de quoi écrire la vérification
+        # de la reprise, qui en demande 45,7 au débit minoré. Depuis le correctif du tour 4, c'est
+        # ce que l'appel va écrire qui décide, pas une marge fixe — et une horloge figée ne pourrait
+        # pas distinguer la première vérification de la seconde, qui coûtent le même temps.
+        budget=_BudgetQuiSepuise(5))
 
     assert fake.remaining_script == 0
     assert "reprise_sans_place" in _tous_les_checks(trace)
@@ -683,7 +730,7 @@ async def test_sans_marge_de_deadline_aucune_passe(neutre: CorpusNeutre,
 async def test_une_seconde_demande_est_refusee_sans_boucle(neutre: CorpusNeutre) -> None:
     """AC 2 : la reprise redemande du contexte ⇒ refus, aucune seconde satisfaction, aucune boucle."""
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE)),
         _verifier(neutre, demande=_demande(neutre, "renvoi", neutre.bloc("definition_objet"),
                                            raison="renvoi_non_lu"))])
@@ -701,7 +748,7 @@ async def test_une_seconde_demande_est_refusee_sans_boucle(neutre: CorpusNeutre)
 async def test_une_reprise_non_dominante_ne_remplace_pas_lacquis(neutre: CorpusNeutre) -> None:
     """La règle de la relance, réutilisée telle quelle : l'acquis fait foi, et la trace le dit."""
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         _verifier(neutre, demande=_demande(neutre, "definition", TERME_DEMANDE)),
         _verifier(neutre, pertinente=False)])
 
@@ -766,14 +813,17 @@ async def test_la_reprise_relit_lebauche_qui_a_produit_la_demande(
 
     monkeypatch.setattr(sinistre, "verifier", capture)
     answer, trace, fake = await _run(neutre, [
-        _comprendre(neutre),
+        *_lecture(neutre),
         _rediger_libre(neutre, ("k1", AFFIRMATION, "prise_en_charge")),
         _verifier_libre(("k1", False)),                       # rien ne survit ⇒ relance due
         _rediger_libre(neutre, ("k1b", AFFIRMATION + " Corrigée.", "prise_en_charge")),
         _verifier_libre(("k1b", True),
                         demande={"kind": "definition", "cible": TERME_DEMANDE,
                                  "claim_id": "k1b", "raison": "definition_manquante"}),
-        _verifier_libre(("k1b", True))])
+        _verifier_libre(("k1b", True))],
+        # Huit appels : *comprendre*, les deux tours de navigation, l'ébauche, sa vérification, la
+        # relance, la vérification de la relance, puis la reprise.
+        budget=_budget(max_attempts=8))
 
     assert fake.remaining_script == 0
     # Trois vérifications : la première, celle de la relance, puis la reprise — et la reprise relit
@@ -793,7 +843,7 @@ async def test_la_reprise_ne_perd_pas_la_lacune_dune_relance_abandonnee(
     """
     answer, trace, fake = await _run(
         neutre,
-        [_comprendre(neutre),
+        [*_lecture(neutre),
          _rediger_libre(neutre, ("k1", AFFIRMATION, "prise_en_charge"),
                         ("k2", "Une inscription au registre est requise.", "inscription")),
          _verifier_libre(("k1", True), ("k2", False),
@@ -802,8 +852,10 @@ async def test_la_reprise_ne_perd_pas_la_lacune_dune_relance_abandonnee(
          _verifier_libre(("k1", True), ("k2", True))],
         settings=_settings(neutre.identite, relance_sur_non_pertinence=True),
         # De quoi vérifier une seconde fois, mais pas de quoi relancer *rédiger* : la relance est
-        # due et n'a jamais démarré, la reprise du contexte tient encore.
-        budget=_budget(max_attempts=4))
+        # due et n'a jamais démarré, la reprise du contexte tient encore. Cinq appels sont déjà
+        # partis (*comprendre*, les deux tours de navigation, l'ébauche, sa vérification) ; il en
+        # reste un, et la relance en demande deux.
+        budget=_budget(max_attempts=6))
 
     assert fake.remaining_script == 0
     noms = _tous_les_checks(trace)
@@ -823,7 +875,7 @@ async def test_une_demande_insatisfaite_par_le_budget_publie_sa_borne(
     """
     answer, trace, fake = await _run(
         neutre,
-        [_comprendre(neutre),
+        [*_lecture(neutre),
          _rediger_libre(neutre, ("k1", AFFIRMATION, "prise_en_charge")),
          _verifier_libre(("k1", False),
                          demande={"kind": "definition", "cible": TERME_DEMANDE,
@@ -832,8 +884,12 @@ async def test_une_demande_insatisfaite_par_le_budget_publie_sa_borne(
          # Elle s'arrête donc sur `relance_sans_effet`, sans seconde vérification — la sortie qui
          # nous intéresse reste celle qui porte la demande, et le bloc 4.2e la reçoit intacte.
          _rediger_libre(neutre, ("k1", AFFIRMATION, "prise_en_charge"))],
-        # La première passe lit exactement quatre blocs ; le candidat du complément n'a plus de place.
-        settings=_settings(neutre.identite, retrieval_max_blocks=4))
+        # La lecture du modèle ouvre exactement quatre blocs ; le candidat du complément n'a plus
+        # de place sous la borne de l'étape.
+        settings=_settings(neutre.identite, retrieval_max_blocks=4),
+        # Sept appels : *comprendre*, les deux tours de navigation, l'ébauche, sa vérification, puis
+        # la relance — qui exige d'avoir la place de sa propre vérification.
+        budget=_budget(max_attempts=7))
 
     assert fake.remaining_script == 0
     assert "relance_sans_effet" in _tous_les_checks(trace)
@@ -852,7 +908,7 @@ async def test_une_demande_insatisfaite_par_le_budget_publie_sa_borne(
 async def test_sans_demande_le_chemin_est_celui_davant_le_diff(neutre: CorpusNeutre) -> None:
     """AC 3 : aucun champ rendu ⇒ aucun check nouveau, aucune passe de plus, aucune lacune."""
     answer, trace, fake = await _run(
-        neutre, [_comprendre(neutre), _rediger(neutre), _verifier(neutre)])
+        neutre, [*_lecture(neutre), _rediger(neutre), _verifier(neutre)])
 
     assert fake.remaining_script == 0
     noms = _tous_les_checks(trace)
@@ -869,9 +925,9 @@ async def test_sans_demande_le_chemin_est_celui_davant_le_diff(neutre: CorpusNeu
 async def test_un_champ_absent_et_un_champ_nul_sont_le_meme_chemin(neutre: CorpusNeutre) -> None:
     """`demande_contexte: null` n'est pas une demande vide : c'est l'absence de demande."""
     sans, trace_sans, _f1 = await _run(
-        neutre, [_comprendre(neutre), _rediger(neutre), _verifier(neutre)])
+        neutre, [*_lecture(neutre), _rediger(neutre), _verifier(neutre)])
     nul, trace_nul, _f2 = await _run(neutre, [
-        _comprendre(neutre), _rediger(neutre),
+        *_lecture(neutre), _rediger(neutre),
         fake_message(model=TIERS["reason"], text=json.dumps({
             **json.loads(_verifier(neutre)["content"][0]["text"]), "demande_contexte": None}))])
 
@@ -884,7 +940,7 @@ async def test_un_champ_absent_et_un_champ_nul_sont_le_meme_chemin(neutre: Corpu
 async def _decisions(identite: Identite, faire_demande: bool) -> dict[str, Any]:
     """Ce qu'une exécution **décide**, lu sans aucun identifiant : rôles, checks, verdict, lacunes."""
     corpus = _corpus_neutre(identite)
-    script = [_comprendre(corpus), _rediger(corpus)]
+    script = [*_lecture(corpus), _rediger(corpus)]
     if faire_demande:
         script += [_verifier(corpus, demande=_demande(corpus, "definition", TERME_DEMANDE)),
                    _verifier(corpus)]
@@ -921,7 +977,7 @@ async def test_les_decisions_resistent_a_une_reformulation_de_la_cible() -> None
     resultats = []
     for cible in (TERME_DEMANDE, "Valeur Résiduelle", "  valeur   residuelle  "):
         answer, trace, fake = await _run(corpus, [
-            _comprendre(corpus), _rediger(corpus),
+            *_lecture(corpus), _rediger(corpus),
             _verifier(corpus, demande=_demande(corpus, "definition", cible)),
             _verifier(corpus)])
         assert fake.remaining_script == 0
@@ -943,7 +999,8 @@ def test_controle_negatif_une_decision_branchee_sur_un_identifiant_est_detectee(
 
 def test_le_vocabulaire_du_corpus_synthetique_est_neutre() -> None:
     """Never 4.2b : aucun vocabulaire d'assureur réel ni de question-témoin dans ce corpus."""
-    source = " ".join([*(t for _c, _k, t, _d, _r in (*SECTION_LUE, *SECTION_FERMEE)),
+    source = " ".join([*(t for _c, _k, t, _d, _r in (*SECTION_LUE, *SECTION_DEPENDANCE,
+                                                     *SECTION_FERMEE)),
                        QUESTION, QUESTION_RESOLUE, FAITS.description or "", AFFIRMATION,
                        TERME_DEMANDE, QUALITE_DEMANDEE, *TERMES]).lower()
     for interdit in ("axa", "baloise", "optihome", "bougie", "canape", "canapé", "mobilier",
@@ -1006,7 +1063,9 @@ def test_la_satisfaction_najoute_aucun_appel_modele(neutre: CorpusNeutre) -> Non
     assert [b.block_id for b in depart.blocs] == [b.block_id for b in augmente.blocs][:3]
     assert augmente.truncated is False
     # `opened_node_ids` est recalculé sur les blocs transmis : le compteur ne contredit pas l'autre.
-    assert len(augmente.opened_node_ids) == 2
+    # Trois nœuds ici — la section lue, celui de la définition qu'elle emploie, et l'annexe d'où la
+    # satisfaction vient de rouvrir un bloc.
+    assert len(augmente.opened_node_ids) == 3
 
 
 def test_la_satisfaction_ne_suit_quun_seul_niveau(neutre: CorpusNeutre) -> None:
@@ -1087,7 +1146,7 @@ def test_la_satisfaction_ne_rend_rien_quand_le_contexte_nexiste_pas(neutre: Corp
 
 
 def test_la_satisfaction_refuse_un_document_quelle_ne_sert_pas(neutre: CorpusNeutre) -> None:
-    """La même garde que les deux variantes : un `doc_id` inconnu est une faute d'appel."""
+    """La même garde que partout ailleurs : un `doc_id` inconnu est une faute d'appel."""
     with pytest.raises(KeyError):
         satisfaire_demande(
             DemandeContexte(kind="definition", cible=TERME_DEMANDE, claim_id="k1",

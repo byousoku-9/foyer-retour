@@ -25,7 +25,6 @@ au premier synonyme et cesse de mesurer quoi que ce soit.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -33,12 +32,10 @@ from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
-from server.app.domain.profil import Profil, noeuds_du_profil
-from server.app.domain.trace import CheckResult
+from server.app.domain.profil import Profil
 from server.app.domain.question import ParsedQuestion
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.pipelines.guide import repondre_guide
 from server.app.steps.comprendre import comprendre
 from tests.fixtures import LLMRecorder
 from tests.helpers_tiers import verifier_etage
@@ -83,54 +80,6 @@ def _evoque(libelles: list[str], *attendus: str) -> bool:
     return any(attendu in n for n in normalises for attendu in attendus)
 
 
-ABANDON = "promu(s) sans bloc retenu"
-RESTITUTION = "leur place a été rendue"
-
-
-def _profil_a_tenu_sa_promesse(check: Any) -> bool:
-    """Le profil a-t-il fait ce qu'il devait — sans exiger qu'il ait eu de la chance ?
-
-    **Correctif du tour 7 (G1), et c'est la même correction qu'au tour 4 sur le témoin bougie : on
-    resserre la garde, jamais l'assertion.** Le témoin exigeait `check.ok is True`, alors que le
-    contrôle passe à `ok=False` dès qu'**un** nœud désigné — n'importe lequel, pas forcément celui
-    de l'AC — a été promu sans tenir sous le budget de blocs. Sa place lui est alors rendue, la
-    lecture est refaite, et le résultat est exactement celui d'un run sans profil pour cette
-    place-là : c'est le comportement **prescrit** par la revue Codex 2.3 (I1), et il dépend du
-    vocabulaire que le modèle a choisi. Mesuré le 03/09/2026 sur un réenregistrement live :
-    `lux-guide:fecole` était bien ouvert — l'AC tenait — et le contrôle était rouge pour
-    `lux-guide:fallocations`. Exiger `ok is True` était exiger de la chance.
-
-    Ce qui reste exigé, et qui n'est pas vide : une promotion abandonnée **nomme sa restitution**.
-    C'est le seul fait qui rende l'abandon inoffensif ; sans lui, le profil aurait retiré un nœud à
-    la question sans rien lui rendre — précisément ce que I1 a fermé. L'alarme de réglage, elle,
-    garde son `ok=False` et ses deux témoins hermétiques dans `test_retrouver.py`.
-    """
-    if ABANDON in check.detail:
-        return RESTITUTION in check.detail
-    return check.ok is True
-
-
-def test_la_garde_du_temoin_accepte_une_place_rendue_et_refuse_une_place_perdue() -> None:
-    """Rouge avant / vert après, sur la forme **mesurée** du réenregistrement du 03/09/2026."""
-    mesure = CheckResult(
-        name="noeuds_du_profil", ok=False,
-        detail="0 place(s) réservée(s) sur 2 (aucune) ; 0 nœud(s) cédé(s) (aucun) ; "
-               "1 promu(s) sans bloc retenu (lux-guide:fallocations) : le budget de blocs a écarté "
-               "leur fenêtre, leur place a été rendue (lux-guide:fdemarches)")
-    assert _profil_a_tenu_sa_promesse(mesure) is True
-    # La borne, et c'est elle qui empêche la garde d'être vide : un abandon **sans** restitution
-    # serait un nœud retiré à la question sans rien lui rendre, et il reste refusé.
-    perdue = mesure.model_copy(update={
-        "detail": "0 place(s) réservée(s) sur 2 (aucune) ; 1 nœud(s) cédé(s) (lux-guide:fdemarches)"
-                  " ; 1 promu(s) sans bloc retenu (lux-guide:fallocations) : le budget de blocs a "
-                  "écarté leur fenêtre"})
-    assert _profil_a_tenu_sa_promesse(perdue) is False
-    # Et le chemin nominal reste le chemin nominal.
-    assert _profil_a_tenu_sa_promesse(CheckResult(
-        name="noeuds_du_profil", ok=True,
-        detail=f"1 place(s) réservée(s) sur 2 ({ECOLE}) ; 1 nœud(s) cédé(s) (x)")) is True
-
-
 async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
                                                                   llm_recorder: LLMRecorder) -> None:
     """AD-5 : « `scope` dérivé du profil : enfants → école/allocations ». La moitié « thèmes » de l'AC.
@@ -154,63 +103,6 @@ async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
     # `Settings`, jamais recopié (le tier a été promu depuis ; l'AC, elle, n'a pas bougé).
     verifier_etage(step, _settings(), appels=1)
     assert budget.attempts == 1
-
-
-async def test_le_profil_fait_ouvrir_la_fiche_ecole_par_le_pipeline(index: Index,
-                                                                    llm_recorder: LLMRecorder) -> None:
-    """L'AC entière, sur le corpus réel : le pipeline ouvre `lux-guide:fecole` grâce au profil.
-
-    Le parcours du guide conditionne cette fiche sur `{enfants: true}` (donnée de la source), le
-    pipeline la résout par code et *retrouver* lui réserve une place parmi `max_opens`. La trace le
-    dit — c'est littéralement ce que l'AC exige — et le `CheckResult` ne nomme que des `node_id`,
-    produits par l'ingestion : ni clé de profil, ni terme cherché, ni contenu de bloc (AD-10, AD-15).
-    """
-    budget = _budget()
-    answer, trace = await repondre_guide(SCOLAIRE, [], PROFIL_ENFANTS, corpus=index.corpus, index=index,
-                                         client=_client(llm_recorder), settings=_settings(),
-                                         request_id="live-profil", budget=budget,
-                                         variant="deterministe")
-    document = index.corpus.documents[DOC_ID]
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    ouverts = {document.node_of(b) for b in retrouver.opened_block_ids}
-    assert ECOLE in ouverts, sorted(ouverts)
-
-    # Le profil a bien désigné la fiche : c'est une donnée de la source, pas un jugement du modèle.
-    assert ECOLE in noeuds_du_profil(document.parcours, PROFIL_ENFANTS)
-    # La trace dit ce que le profil a fait — soit il a réservé une place à la fiche, soit la question
-    # la classait déjà dans le quota. L'assertion porte sur les deux issues, parce que le rang de
-    # `ecole` parmi les candidats dépend du vocabulaire que le modèle a réellement choisi : forcer
-    # l'une des deux ferait rougir le test au premier synonyme, sans qu'aucune règle ait bougé.
-    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
-    assert _profil_a_tenu_sa_promesse(check), check.detail
-    # AD-10 / AD-15 : aucune clé de profil, aucun terme cherché, aucun contenu de bloc dans la trace.
-    assert "enfants" not in check.detail
-
-    # AD-4 : `found`/`complete` restent calculés par le code, et la réponse tient sous le plafond.
-    assert answer.complete == (answer.found and not answer.unknown)
-    assert budget.cost_eur < _settings().max_cost_eur_per_request
-    assert trace.thresholds["profil_max_opens"] == _settings().profil_max_opens
-
-
-async def test_le_meme_scenario_sans_profil_ne_reserve_rien(index: Index,
-                                                            llm_recorder: LLMRecorder) -> None:
-    """Le témoin négatif : même question, profil vide ⇒ aucune place réservée, aucune trace ajoutée.
-
-    Le rappel lexical reste libre de retrouver `ecole` par les termes de la question ; ce test isole
-    l'effet propre du profil, qui est l'ajout d'une désignation et d'une place réservée.
-    """
-    answer, trace = await repondre_guide(SCOLAIRE, [], Profil(), corpus=index.corpus, index=index,
-                                         client=_client(llm_recorder), settings=_settings(),
-                                         request_id="live-profil-vide", budget=_budget(),
-                                         variant="deterministe")
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert [c.name for c in retrouver.checks if c.name == "noeuds_du_profil"] == []
-    assert noeuds_du_profil(index.corpus.documents[DOC_ID].parcours, Profil()) == []
-    assert answer.complete == (answer.found and not answer.unknown)
-    # Story 2.7 : « inscription scolaire » touche désormais un bloc qui contient seulement
-    # « scolaire ». C'est un rappel lexical normal, pas une réservation cachée du profil.
-    ouverts = {index.corpus.documents[DOC_ID].node_of(b) for b in retrouver.opened_block_ids}
-    assert ECOLE in ouverts, sorted(ouverts)
 
 
 # --- « statut → affiliation, impôts », le troisième terme de l'AC (revue Codex 2.3, B2) ----------

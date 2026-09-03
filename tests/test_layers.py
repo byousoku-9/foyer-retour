@@ -244,7 +244,12 @@ ETAPES_HISTORIQUE: dict[str, tuple[str, bool]] = {
     # s'écrit dans une conversation —, et pour elle seule : la question qu'il navigue reste la
     # `question_resolue` que *comprendre* a rendue autonome.
     "naviguer": ("Navigation.__init__", True),
-    "retrouver": ("retrouver_deterministe", False),
+    # Tâche T2 de la story 5.6 (03/09/2026) : `retrouver_deterministe` et `retrouver_outils` ont
+    # été supprimées avec les passes de code qui choisissaient ce que la rédaction verrait.
+    # `retrouver_full_context` est l'entrée qui reste au module — variante de comparaison, non
+    # servie —, et l'interdit vaut pour elle mot pour mot : le contrôle relit de toute façon le
+    # **module entier** (P3), donc aucun helper du module ne peut nommer l'historique.
+    "retrouver": ("retrouver_full_context", False),
     "verifier": ("verifier", False),
     "restituer": ("restituer", False),
 }
@@ -381,7 +386,7 @@ def test_une_etape_qui_declare_lhistorique_est_detectee(tmp_path: Path) -> None:
                               "    def __init__(self, parsed, *, historique=()):\n"
                               "        self.h = historique\n"),
         "steps/rediger.py": "async def rediger(parsed, retrieval, historique):\n    return historique\n",
-        "steps/retrouver.py": "def retrouver_deterministe(parsed, *, historique=None):\n    return parsed\n",
+        "steps/retrouver.py": "def retrouver_full_context(parsed, *, historique=None):\n    return parsed\n",
         "steps/verifier.py": ("def _juger(historique):\n    return historique\n\n\n"
                               "async def verifier(draft, *, parsed):\n    return _juger(parsed)\n"),
     })
@@ -390,6 +395,6 @@ def test_une_etape_qui_declare_lhistorique_est_detectee(tmp_path: Path) -> None:
         "(AD-1 : dire qui voit `historique` est dû pour chaque étape)",
         "steps/comprendre.py:1 comprendre ne déclare plus `historique`",
         "steps/restituer.py absent",
-        "steps/retrouver.py:1 retrouver_deterministe déclare `historique` (AD-1 l'interdit)",
+        "steps/retrouver.py:1 retrouver_full_context déclare `historique` (AD-1 l'interdit)",
         "steps/verifier.py:1 nomme `historique` (AD-1 l'interdit)",
     ]

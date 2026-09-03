@@ -469,28 +469,6 @@ def test_chercher_un_mot_partiel_frequent_contribue_moins_quun_mot_rare() -> Non
         ("d:p1:2", "n"), ("d:p1:1", "n"), ("d:p1:3", "n")]
 
 
-def test_chercher_reserve_un_noeud_distinct_par_groupe_prioritaire_avant_la_coupe() -> None:
-    blocks = [
-        Block(block_id="d:p1:1", text="Thème profil.", loc="p1", seq=1),
-        Block(block_id="d:p2:1", text="Thème profil répété.", loc="p2", seq=1),
-        Block(block_id="d:p3:1", text="Première démarche utile.", loc="p3", seq=1),
-        Block(block_id="d:p4:1", text="Seconde démarche utile.", loc="p4", seq=1),
-    ]
-    nodes = [Node(node_id="root", items=[NodeRef(node_id=f"n{i}") for i in range(1, 5)])]
-    nodes.extend(Node(node_id=f"n{i}", items=[BlockRef(block_id=block.block_id)])
-                 for i, block in enumerate(blocks, 1))
-    ix = Index(Corpus(documents={"d": Document(
-        doc_id="d", kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)}))
-
-    assert _pairs(ix.chercher(["thème profil"], limit=2)) == [
-        ("d:p1:1", "n1"), ("d:p2:1", "n2")]
-    assert _pairs(ix.chercher(
-        ["thème profil", "première démarche", "seconde démarche"], limit=2,
-        groupes_prioritaires=["première démarche", "seconde démarche"],
-    )) == [
-        ("d:p3:1", "n3"), ("d:p4:1", "n4")]
-
-
 def test_un_mot_absent_du_document_ne_change_pas_le_score_partiel() -> None:
     blocks = [
         Block(block_id="d:p1:1", text="a seul", loc="p1", seq=1),
@@ -885,37 +863,6 @@ def test_la_tranche_servie_est_aussi_large_que_la_mesure_lautorise() -> None:
     # …et cela se voit sur le document réel : au moins un quart de ses nœuds par page.
     assert page.page_size >= page.total_entries // 4, (
         f"le navigateur ne voit que {page.page_size} nœuds sur {page.total_entries}")
-
-
-def test_la_tranche_servie_laisse_lappel_de_navigation_sous_la_moitie_du_plafond() -> None:
-    """L'autre borne : la tranche ne doit jamais rapprocher un appel du plafond par requête.
-
-    Le majorant est celui que le client oppose **avant** d'envoyer (`estimate_cost`), sur le préfixe
-    de navigation réellement servi — carte comprise. On exige la **moitié** du plafond : l'appel de
-    navigation n'est pas seul dans la requête, et une marge qui se lit en facteur ne se périme pas
-    comme une soustraction.
-    """
-    import json
-
-    from server.app.llm.client import estimate_cost
-    from server.app.llm.models import model_for
-    from server.app.llm.prompting import render_prompt, untrusted
-
-    reglages = Settings(_env_file=None)
-    index = _index_servi(load_corpus(ROOT / "data", allow_ungated=True))
-    page = index.sommaire_page("axa-lu-optihome-2017", **_budgets_servis())
-    prompt = render_prompt(
-        "retrouver", doc_id="axa-lu-optihome-2017", max_llm_turns=reglages.max_llm_turns,
-        max_opens=reglages.max_opens, profil_max_opens=reglages.profil_max_opens,
-        sommaire=untrusted("sommaire", json.dumps(page.model_dump(mode="json"),
-                                                  ensure_ascii=False)))
-    majorant = estimate_cost(
-        model_for(reglages.retrouver_outils_tier), [{"type": "text", "text": prompt}],
-        [{"role": "user", "content": "question"}], reglages.retrouver_outils_max_tokens, reglages)
-
-    assert majorant <= reglages.max_cost_eur_per_request / 2, (
-        f"l'appel de navigation est majoré à {majorant:.4f} € pour un plafond de "
-        f"{reglages.max_cost_eur_per_request:.4f} € : la tranche est trop large")
 
 
 def test_une_page_de_sommaire_sans_budget_est_un_refus_pas_un_arbre_entier() -> None:

@@ -1250,18 +1250,21 @@ def test_variante_answer_trace_et_mesures_sont_projetees_jusquau_json(tmp_path: 
     _corpus_, index = _corpus()
     block_id = f"{GUIDE}:ffiche:1"
     answer = _reponse([_claim(_citation(index, block_id, "LuxTrust"))])
+    # `full_context` : la variante de comparaison, la seule qui ne soit pas le défaut de la suite
+    # depuis que la tâche T2 de la story 5.6 a supprimé `deterministe` et `outils`. Ce qui est mesuré
+    # ici est la **projection** d'une variante explicite jusqu'au JSON, quelle qu'elle soit.
     ctx = _armer(_contexte([(answer, _trace(
-        variant="deterministe", cost_eur_original=0.0372))]))
+        variant="full_context", cost_eur_original=0.0372))]))
     cas = _cas(id="g-projection", expected={"found": True, "block_ids": [block_id]})
 
-    resultats, _ = _executer(ctx, [cas], variant="deterministe")
+    resultats, _ = _executer(ctx, [cas], variant="full_context")
     rapport = runner.construire_rapport(
         resultats, [cas], cases_dir=tmp_path, profile="vertical", max_cost_eur=1.0,
         complete=True)
 
-    assert ctx._guide.appels[0]["kw"]["variant"] == "deterministe"  # type: ignore[attr-defined]
-    assert resultats[0].variant == "deterministe"
-    assert rapport["metrics"]["variants"] == {"deterministe": 1}
+    assert ctx._guide.appels[0]["kw"]["variant"] == "full_context"  # type: ignore[attr-defined]
+    assert resultats[0].variant == "full_context"
+    assert rapport["metrics"]["variants"] == {"full_context": 1}
     assert rapport["metrics"]["recall"] == 1.0
     projection = rapport["results"][0]
     assert projection["claims"][0]["quotes"][0]["block_id"] == block_id
@@ -1390,7 +1393,9 @@ def test_une_trace_de_variante_differente_est_un_incident_et_purge_sa_namespace(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
-    ctx = _contexte([(answer, _trace(variant="deterministe"))])
+    # Deux variantes **servies par le harness** et distinctes : la trace dit `navigation`, le run
+    # demandait `full_context`. Ce que le témoin mesure est l'écart, pas l'identité des deux noms.
+    ctx = _contexte([(answer, _trace(variant="navigation"))])
     cache = runner.PersistentResponseCache(tmp_path / "cache")
     ctx.response_cache = cache
     purges: list[bool] = []
@@ -1402,7 +1407,7 @@ def test_une_trace_de_variante_differente_est_un_incident_et_purge_sa_namespace(
 
     monkeypatch.setattr(cache, "discard_namespace", purge)
     with pytest.raises(runner.IncidentTechnique, match="TraceVariantMismatch"):
-        _executer(ctx, [_cas(id="g-mismatch")], variant="outils")
+        _executer(ctx, [_cas(id="g-mismatch")], variant="full_context")
     assert purges == [True]
 
 
@@ -2170,7 +2175,9 @@ def test_gate_dun_document_inconnu_est_refuse(tmp_path: Path,
 
 def test_gate_refuse_une_variante_non_servie_avant_pipeline(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _main(tmp_path, ["--gate", GUIDE, "--variant", "deterministe"], monkeypatch) == 2
+    # `full_context` est une variante **connue** du guide et pourtant non servie : c'est exactement
+    # ce que le gate doit refuser — il mesure l'image servie, pas une variante de l'image.
+    assert _main(tmp_path, ["--gate", GUIDE, "--variant", "full_context"], monkeypatch) == 2
     assert _COURANT["guide"].appels == []
 
 
@@ -2949,13 +2956,13 @@ def test_le_meme_cache_est_cable_au_client_et_au_runner(tmp_path: Path) -> None:
 def test_le_runner_arme_la_namespace_normative_avant_le_pipeline(tmp_path: Path) -> None:
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
-    ctx = _contexte([(answer, _trace(variant="outils"))])
+    ctx = _contexte([(answer, _trace(variant="navigation"))])
     cache = runner.PersistentResponseCache(tmp_path / "cache")
     ctx.response_cache = cache
     attendue = runner.namespace_cache(
-        _cas(id="g-namespace"), ctx, doc_id=GUIDE, variant="outils")
+        _cas(id="g-namespace"), ctx, doc_id=GUIDE, variant="navigation")
 
-    _executer(ctx, [_cas(id="g-namespace")], variant="outils")
+    _executer(ctx, [_cas(id="g-namespace")], variant="navigation")
 
     assert cache.namespace_digest == runner.empreinte_canonique(attendue)
 

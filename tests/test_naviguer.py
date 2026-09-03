@@ -324,3 +324,33 @@ async def test_la_trace_publie_les_tours_les_noeuds_la_lecture_et_la_reflexion()
     assert "réflexion 204 tokens" in next(
         c.detail for c in step_redaction.checks if c.name == "ebauche_dans_la_conversation")
     assert step_lecture.usage.cost_eur > 0 and step_redaction.usage.cost_eur > 0
+
+
+# --- 6. l'unité d'énumération, gardée par la structure du rendu --------------------------
+
+
+def test_ouvrir_un_noeud_rend_lenumeration_entiere_amorce_et_items() -> None:
+    """Ce que T2 garde de l'unité d'énumération : `ouvrir_noeud` la rend, sans borne ni rang.
+
+    Les items d'une même énumération se qualifient les uns les autres — « même lorsqu'il n'y a pas
+    eu embrasement, ni commencement d'incendie » du sixième péril dit quelque chose des cinq autres
+    —, et les lire séparément fait mentir chacun par omission. La passe de *retrouver* qui honorait
+    cette unité par une réservation est partie avec la variante qui la portait ; la propriété, elle,
+    reste, et elle est **structurelle** : `blocs_du_noeud` rend le nœud demandé **et** ses enfants
+    feuilles à un seul bloc. `Index.enumeration_de` sert ici d'oracle indépendant, mesuré sur le
+    contrat servi — aucun `kind` privilégié, aucun cas particulier.
+    """
+    from pathlib import Path
+
+    from server.app.corpus.loader import load_corpus
+
+    corpus = load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True)
+    index = Index(corpus)
+    doc_id = "axa-lu-optihome-2017"
+    amorce = f"{doc_id}:p34:6"  # « La Compagnie assure les biens désignés, contre les périls… »
+    enumeration = index.enumeration_de(amorce)
+    assert enumeration is not None and len(enumeration) > 1
+
+    noeud = index.parent_node(amorce)
+    rendus = [b.block_id for b in blocs_du_noeud(corpus, doc_id, noeud)]
+    assert set(enumeration) <= set(rendus), (enumeration, rendus)

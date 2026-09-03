@@ -739,7 +739,13 @@ def test_question_and_retrieval() -> None:
         "discarded_block_ids", "scored_hits", "admission_decisions", "sufficiency", "facettes",
         "truncated",
     }
-    assert {"max_opens", "node_window", "search_limit", "max_llm_turns"} <= fields(retrieval.RetrievalBudget)
+    # Tâche T2 de la story 5.6 (03/09/2026) : `max_llm_turns` et `profil_max_opens` sont partis
+    # avec les variantes qui les lisaient. Une place réservée est une décision de code sur ce que
+    # la rédaction verra, et l'amendement AD-1 la refuse ; les tours du chemin servi sont bornés
+    # par `Settings.navigation_max_llm_turns`. Le jeu est épinglé **exactement** : le budget ne
+    # borne plus que ce que la lecture ouvre, et un champ qui y reviendrait doit se justifier.
+    assert fields(retrieval.RetrievalBudget) == {"max_opens", "node_window", "search_limit",
+                                                 "max_blocks", "max_tokens"}
     with pytest.raises(ValidationError):
         question.Turn(role="user", texte="x" * 2001)
     with pytest.raises(ValidationError):

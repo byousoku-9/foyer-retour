@@ -34,7 +34,7 @@ from server.app.domain.errors import (
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
-from server.app.domain.trace import CheckResult, StepTrace
+from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -86,7 +86,12 @@ def _settings(**kw) -> Settings:
 
 
 def _budget(deadline_s: float = 100.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
+    """Le plafond confortable des scénarios qui n'éprouvent pas le plafond lui-même.
+
+    Huit appels : *comprendre*, les deux tours de lecture du modèle, *rédiger*, *vérifier*, puis les
+    deux appels de la relance d'AD-3. Les témoins qui mesurent une borne la posent, eux, en clair.
+    """
+    return RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.20)
 
 
 def test_la_trace_desarme_un_dictionnaire_signe_applique_a_un_autre_document() -> None:
@@ -155,7 +160,7 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
                question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
-               dictionnaire: Any = None, variant: str | None = "deterministe"):
+               dictionnaire: Any = None, variant: str | None = "navigation"):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
@@ -166,22 +171,34 @@ async def _run(index: Index, script: list, *, historique: list[Turn] | None = No
     return answer, trace, fake
 
 
-def _avec_navigation_outils(script: list, variant: str) -> list:
-    """Ajoute le tour minimal de *retrouver* aux scénarios communs paramétrés sur les deux variantes."""
-    if variant != "outils":
-        return script
-    navigation = fake_message(
-        model=TIERS["micro"], stop_reason="tool_use", content=[
-            {"type": "tool_use", "id": "chercher-commun", "name": "chercher",
-             "input": {"termes": ["arrivée", "école"]}},
-            {"type": "tool_use", "id": "ouvrir-arrivee", "name": "ouvrir_noeud",
-             "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}},
-            {"type": "tool_use", "id": "ouvrir-ecole", "name": "ouvrir_noeud",
-             "input": {"node_id": f"{DOC_ID}:f2", "focus_block_id": f"{DOC_ID}:f2:1"}},
-        ],
-    )
-    conclusion = fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[])
-    return [script[0], navigation, conclusion, *script[1:]]
+F1 = f"{DOC_ID}:f1"      # « Arrivée » : le titre f1:1 et le délai f1:2
+F2 = f"{DOC_ID}:f2"      # « École » : f2:1
+
+
+def _fin_de_lecture() -> dict:
+    """Le tour qui **clôt** la lecture : aucun appel d'outil, donc la boucle de *naviguer* sort."""
+    return fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT")
+
+
+def _lecture(*node_ids: str, termes: list[str] | None = None) -> list[dict]:
+    """La lecture du modèle, scriptée : un tour d'outils, puis le tour qui la clôt.
+
+    C'est le **chemin servi** depuis l'amendement AD-1 du 03/09/2026 : *retrouver* est une
+    conversation où le modèle ouvre ce qu'il veut, et *rédiger* est le message suivant du même fil.
+    Aucune passe de code ne choisit plus les blocs — un scénario de pipeline doit donc dire quels
+    nœuds le modèle a ouverts, exactement comme il dit quelle ébauche il a rendue.
+
+    Les deux messages **comptent dans le script**, et c'est voulu : la longueur du script reste
+    l'assertion « pas un appel de plus » de ce fichier.
+    """
+    appels: list[dict[str, Any]] = []
+    if termes is not None:
+        appels.append({"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+                       "input": {"termes": termes}})
+    appels += [{"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
+                "input": {"node_id": node_id}} for rang, node_id in enumerate(node_ids)]
+    return [fake_message(model=TIERS["reason"], stop_reason="tool_use", content=appels),
+            _fin_de_lecture()]
 
 
 def _dictionnaire(tmp_path: Path, index: Index, termes: dict[str, list[str]], *, validated: bool,
@@ -223,9 +240,10 @@ AUTRE_ECOLE = ("c2", "L'inscription se fait avant le 1er septembre.",
 
 # --- nominal -----------------------------------------------------------------
 async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2, transition=True),
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2),
+                                             _rediger(BONNE, BONNE_2, transition=True),
                                              _verdicts(("c1", True), ("c2", True))])
-    assert fake.remaining_script == 0 and len(fake.requests) == 3  # trois appels reason — pas un de plus
+    assert fake.remaining_script == 0 and len(fake.requests) == 5  # cinq appels reason — pas un de plus
     assert answer.found is True and answer.reason is None
     assert answer.texte == "Segment c1. Segment c2. En résumé."
     assert [c.claim_id for c in answer.claims] == ["c1", "c2"]
@@ -235,13 +253,14 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     # AD-1 : la chaîne est fixe et complète, dans cet ordre
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
     assert [s.tier for s in trace.steps] == ["reason", "reason", "reason", "reason", None]
-    assert trace.steps[1].calls == []  # *retrouver* déterministe n'appelle aucun modèle
-    assert trace.pipeline == "guide" and trace.variant == "deterministe" and trace.request_id == "req-test"
+    # *retrouver* est la lecture du modèle : les deux tours de la conversation, au tier de navigation.
+    assert len(trace.steps[1].calls) == 2
+    assert trace.pipeline == "guide" and trace.variant == "navigation" and trace.request_id == "req-test"
     # Story 1.9 : `faits_compris` et `verdict` sont les deux champs de l'unique `Answer` que le guide
     # ne remplit **pas**. Le profil du guide n'est pas « ce qu'on a compris d'un sinistre », et une
     # question du guide n'a pas de verdict à porter (AD-4).
     assert answer.faits_compris is None and answer.verdict is None
-    assert fake.requests[1]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
     # AD-10 : `intent` est le seul champ de la ligne de log que l'API ne peut pas lire sur l'`Answer` —
     # il n'existe que dans la trace, et seul le pipeline le produit.
     assert trace.intent == "question"
@@ -249,30 +268,6 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     assert trace.pipeline_digest and trace.prompts_digest
     assert trace.thresholds["quote_min_chars"] == 25 and trace.retries == 0
     assert trace.total_cost_eur > 0 and trace.deadline_remaining_s is not None
-
-
-async def test_variante_outils_dispatches_only_retrouver_and_keeps_the_fixed_chain(index: Index) -> None:
-    tool_call = fake_message(
-        model=TIERS["micro"], stop_reason="tool_use",
-        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
-                  "input": {"termes": ["arrivée"]}},
-                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
-                  "input": {"node_id": f"{DOC_ID}:f1", "focus_block_id": f"{DOC_ID}:f1:2"}}])
-    answer, trace, fake = await _run(
-        index, [_comprendre(terms=["arrivée"]), tool_call,
-                fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
-                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
-    assert answer.found and trace.variant == "outils"
-    assert [s.name for s in trace.steps] == [
-        "comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    retrouver = trace.steps[1]
-    assert len(retrouver.calls) == 2 and retrouver.tier == "reason"
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
-    assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
-               for call in retrouver.calls)
-    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
-    assert "outils_rediger_max_tokens" not in trace.thresholds
-    assert len(fake.requests) == 5
 
 
 async def test_la_navigation_par_le_modele_est_le_chemin_servi_du_guide(index: Index) -> None:
@@ -309,80 +304,6 @@ async def test_la_navigation_par_le_modele_est_le_chemin_servi_du_guide(index: I
     assert len(prefixes) == 1 and "naviguer" in prefixes.pop().lower()
 
 
-async def test_outils_without_a_useful_tool_falls_back_to_deterministic_retrieval(index: Index) -> None:
-    answer, trace, fake = await _run(
-        index, [_comprendre(terms=["arrivée"]),
-                fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
-                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
-    assert answer.found and trace.variant == "outils"
-    retrouver = trace.steps[1]
-    assert retrouver.tier == "reason" and len(retrouver.calls) == 1
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
-    assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
-    assert [request["model"] for request in fake.requests] == [
-        TIERS["reason"], TIERS["reason"], TIERS["reason"], TIERS["reason"]]
-
-
-async def test_outils_empty_truncated_result_falls_back_and_merges_trace(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    from server.app.pipelines import guide as guide_module
-
-    real_fallback = guide_module.retrouver_deterministe
-
-    def fallback_with_check(*args: Any, **kwargs: Any):
-        result, step = real_fallback(*args, **kwargs)
-        step.checks.append(CheckResult(name="controle_deterministe", ok=True, detail="fusionné"))
-        return result, step
-
-    monkeypatch.setattr(guide_module, "retrouver_deterministe", fallback_with_check)
-    tool_candidates = [b for b, _ in index.chercher(
-        ["école"], limit=_settings().search_limit, doc_id=DOC_ID,
-        groupes_prioritaires=["délai de déclaration"])]
-    tool_call = fake_message(
-        model=TIERS["micro"], stop_reason="tool_use",
-        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
-                  "input": {"termes": ["école"]}}])
-    answer, trace, _fake = await _run(
-        index, [_comprendre(terms=["arrivée"]), tool_call,
-                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
-                _rediger(BONNE), _verdicts(("c1", True))], variant="outils")
-
-    assert answer.found
-    retrouver = trace.steps[1]
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
-    assert retrouver.discarded_block_ids == tool_candidates
-    # Correctif G1 : la conclusion vide du navigateur est un verdict sémantique illisible — la
-    # trace le nomme, et ce n'est plus une borne de lecture.
-    assert [check.name for check in retrouver.checks] == [
-        "candidats_non_ouverts", "verdict_semantique", "repli_deterministe",
-        "controle_deterministe"]
-    assert retrouver.calls and retrouver.usage.cost_eur > 0
-
-
-async def test_outils_partial_truncated_result_keeps_its_useful_blocks_without_fallback(
-        index: Index) -> None:
-    tool_candidates = [b for b, _ in index.chercher(["école"], limit=_settings().search_limit,
-                                                     doc_id=DOC_ID)]
-    tool_call = fake_message(
-        model=TIERS["micro"], stop_reason="max_tokens",
-        content=[{"type": "tool_use", "id": "toolu_search", "name": "chercher",
-                  "input": {"termes": ["école"]}},
-                 {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
-                  "input": {"node_id": f"{DOC_ID}:f2"}}])
-    answer, trace, fake = await _run(
-        index, [_comprendre(terms=["arrivée"]), tool_call,
-                fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
-                _rediger(BONNE_2), _verdicts(("c2", True))], variant="outils")
-
-    retrouver = trace.steps[1]
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f2:1"]
-    assert retrouver.discarded_block_ids == [
-        block_id for block_id in tool_candidates if block_id != f"{DOC_ID}:f2:1"]
-    assert not any(check.name == "repli_deterministe" for check in retrouver.checks)
-    assert answer.found and not answer.complete and answer.reason is None
-    assert trace.truncations == 1 and len(fake.requests) == 5
-
-
 async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) -> None:
     fake = FakeAnthropic([])
     client = LlmClient(_settings(), anthropic_client=fake)
@@ -394,13 +315,18 @@ async def test_variante_inconnue_is_rejected_before_any_paid_call(index: Index) 
     assert fake.requests == [] and budget.attempts == 0 and budget.cost_eur == 0
 
 
-async def test_variante_outils_keeps_its_failed_call_in_the_partial_trace(index: Index) -> None:
+async def test_la_lecture_du_modele_garde_son_appel_rate_dans_la_trace_partielle(index: Index) -> None:
+    """AD-16 : « un 429/529 fournisseur ⇒ 503 avec trace partielle ».
+
+    *retrouver* est désormais une conversation : l'appel qui échoue est un tour de lecture, et son
+    `StepTrace` — donc son coût — doit voyager avec l'erreur au lieu de disparaître.
+    """
     panne = anthropic.APIStatusError("529", response=httpx.Response(
         529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
     with pytest.raises(LlmUnavailable) as capture:
-        await _run(index, [_comprendre(terms=["arrivée"]), panne], variant="outils")
+        await _run(index, [_comprendre(terms=["arrivée"]), panne])
     trace = capture.value.trace
-    assert trace is not None and trace.variant == "outils"
+    assert trace is not None and trace.variant == "navigation"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
     assert len(trace.steps[-1].calls) == 1
 
@@ -449,7 +375,7 @@ async def test_full_context_preflight_incident_keeps_partial_pipeline_trace(
 
 async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None:
     """AD-10 : « la trace ne contient jamais le texte des blocs »."""
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))])
     serialise = trace.model_dump_json()
     for bloc in index.corpus.documents[DOC_ID].blocks:
@@ -459,7 +385,7 @@ async def test_the_trace_never_carries_the_text_of_a_block(index: Index) -> None
 
 
 async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: Index) -> None:
-    """Reprise 1.4 : `max_blocks`/`max_tokens` existaient sans que personne ne les renseigne.
+    """Reprise 1.4 : la borne de lecture existait sans que personne ne la renseigne.
 
     **Revue Codex 2.3 (B3), puis story 4.2f.** La borne mord au point que le bloc École cité
     n'est plus transmis, la claim est rejetée (« bloc non fourni »), la relance rejoue la même
@@ -467,15 +393,20 @@ async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: 
     tronquée affirme l'exhaustivité que la troncature dément — par un échec terminal 503. La 4.2f
     ferme le même mensonge **sans la panne** : la chaîne s'achève, *restituer* rend un `Answer`
     `found=false` qui ne prouve aucune absence mais chiffre ce qui a été lu.
+
+    Depuis l'amendement AD-1 du 03/09/2026, la borne est `navigation_budget_tokens` : le code ne
+    coupe plus une sélection en silence, il **refuse** une ouverture en disant ce qu'elle coûte. Le
+    fait mesuré est le même — une lecture bornée, `truncated`, et ce que la chaîne en fait.
     """
-    settings = _settings(retrieval_max_blocks=1)
-    answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE_2), _rediger(BONNE_2)],
-                                      settings=settings)
+    settings = _settings(navigation_budget_tokens=150)  # « Arrivée » entre, « École » est refusée
+    answer, trace, _fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE_2), _rediger(BONNE_2)],
+        settings=settings)
     retrouver = trace.steps[1]
     assert retrouver.name == "retrouver"
-    # I2 rend d'abord le compagnon hit de la fenêtre Arrivée ; le bloc École du draft reste donc
-    # explicitement hors budget, ce qui conserve la preuve de rejet visée par ce test.
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:2"]
+    # Le bloc École du draft reste explicitement hors budget : la preuve de rejet visée est intacte.
+    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f1:2"]
+    assert retrouver.discarded_block_ids == [f"{DOC_ID}:f2:1"]
     assert trace.truncations == 1
     # toute la chaîne a bien tourné, relance comprise (la seconde ébauche est identique, donc pas
     # de seconde vérification), et *restituer* la termine désormais au lieu d'une exception.
@@ -484,7 +415,7 @@ async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: 
     # Aucune absence affirmée : `reason` reste vide, c'est le porteur typé de 4.2f qui parle.
     assert answer.found is False and answer.complete is False and answer.reason is None
     assert answer.lecture_partielle is not None
-    assert answer.lecture_partielle.blocks_read == 1
+    assert answer.lecture_partielle.blocks_read == 2
     assert answer.lecture_partielle.nodes_read == 1
     assert answer.lecture_partielle.documents == [DOC_ID]
     # La réponse dit ce qui lui manque, et ce qui a été écarté reste visible.
@@ -506,9 +437,10 @@ async def test_sous_lecture_bornee_une_relance_qui_trouve_bat_un_acquis_vide(ind
     503 »). Depuis que *vérifier* nomme la borne sur ce refus, les deux pipelines se comportent
     pareil, sans qu'aucune règle de dominance ait été touchée.
     """
-    settings = _settings(retrieval_max_blocks=2)  # f2:1 reste fermé : la lecture est bornée
+    settings = _settings(navigation_budget_tokens=150)  # f2:1 reste fermé : la lecture est bornée
     answer, trace, fake = await _run(
-        index, [_comprendre(), _rediger(MAUVAISE), _rediger(BONNE), _verdicts(("c1", True))],
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(BONNE),
+                _verdicts(("c1", True))],
         settings=settings)
     assert fake.remaining_script == 0 and trace.truncations == 1
     # La relance a été adoptée : la réponse vérifiée est servie, jamais jetée au profit d'un refus.
@@ -525,7 +457,8 @@ async def test_a_refusal_without_truncation_stays_a_served_answer(index: Index) 
     Lecture **non** tronquée et zéro claim survivante : rien n'a borné ce que nous avons lu, donc la
     preuve d'absence dit vrai et l'utilisateur reçoit un `Answer` complet (200), jamais une 503.
     """
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE), _rediger(MAUVAISE)])
+    answer, trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(MAUVAISE)])
     assert fake.remaining_script == 0 and trace.truncations == 0
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "claims_rejetes"
@@ -613,9 +546,13 @@ async def test_une_detection_non_servie_pose_quand_meme_la_question_de_clarifica
     (check,) = [c for c in comprendre_step.checks if c.name == "clarification_langue_non_affirmee"]
     assert check.ok is False
 
-async def test_an_empty_retrieval_never_pays_for_a_reason_call(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"])])
-    assert fake.remaining_script == 0 and len(fake.requests) == 1
+async def test_une_lecture_qui_nouvre_rien_ne_paie_jamais_de_redaction(index: Index) -> None:
+    """Le garde-fou « zéro bloc » de 1.5, sur le chemin servi : *retrouver* est maintenant une
+    conversation, donc il coûte — mais une lecture qui n'a rendu aucun bloc citable ne doit toujours
+    pas faire payer une rédaction sans source. Le script s'arrête au tour qui clôt la lecture : sa
+    longueur **est** l'assertion « aucun appel de *rédiger* »."""
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture()])
+    assert fake.remaining_script == 0 and len(fake.requests) == 2
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.found is False and answer.reason is not None
     # l'`AbsenceProof` dit ce qui a été cherché, jamais que l'information n'existe pas (AD-1/AD-4)
@@ -627,7 +564,7 @@ async def test_an_empty_retrieval_never_pays_for_a_reason_call(index: Index) -> 
 # --- relance unique (AD-3) ---------------------------------------------------
 async def test_a_rejected_claim_triggers_exactly_one_retry_that_can_save_the_answer(index: Index) -> None:
     answer, trace, fake = await _run(index, [
-        _comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+        _comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
         _rediger(BONNE, BONNE_2), _verdicts(("c1", True), ("c2", True))])
     assert fake.remaining_script == 0
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
@@ -640,11 +577,14 @@ async def test_a_rejected_claim_triggers_exactly_one_retry_that_can_save_the_ans
 
 async def test_an_identical_retry_stops_the_loop(index: Index) -> None:
     """AD-3 : « chaque relance change quelque chose (un draft identique arrête la relance) »."""
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE), _rediger(MAUVAISE)])
+    answer, trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(MAUVAISE)])
     assert fake.remaining_script == 0  # aucune seconde vérification : elle rendrait le même résultat
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "rediger", "restituer"]
-    assert [c.name for c in trace.steps[4].checks] == ["relance_sans_effet"]
+    # L'ébauche est rendue dans le fil de navigation, qui le dit ; la relance sans effet s'y ajoute.
+    assert [c.name for c in trace.steps[4].checks] == ["ebauche_dans_la_conversation",
+                                                       "relance_sans_effet"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "claims_rejetes"
     assert [c.claim_id for c in answer.rejected_claims] == ["c3"]
@@ -653,7 +593,8 @@ async def test_an_identical_retry_stops_the_loop(index: Index) -> None:
 async def test_no_surviving_claim_after_the_retry_is_a_motivated_refusal(index: Index) -> None:
     autre_mauvaise = ("c4", "Le délai est de trente jours.",
                       [(f"{DOC_ID}:f1:2", "trente jours après votre arrivée")])
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE), _rediger(autre_mauvaise)])
+    answer, trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(autre_mauvaise)])
     assert fake.remaining_script == 0
     assert answer.found is False and answer.claims == []
     assert answer.reason is not None and answer.reason.kind == "claims_rejetes"
@@ -664,14 +605,17 @@ async def test_no_surviving_claim_after_the_retry_is_a_motivated_refusal(index: 
 
 
 async def test_the_retry_carries_the_motive_composed_by_our_code(index: Index) -> None:
-    _answer, _trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE), _rediger(MAUVAISE)])
-    relance = fake.requests[2]["messages"][0]["content"]
+    _answer, _trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(MAUVAISE)])
+    # La relance est **un message de plus** dans la conversation de navigation : le motif est donc
+    # le dernier message envoyé, pas le premier — le fil entier le précède.
+    relance = fake.requests[4]["messages"][-1]["content"]
     assert '<untrusted kind="motif">' in relance  # AD-15 : le motif est délimité comme tout le reste
     assert "introuvable dans le bloc mini:f1:2" in relance
-    premier = fake.requests[1]["messages"][0]["content"]
+    premier = fake.requests[3]["messages"][-1]["content"]
     assert '<untrusted kind="motif">' not in premier
-    # le préfixe système est byte-identique entre l'appel et sa relance (AD-9, cache)
-    assert fake.requests[1]["system"] == fake.requests[2]["system"]
+    # le préfixe système est byte-identique d'un bout à l'autre du fil (AD-9, cache)
+    assert fake.requests[3]["system"] == fake.requests[4]["system"] == fake.requests[1]["system"]
 
 
 # --- bornes d'entrée ---------------------------------------------------------
@@ -680,7 +624,7 @@ async def test_a_history_beyond_the_bound_is_refused_never_truncated(index: Inde
     with pytest.raises(InvalidRequest, match="historique de 7 tours"):
         await _run(index, [], historique=historique)  # script vide : rien n'a été facturé
     ok = [Turn(role="user", texte=f"tour {i}") for i in range(6)]
-    answer, _trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
+    answer, _trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))],
                                        historique=ok)
     assert answer.found is True
 
@@ -691,14 +635,14 @@ async def test_an_exhausted_deadline_stops_before_the_first_call(index: Index) -
 
 
 async def test_the_forced_language_travels_to_the_answer(index: Index) -> None:
-    answer, _trace, _fake = await _run(index, [_comprendre(language="fr"), _rediger(BONNE),
+    answer, _trace, _fake = await _run(index, [_comprendre(language="fr"), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))], lang="en")
     assert answer.lang == "en" and answer.lang_fallback is False
 
 
 async def test_a_supported_detection_drives_the_answer_without_fallback(index: Index) -> None:
     answer, _trace, _fake = await _run(
-        index, [_comprendre(language="en", terms=["arrivée"]), _rediger(BONNE),
+        index, [_comprendre(language="en", terms=["arrivée"]), *_lecture(F1, F2), _rediger(BONNE),
                 _verdicts(("c1", True))])
     assert answer.lang == "en" and answer.lang_fallback is False
 
@@ -712,7 +656,7 @@ async def test_an_english_refusal_produced_by_the_guide_pipeline_stays_english(i
 
 async def test_an_unsupported_detection_falls_back_on_a_found_answer_too(index: Index) -> None:
     answer, _trace, fake = await _run(
-        index, [_comprendre(language="es"), _rediger(BONNE), _verdicts(("c1", True))])
+        index, [_comprendre(language="es"), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))])
     assert fake.remaining_script == 0
     assert answer.found is True and answer.lang == "fr" and answer.lang_fallback is True
 
@@ -735,7 +679,7 @@ async def test_a_standing_answer_never_pays_a_second_reason_call_for_a_relevance
         index: Index) -> None:
     """AD-3 motive la relance par des défauts de **citation** ; une claim écartée par le seul jugement
     de pertinence est déjà « conservée dans rejected_claims[] »."""
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2),
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, BONNE_2),
                                              _verdicts(("c1", True), ("c2", False))])
     assert fake.remaining_script == 0  # aucun second appel `reason` : le script vide l'atteste
     assert sum(1 for s in trace.steps if s.name == "rediger") == 1 and trace.retries == 0
@@ -746,14 +690,14 @@ async def test_a_standing_answer_never_pays_a_second_reason_call_for_a_relevance
 
 async def test_a_relevance_rejection_that_leaves_nothing_does_trigger_the_retry(index: Index) -> None:
     """Rien n'a survécu : la relance est le seul chemin vers une réponse (AD-3, « après cette relance »)."""
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", False)),
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", False)),
                                              _rediger(BONNE_2), _verdicts(("c2", True))])
     assert fake.remaining_script == 0 and trace.retries == 1
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c2"]
 
 
 async def test_the_relevance_retry_can_be_switched_on_by_configuration(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2),
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, BONNE_2),
                                              _verdicts(("c1", True), ("c2", False)),
                                              _rediger(BONNE, AUTRE_ECOLE),
                                              _verdicts(("c1", True), ("c2", True))],
@@ -765,8 +709,8 @@ async def test_the_relevance_retry_can_be_switched_on_by_configuration(index: In
 async def test_an_unaffordable_retry_serves_the_verified_answer_instead_of_a_503(index: Index) -> None:
     """NFR4 : la relance est une tentative d'amélioration. Refusée faute de budget, elle ne doit pas
     emporter une réponse déjà vérifiée — et la trace le dit."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)  # 3 appels, pas 4
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)  # la chaîne, pas la relance
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
@@ -782,8 +726,8 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     draft relancé mais non vérifié. Avec la place pour un seul, démarrer *rédiger* serait payer un
     appel `reason` dont rien ne pourrait sortir (NFR4). Mesuré en live (revue Codex 1.5, tour 3) :
     le plafond par défaut coupait pile entre les deux, et la question ressortait en 503."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.20)  # 3 + 1 : pas les deux
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+    budget = RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=0.20)  # 5 + 1 : pas les deux
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
@@ -801,12 +745,12 @@ async def test_a_second_verification_that_never_starts_keeps_the_verified_answer
     plafond de coût atteint *après* une relance rédigée n'est pas un appel raté, c'est un appel qui
     n'a jamais démarré. Le compteur de référence est donc ré-armé après chaque appel réussi (revue
     Codex 1.5, tour 3) — sans quoi la réponse déjà vérifiée partait en 503."""
-    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=10.0), 4)
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=10.0), 6)
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True)), _rediger(BONNE, BONNE_2)],
                                      budget=budget)
     assert fake.remaining_script == 0  # la relance a bien été rédigée, la seconde vérification non
-    assert trace.retries == 1 and budget.attempts == 4
+    assert trace.retries == 1 and budget.attempts == 6
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
     assert answer.complete is False
     verifier = next(s for s in trace.steps if s.name == "verifier")
@@ -835,7 +779,7 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
     # minoré) mais pas le **cycle** de relance, qui en demande 70,2 — depuis le correctif du tour 4,
     # c'est ce que le cycle va écrire qui décide, pas une marge fixe.
     budget = RequestBudget(deadline_s=50.0, max_attempts=6, max_cost_eur=0.20)
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE),
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
     verifier = next(s for s in trace.steps if s.name == "verifier")
@@ -844,8 +788,8 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
 
 
 async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_error(index: Index) -> None:
-    budget = RequestBudget(deadline_s=100.0, max_attempts=2, max_cost_eur=0.20)  # comprendre + rediger
-    answer, trace, fake = await _run(index, [_comprendre(), _rediger(MAUVAISE)], budget=budget)
+    budget = RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.20)  # comprendre + lecture + rediger
+    answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE)], budget=budget)
     assert fake.remaining_script == 0
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "claims_rejetes"  # un `Answer` complet (200), jamais une 503
@@ -872,7 +816,7 @@ async def test_a_retry_call_that_fails_is_terminal_and_carries_its_partial_trace
     (revue Codex 1.5, B5)."""
     casse = fake_message(model=TIERS["reason"], text="{ pas du json")
     with pytest.raises(LlmParse) as exc:
-        await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+        await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
                            casse, casse])  # les deux tentatives du client (appel + relance motivée)
     trace = exc.value.trace
     assert trace is not None and trace.request_id == "req-test"
@@ -885,7 +829,7 @@ async def test_a_retry_call_that_fails_is_terminal_and_carries_its_partial_trace
 
 
 async def test_a_provider_failure_on_the_retry_is_terminal_too(index: Index) -> None:
-    answer_script = [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+    answer_script = [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
                      anthropic.APIStatusError("529", response=httpx.Response(
                          529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)]
     with pytest.raises(LlmUnavailable) as exc:
@@ -893,17 +837,13 @@ async def test_a_provider_failure_on_the_retry_is_terminal_too(index: Index) -> 
     assert exc.value.trace is not None and [s.name for s in exc.value.trace.steps][-1] == "rediger"
 
 
-@pytest.mark.parametrize("variant", ["deterministe", "outils"])
-async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(
-        index: Index, variant: str) -> None:
+async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(index: Index) -> None:
     """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
     (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=3 + 2 * (variant == "outils"),
-                           max_cost_eur=0.20)
-    script = _avec_navigation_outils(
-        [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))], variant)
-    answer, trace, fake = await _run(index, script, budget=budget,
-                                     variant=variant)
+    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
+    answer, trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
+                _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
     rediger_steps = [s for s in trace.steps if s.name == "rediger"]
     assert len(rediger_steps) == 1  # l'étape avortée n'a rien appelé : elle n'entre pas dans la trace
@@ -911,44 +851,33 @@ async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
 
 
-@pytest.mark.parametrize("variant", ["deterministe", "outils"])
-async def test_a_retry_that_verifies_worse_never_replaces_the_answer(
-        index: Index, variant: str) -> None:
+async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Index) -> None:
     """AD-3 relance pour améliorer : une seconde ébauche moins bonne ne jette pas l'acquis."""
-    script = _avec_navigation_outils(
-        [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)), _rediger(MAUVAISE)],
-        variant)
-    answer, trace, fake = await _run(index, script,
-                                     variant=variant)
-    assert fake.remaining_script == (1 if variant == "outils" else 0)
+    answer, trace, fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
+                _verdicts(("c1", True)), _rediger(MAUVAISE)])
+    assert fake.remaining_script == 0
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
     verifier_2 = [s for s in trace.steps if s.name == "verifier"][-1]
-    checks = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
-    if variant == "deterministe":
-        (check,) = checks
-        assert "0 affirmation(s) contre 1" in check.detail
-    else:
-        assert checks == []  # la suffisance Sonnet n'a pas demandé de relance inutile
+    (check,) = [c for c in verifier_2.checks if c.name == "relance_moins_bonne"]
+    assert "0 affirmation(s) contre 1" in check.detail
 
 
-@pytest.mark.parametrize("variant", ["deterministe", "outils"])
-async def test_a_max_tokens_draft_is_retried_under_the_variant_output_cap(
-        index: Index, variant: str) -> None:
-    """M4 : la troncature de *rédiger* est éprouvée sous l'autorité unique des variantes."""
+async def test_a_max_tokens_draft_is_retried_under_the_output_cap(index: Index) -> None:
+    """M4 : la troncature de *rédiger* est éprouvée sous le plafond de sortie du chemin servi."""
     tronquee = _rediger(BONNE)
     tronquee["stop_reason"] = "max_tokens"
     settings = _settings(rediger_max_tokens=19)
-    expected = 19
-    script = _avec_navigation_outils([_comprendre(), tronquee, tronquee], variant)
-    with pytest.raises(LlmParse, match=rf"tronquée.*max_tokens={expected}"):
-        await _run(index, script, variant=variant, settings=settings)
+    with pytest.raises(LlmParse, match=r"tronquée.*max_tokens=19"):
+        await _run(index, [_comprendre(), *_lecture(F1, F2), tronquee, tronquee],
+                   settings=settings)
 
 
 async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
     """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
-    settings = _settings(retrieval_max_blocks=2)  # pas de troncature « naturelle » ici
-    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)
-    answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]),
+    settings = _settings()  # rien ne borne la lecture ici : la seule troncature est la relance
+    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
+    answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]), *_lecture(F1, F2),
                                                _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
                                        settings=settings, budget=budget)
     assert answer.found is True and answer.complete is False
@@ -962,11 +891,10 @@ async def test_an_unserved_document_is_refused_before_any_paid_call(index: Index
 async def test_without_a_budget_the_pipeline_asks_the_client_for_one(index: Index) -> None:
     """Chemin de la story 1.6 : l'API appelle `repondre_guide` sans budget."""
     settings = _settings()
-    fake = FakeAnthropic([_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    fake = FakeAnthropic([_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))])
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide("Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
-                                         client=client, settings=settings, request_id="sans-budget",
-                                         variant="deterministe")
+                                         client=client, settings=settings, request_id="sans-budget")
     assert answer.found is True and trace.deadline_remaining_s is not None
     # le budget vient des seuils actifs : la deadline restante ne dépasse jamais `deadline_s`
     assert 0 < trace.deadline_remaining_s <= settings.deadline_s
@@ -976,17 +904,18 @@ async def test_without_a_budget_the_pipeline_asks_the_client_for_one(index: Inde
 
 
 async def test_the_trace_digests_are_the_real_ones_and_can_be_supplied(index: Index) -> None:
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    _answer, trace, _fake = await _run(
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))])
     assert trace.pipeline_digest == pipeline_digest() != prompts_digest()
     assert trace.prompts_digest == prompts_digest()
 
     settings = _settings()
-    fake = FakeAnthropic([_comprendre(), _rediger(BONNE), _verdicts(("c1", True))])
+    fake = FakeAnthropic([_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))])
     _a, fournis = await repondre_guide(
         "Quel délai ?", [], Profil(), corpus=index.corpus, index=index,
         client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="digests",
-        budget=_budget(), pipeline_digest_hex="pipe-de-l-image", prompts_digest_hex="prompts-de-l-image",
-        variant="deterministe")
+        budget=_budget(), pipeline_digest_hex="pipe-de-l-image",
+        prompts_digest_hex="prompts-de-l-image")
     # story 1.6 : l'API les calcule au démarrage et les passe ; ils sont repris tels quels
     assert (fournis.pipeline_digest, fournis.prompts_digest) == ("pipe-de-l-image", "prompts-de-l-image")
 
@@ -994,11 +923,11 @@ async def test_the_trace_digests_are_the_real_ones_and_can_be_supplied(index: In
 async def test_trace_retries_counts_the_client_parse_retries_too(index: Index) -> None:
     """AD-10 ne définit pas `retries` : le pipeline le fait, et le test l'épingle."""
     casse = fake_message(model=TIERS["reason"], text="{ pas du json")
-    _answer, trace, fake = await _run(index, [_comprendre(), casse, _rediger(BONNE),
+    _answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), casse, _rediger(BONNE),
                                               _verdicts(("c1", True))])
     assert fake.remaining_script == 0
     rediger_step = next(s for s in trace.steps if s.name == "rediger")
-    assert [c.name for c in rediger_step.checks] == ["parse_retry"]
+    assert [c.name for c in rediger_step.checks] == ["parse_retry", "ebauche_dans_la_conversation"]
     assert trace.retries == 1  # la relance motivée du client, sans relance d'AD-3
 
 
@@ -1006,17 +935,18 @@ async def test_a_retrieval_emptied_by_the_budget_never_becomes_a_proof_of_absenc
     """AD-1 / NFR2 : « budget épuisé ou troncature non résolue ⇒ `complete=False` et **aucune absence
     du corpus n'est affirmée** ». Un `zero_hit` produit par notre propre borne serait une preuve
     d'absence fabriquée (revue Codex 1.5, B4)."""
-    settings = _settings(retrieval_max_tokens=1)  # aucune unité n'entre dans le budget
+    settings = _settings(navigation_budget_tokens=1)  # aucun nœud n'entre dans le budget de lecture
     with pytest.raises(BudgetExceeded, match="aucun bloc"):
-        await _run(index, [_comprendre()], settings=settings)
+        await _run(index, [_comprendre(), *_lecture(F1)], settings=settings)
     # la trace partielle voyage avec l'erreur (AD-16), et *retrouver* y figure avec sa troncature
     try:
-        await _run(index, [_comprendre()], settings=settings)
+        await _run(index, [_comprendre(), *_lecture(F1)], settings=settings)
     except BudgetExceeded as exc:
         assert exc.trace is not None and [s.name for s in exc.trace.steps] == ["comprendre", "retrouver"]
         assert exc.trace.truncations == 1
     # sans troncature, un retrieval vide reste un refus `zero_hit` motivé : rien n'a empêché la recherche
-    answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])])
+    answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"]),
+                                               _fin_de_lecture()])
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
 
 
@@ -1025,7 +955,7 @@ async def test_a_retry_that_ties_on_claims_but_loses_completeness_never_replaces
     """La dominance porte sur tous les axes, pas sur le seul décompte : à nombre égal, une relance qui
     perd `complete` ou allonge `unknown` dégrade encore la réponse (revue Codex 1.5, I2)."""
     answer, trace, fake = await _run(index, [
-        _comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+        _comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
         _rediger(BONNE, limite="Je ne sais rien des frontaliers."), _verdicts(("c1", True))])
     assert fake.remaining_script == 0
     # même nombre d'affirmations, mais la seconde ébauche déclare un inconnu de plus et n'est plus complète
@@ -1052,7 +982,7 @@ class _BudgetQuiExpire(RequestBudget):
     """
 
     def __init__(self, apres_appels: int) -> None:
-        super().__init__(deadline_s=100.0, max_attempts=6, max_cost_eur=0.10)
+        super().__init__(deadline_s=100.0, max_attempts=8, max_cost_eur=0.10)
         self._restants = apres_appels
 
     def note_call(self, usage) -> None:
@@ -1063,7 +993,7 @@ class _BudgetQuiExpire(RequestBudget):
         return 100.0 if self._restants > 0 else -1.0
 
 
-@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (2, "verifier")])
+@pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (4, "verifier")])
 async def test_the_deadline_is_checked_before_every_paying_step(index: Index, appels: int,
                                                                  etape: str) -> None:
     """Contrat du pipeline : « deadline vérifiée **avant chaque étape** » — celles qui dépensent.
@@ -1072,7 +1002,7 @@ async def test_the_deadline_is_checked_before_every_paying_step(index: Index, ap
     fournisseur, et c'est devant un appel qu'elle ferme la porte.
     """
     with pytest.raises(Timeout, match=etape):
-        await _run(index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
+        await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))],
                    budget=_BudgetQuiExpire(appels))
 
 
@@ -1086,8 +1016,8 @@ async def test_une_deadline_expiree_devant_restituer_sert_la_reponse_et_le_dit(
     0,24 € dépensés. Le dépassement se dit désormais dans la trace.
     """
     answer, trace, _fake = await _run(
-        index, [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))],
-        budget=_BudgetQuiExpire(3))
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))],
+        budget=_BudgetQuiExpire(5))
 
     assert answer.found is True
     restituer = next(s for s in trace.steps if s.name == "restituer")
@@ -1114,7 +1044,7 @@ async def test_a_provider_failure_during_the_second_verification_is_terminal_too
     panne = anthropic.APIStatusError("529", response=httpx.Response(
         529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
     with pytest.raises(LlmUnavailable) as exc:
-        await _run(index, [_comprendre(), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
+        await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE), _verdicts(("c1", True)),
                            _rediger(BONNE, BONNE_2), panne])
     trace = exc.value.trace
     assert trace is not None and [s.name for s in trace.steps][-1] == "verifier"
@@ -1133,7 +1063,7 @@ async def test_a_limit_written_by_the_model_never_reaches_the_answer_text(index:
     l'utilisateur lise reste celle du refus, composée par le code."""
     limite = "Le guide ne dit rien des frontaliers."
     answer, _trace, fake = await _run(index, [
-        _comprendre(), _rediger(BONNE, transition=True, limite=limite), _verdicts(("c1", True))])
+        _comprendre(), *_lecture(F1, F2), _rediger(BONNE, transition=True, limite=limite), _verdicts(("c1", True))])
     assert fake.remaining_script == 0
     assert answer.found is True
     assert "frontaliers" not in answer.texte
@@ -1146,7 +1076,7 @@ async def test_a_facet_of_the_question_the_answer_never_covers_forbids_complete(
     celui qu'a arrêté *comprendre*, avant tout retrieval — celui qui répond ne peut donc plus effacer
     la sous-question qu'il a manquée en ne la rendant pas (revue Codex 1.5, tour 3, B3)."""
     answer, trace, fake = await _run(index, [
-        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE),
+        _comprendre(facettes=DEUX_FACETTES), *_lecture(F1, F2), _rediger(BONNE),
         _verdicts(("c1", True), facettes=[["c1"], []])])
     assert fake.remaining_script == 0
     # Story 2.3 : la sous-question omise est **nommée** dans `unknown[]` — le front l'affiche sous
@@ -1165,7 +1095,7 @@ async def test_a_question_without_any_facet_is_never_declared_complete(index: In
     """*comprendre* muet sur le découpage : rien ne prouve la couverture, donc `complete=False`.
     L'absence de mesure ne vaut jamais complétude (AD-4)."""
     answer, _trace, fake = await _run(index, [
-        _comprendre(facettes=[]), _rediger(BONNE), _verdicts(("c1", True), facettes=[])])
+        _comprendre(facettes=[]), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True), facettes=[])])
     assert fake.remaining_script == 0
     assert answer.found is True and answer.complete is False
 
@@ -1178,7 +1108,7 @@ async def test_a_retry_that_covers_fewer_facets_never_replaces_the_answer(index:
     par chaque appel de *rédiger*."""
     limite = "Je ne sais rien des frontaliers."
     answer, trace, fake = await _run(index, [
-        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE, BONNE_2, MAUVAISE, limite=limite),
+        _comprendre(facettes=DEUX_FACETTES), *_lecture(F1, F2), _rediger(BONNE, BONNE_2, MAUVAISE, limite=limite),
         _verdicts(("c1", True), ("c2", True), facettes=[["c1"], ["c2"]]),
         _rediger(BONNE, BONNE_2, limite=limite),
         _verdicts(("c1", True), ("c2", True), facettes=[["c1"], []])])
@@ -1195,7 +1125,7 @@ async def test_a_retry_that_swaps_one_facet_for_another_never_replaces_the_answe
     sous-question contre une autre (revue Codex 1.5, tour 3, I2). La dominance porte donc sur
     l'**ensemble** des rangs couverts, stables parce que le découpage vient de *comprendre*."""
     answer, trace, fake = await _run(index, [
-        _comprendre(facettes=DEUX_FACETTES), _rediger(BONNE, MAUVAISE),
+        _comprendre(facettes=DEUX_FACETTES), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
         _verdicts(("c1", True), facettes=[["c1"], []]),
         _rediger(BONNE_2),
         _verdicts(("c2", True), facettes=[[], ["c2"]])])
@@ -1212,7 +1142,7 @@ async def test_a_retry_that_drops_a_cited_block_never_replaces_the_answer(index:
     en s'appuyant sur un autre passage, remplacerait une affirmation vérifiée par une autre sans que
     rien ne le dise. Les `claim_id` ne peuvent pas l'attraper (refaits à neuf) ; les blocs, si."""
     answer, trace, fake = await _run(index, [
-        _comprendre(), _rediger(BONNE, MAUVAISE),
+        _comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
         _verdicts(("c1", True)),
         _rediger(BONNE_2),          # même facette, même compte, **autre** bloc cité
         _verdicts(("c2", True))])
@@ -1240,7 +1170,7 @@ async def test_un_hit_partiel_dune_forme_composee_atteint_retrouver_et_la_chaine
 
     answer, trace, fake = await _run(
         index,
-        [_comprendre(terms=["choix commune"]), _rediger(BONNE), _verdicts(("c1", True))],
+        [_comprendre(terms=["choix commune"]), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))],
         dictionnaire=dico,
     )
 
@@ -1317,10 +1247,10 @@ async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index
     dico = _dictionnaire(tmp_path, index, HIPPO, validated=False)
     assert dico.utilisable is True and dico.court_circuit_actif is False
 
-    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"])],
-                                     dictionnaire=dico)
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"]),
+                                             _fin_de_lecture()], dictionnaire=dico)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert fake.remaining_script == 0 and len(fake.requests) == 2  # aucun appel de *rédiger*
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.reason.variants_count == 1  # les variantes **ont** servi, elles n'ont rien trouvé
@@ -1342,7 +1272,7 @@ async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Ind
     perime = _dictionnaire(tmp_path, index, HIPPO, validated=True, source_hash="empreinte-dun-autre-corpus")
     assert perime.validated is True and perime.court_circuit_actif is False
 
-    answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"])],
+    answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture()],
                                       dictionnaire=perime)
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     # Aucune variante n'a été essayée : l'annoncer autrement serait faux (AD-4).
@@ -1355,22 +1285,26 @@ async def test_un_hit_par_variante_ne_court_circuite_pas_et_repond(index: Index,
     dico = _dictionnaire(tmp_path, index, {"arrivée": ["Anmeldung"]}, validated=True)
 
     answer, trace, fake = await _run(
-        index, [_comprendre(terms=["Anmeldung"]), _rediger(BONNE), _verdicts(("c1", True))],
+        index, [_comprendre(terms=["Anmeldung"]), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))],
         dictionnaire=dico)
 
     assert fake.remaining_script == 0
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "restituer"]
     assert answer.found is True
-    check = next(c for c in trace.steps[1].checks if c.name == "dictionnaire")
-    assert check.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
+    # Ce qui a évité le refus d'avance est nommément l'élargissement du dictionnaire : sans lui, le
+    # terme rendu par *comprendre* n'a aucun hit, et le pré-contrôle d'AD-5 aurait refusé.
+    assert index.chercher(["Anmeldung"], limit=1, doc_id=DOC_ID) == []
+    assert dico.expand(["Anmeldung"]) == {"Anmeldung": ["arrivee"]}  # formes normalisées
+    assert index.chercher(dico.expand(["Anmeldung"]), limit=1, doc_id=DOC_ID) != []
 
 
 async def test_sans_terme_extrait_rien_nest_court_circuite(index: Index, tmp_path: Path) -> None:
     """AD-1 : « aucune absence du corpus n'est affirmée » sans recherche. Zéro terme, c'est zéro
     recherche : le court-circuit d'AD-5 ne peut pas conclure, et le garde-fou de 1.5 tranche après."""
     dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
-    answer, trace, _fake = await _run(index, [_comprendre(terms=[])], dictionnaire=dico)
+    answer, trace, _fake = await _run(index, [_comprendre(terms=[]), _fin_de_lecture()],
+                                      dictionnaire=dico)
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.terms_searched == []
 
@@ -1400,7 +1334,7 @@ async def test_le_variants_count_dun_refus_de_claims_est_reel_aussi(index: Index
     comme un `zero_hit`, sinon deux refus de la même requête donneraient deux comptes différents."""
     dico = _dictionnaire(tmp_path, index, {"arrivée": ["Anmeldung"]}, validated=True)
     answer, _trace, fake = await _run(
-        index, [_comprendre(terms=["arrivée"]), _rediger(MAUVAISE), _rediger(MAUVAISE)],
+        index, [_comprendre(terms=["arrivée"]), *_lecture(F1, F2), _rediger(MAUVAISE), _rediger(MAUVAISE)],
         dictionnaire=dico)
     assert fake.remaining_script == 0
     assert answer.reason is not None and answer.reason.kind == "claims_rejetes"
@@ -1411,7 +1345,7 @@ async def test_le_perimetre_du_corpus_part_a_comprendre(index: Index) -> None:
     """Reprise différée `target_story: 2.1` : la liste de périmètre vient du **corpus** servi."""
     index.corpus.perimetres[DOC_ID] = "- Arrivée : Déclarer son arrivée"
     try:
-        _answer, _trace, fake = await _run(index, [_comprendre(), _rediger(BONNE),
+        _answer, _trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                    _verdicts(("c1", True))])
     finally:  # l'index est partagé par le module : rien ne fuit vers le test suivant
         index.corpus.perimetres.pop(DOC_ID, None)
@@ -1433,7 +1367,7 @@ async def test_une_variante_anglaise_ouvre_la_fiche_francaise(index: Index, tmp_
     dico = _dictionnaire(tmp_path, index, {"arrivée": ["residence registration"]}, validated=True)
 
     answer, trace, fake = await _run(
-        index, [_comprendre(terms=["residence registration"]), _rediger(BONNE),
+        index, [_comprendre(terms=["residence registration"]), *_lecture(F1, F2), _rediger(BONNE),
                 _verdicts(("c1", True))], dictionnaire=dico)
 
     assert fake.remaining_script == 0
@@ -1441,8 +1375,13 @@ async def test_une_variante_anglaise_ouvre_la_fiche_francaise(index: Index, tmp_
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "restituer"]
     assert answer.found is True
-    # La fiche du canonique **français** est ouverte à partir du seul terme anglais.
-    assert f"{DOC_ID}:f1:2" in trace.steps[1].opened_block_ids
+    # C'est la **fiche du canonique français** que le seul terme anglais désigne : le mot n'existe
+    # nulle part dans le guide, et c'est l'élargissement du dictionnaire qui mène au bloc `f1:2`.
+    # Depuis l'amendement AD-1, aucune passe de code n'ouvre plus de fiche : ce que le pipeline doit
+    # est de servir au modèle une recherche qui trouve, et de ne pas refuser d'avance.
+    assert dico.expand(["residence registration"]) == {"residence registration": ["arrivee"]}
+    assert [hit.node_uid for hit in index.chercher(
+        dico.expand(["residence registration"]), limit=1, doc_id=DOC_ID)] == [F1]  # « Arrivée »
     assert [c.claim_id for c in answer.claims] == ["c1"]
 
 
@@ -1483,9 +1422,9 @@ async def test_le_pre_controle_ne_refuse_pas_ce_quune_definition_couvre(tmp_path
     assert idx.definitions(["contenu"], doc_id="def") != []
 
     answer, trace, fake = await _run(
-        idx, [_comprendre(terms=["contenu"]), _rediger(("c1", "Le contenu est défini.",
-                                                        [("def:f1:2",
-                                                          "explique ce que recouvre le mot défini")])),
+        idx, [_comprendre(terms=["contenu"]), *_lecture("def:f1"),
+              _rediger(("c1", "Le contenu est défini.",
+                        [("def:f1:2", "explique ce que recouvre le mot défini")])),
               _verdicts(("c1", True))],
         settings=reglages, dictionnaire=dico,
         question="Qu'est-ce que le contenu ?")
@@ -1556,39 +1495,43 @@ def _aurait_un_hit(index: Index, dico, termes: list[str]) -> bool:
         or bool(index.definitions(termes, doc_id=DOC_ID))
 
 
-async def test_un_suivi_resolu_traverse_la_chaine_et_lhistorique_ne_va_qua_deux_etapes(index: Index) -> None:
-    """AC 2.2 + AD-1 : « seules *comprendre* et *rédiger* reçoivent l'historique ».
+async def test_un_suivi_resolu_traverse_la_chaine_et_lhistorique_ne_va_quau_fil_de_redaction(
+        index: Index) -> None:
+    """AC 2.2 + AD-1 : l'historique ne va qu'aux appels qui y ont droit, et *vérifier* n'en est pas.
 
     Le contrat statique de `tests/test_layers.py` interdit qu'une autre étape le *déclare* ; ce
-    test-ci dit ce qui s'est réellement passé sur le fil — l'historique est dans les deux requêtes
-    qui y ont droit, dans aucune autre, et la question **brute** (« Et pour la voiture ? », non
-    autonome) ne quitte jamais *comprendre* : c'est `question_resolue` que *rédiger* et *vérifier*
-    reçoivent. Une chaîne qui repasserait la brute plus bas chercherait puis rédigerait sur une
-    anaphore, exactement ce qu'AD-5 a fermé en story 1.4.
+    test-ci dit ce qui s'est réellement passé sur le fil. Depuis l'amendement AD-1 du 03/09/2026,
+    *retrouver* et *rédiger* sont **une seule conversation** : l'historique est écrit une fois dans
+    sa première demande et vaut donc pour les tours de lecture comme pour l'ébauche. Ce qui reste
+    inchangé, et que ce témoin garde mot pour mot : *vérifier* ne le voit jamais, et la question
+    **brute** (« Et pour la voiture ? », non autonome) ne quitte jamais *comprendre* — c'est
+    `question_resolue` qui circule en dessous. Une chaîne qui repasserait la brute plus bas lirait
+    puis rédigerait sur une anaphore, exactement ce qu'AD-5 a fermé en story 1.4.
     """
     historique = [Turn(role="user", texte=LOGEMENT), Turn(role="assistant", texte=REPONSE_LOGEMENT)]
     answer, trace, fake = await _run(
         index, [_comprendre("suivi", question_resolue=VOITURE, terms=["arrivée"],
-                            facettes=["démarches pour le véhicule"]),
+                            facettes=["démarches pour le véhicule"]), *_lecture(F1, F2),
                 _rediger(BONNE), _verdicts(("c1", True))],
         question="Et pour la voiture ?", historique=historique)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "restituer"]
     assert answer.found is True and trace.intent == "suivi"
 
-    comprendre_req, rediger_req, verifier_req = (_texte_envoye(r) for r in fake.requests)
+    comprendre_req, *fil_req, verifier_req = (_texte_envoye(r) for r in fake.requests)
+    rediger_req = fil_req[-1]  # le dernier message du fil de navigation : l'ébauche
     # AD-15 : l'historique voyage délimité, jamais concaténé en clair — c'est la balise qu'on relève.
     assert '<untrusted kind="historique">' in comprendre_req
-    assert '<untrusted kind="historique">' in rediger_req
+    assert all('<untrusted kind="historique">' in requete for requete in fil_req)
     assert '<untrusted kind="historique">' not in verifier_req
     for tour in (LOGEMENT, REPONSE_LOGEMENT):
         assert tour in comprendre_req and tour in rediger_req
         assert tour not in verifier_req
     # La question brute reste à *comprendre* ; en dessous, seule la résolue circule (AD-5).
     assert "Et pour la voiture ?" in comprendre_req
-    assert "Et pour la voiture ?" not in rediger_req and "Et pour la voiture ?" not in verifier_req
+    assert all("Et pour la voiture ?" not in requete for requete in (*fil_req, verifier_req))
     assert VOITURE in rediger_req and VOITURE in verifier_req
 
 
@@ -1620,7 +1563,7 @@ async def test_le_court_circuit_zero_hit_porte_sur_la_question_resolue_pas_sur_l
     assert not _aurait_un_hit(index, dico, words(normalize(brute)))
 
     answer, trace, fake = await _run(
-        index, [_comprendre("suivi", question_resolue=VOITURE, terms=["arrivée"]),
+        index, [_comprendre("suivi", question_resolue=VOITURE, terms=["arrivée"]), *_lecture(F1, F2),
                 _rediger(BONNE), _verdicts(("c1", True))],
         question=brute, historique=[Turn(role="user", texte=LOGEMENT),
                                     Turn(role="assistant", texte=REPONSE_LOGEMENT)],
@@ -1660,103 +1603,24 @@ async def test_le_miroir_une_brute_pleine_de_mots_du_guide_ne_sauve_pas_des_term
     assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == ["hippopotame"]
 
 
-# --- le profil désigne, le pipeline réserve (story 2.3) ---------------------
-PARCOURS_TEXTES = {
-    "f1": "Vous vous déclarez à la commune dans les huit jours qui suivent votre arrivée.",
-    "f2": "La commune tient la liste des crèches conventionnées.",
-    "f3": "L'inscription scolaire se fait auprès de la commune avant le 1er septembre.",
-}
+# --- ce que le profil n'a **jamais** eu le droit de faire (AD-10) ------------
+async def test_le_profil_ne_voyage_pas_dans_la_trace(index: Index) -> None:
+    """AD-10 : la trace ne porte pas de données personnelles au-delà du profil déclaré.
 
-
-@pytest.fixture(scope="module")
-def index_parcours() -> Index:
-    """Trois fiches également candidates sur « commune », et un parcours qui conditionne la dernière.
-
-    Les trois portent le même terme, donc le même score : l'ordre des candidats est l'ordre de
-    lecture, `f3` est troisième, et c'est ce qui rend la promotion observable avec `max_opens=2`.
+    Le profil ne va qu'à *comprendre* — depuis l'amendement AD-1 du 03/09/2026, plus aucune passe de
+    code ne s'en sert pour réserver des places de lecture. Ce qui reste dû, et qui pourrait régresser
+    à tout moment, c'est que **ses clés** ne ressortent nulle part dans ce que la trace publie.
     """
-    blocs = [{"block_id": f"{DOC_ID}:{loc}:1", "loc": loc, "seq": 1, "kind": "para", "text": texte}
-             for loc, texte in PARCOURS_TEXTES.items()]
-    doc = Document(
-        doc_id=DOC_ID, kind="guide", title="Mini guide", edition="git:test",
-        nodes=[*(Node(node_id=f"{DOC_ID}:{loc}", title=loc, items=[{"block_id": f"{DOC_ID}:{loc}:1"}])
-                 for loc in PARCOURS_TEXTES),
-               Node(node_id=f"{DOC_ID}:root", title="Mini",
-                    items=[{"node_id": f"{DOC_ID}:{loc}"} for loc in PARCOURS_TEXTES])],
-        blocks=blocs,
-        # La donnée de la source : « cette fiche concerne un profil qui a des enfants ».
-        parcours=[{"node_id": f"{DOC_ID}:f3", "si": {"enfants": True}}])
-    for b in doc.blocks:
-        b.text_norm = normalize(b.text)
-    manifest = {DOC_ID: ManifestEntry(status="servi", source_hash="sha-source", ingest_fingerprint="fp-1",
-                                      document_hash="sha-doc", edition="git:test")}
-    return Index(Corpus(documents={DOC_ID: doc}, manifest=manifest, summaries={DOC_ID: "# Mini guide"}))
-
-
-async def _run_profil(index: Index, profil: Profil, script: list, **kw):
-    # `max_opens=2` avec une réserve de 1 : la réserve reste **strictement** inférieure au quota,
-    # sans quoi le profil remplacerait la question au lieu de l'ordonner (revue coordonnée, A4).
-    kw.setdefault("profil_max_opens", 1)
-    settings = _settings(max_opens=2, **kw)
-    fake = FakeAnthropic(script)
-    answer, trace = await repondre_guide(
-        "Où inscrire mon enfant ?", [], profil, corpus=index.corpus, index=index,
-        client=LlmClient(settings, anthropic_client=fake), settings=settings, request_id="req-profil",
-        budget=_budget(), variant="deterministe")
-    return answer, trace, fake
-
-
-def _script_commune() -> list:
-    claim = ("c1", "La commune tient le registre.",
-             [(f"{DOC_ID}:f1:1", "vous déclarez à la commune dans les huit jours")])
-    return [_comprendre(terms=["commune"]), _rediger(claim), _verdicts(("c1", True))]
-
-
-async def test_le_profil_fait_ouvrir_la_fiche_qui_le_concerne_et_la_trace_le_dit(
-        index_parcours: Index) -> None:
-    """AC : « profil `enfants`, question scolaire ⇒ la fiche est ouverte même si son meilleur hit la
-    classait hors de `max_opens`, et la trace le dit »."""
-    _answer, trace, fake = await _run_profil(index_parcours, Profil(enfants="2"), _script_commune())
+    settings = _settings()
+    fake = FakeAnthropic([_comprendre(terms=["arrivée"]), *_lecture(F1),
+                          _rediger(BONNE), _verdicts(("c1", True))])
+    _answer, trace = await repondre_guide(
+        "Où inscrire mon enfant ?", [], Profil(enfants="2"), corpus=index.corpus, index=index,
+        client=LlmClient(settings, anthropic_client=fake), settings=settings,
+        request_id="req-profil", budget=_budget())
     assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f3:1"]
-    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
-    assert check.ok is True
-    assert check.detail == f"1 place(s) réservée(s) sur 1 ({DOC_ID}:f3) ; 1 nœud(s) cédé(s) ({DOC_ID}:f2)"
-
-
-async def test_un_profil_vide_laisse_le_pipeline_identique_a_lavant_story(index_parcours: Index) -> None:
-    """AC : profil vide ⇒ résultat de *retrouver* identique — le parcours du document n'y change rien
-    tant qu'aucune condition n'est satisfaite (inversion assumée : dans le doute, on ne promeut pas)."""
-    _answer, trace, fake = await _run_profil(index_parcours, Profil(), _script_commune())
-    assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f1:1", f"{DOC_ID}:f2:1"]
-    assert [c.name for c in retrouver.checks] == []
-
-
-async def test_le_profil_najoute_jamais_une_fiche_que_la_question_ne_touche_pas(
-        index_parcours: Index) -> None:
-    """**Le profil ordonne, il n'ajoute jamais** : sur des termes que `f3` ne porte pas, la fiche
-    désignée n'est pas candidate — et rien n'entre dans le contexte du modèle du fait du profil."""
-    claim = ("c1", "Les crèches sont conventionnées.",
-             [(f"{DOC_ID}:f2:1", "La commune tient la liste des crèches conventionnées.")])
-    script = [_comprendre(terms=["crèches"]), _rediger(claim), _verdicts(("c1", True))]
-    _answer, trace, fake = await _run_profil(index_parcours, Profil(enfants="2"), script)
-    assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert retrouver.opened_block_ids == [f"{DOC_ID}:f2:1"]  # le seul hit, et rien de plus
-    (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
-    assert check.detail.startswith("aucune place réservée")
-
-
-async def test_le_profil_ne_voyage_pas_dans_la_trace(index_parcours: Index) -> None:
-    """AD-10 : la trace ne porte pas de données personnelles au-delà du profil déclaré, et rien n'a
-    besoin d'y écrire ses **clés** — le `CheckResult` ne dit que des `node_id`, produits par nous."""
-    _answer, trace, _fake = await _run_profil(index_parcours, Profil(enfants="2"), _script_commune())
     peint = json.dumps([s.model_dump(mode="json") for s in trace.steps], ensure_ascii=False)
-    assert "enfants" not in peint
-    assert trace.thresholds["profil_max_opens"] == 1  # le seuil actif, lui, est publié (AD-10)
+    assert "enfants" not in peint and "enfants" not in trace.model_dump_json()
 
 
 # --- story 2.5 : « pourquoi cette réponse » et mode dégradé honnête -----------
@@ -1803,7 +1667,7 @@ async def test_la_trace_resout_les_blocs_quelle_nomme_en_titres_de_fiches(index:
     bloc (AD-10), et en suivant la règle de `fiche_id` d'`api/presenter._source_item`, pour que le
     panneau et `sources[]` ne puissent pas nommer la même fiche de deux façons.
     """
-    _answer, trace, fake = await _run(index, [_comprendre(), _rediger(BONNE, BONNE_2),
+    _answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, BONNE_2),
                                               _verdicts(("c1", True), ("c2", True))])
     assert fake.remaining_script == 0
 
@@ -1847,7 +1711,7 @@ async def test_la_trace_porte_le_gate_du_document_interroge(index: Index,
     `EtatApp.gate_profile` **résume** les documents servis en un scalaire ; la trace, elle, ne parle
     que du document qui a répondu à *cette* question.
     """
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))])
     assert trace.gate is not None
     assert trace.gate.profile == "vertical" and trace.gate.cases == 2
@@ -1862,7 +1726,7 @@ async def test_sans_gate_la_trace_le_dit_au_lieu_den_inventer_un(index: Index) -
     L'objet existe quand même — c'est le manifest qui existe — et il porte les alertes du document :
     c'est ce qui distingue « ce document n'est validé par rien » de « on ne sait rien de lui ».
     """
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))])
     assert trace.gate is not None
     assert (trace.gate.profile, trace.gate.cases, trace.gate.countersigned) == (None, None, None)
@@ -1877,7 +1741,7 @@ async def test_la_trace_dit_que_le_refus_zero_hit_est_desarme(index: Index, tmp_
     lieu de laisser croire que l'absence de refus prouve quelque chose.
     """
     non_signe = _dictionnaire(tmp_path, index, {"arrivée": ["déclaration"]}, validated=False)
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))], dictionnaire=non_signe)
     assert trace.dictionnaire is not None
     assert trace.dictionnaire.charge is True and trace.dictionnaire.corpus_ok is True
@@ -1885,7 +1749,7 @@ async def test_la_trace_dit_que_le_refus_zero_hit_est_desarme(index: Index, tmp_
     assert trace.dictionnaire.court_circuit_actif is False
 
     signe = _dictionnaire(tmp_path, index, {"arrivée": ["déclaration"]}, validated=True)
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))], dictionnaire=signe)
     assert trace.dictionnaire is not None and trace.dictionnaire.court_circuit_actif is True
 
@@ -1893,7 +1757,7 @@ async def test_la_trace_dit_que_le_refus_zero_hit_est_desarme(index: Index, tmp_
 async def test_sans_dictionnaire_la_rubrique_disparait_au_lieu_de_mentir(index: Index) -> None:
     """Un pipeline sans dictionnaire (le sinistre) n'en publie pas un inerte : `None`, et l'écran
     n'affiche rien — annoncer « non chargé » laisserait croire qu'on a regardé."""
-    _answer, trace, _fake = await _run(index, [_comprendre(), _rediger(BONNE),
+    _answer, trace, _fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                                                _verdicts(("c1", True))])
     assert trace.dictionnaire is None
 
@@ -2008,7 +1872,7 @@ async def test_un_perimetre_tronque_desarme_le_refus_hors_perimetre(index: Index
     laisse une chance de réponse ; s'il n'y a rien, le refus rendu portera une **preuve** au lieu
     d'un jugement sur une liste incomplète.
     """
-    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre"), _rediger(BONNE),
+    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre"), *_lecture(F1, F2), _rediger(BONNE),
                                              _verdicts(("c1", True))])
     assert fake.remaining_script == 0
     # La chaîne complète a tourné : le court-circuit d'AD-5 n'a pas eu lieu.
@@ -2088,9 +1952,10 @@ async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
     """
     dico = _dictionnaire(tmp_path, index, {"hippopotame": []}, validated=True)
     answer, trace, fake = await _run(
-        index, [_comprendre("hors_perimetre", terms=["hippopotame"])], dictionnaire=dico)
+        index, [_comprendre("hors_perimetre", terms=["hippopotame"]), _fin_de_lecture()],
+        dictionnaire=dico)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert fake.remaining_script == 0 and len(fake.requests) == 2  # aucun appel de *rédiger*
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit"
@@ -2131,8 +1996,7 @@ async def test_sans_alerte_le_refus_hors_perimetre_reste_actif(index: Index) -> 
 
 # --- le plafond de sortie de *vérifier* tient sous le budget par requête ------
 async def _preflights_de_la_chaine(index: Index, settings: Settings,
-                                   monkeypatch: pytest.MonkeyPatch,
-                                   variant: str = "outils") -> list[tuple[float, float, int]]:
+                                   monkeypatch: pytest.MonkeyPatch) -> list[tuple[float, float, int]]:
     """La chaîne guide entière, scriptée, avec le majorant relevé **à chaque** préflight.
 
     Le budget est celui de la production (`max_cost_eur_per_request`), et non le plafond confortable
@@ -2153,10 +2017,8 @@ async def _preflights_de_la_chaine(index: Index, settings: Settings,
         return estimate
 
     monkeypatch.setattr(client_module, "estimate_cost", relever)
-    script = _avec_navigation_outils(
-        [_comprendre(), _rediger(BONNE), _verdicts(("c1", True))], variant)
-    answer, _trace, fake = await _run(index, script, settings=settings, budget=budget,
-                                      variant=variant)
+    script = [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verdicts(("c1", True))]
+    answer, _trace, fake = await _run(index, script, settings=settings, budget=budget)
     assert answer.found and fake.remaining_script == 0
     return releves
 
@@ -2202,7 +2064,7 @@ async def test_le_plafond_retenu_ecarte_la_troncature_mesuree(index: Index) -> N
     coût est mesurée séparément, et dit ce qu'elle prouve.
     """
     ancien = _settings(verifier_max_tokens=REFLEXION_MESUREE)
-    script_ancien = [_comprendre(), _rediger(BONNE),
+    script_ancien = [_comprendre(), *_lecture(F1, F2), _rediger(BONNE),
                      _verifier_sous_plafond(ancien, ("c1", True)),
                      _verifier_sous_plafond(ancien, ("c1", True))]
     with pytest.raises(LlmParse, match="tronquée"):
@@ -2212,7 +2074,7 @@ async def test_le_plafond_retenu_ecarte_la_troncature_mesuree(index: Index) -> N
     assert retenu.verifier_max_tokens > REFLEXION_MESUREE, (
         "le plafond retenu doit laisser de la place au contrat après la réflexion mesurée")
     answer, trace, fake = await _run(
-        index, [_comprendre(), _rediger(BONNE), _verifier_sous_plafond(retenu, ("c1", True))],
+        index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE), _verifier_sous_plafond(retenu, ("c1", True))],
         settings=retenu)
     assert answer.found and fake.remaining_script == 0
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",

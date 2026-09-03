@@ -19,6 +19,15 @@ Le corpus est construit par une fonction paramétrée : la « permutation » n'e
 après coup, c'est le même corpus régénéré sous d'autres identifiants, d'autres positions et un autre
 ordre de lecture. Rien ici ne réutilise les fixtures des pipelines : elles portent le vocabulaire des
 questions-témoins, que cette story s'interdit.
+
+**Amendement AD-1 du 03/09/2026 (story 5.6, T2).** La lecture bornée n'est plus produite par une
+passe de code que `retrieval_max_blocks` rationne : c'est le modèle qui lit, et c'est
+`navigation_budget_tokens` qui **refuse** une ouverture en disant ce qu'elle coûte. La borne est
+donc mesurée sur le corpus (`_budget_de_lecture`) plutôt qu'écrite en dur — une constante ferait
+dépendre la classification de la longueur des `block_id`, ce que la garde métamorphique interdit.
+Les deux pipelines n'ont plus qu'un chemin servi, `navigation` : les témoins jouent dessus, et la
+propriété « tout passage transmis a sa section » se mesure d'un pipeline à l'autre plutôt que d'une
+variante à l'autre.
 """
 
 from __future__ import annotations
@@ -43,8 +52,10 @@ from server.app.domain.question import Faits
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
+from server.app.llm.pricing import estimate_tokens
 from server.app.pipelines import sinistre as pipeline_sinistre
-from server.app.pipelines.guide import repondre_guide
+from server.app.pipelines.guide import VARIANT_NAVIGATION, repondre_guide
+from server.app.steps.naviguer import _rendre_blocs, blocs_du_noeud
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_LECTURE_PARTIELLE
 from tests.llm_fake import FakeAnthropic, fake_message
 
@@ -161,76 +172,100 @@ FAITS_NEUTRES = Faits(date="2030-01-02", lieu="local du comptoir", montant_eur=1
                                   "réponse pendant deux semaines.")
 
 
-async def _run_guide(index: Index, script: list, *, settings: Settings | None = None,
-                     question: str = QUESTION_INITIALE, variant: str = "deterministe"):
+def _noeuds(index: Index) -> tuple[str, str, str]:
+    """Les nœuds des trois textes, dans l'ordre : celui qui est lu, son voisin, celui qui reste clos."""
     prefixe = next(iter(index.corpus.documents))
-    settings = settings or _settings_guide(prefixe, retrieval_max_blocks=1)
+    doc = index.corpus.documents[prefixe]
+    return tuple(doc.node_of(next(b.block_id for b in doc.blocks if b.text == texte))
+                 for texte in (TEXTE_LU, TEXTE_VOISIN, TEXTE_FERME))  # type: ignore[return-value]
+
+
+def _budget_de_lecture(index: Index, *noeuds: str, settings: Settings | None = None) -> int:
+    """Ce que coûte l'ouverture de ces nœuds-là, au tokenizer du projet — la borne exacte de la lecture.
+
+    Mesurée sur le corpus, jamais écrite en dur : sous permutation les identifiants s'allongent, et
+    une constante ferait dépendre la classification d'un `block_id`, ce que la garde métamorphique
+    de ce fichier interdit précisément.
+    """
+    prefixe = next(iter(index.corpus.documents))
+    reglages = settings or Settings(_env_file=None, anthropic_api_key="")
+    return sum(estimate_tokens(_rendre_blocs(blocs_du_noeud(index.corpus, prefixe, noeud)),
+                               reglages)
+               for noeud in noeuds)
+
+
+async def _run_guide(index: Index, script: list, *, settings: Settings | None = None,
+                     question: str = QUESTION_INITIALE, variant: str = VARIANT_NAVIGATION,
+                     budget: RequestBudget | None = None):
+    prefixe = next(iter(index.corpus.documents))
+    settings = settings or _settings_guide(
+        prefixe, navigation_budget_tokens=_budget_de_lecture(index, _noeuds(index)[0]))
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await repondre_guide(question, [], Profil(), corpus=index.corpus, index=index,
                                          client=client, settings=settings, request_id="req-4-2f",
-                                         budget=_budget(), variant=variant)
+                                         budget=budget or _budget(), variant=variant)
     return answer, trace, fake
 
 
 async def _run_sinistre(index: Index, script: list, *, settings: Settings | None = None,
-                        question: str = QUESTION_INITIALE, variant: str = "deterministe"):
+                        question: str = QUESTION_INITIALE,
+                        variant: str = pipeline_sinistre.VARIANT,
+                        budget: RequestBudget | None = None):
     prefixe = next(iter(index.corpus.documents))
-    settings = settings or _settings_sinistre(prefixe, retrieval_max_blocks=1)
+    settings = settings or _settings_sinistre(
+        prefixe, navigation_budget_tokens=_budget_de_lecture(index, _noeuds(index)[0]))
     fake = FakeAnthropic(script)
     client = LlmClient(settings, anthropic_client=fake)
     answer, trace = await pipeline_sinistre.run(
         None, question, FAITS_NEUTRES, corpus=index.corpus, index=index, client=client,
-        settings=settings, request_id="req-4-2f", budget=_budget(), variant=variant)
+        settings=settings, request_id="req-4-2f", budget=budget or _budget(), variant=variant)
     return answer, trace, fake
 
 
-def _script(index: Index, *, question_resolue: str = QUESTION_INITIALE) -> list:
-    """Comprendre, rédiger, puis la relance d'AD-3 — identique, donc arrêtée sans seconde vérification."""
-    ferme = _bloc_ferme(index)
-    return [_comprendre(question_resolue=question_resolue), _rediger(ferme), _rediger(ferme)]
+def _navigation(index: Index, *noeuds: str) -> list[dict]:
+    """Le tour d'outils du modèle, puis sa fin de lecture (amendement AD-1 du 03/09/2026).
 
-
-def _navigation(index: Index) -> dict:
-    """Un tour de navigation par outils sur le corpus synthétique : chercher, puis ouvrir deux nœuds.
-
-    `retrouver_outils` **exécute réellement** les outils sur l'index ; seul le choix des appels est
-    scripté. C'est ce qui rend la variante servie éprouvable sans réseau.
+    `Navigation` **exécute réellement** les outils sur l'index ; seul le choix des appels est
+    scripté. C'est ce qui rend le chemin servi éprouvable sans réseau. Par défaut, le modèle demande
+    l'ouverture des deux nœuds qui portent le terme cherché : le budget de lecture n'en laisse
+    entrer qu'un, et c'est ce refus qui borne la lecture sans rien couper en silence.
     """
-    prefixe = next(iter(index.corpus.documents))
-    doc = index.corpus.documents[prefixe]
-    lu = next(b.block_id for b in doc.blocks if b.text == TEXTE_LU)
-    voisin = next(b.block_id for b in doc.blocks if b.text == TEXTE_VOISIN)
-    return fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
-        {"type": "tool_use", "id": "t-chercher", "name": "chercher",
-         "input": {"termes": list(TERMES)}},
-        {"type": "tool_use", "id": "t-ouvrir-1", "name": "ouvrir_noeud",
-         "input": {"node_id": doc.node_of(lu), "focus_block_id": lu}},
-        {"type": "tool_use", "id": "t-ouvrir-2", "name": "ouvrir_noeud",
-         "input": {"node_id": doc.node_of(voisin), "focus_block_id": voisin}},
-    ])
-
-
-def _script_outils(index: Index, *, besoin_fondateur: bool = False) -> list:
-    """Le même scénario, sur la variante **servie** : le tour d'outils s'insère après *comprendre*."""
-    ferme = _bloc_ferme(index)
-    navigation = [
-        _navigation(index),
-        # La conclusion de suffisance est un choix sémantique distinct de la navigation et passe
-        # donc toujours par le plancher Sonnet, y compris lorsque le guide n'impose pas de kind.
-        fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]),
+    ouverts = noeuds or _noeuds(index)[:2]
+    return [
+        fake_message(model=TIERS["reason"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": "t-chercher", "name": "chercher",
+             "input": {"termes": list(TERMES)}},
+            *({"type": "tool_use", "id": f"t-ouvrir-{rang}", "name": "ouvrir_noeud",
+               "input": {"node_id": noeud}} for rang, noeud in enumerate(ouverts)),
+        ]),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
     ]
-    return [_comprendre(), *navigation, _rediger(ferme), _rediger(ferme)]
+
+
+def _script(index: Index, *, question_resolue: str = QUESTION_INITIALE,
+            noeuds: tuple[str, ...] = ()) -> list:
+    """Comprendre, lire, rédiger, puis la relance d'AD-3 — identique, donc arrêtée sans seconde vérification."""
+    ferme = _bloc_ferme(index)
+    return [_comprendre(question_resolue=question_resolue), *_navigation(index, *noeuds),
+            _rediger(ferme), _rediger(ferme)]
 
 
 # --- 1. les deux pipelines rendent une réponse -----------------------------------------------------
 
 async def test_le_guide_rend_une_reponse_chiffree_au_lieu_de_lever() -> None:
-    """AC : aucune exception, `found=false`, `complete=false`, `reason=None`, compteurs exacts."""
+    """AC : aucune exception, `found=false`, `complete=false`, `reason=None`, compteurs exacts.
+
+    Joué sur le chemin **servi** (P5) : depuis la tâche T2 de la story 5.6, `navigation` est la
+    seule variante du guide qui soit servie, et c'est le modèle lui-même qui lit. C'est aussi là que
+    le compteur de sections a le plus de façons de se tromper — un bloc peut entrer par une
+    ouverture refusée à moitié —, d'où la double vérification `blocks_read == len(opened_block_ids)`
+    et `1 ≤ nodes_read ≤ blocks_read`.
+    """
     index = _index()
     answer, trace, fake = await _run_guide(index, _script(index))
 
-    assert fake.remaining_script == 0
+    assert fake.remaining_script == 0 and trace.variant == VARIANT_NAVIGATION
     assert answer.found is False and answer.complete is False
     # Aucune absence n'est affirmée : c'est l'invariant d'AD-1/NFR2, tenu sans 503.
     assert answer.reason is None
@@ -239,6 +274,8 @@ async def test_le_guide_rend_une_reponse_chiffree_au_lieu_de_lever() -> None:
     assert answer.lecture_partielle.blocks_read == len(_retrieval(trace))
     assert answer.lecture_partielle.blocks_read == 1
     assert answer.lecture_partielle.nodes_read == 1
+    # Le compteur couvre **tous** les blocs transmis : jamais « 0 section lue » sous N passages.
+    assert 1 <= answer.lecture_partielle.nodes_read <= answer.lecture_partielle.blocks_read
     assert answer.lecture_partielle.documents == [next(iter(index.corpus.documents))]
     # La réponse dit ce qui lui manque, et ce qui a été écarté reste montrable.
     assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
@@ -260,14 +297,18 @@ def _retrieval(trace: Any) -> list[str]:
 
 
 async def test_le_sinistre_rend_la_meme_reponse_avec_son_verdict() -> None:
-    """AC : idem, plus `ne_tranche_pas` — jamais un verdict de remplacement, jamais aucun verdict."""
+    """AC : idem, plus `ne_tranche_pas` — jamais un verdict de remplacement, jamais aucun verdict.
+
+    Sur le chemin servi lui aussi : `navigation` est depuis T2 la seule variante du sinistre.
+    """
     index = _index("doc-contrat", kind="contrat")
     answer, trace, fake = await _run_sinistre(index, _script(index))
 
-    assert fake.remaining_script == 0
+    assert fake.remaining_script == 0 and trace.variant == pipeline_sinistre.VARIANT
     assert answer.found is False and answer.complete is False and answer.reason is None
     assert answer.lecture_partielle is not None
     assert (answer.lecture_partielle.nodes_read, answer.lecture_partielle.blocks_read) == (1, 1)
+    assert answer.lecture_partielle.blocks_read == len(_retrieval(trace))
     assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
     assert answer.rejected_claims
     # AD-6 : le `ne_tranche_pas` vient de la règle (0bis) appliquée à zéro clause affichée.
@@ -280,57 +321,22 @@ async def test_le_sinistre_rend_la_meme_reponse_avec_son_verdict() -> None:
     assert trace.steps[-1].name == "restituer"
 
 
-async def test_le_guide_rend_la_meme_reponse_sur_la_variante_servie() -> None:
-    """P5 : `outils` est le **défaut** d'AD-1, donc le chemin que la production emprunte.
-
-    Prouver la nouvelle branche sur la seule baseline déterministe laissait la variante réellement
-    servie sans preuve de bout en bout — et c'est celle où le compteur de sections a le plus de
-    façons de se tromper (blocs entrés par `definitions` ou comme dépendance, hors fenêtre).
-    """
-    index = _index()
-    answer, trace, fake = await _run_guide(index, _script_outils(index), variant="outils")
-
-    assert fake.remaining_script == 0 and trace.variant == "outils"
-    assert answer.found is False and answer.complete is False and answer.reason is None
-    assert answer.lecture_partielle is not None
-    # Le compteur couvre **tous** les blocs transmis : jamais « 0 section lue » sous N passages.
-    assert answer.lecture_partielle.blocks_read >= 1
-    assert 1 <= answer.lecture_partielle.nodes_read <= answer.lecture_partielle.blocks_read
-    assert answer.lecture_partielle.blocks_read == len(_retrieval(trace))
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
-    assert any(c.name == "lecture_partielle" for c in trace.steps[-1].checks)
-
-
-async def test_le_sinistre_rend_la_meme_reponse_sur_la_variante_servie() -> None:
-    """Le pendant sinistre, sur la variante servie — verdict compris."""
-    index = _index("doc-contrat", kind="contrat")
-    answer, trace, fake = await _run_sinistre(
-        index, _script_outils(index, besoin_fondateur=True), variant="outils")
-
-    assert fake.remaining_script == 0 and trace.variant == "outils"
-    assert answer.found is False and answer.complete is False and answer.reason is None
-    assert answer.lecture_partielle is not None
-    assert answer.lecture_partielle.blocks_read >= 1
-    assert 1 <= answer.lecture_partielle.nodes_read <= answer.lecture_partielle.blocks_read
-    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
-
-
 async def test_le_compteur_de_sections_ne_contredit_jamais_celui_des_passages() -> None:
-    """La propriété que P5 réclame, sur les **deux** variantes : tout passage transmis a sa section.
+    """La propriété que P5 réclame, sur les **deux** chaînes : tout passage transmis a sa section.
 
     AD-2 garantit qu'un bloc est rattaché à exactement un nœud ; il ne peut donc pas exister de
     lecture partielle annonçant des passages sans aucune section — deux chiffres qui se
-    contrediraient sous les yeux de l'utilisateur.
+    contrediraient sous les yeux de l'utilisateur. Les deux pipelines empruntent depuis T2 la
+    **même** étape de lecture ; la propriété est donc mesurée sur les deux, jamais sur une seule.
     """
-    for variant, script in (("deterministe", _script), ("outils", _script_outils)):
-        index = _index(f"doc-{variant}")
-        answer, _trace, _fake = await _run_guide(index, script(index), variant=variant)
+    for nom, kind, run in (("guide", "guide", _run_guide), ("contrat", "contrat", _run_sinistre)):
+        index = _index(f"doc-{nom}", kind=kind)
+        answer, _trace, _fake = await run(index, _script(index))
         lue = answer.lecture_partielle
-        assert lue is not None, variant
-        assert lue.blocks_read >= 1, variant
-        assert lue.nodes_read >= 1, variant
-        assert lue.nodes_read <= lue.blocks_read, variant
+        assert lue is not None, nom
+        assert lue.blocks_read >= 1, nom
+        assert lue.nodes_read >= 1, nom
+        assert lue.nodes_read <= lue.blocks_read, nom
 
 
 async def test_les_compteurs_ne_sont_pas_la_taille_du_document() -> None:
@@ -361,12 +367,17 @@ async def test_un_refus_sans_troncature_reste_un_refus_prouve() -> None:
 # --- 2. les vraies défaillances gardent leur erreur ------------------------------------------------
 
 async def test_un_retrieval_vide_par_le_budget_reste_une_erreur_terminale() -> None:
-    """AD-1 : aucun bloc transmis ⇒ rien n'a été lu, donc rien à chiffrer — l'erreur reste due."""
+    """AD-1 : aucun bloc transmis ⇒ rien n'a été lu, donc rien à chiffrer — l'erreur reste due.
+
+    Le budget de lecture ne laisse passer aucune ouverture : le modèle reçoit le refus, conclut, et
+    la lecture rend zéro bloc **et** se déclare bornée. C'est ce couple-là qui interdit d'en faire
+    un `zero_hit`.
+    """
     index = _index()
     prefixe = next(iter(index.corpus.documents))
-    settings = _settings_guide(prefixe, retrieval_max_tokens=1)
+    settings = _settings_guide(prefixe, navigation_budget_tokens=1)
     with pytest.raises(BudgetExceeded, match="aucune absence du corpus n'est affirmée") as capture:
-        await _run_guide(index, [_comprendre()], settings=settings)
+        await _run_guide(index, [_comprendre(), *_navigation(index)], settings=settings)
     assert capture.value.code.value == "budget_exceeded"
     assert capture.value.trace is not None and capture.value.trace.truncations == 1
 
@@ -374,9 +385,9 @@ async def test_un_retrieval_vide_par_le_budget_reste_une_erreur_terminale() -> N
 async def test_un_retrieval_vide_par_le_budget_reste_une_erreur_terminale_en_sinistre() -> None:
     index = _index("doc-contrat", kind="contrat")
     prefixe = next(iter(index.corpus.documents))
-    settings = _settings_sinistre(prefixe, retrieval_max_tokens=1)
+    settings = _settings_sinistre(prefixe, navigation_budget_tokens=1)
     with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée"):
-        await _run_sinistre(index, [_comprendre()], settings=settings)
+        await _run_sinistre(index, [_comprendre(), *_navigation(index)], settings=settings)
 
 
 async def test_un_appel_de_relance_commence_puis_echoue_reste_une_panne() -> None:
@@ -386,7 +397,8 @@ async def test_un_appel_de_relance_commence_puis_echoue_reste_une_panne() -> Non
     panne = anthropic.OverloadedError("529", response=httpx.Response(
         529, request=httpx.Request("POST", "https://api.anthropic.com")), body=None)
     with pytest.raises(LlmUnavailable) as capture:
-        await _run_guide(index, [_comprendre(), _rediger(_bloc_ferme(index)), panne])
+        await _run_guide(index, [_comprendre(), *_navigation(index),
+                                 _rediger(_bloc_ferme(index)), panne])
     assert capture.value.code.value == "llm_unavailable"  # 503, comme avant le diff
     assert capture.value.trace is not None
 
