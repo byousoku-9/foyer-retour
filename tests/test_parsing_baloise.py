@@ -68,7 +68,10 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     assert gate["profile"] == "vertical" and gate["evals_ok"] is True
     assert gate["source_hash"] == SOURCE_HASH
     assert gate["ingest_fingerprint"] == doc.ingest_fingerprint
-    assert gate["cases_hash"] == "e493de7d5d41ac4e64537f54124bdb6cac2ad97f6356aaca908a1d67c860e2e8"
+    # 03/09/2026 (T15) : l'oracle de `b-congelateur` porte désormais `expected.block_ids`
+    # (`p21:4`, la garantie fondatrice) — durcissement, pas affaiblissement ; le `cases_hash`
+    # du gate suit.
+    assert gate["cases_hash"] == "0bdd3a6bc6ff598583d50ac881065f08f05e2b7e84b8cd988e8139274ce7903a"
     assert gate["pipeline_digest"] == "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e"
     assert gate["prompts_digest"] == "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45"
     assert gate["model_ids"] == {

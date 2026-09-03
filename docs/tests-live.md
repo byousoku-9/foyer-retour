@@ -4118,3 +4118,41 @@ Le préfixe grandit avec l'arbre du document. Tant qu'il n'est pas borné ou tra
 (reprise différée `prefixe-sommaire-borne`), le chemin froid coûte ≈ 0,67 € contre 0,199 € à chaud,
 et ces trois plafonds restent hauts. Le maintien au chaud de T5 (`prefix_keepalive_*`) rend le froid
 rare en production ; il ne le rend pas impossible, et un plafond n'a pas le droit de parier dessus.
+
+## 2026-09-03 — Story 5.6, navigation par le modèle : mesures du jour
+
+Révision mesurée : `91910ac` (gates AXA et Baloise) et `f12ce7e` (gate guide) ; A16 mesuré sur `7ab4005`, code de rédaction inchangé depuis pour ce chemin hors les correctifs T15-T19 du vérificateur (branche `integration/epic5-final-20260902`, fusionnée dans `main` le 03/09/2026 après-midi).
+
+### Témoin A16 (`a16_post_success_rate`, scope live_http, producteur orchestrateur)
+
+Trois `POST /api/v1/sinistre` sur un service local réel (`ALLOW_UNGATED=true`, port 8877), question « La vitre de l'insert a éclaté toute seule et la fumée a noirci le salon, sans incendie : quels dommages regarder ? ». Prédicat strict : HTTP 200 **et** `axa-lu-optihome-2017:p34:12` parmi les claims retenues **et** facette fumée portée par une claim (`p34:11` ou claim sur la fumée).
+
+| run | HTTP | claims retenues (blocs) | verdict | coût | marge deadline |
+|---|---|---|---|---|---|
+| 1 (cache froid) | 200 | p22:5, p34:11, p34:12, p34:6, p39:12, p39:7, p39:9, p40:6 | sous_conditions | 0,5053 € | 117,7 s / 290 |
+| 2 | 200 | p34:11, p34:12, p34:6, p39:12, p39:9, p40:6 | ne_tranche_pas | 0,1341 € | 235,8 s |
+| 3 | 200 | p34:11, p34:12, p34:6, p39:10, p39:12, p39:9, p40:6 | ne_tranche_pas | 0,1960 € | 213,5 s |
+
+**3/3.** Les séries précédentes du jour sur le pipeline intégré : 10:00 3/3 (`c3e15f4`), 12:21 3/3 (`9c48ca7`), 12:43 2/3 (omission de rédaction, corrigée par l'inventaire des blocs décisionnels), 12:11 et 13:14-13:43 : troncatures du tour terminal (`high` puis `medium`), corrigées par la reprise à effort bas (T14).
+
+### Ancrage orchestrateur (`--producer orchestrator --series-kind final`)
+
+`g-luxtrust-prix` ×3 (campagne `epic5-final-anchor-5`) : 3/3 `bonne_reponse`, 0,1040 €. Les ancrages bougie (`s-bougie-canape` ×3, 0,3526 €, 12:29 sur `4836861`) sont consignés au journal ; sous quarantaine AXA (gate rouge de 12:33 sur l'ancienne métrique), l'ancrage a été porté sur le cas guide de la même image.
+
+### Gates verticaux `--repeat 3`
+
+| document | campagne | résultat | coût |
+|---|---|---|---|
+| `axa-lu-optihome-2017` | `epic5-gate-axa-lu-optihome-2017-8` | 3 cas ok, `evals_ok=true` | ≈ 0,36 € |
+| `baloise-lu-home-2-2024` | `epic5-gate-baloise-lu-home-2-2024-8` | 9 exécutions ok, `evals_ok=true` (campagne `-8`, 2,2275 €) | 2,23 € |
+| `lux-guide` | `epic5-gate-lux-guide-9` | 3 cas ok, `evals_ok=true` | ≈ 0,12 € |
+
+Métrique `stabilite_sinistre`/`stabilite_guide` re-dérivée le 03/09 (T12) : preuve attendue du cas présente à chaque répétition, verdict admissible identique, aucune interruption ; plancher 1,0 inchangé ; le `quote_hash` est publié comme dispersion, plus exigé (AD-3 relit la citation au caractère près).
+
+### Cas bougie (témoin live `test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses`)
+
+Réenregistré à 13:54 sur `7ab4005` : verdict `ne_tranche_pas`, `p34:12` cité avec son amorce `p34:6`, questions au client sur les options, les conditions particulières et les qualités « soudain / subite / direct / immédiat » (check `qualite_de_la_clause_non_enumeree` ×1 attendu, garde élargie du 03/09 nuit).
+
+### Campagne dictionnaire AXA (03/09 02:05)
+
+`enrich_dictionary --doc-id axa-lu-optihome-2017 --transport standard --max-cost 6.2`, `DICTIONARY_TIER=reason` : 71 requêtes Sonnet 5, **2,2680 €** réels (majorant 6,1139 €), 698 canoniques, 2 682 variantes, 3 intents, 90 déclencheurs ; `validated=false` (validation `--valider` due à Lancelot). Chargeur : plus de fusion transitive des groupes (E1), clé insensible au nombre (E2).
