@@ -198,7 +198,11 @@ def test_answer_models() -> None:
     assert literal_values(answer.ClaimStatus, "applicable") == {"oui", "non", "humain"}
     assert fields(answer.AnswerSegment) == {"text", "kind", "claim_ids"}
     assert literal_values(answer.AnswerSegment, "kind") == {"factuel", "transition", "limite"}
-    assert fields(answer.AnswerDraft) == {"segments", "claims"}
+    # T11 (03/09/2026) : `blocs_ecartes` est **facultatif** et n'entre dans aucune projection
+    # affichée — écarter n'est pas répondre. Il rend traçable la décision que le tour terminal
+    # prend bloc par bloc sur l'inventaire que le code lui sert.
+    assert fields(answer.AnswerDraft) == {"segments", "claims", "blocs_ecartes"}
+    assert fields(answer.BlocEcarte) == {"block_id", "motif"}
     assert fields(answer.AbsenceProof) == {"kind", "terms_searched", "variants_count", "blocks_scanned", "documents"}
     # `clarification_requise` amende AD-4 (story 1.5) : `found=False` exige un `reason`, et aucun des
     # trois kinds d'origine ne décrit une question qu'on n'a pas pu rendre autonome (AD-5).
