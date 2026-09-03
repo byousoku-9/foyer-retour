@@ -442,13 +442,43 @@ class _Bloc:
         self.lignes, self.lignes_completes = _lignes_du_bloc(block)
 
 
+def _etendre_au_mot(texte: str, start: int, end: int) -> tuple[int, int]:
+    """Repousse `[start, end)` jusqu'aux frontières de mot qui l'encadrent dans `texte`.
+
+    Lecture utilisateur des trois runs A16 : le modèle coupe ses citations **au nombre de
+    caractères**, pas au texte — « même lorsqu'i », « aux dommages matér ». Le prompt le lui
+    interdit déjà, et il le fait quand même ; AD-3 ne peut rien y voir, puisqu'une demi-mot recopié
+    fidèlement reste une sous-chaîne exacte du bloc. Le code, lui, sait où le mot finit : il étend.
+
+    L'extension ne prend rien à personne — elle **ajoute** au passage prouvé les lettres du mot que
+    la coupe a scindé, dans les deux sens (une quote peut aussi commencer en milieu de mot). Les
+    invariants d'AD-3 tiennent : une sur-chaîne d'une sous-chaîne du bloc reste une sous-chaîne du
+    bloc, une sur-chaîne d'un passage qui ne figure nulle part ailleurs n'y figure pas davantage
+    (la non-ambiguïté est préservée), et la longueur minimale ne peut que croître. Les offsets
+    rendus sont ceux du passage **étendu** : c'est lui la citation, et c'est lui qu'on surligne.
+
+    Une frontière est ici l'absence de caractère alphanumérique. L'élision française (« lorsqu'il »)
+    en est une : couper après « lorsqu' » ne casse aucun mot, et étendre au-delà de l'apostrophe
+    prendrait un mot que le modèle n'a pas cité.
+    """
+    if texte[start].isalnum():
+        while start > 0 and texte[start - 1].isalnum():
+            start -= 1
+    if texte[end - 1].isalnum():
+        while end < len(texte) and texte[end].isalnum():
+            end += 1
+    return start, end
+
+
 class _Controle:
     """Résultat du contrôle d'une quote : retrouvée (avec ses offsets) ou rejetée avec son motif."""
 
-    def __init__(self, kind: str, motif: str, quote: VerifiedQuote | None = None) -> None:
+    def __init__(self, kind: str, motif: str, quote: VerifiedQuote | None = None,
+                 *, ajustee: bool = False) -> None:
         self.kind = kind  # "" | "non_retrouvee" | "ambigue"
         self.motif = motif
         self.quote = quote
+        self.ajustee = ajustee  # la quote coupait un mot en deux : le code l'a étendue
 
 
 def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, fournis: set[str],
@@ -498,17 +528,22 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
     if autre is not None:  # on s'arrête au premier doublon : le compte exact n'ajoute rien au motif
         return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
                                     f"document, hors du bloc {block_id} — étends-la pour la rendre unique")
-    end = start + len(forme)
+    # La quote est exacte : reste à savoir si elle s'arrête où le texte s'arrête. Le contrôle
+    # d'AD-3 vérifie, il n'ajuste pas — un mot coupé en deux passe donc tous les contrôles et
+    # s'affiche tel quel. Le code le complète ici, avant d'en tirer les offsets.
+    debut, fin = _etendre_au_mot(block.text_norm, start, start + len(forme))
+    ajustee = (debut, fin) != (start, start + len(forme))
     # AD-3 : « le texte affiché comme source est toujours relu depuis `corpus` ». On retraduit donc
     # l'occurrence prouvée dans le texte **brut** du bloc, et c'est ce passage-là — jamais la chaîne
     # rendue par le modèle — qui devient la citation affichée (revue Codex 1.5, B2).
     prepare = blocs[block_id]
-    text_start = prepare.spans[start][0]
-    text_end = prepare.spans[end - 1][1]
+    text_start = prepare.spans[debut][0]
+    text_end = prepare.spans[fin - 1][1]
     line_ids = [lid for (a, b, lid) in prepare.lignes if a < text_end and b > text_start]
     return _Controle("", "", VerifiedQuote(block_id=block_id, quote=block.text[text_start:text_end],
-                                           start=start, end=end, text_start=text_start,
-                                           text_end=text_end, line_ids=line_ids))
+                                           start=debut, end=fin, text_start=text_start,
+                                           text_end=text_end, line_ids=line_ids),
+                     ajustee=ajustee)
 
 
 def _bloc_connu(index: Any, block_id: str) -> bool:
@@ -663,6 +698,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     retrouvees: list[tuple[Claim, list[VerifiedQuote], str]] = []
     rejetees: list[RejectedClaim] = []
     noms: dict[str, str] = {}  # `claim_id` → nom sûr pour les motifs (les `claim_id` sont uniques, AD-3)
+    ajustees_au_mot = 0  # citations affichées que le code a étendues jusqu'à la frontière de mot
     clauses_par_claim: dict[str, list[ClauseCitee]] = {}  # mode sinistre : les clauses de chaque claim
     for position, claim in enumerate(draft.claims, start=1):
         noms[claim.claim_id] = _nom_de_claim(claim, position)
@@ -702,7 +738,20 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                           f"d'affirmations distinctes"))
                 continue
             clauses_par_claim[claim.claim_id] = clauses
+        # Comptées sur les claims **retenues** seulement : une citation rejetée n'est affichée nulle
+        # part, et l'ajustement qu'elle aurait demandé n'apprend rien sur ce qu'a lu l'utilisateur.
+        ajustees_au_mot += sum(1 for c in controles if c.ajustee)
         retrouvees.append((claim, quotes, edition))
+
+    # Lecture utilisateur des runs A16 : deux citations sur trois runs finissaient au milieu d'un mot
+    # (« même lorsqu'i »). Le prompt l'interdit déjà ; le code, lui, sait réparer — il étend jusqu'à
+    # la frontière de mot (`_etendre_au_mot`). Le compte reste dans la trace pour que le réglage du
+    # prompt se voie ; AD-10 interdit d'y recopier le texte d'un bloc.
+    if ajustees_au_mot:
+        step.checks.append(CheckResult(
+            name="citation_ajustee_au_mot", ok=True,
+            detail=f"{ajustees_au_mot} citation(s) vérifiée(s) coupaient un mot en deux : étendues "
+                   "par le code jusqu'à la frontière de mot, dans le texte relu depuis le corpus"))
 
     # `quote_max_chars` était annoncé au modèle dans `prompts/rediger.md`, publié dans `thresholds()`
     # — et appliqué par personne (reprise différée `target_story: 2.1`). Il l'est ici, et **jamais**

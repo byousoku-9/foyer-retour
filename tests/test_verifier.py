@@ -522,7 +522,10 @@ async def test_a_quote_across_two_lines_keeps_both_line_ids(reel: Index) -> None
     bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p6:16")
     spans, _ = _lignes_du_bloc(bloc)
     (_a1, b1, l1), (a2, _b2, l2) = spans[0], spans[1]
-    quote = bloc.text[b1 - 20:a2 + 20]  # à cheval sur les deux lignes
+    fin = a2 + 20
+    while bloc.text[fin].isalnum():  # au mot près : l'objet du témoin est le `line_id`, pas
+        fin += 1                     # l'extension des citations coupées (voir plus bas)
+    quote = bloc.text[b1 - 20:fin]  # à cheval sur les deux lignes
     v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, quote)])), [bloc])
     q = v.claims[0].quotes[0]
     assert bloc.text_norm[q.start:q.end] == normalize(quote)
@@ -555,6 +558,55 @@ async def test_a_quote_over_a_hyphenation_keeps_the_line_ids_of_both_lines(reel:
     spans, _ = _lignes_du_bloc(bloc)
     attendus = [lid for (a, b, lid) in spans if a < q.text_end and b > q.text_start]
     assert len(attendus) == 2 and q.line_ids == attendus  # les deux lignes, malgré la césure
+
+
+# --- une citation ne s'arrête jamais au milieu d'un mot (story 5.6, T8) -----
+async def test_une_citation_coupee_au_milieu_dun_mot_est_etendue_par_le_code(mini: Index) -> None:
+    """Lecture utilisateur des runs A16 : le modèle coupe **au nombre de caractères**.
+
+    Deux des trois réponses conformes finissaient une citation par « même lorsqu'i » ou « aux
+    dommages matér ». AD-3 ne peut rien y voir — une demi-mot recopié fidèlement reste une
+    sous-chaîne exacte du bloc —, et le prompt l'interdit déjà sans que cela suffise. Le code étend
+    la citation vérifiée jusqu'aux frontières de mot qui l'encadrent, des deux côtés.
+    """
+    coupee = "isposez de huit jours pour déclarer votre arri"  # coupée aux deux bouts
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", coupee)]))
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    q = v.claims[0].quotes[0]
+    assert q.quote == "disposez de huit jours pour déclarer votre arrivée"
+    bloc = mini.corpus.documents["mini"].block("mini:p1:2")
+    # les invariants d'AD-3 tiennent : sous-chaîne exacte du bloc, offsets alignés sur ce qui s'affiche
+    assert q.quote == bloc.text[q.text_start:q.text_end]
+    assert bloc.text_norm[q.start:q.end] == normalize(q.quote)
+    assert normalize(coupee) in bloc.text_norm[q.start:q.end]  # rien n'a été retiré au modèle
+    (ajustee,) = [c for c in step.checks if c.name == "citation_ajustee_au_mot"]
+    assert ajustee.ok is True and ajustee.detail.startswith("1 citation")
+
+
+async def test_une_citation_qui_finit_ou_le_mot_finit_nest_pas_touchee(mini: Index) -> None:
+    """L'extension n'ajoute rien quand il n'y a rien à réparer — et ne se signale pas."""
+    quote = "huit jours pour déclarer votre arrivée"
+    draft = _draft(("c1", "Le délai est de huit jours.", [("mini:p1:2", quote)]))
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    assert v.claims[0].quotes[0].quote == quote
+    assert [c.name for c in step.checks if c.name == "citation_ajustee_au_mot"] == []
+
+
+async def test_une_citation_etendue_reste_a_lelision_et_garde_ses_line_ids(reel: Index) -> None:
+    """Sur un vrai bloc PDF : l'apostrophe d'élision est une frontière, et le surlignage suit.
+
+    « lorsqu'il » coupé après « lorsqu'i » s'étend jusqu'à « il » et pas au-delà : étendre par-dessus
+    l'apostrophe prendrait un mot que le modèle n'a pas cité.
+    """
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p34:12")
+    debut = bloc.text_norm.index("une substance incandescente")
+    coupee = bloc.text_norm[debut:bloc.text_norm.index("meme lorsqu'i") + len("meme lorsqu'i")]
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, coupee)])), [bloc])
+    q = v.claims[0].quotes[0]
+    assert bloc.text_norm[q.start:q.end] == coupee + "l"  # « lorsqu\'il », jamais le mot suivant
+    assert q.quote == bloc.text[q.text_start:q.text_end]
+    spans, _ = _lignes_du_bloc(bloc)
+    assert q.line_ids == [lid for (a, b, lid) in spans if a < q.text_end and b > q.text_start]
 
 
 # --- le texte affiché comme source vient du corpus, pas du modèle (AD-3) ----

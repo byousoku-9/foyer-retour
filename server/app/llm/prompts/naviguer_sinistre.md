@@ -63,6 +63,8 @@ jamais.
   avec le `block_id` exact du bloc d'origine. Elle est vérifiée caractère par caractère dans le
   texte relu depuis le document. Une même claim ne cite **pas deux fois le même passage**. Vise au
   moins $quote_min_chars caractères.
+- Une `quote` finit à une frontière de **phrase**, ou à défaut de **mot** : compte les mots, jamais
+  les caractères — une citation qui finit en plein mot ne se lit pas.
 - Rapporte chaque clause comme une **règle conditionnelle** : conserve dans la claim les conditions
   qu'elle écrit (« si », « lorsque », « causés par… », « sous réserve de… »). « Le contrat couvre
   les dégâts causés par X » décrit encore la règle ; « ce dommage est couvert » ou « cette clause
