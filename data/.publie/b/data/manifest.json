@@ -12,7 +12,7 @@
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460",
       "cases_hash": "0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0",
-      "pipeline_digest": "33c58dcee7742753326e245e035511cbaa630ed012384ecd9a685d45f847affb",
+      "pipeline_digest": "43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d",
       "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -20,7 +20,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T13:13:41Z",
+      "date": "2026-09-03T16:13:14Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -31,7 +31,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "1adaa97eb509001b78f68ef0ea038a118c4ac072d18cd3f564d6e128c36e9e54",
+          "run_digest": "8999b4195f7aba259c49b655ca8c44cf1ece26fa210e82141308601e6267ea87",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -42,7 +42,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "1adaa97eb509001b78f68ef0ea038a118c4ac072d18cd3f564d6e128c36e9e54",
+          "run_digest": "8999b4195f7aba259c49b655ca8c44cf1ece26fa210e82141308601e6267ea87",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -53,7 +53,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "1adaa97eb509001b78f68ef0ea038a118c4ac072d18cd3f564d6e128c36e9e54",
+          "run_digest": "8999b4195f7aba259c49b655ca8c44cf1ece26fa210e82141308601e6267ea87",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -64,7 +64,7 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "1adaa97eb509001b78f68ef0ea038a118c4ac072d18cd3f564d6e128c36e9e54",
+          "run_digest": "8999b4195f7aba259c49b655ca8c44cf1ece26fa210e82141308601e6267ea87",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -75,7 +75,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -86,7 +86,7 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -97,13 +97,13 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "1adaa97eb509001b78f68ef0ea038a118c4ac072d18cd3f564d6e128c36e9e54",
+      "run_digest": "8999b4195f7aba259c49b655ca8c44cf1ece26fa210e82141308601e6267ea87",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -287,7 +287,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "35afbb18760ea399c92531577ba73adc1e63e448",
+      "candidate_revision": "0e5a64eccdeb6a5967780e20a88bcf19da1d8fec",
       "report_digest": null,
       "structure_hash": null
     }
@@ -305,7 +305,7 @@
       "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
       "ingest_fingerprint": "af06d797dd2d5e8de4247e6da66f800f3a2d8dd366b687a5b599ea09d8220fa5",
       "cases_hash": "0bdd3a6bc6ff598583d50ac881065f08f05e2b7e84b8cd988e8139274ce7903a",
-      "pipeline_digest": "33c58dcee7742753326e245e035511cbaa630ed012384ecd9a685d45f847affb",
+      "pipeline_digest": "43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d",
       "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -313,7 +313,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": false,
-      "date": "2026-09-03T13:11:27Z",
+      "date": "2026-09-03T16:09:46Z",
       "overlay_hash": null,
       "cases": 3,
       "countersigned": false,
@@ -324,7 +324,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "9dbfdfef521d30899b0b62ab8ccfe82399decc02fde7cc43fba5fdc6e0aed4f0",
+          "run_digest": "b4dc3cee08dafac5f58fc10e950acd4a1d59061408d19d6eb1edfbde6357255c",
           "value": 0.8889,
           "status": "red",
           "reason": null
@@ -335,7 +335,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "9dbfdfef521d30899b0b62ab8ccfe82399decc02fde7cc43fba5fdc6e0aed4f0",
+          "run_digest": "b4dc3cee08dafac5f58fc10e950acd4a1d59061408d19d6eb1edfbde6357255c",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -346,7 +346,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "9dbfdfef521d30899b0b62ab8ccfe82399decc02fde7cc43fba5fdc6e0aed4f0",
+          "run_digest": "b4dc3cee08dafac5f58fc10e950acd4a1d59061408d19d6eb1edfbde6357255c",
           "value": 0.6667,
           "status": "red",
           "reason": null
@@ -357,7 +357,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -368,13 +368,13 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "9dbfdfef521d30899b0b62ab8ccfe82399decc02fde7cc43fba5fdc6e0aed4f0",
+      "run_digest": "b4dc3cee08dafac5f58fc10e950acd4a1d59061408d19d6eb1edfbde6357255c",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -558,7 +558,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "35afbb18760ea399c92531577ba73adc1e63e448",
+      "candidate_revision": "0e5a64eccdeb6a5967780e20a88bcf19da1d8fec",
       "report_digest": null,
       "structure_hash": "572152b1efd8bfe79f8d784fe2dd05a575ed7b22bbdce69292dc02707f002ea7"
     }
@@ -576,7 +576,7 @@
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
       "ingest_fingerprint": "7c40a0cbf0315a4e4b3f5ff982a048bc283da32418e1386d376f004d660beb34",
       "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
-      "pipeline_digest": "33c58dcee7742753326e245e035511cbaa630ed012384ecd9a685d45f847affb",
+      "pipeline_digest": "43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d",
       "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -584,7 +584,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T13:14:43Z",
+      "date": "2026-09-03T16:14:25Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -595,7 +595,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "63e6428e91360dd45c4d149a5bd51ddcf6ce4bbcf2ff3abddb5382b873a3dcf2",
+          "run_digest": "1b4a0066ac2be41f8eb2bacfeac6fa8d779a95f3ed6e158580ee0f5e3d4b050a",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -606,7 +606,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "63e6428e91360dd45c4d149a5bd51ddcf6ce4bbcf2ff3abddb5382b873a3dcf2",
+          "run_digest": "1b4a0066ac2be41f8eb2bacfeac6fa8d779a95f3ed6e158580ee0f5e3d4b050a",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -617,7 +617,7 @@
           "threshold": 1.0,
           "scope": "suite:guide",
           "n": 3,
-          "run_digest": "63e6428e91360dd45c4d149a5bd51ddcf6ce4bbcf2ff3abddb5382b873a3dcf2",
+          "run_digest": "1b4a0066ac2be41f8eb2bacfeac6fa8d779a95f3ed6e158580ee0f5e3d4b050a",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -628,13 +628,13 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "49e86b81523333f6283dcf67ab98b6ee96225ad4a2d53a2a3a17ab34b64a7fe2",
+          "run_digest": "e562466c9f931059b020ead8257c00eeda6b08794a203dcf8af5e5bd04ff69d4",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "63e6428e91360dd45c4d149a5bd51ddcf6ce4bbcf2ff3abddb5382b873a3dcf2",
+      "run_digest": "1b4a0066ac2be41f8eb2bacfeac6fa8d779a95f3ed6e158580ee0f5e3d4b050a",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -818,7 +818,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "35afbb18760ea399c92531577ba73adc1e63e448",
+      "candidate_revision": "0e5a64eccdeb6a5967780e20a88bcf19da1d8fec",
       "report_digest": null,
       "structure_hash": null
     }
