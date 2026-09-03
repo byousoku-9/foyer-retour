@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from server.app.config import Settings
+from server.app.corpus.ebauche import joindre_amorces_denumeration
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.racine import _lecture_interne_sans_racine
@@ -237,6 +238,82 @@ async def test_rediger_sinistre_ne_recrit_pas_une_claim_non_fondatrice() -> None
     assert [segment.text for segment in draft.segments] == ["Clause voisine."]
 
 
+async def test_lamorce_de_lenumeration_est_jointe_a_litem_cite_seul() -> None:
+    """Correctif du tour 10 (A16 r1) — un item d'énumération n'est pas citable seul.
+
+    « Le contrat garantit les biens désignés contre le péril des fumées et des suies », citant le
+    seul `p34:11` (« Les fumées et les suies ; »), a été rejetée `non_soutenue` : le membre
+    « garantit les biens désignés » vient de `p34:6`, l'amorce, qui n'était pas citée. Le code sait
+    que `p34:11` est un item (`Index.amorce_de_lenumeration`, unité de lecture de T6/T2) ; il joint
+    donc l'amorce à la **même** claim, comme son contexte, avant toute vérification.
+    """
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    item = doc.block("axa-lu-optihome-2017:p34:11")
+    amorce = doc.block("axa-lu-optihome-2017:p34:6")
+    autonome = doc.block("axa-lu-optihome-2017:p39:9")
+
+    def draft(*quotes: dict[str, str]) -> AnswerDraft:
+        return AnswerDraft.model_validate_json(_draft(
+            segments=[{"text": "Le contrat garantit les biens désignés contre le péril des fumées "
+                               "et des suies.", "kind": "factuel", "claim_ids": ["c1"]}],
+            claims=[{"claim_id": "c1",
+                     "text": "Le contrat garantit les biens désignés contre le péril des fumées et "
+                             "des suies.", "quotes": list(quotes)}]))
+
+    joint, jointes = joindre_amorces_denumeration(
+        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id=doc.doc_id)
+
+    # Une claim, deux citations : l'amorce est le contexte de l'item, pas une seconde clause.
+    assert jointes == 1 and len(joint.claims) == 1
+    assert [q.block_id for q in joint.claims[0].quotes] == [item.block_id, amorce.block_id]
+    # La citation est exacte : une sous-chaîne du bloc, jamais une reformulation.
+    assert joint.claims[0].quotes[1].quote in amorce.text_norm
+    assert "assure les biens" in joint.claims[0].quotes[1].quote
+
+    # Fermeture 1 : l'amorce déjà citée n'est pas jointe deux fois.
+    deja = draft({"block_id": item.block_id, "quote": item.text},
+                 {"block_id": amorce.block_id, "quote": amorce.text})
+    assert joindre_amorces_denumeration(deja, index=index, doc_id=doc.doc_id) == (deja, 0)
+    # Fermeture 2 : un bloc qui n'est pas un item d'énumération — `p39:9` porte des voisins, c'est
+    # une section — n'emporte rien.
+    seul = draft({"block_id": autonome.block_id, "quote": autonome.text})
+    assert joindre_amorces_denumeration(seul, index=index, doc_id=doc.doc_id) == (seul, 0)
+    # Fermeture 3 : un bloc hors du document servi est laissé tel quel (ce n'est pas ici qu'on juge
+    # une citation), et la jonction ne se propage pas d'un cran de plus — une seule jointe.
+    assert joindre_amorces_denumeration(
+        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id="autre") == (
+        draft({"block_id": item.block_id, "quote": item.text}), 0)
+
+
+async def test_rediger_sinistre_trace_la_jonction_de_lamorce() -> None:
+    """Le compte est publié : `amorce_jointe` dit ce que le code a ajouté avant *vérifier*."""
+    index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
+    doc = index.corpus.documents["axa-lu-optihome-2017"]
+    item = doc.block("axa-lu-optihome-2017:p34:11")
+    retrieval = RetrievalResult(blocs=[item], opened_block_ids=[item.block_id])
+    brut = _draft(
+        segments=[{"text": "Le contrat garantit les biens désignés contre le péril des fumées et "
+                           "des suies.", "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1",
+                 "text": "Le contrat garantit les biens désignés contre le péril des fumées et des "
+                         "suies.", "quotes": [{"block_id": item.block_id, "quote": item.text}]}])
+    settings = _settings()
+
+    draft, step = await rediger(
+        _parsed(), retrieval, [], client=LlmClient(settings, anthropic_client=FakeAnthropic(
+            [fake_message(text=brut, model=SONNET)])),
+        budget=_budget(), index=index, doc_id=doc.doc_id, settings=settings,
+        prompt="rediger_sinistre")
+
+    assert [q.block_id for q in draft.claims[0].quotes] == [
+        item.block_id, "axa-lu-optihome-2017:p34:6"]
+    assert [c.detail for c in step.checks if c.name == "amorce_jointe"] == [
+        "1 citation(s) d'un item d'énumération n'emportaient pas la phrase qui l'ouvre : l'amorce a "
+        "été jointe telle quelle à la même affirmation, comme son contexte — le contrôle juge une "
+        "clause entière"]
+
+
 @pytest.mark.parametrize("texte", [
     "Cette garantie s'applique au sinistre décrit.",
     "Le contrat couvre les dommages lorsque l'événement est soudain.",
@@ -272,8 +349,15 @@ async def test_aucune_claim_fondatrice_nest_reecrite_en_code(texte: str) -> None
 
     assert block.kind == "garantie" and block.kind_confirmed
     assert len(block.text.strip()) > settings.quote_max_chars
-    assert [claim.model_dump() for claim in draft.claims] == [
-        claim.model_dump() for claim in attendu.claims]
+    assert [claim.text for claim in draft.claims] == [claim.text for claim in attendu.claims]
+    # T10 : `p34:12` **est** un item d'énumération, et le code lui joint son amorce (`p34:6`). Ce
+    # que 4.2a interdit reste tenu mot pour mot : le texte de la claim et la citation du modèle
+    # sortent inchangés, la seule quote ajoutée est celle du corpus, exacte, et la claim reste une.
+    amorce = "axa-lu-optihome-2017:p34:6"
+    assert len(draft.claims) == 1
+    assert draft.claims[0].quotes[0].model_dump() == attendu.claims[0].quotes[0].model_dump()
+    assert [quote.block_id for quote in draft.claims[0].quotes] == [block.block_id, amorce]
+    assert draft.claims[0].quotes[1].quote in doc.block(amorce).text_norm
     assert all(len(quote.quote) <= settings.quote_max_chars
                for claim in draft.claims for quote in claim.quotes)
 

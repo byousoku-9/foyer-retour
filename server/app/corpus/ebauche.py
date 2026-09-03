@@ -1,7 +1,8 @@
-"""Les deux projections d'une ébauche sur le corpus, partagées par *rédiger* et *naviguer*.
+"""Les projections d'une ébauche sur le corpus, partagées par *rédiger* et *naviguer*.
 
-Elles ne jugent rien et n'écrivent aucun texte : l'une rend contigu ce que le modèle a cité en deux
-morceaux du même bloc, l'autre fait des claims atomiques du sinistre les segments effectivement
+Elles ne jugent rien et n'écrivent aucun texte : la première rend contigu ce que le modèle a cité en
+deux morceaux du même bloc, la deuxième joint à l'item d'une énumération la phrase qui l'ouvre, la
+troisième fait des claims atomiques du sinistre les segments effectivement
 soumis à *vérifier*. Elles vivaient dans `steps/rediger.py`, seule étape qui rédigeait ; l'amendement
 AD-1 du 03/09/2026 fait rédiger *naviguer* dans la conversation de navigation, et une étape n'importe
 jamais une autre étape (table des couches). Elles vivent donc ici, une fois, à la couche qui porte
@@ -70,6 +71,66 @@ def fusionner_quotes_du_meme_bloc(draft: AnswerDraft, *, index: Index,
     if not fusions:
         return draft, 0
     return draft.model_copy(update={"claims": claims}), fusions
+
+
+def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index,
+                                 doc_id: str) -> tuple[AnswerDraft, int]:
+    """L'item d'une énumération cité seul reçoit **la phrase qui l'ouvre**, mot pour mot.
+
+    Mesuré sur A16 (`a16-final1/a16-r1.json`) : « Le contrat garantit les biens désignés contre le
+    péril des fumées et des suies », citant le seul `p34:11` (« Les fumées et les suies ; »), a été
+    rejetée `non_soutenue` — légitimement, puisque « garantit les biens désignés » vient de `p34:6`,
+    « La Compagnie assure les biens désignés, contre les périls suivants : », qui n'était pas cité.
+    Le rédacteur n'avait rien inventé ; il avait cité la moitié d'une phrase que le corpus coupe en
+    deux blocs.
+
+    Le prompt le demande déjà (« tu peux joindre à la clause le passage qui l'éclaire […] la phrase
+    d'amorce de l'énumération : c'est son contexte, cité **dans la même claim** »), et c'est
+    précisément une consigne que le code n'a pas à espérer : `Index.amorce_de_lenumeration` **sait**
+    qu'un bloc est un item d'énumération — c'est l'unité de lecture que *retrouver* sert déjà. La
+    jonction est donc structurelle, avant toute vérification.
+
+    Trois bornes, et elles disent ce que cette projection n'est pas :
+
+    - **rien n'est écrit.** La citation ajoutée est le texte normalisé du bloc d'amorce, tel que le
+      corpus le porte ; *vérifier* le renormalisera pour le retrouver et republiera le texte brut,
+      comme pour toute autre citation. Une sous-chaîne exacte par construction, jamais une
+      reformulation ;
+    - **la claim reste à une clause.** L'amorce est le **contexte** de l'item, pas une seconde
+      clause : elle rejoint la même claim, et n'en crée jamais une nouvelle. C'est exactement la
+      distinction que le prompt trace, appliquée par le code ;
+    - **un seul niveau.** Seules les citations rendues par le modèle sont examinées, jamais les
+      amorces qu'on vient d'ajouter : la jonction ne se propage pas, comme
+      `amorce_de_lenumeration` elle-même ne remonte qu'un cran.
+
+    Un bloc d'un autre document, inconnu de l'index ou sans amorce est laissé tel quel : ce n'est
+    pas ici qu'on juge une citation.
+    """
+    jointes = 0
+    claims: list[Claim] = []
+    for claim in draft.claims:
+        deja = {quote.block_id for quote in claim.quotes}
+        ajouts: list[Quote] = []
+        for quote in claim.quotes:
+            try:
+                if index.doc_of(quote.block_id) != doc_id:
+                    continue
+                amorce = index.amorce_de_lenumeration(quote.block_id)
+                if amorce is None or amorce in deja:
+                    continue
+                texte = index.corpus.documents[doc_id].block(amorce).text_norm
+            except KeyError:
+                continue
+            if not texte.strip():
+                continue
+            deja.add(amorce)
+            ajouts.append(Quote(block_id=amorce, quote=texte))
+        claims.append(claim.model_copy(update={"quotes": [*claim.quotes, *ajouts]})
+                      if ajouts else claim)
+        jointes += len(ajouts)
+    if not jointes:
+        return draft, 0
+    return draft.model_copy(update={"claims": claims}), jointes
 
 
 def rattacher_claims_sinistre(draft: AnswerDraft, *, max_claims: int,

@@ -17,7 +17,7 @@ from collections.abc import Iterable
 
 from server.app.config import Settings
 from server.app.corpus.ebauche import (fusionner_quotes_du_meme_bloc,
-                                       rattacher_claims_sinistre)
+                                       joindre_amorces_denumeration, rattacher_claims_sinistre)
 from server.app.corpus.index import Index
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Block
@@ -292,6 +292,13 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
             name="quotes_fusionnees", ok=True,
             detail=f"{fusions} affirmation(s) citaient deux extraits d'un même bloc : fusionnés en "
                    "un passage contigu qui les couvre, au lieu d'un échec de schéma terminal"))
+    draft, amorces = joindre_amorces_denumeration(draft, index=index, doc_id=doc_id)
+    if amorces:
+        step.checks.append(CheckResult(
+            name="amorce_jointe", ok=True,
+            detail=f"{amorces} citation(s) d'un item d'énumération n'emportaient pas la phrase "
+                   "qui l'ouvre : l'amorce a été jointe telle quelle à la même affirmation, "
+                   "comme son contexte — le contrôle juge une clause entière"))
     if prompt == "rediger_sinistre":
         # Revue 4.2a (I1) : aucune réécriture de claim en code. L'ancienne « ancre » remplaçait
         # claim et quote par le texte intégral du bloc fondateur : le contrôle de soutien devenait

@@ -43,7 +43,8 @@ from typing import Any
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire
-from server.app.corpus.ebauche import fusionner_quotes_du_meme_bloc, rattacher_claims_sinistre
+from server.app.corpus.ebauche import (fusionner_quotes_du_meme_bloc,
+                                       joindre_amorces_denumeration, rattacher_claims_sinistre)
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.requetes import part_du_mot_borne, variantes_de_nombre
@@ -566,13 +567,21 @@ class Navigation:
                 {"role": "user", "content": rendus}]
 
     def _projeter(self, brut: AnswerDraft, *, step: StepTrace) -> AnswerDraft:
-        """Les deux projections de *rédiger*, inchangées : fusion des extraits, claims affichées."""
+        """Les projections de *rédiger*, inchangées : fusion des extraits, jonction des amorces
+        d'énumération, claims affichées."""
         draft, fusions = fusionner_quotes_du_meme_bloc(brut, index=self.index, doc_id=self.doc_id)
         if fusions:
             step.checks.append(CheckResult(
                 name="quotes_fusionnees", ok=True,
                 detail=f"{fusions} affirmation(s) citaient deux extraits d'un même bloc : fusionnés "
                        "en un passage contigu qui les couvre, au lieu d'un échec de schéma terminal"))
+        draft, amorces = joindre_amorces_denumeration(draft, index=self.index, doc_id=self.doc_id)
+        if amorces:
+            step.checks.append(CheckResult(
+                name="amorce_jointe", ok=True,
+                detail=f"{amorces} citation(s) d'un item d'énumération n'emportaient pas la phrase "
+                       "qui l'ouvre : l'amorce a été jointe telle quelle à la même affirmation, "
+                       "comme son contexte — le contrôle juge une clause entière"))
         if self.faits is None:
             return draft
         draft, _changements = rattacher_claims_sinistre(
