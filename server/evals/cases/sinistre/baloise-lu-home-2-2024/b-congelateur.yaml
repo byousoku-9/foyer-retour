@@ -11,6 +11,7 @@ faits:
     aliments congelés sont perdus.
 expected:
   found: true
+  block_ids: ["baloise-lu-home-2-2024:p21:4"]
   verdict: [sous_conditions, ne_tranche_pas]
   refusal: false
 mode_attendu: bonne_reponse
@@ -22,3 +23,9 @@ truth:
     Attente préparée le 2026-08-27 par relecture agent de la page 20 du PDF Baloise, où le pack
     « cave à vin / denrées alimentaires » est visible. Aucun attendu AXA n'est réutilisé. Le résultat
     reste un signal de régression non expertisé ; relecture Lancelot et expertise restent dues.
+    Durcissement du 2026-09-03 (story 5.6 T15) : `expected.block_ids` exige désormais `p21:4`, la
+    garantie qui fonde ce cas — « Nous garantissons […] les détériorations des denrées en congélateur
+    et/ou réfrigérateur consécutives à une variation de température résultant : ». Le gate vertical du
+    03/09 l'a mesurée citée par les claims retenues aux répétitions 1 et 2 ; la répétition 3 l'avait
+    perdue, et le rouge n'a su dire que « signatures divergentes » faute de pouvoir nommer la clause.
+    C'est un durcissement de l'oracle, jamais un abaissement : le verdict attendu ne change pas.
