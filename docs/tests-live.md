@@ -4397,3 +4397,52 @@ courant : **rien à ré-épingler**, et il est vert dans la suite ci-dessus.
 - gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+## Story 5.7 — L1e : une garantie conditionnée par ses conditions particulières (04/09/2026)
+
+Un seul rejeu, sur le seul défaut du tour : le verdict `couvert` que L1d servait sur S2 (« J'ai
+oublié de fermer un robinet… le voisin du dessous a été inondé ») dépendait du hasard que le modèle
+cite ou non `p37:11` — « Les présentes conditions spéciales sont applicables si les conditions
+particulières mentionnent que la garantie “dégâts des eaux” est souscrite ». Cité (L1b), le verdict
+sortait `sous_conditions` ; non cité (L1d), `couvert`. La condition se lit désormais sur **l'arbre**
+du document, jamais sur les claims.
+
+### Rejeu S2 — `sous_conditions`, la condition citée dans la raison — 0,3984 €
+
+`automation/runs/20260903-lisibilite/proto/s2-l1e.json`, serveur local 8878, majorant 0,8 € tenu.
+
+| ce qui sort | valeur |
+|---|---|
+| verdict | `sous_conditions` |
+| raison | « … ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — `axa-lu-optihome-2017:p37:11` : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie “ dégâts des eaux ” est souscrite. » » |
+| question posée | « Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ? » |
+| claims | 6, dont `c1`/`c2` (étendue, `oui`), `c4` (`p37:11`, `humain`), `c5` (recours des tiers), `c6` (`p47:8`, `humain`), `c3` (exclusion, `non`) |
+
+Ce rejeu-là a **cité** la condition (`c4`) : il ne prouve donc pas à lui seul le cas où elle manque.
+C'est le témoin live de la bougie qui le prouve, sur une réponse enregistrée où `p34:4` n'est cité
+par personne — `test_sinistre_live.py` rejoue les clauses affichées au mieux-disant et le verdict,
+qui sortait `couvert`, sort maintenant `sous_conditions` avec `p34:4` dans la raison. **L'attendu de
+ce test a changé, et le changement est le correctif** : ce `couvert` était faux sur ce contrat.
+
+Confirmation incidente : `c6` cite `p47:8`, le bloc où l'ingestion a fondu la phrase de condition et
+la première garantie de « 3.1.9 Frais annexes ». Le plafond de section ne le voit pas (son `kind` est
+`garantie`), et il sort quand même `humain` — par le renvoi aux CP écrit dans son propre texte
+(T18, règle 2bis). C'est le résidu noté en travail différé, et il est déjà couvert par ailleurs.
+
+### Suite hermétique
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest tests/ -q` → **code de sortie 0**,
+`4174 passed, 6 skipped, 1 deselected`. `ruff check server tests` vert, `git diff --check` vert.
+
+### Dette déclarée : les trois gates, reconduits
+
+Deux couches de code changent (`domain/`, `steps/`) : `pipeline_digest` passe de `f88d020c…` à
+`aa3f6d14…` ; `prompts_digest` ne bouge pas (`ca306d38…` — aucun prompt touché, le correctif est
+structurel). AD-7 sert donc les trois documents avec `gate_perime` tant que le re-gate live n'est pas
+fait : la dette de L1 à L1d est **reconduite**, aucun gate n'a été relancé ici, `data/.publie` n'a pas
+été touché. Le certificat Baloise (`tests/test_parsing_baloise.py`) épingle les empreintes de
+l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et il est vert ci-dessus.
+
+- gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
