@@ -1529,7 +1529,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     # navigateur choisit — et une unité gardée qu'on ne pourrait pas honorer
                     # retirerait du budget sans rien rendre. La facette repartira par la passe de
                     # couverture, sous les bornes ordinaires, ou sera dite bornée.
-                    break
+                    #
+                    # **Correctif du tour 5 (C7) : la borne refuse ce candidat-ci, pas la facette.**
+                    # Le `break` lisait « cette unité ne tient pas sous la part » comme « cette
+                    # sous-question n'a rien à garder », alors que le commentaire ci-dessus ne
+                    # justifie que la borne. Mesuré : une sous-question dont la tête pesait 3 360
+                    # tokens abandonnait tout, et le quatrième candidat de son **propre** classement
+                    # — la clause juste, à 41 tokens — n'était jamais gardé ; il a été refusé en fin
+                    # d'étape faute de 3 tokens. La borne, elle, ne bouge pas : au plus une unité par
+                    # facette, sous la même part, dans le même classement gardé, et si aucun candidat
+                    # n'y tient la facette ne garde toujours rien.
+                    continue
                 reserve_facettes[hit.clause_uid] = (rang, unite)
                 break
 

@@ -5055,3 +5055,51 @@ def test_la_variante_deterministe_reserve_avec_la_meme_requete() -> None:
                          _budget(max_opens=1, node_window=1, max_blocks=1, max_tokens=6000),
                          doc_id="d")
     assert result.opened_block_ids == ["d:p1:1"]
+
+
+def _corpus_a_tete_trop_grosse() -> tuple[Corpus, list[str]]:
+    """Deux règles pour une même sous-question : la première ne tient pas sous la part, l'autre si."""
+    tete = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                 text="Les vitrages assurés bénéficient de la garantie.", refs=["d:p9:1"])
+    lourd = Block(block_id="d:p9:1", loc="p9", seq=1,
+                  text=" ".join(f"clause annexe numéro {i} sans rapport" for i in range(1, 60)))
+    petite = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                   text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("tete", [tete]), ("lourd", [lourd]), ("petite", [petite]))
+    return corpus, ["vitrages assurés"]
+
+
+async def test_une_facette_dont_la_tete_ne_tient_pas_garde_le_candidat_suivant() -> None:
+    """C7 — la borne refuse **ce candidat-ci**, elle n'abandonne pas la sous-question.
+
+    Le `break` lisait « cette unité ne tient pas sous la part » comme « cette sous-question n'a rien
+    à garder ». Mesuré sur un run réel : une sous-question dont la tête pesait 3 360 tokens
+    abandonnait tout, et le quatrième candidat de son propre classement — la clause juste, à
+    41 tokens — n'était jamais gardé ; il a été refusé en fin d'étape faute de **3 tokens**.
+    """
+    corpus, facettes = _corpus_a_tete_trop_grosse()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus, parsed=_parsed(["vitrages assurés"], facettes=[*facettes, "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=20, max_blocks=6, max_tokens=200),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert "d:p2:1" in result.opened_block_ids
+    ((rang, gardes),) = [(f.rang, f.tokens_reserves) for f in result.facettes if f.rang == 0]
+    assert rang == 0 and gardes > 0
+
+
+async def test_une_facette_dont_aucun_candidat_ne_tient_ne_garde_toujours_rien() -> None:
+    """La borne n'est pas contournée : la contrepartie du témoin précédent, et elle est verte des deux côtés."""
+    corpus, facettes = _corpus_a_tete_trop_grosse()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus, parsed=_parsed(["vitrages assurés"], facettes=[*facettes, "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=20, max_blocks=6, max_tokens=60),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    # La sous-question a bien deux candidats et la lecture a bien eu lieu : ce qui manque est la
+    # réservation, refusée parce qu'aucune des deux unités ne tient sous la part.
+    ((candidats, gardes),) = [(f.candidats, f.tokens_reserves)
+                              for f in result.facettes if f.rang == 0]
+    assert candidats == 2 and gardes == 0
