@@ -25,7 +25,8 @@ def test_defaults_match_spine_hypotheses() -> None:
     # (AD-1 amendé, 6 à 8 tours, *rédiger* fusionné) majore à 141,4 s le pire chemin nominal
     # mesuré sur le prototype validé ; 100 s le laissait sortir en 503.
     # `llm_timeout_s` : 55 depuis le correctif du tour 3, et **inchangé** par 5.6 — il borne un
-    # appel, pas la chaîne, et la plus longue sortie d'étape (3 456 tokens) demande 45,7 s. À 40, le
+    # appel, pas la chaîne, et la plus longue sortie d'étape (4 096 tokens depuis T1c) demande
+    # 53,2 s, soit 3,3 % sous le délai : c'est `_coherence` qui tient cette marge-là. À 40, le
     # plafond de sortie du vérificateur sinistre était inatteignable dans le temps qu'on lui
     # laissait, et une réponse valide mourait sur son délai d'appel.
     # `client_abort_margin_s` : 150 depuis 5.6 — l'ordre d'AD-11 (client 315 s > Cloud Run 300 s >
@@ -82,9 +83,13 @@ def test_defaults_match_spine_hypotheses() -> None:
     # Corrigé au tour 3 : le JSON réellement rendu vaut 329 à 510 tokens (2 048 majorait un contrat
     # que le sinistre ne produit pas), et la réflexion mesurée 2 394 — la réserve du tour 2 était
     # déjà dépassée quand elle a été écrite.
-    assert s.verifier_sinistre_json_tokens == 768
-    assert s.verifier_thinking_reserve_tokens == 2688
-    assert s.verifier_sinistre_max_tokens == 3456 <= s.llm_max_output_tokens
+    # Re-dérivé le 03/09/2026 (T1c), les deux moitiés pour deux raisons distinctes : le contrat JSON
+    # sur `navigation_draft_max_claims` (6 affirmations × 148 tokens mesurés ≈ 888), la réserve sur
+    # le retour de cet appel à l'effort `medium` du palier. La somme retrouve **exactement** le
+    # plafond du client, comme au tour 2 : le contrôle de cohérence mord, et c'est voulu.
+    assert s.verifier_sinistre_json_tokens == 1024
+    assert s.verifier_thinking_reserve_tokens == 3072
+    assert s.verifier_sinistre_max_tokens == 4096 <= s.llm_max_output_tokens
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
     assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0

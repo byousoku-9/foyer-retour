@@ -287,10 +287,14 @@ class Settings(BaseSettings):
     # `LlmParse` terminal : le même 503, pour une raison pire. L'invariante `_coherence` ci-dessous
     # lie désormais les deux nombres, pour qu'ils ne puissent plus diverger en silence.
     #
-    # **Re-dérivé le 03/09/2026 (story 5.6 T3) et inchangé : 55 s.** La navigation par le modèle
-    # allonge la **chaîne**, pas l'appel. Ce que ce délai doit couvrir reste ce que `_coherence`
-    # calcule : la plus longue sortie d'**étape**, c'est-à-dire `verifier_sinistre_max_tokens`
-    # (768 + 2 688 = 3 456), soit 3 456 / 85 + 5 = **45,7 s** — 17 % sous les 55 s. Le prototype ne
+    # **Re-dérivé le 03/09/2026 (story 5.6 T3, puis T1c) et inchangé : 55 s.** La navigation par le
+    # modèle allonge la **chaîne**, pas l'appel. Ce que ce délai doit couvrir reste ce que
+    # `_coherence` calcule : la plus longue sortie d'**étape**, c'est-à-dire
+    # `verifier_sinistre_max_tokens`, passé à T1c de 3 456 à **4 096** (1 024 + 3 072) avec le retour
+    # du vérificateur sinistre à l'effort `medium`. Soit 4 096 / 85 + 5 = **53,2 s** — 3,3 % sous les
+    # 55 s. La marge est mince et c'est le contrôle qui la surveille : un plafond de plus, ou une
+    # réserve de réflexion de plus, et la configuration refusera de démarrer tant que ce délai n'aura
+    # pas été re-dérivé avec elle. Le prototype ne
     # déplace pas ce majorant : son plus long tour rend 900 tokens (15,6 s majorées), et son tour
     # le plus réfléchi 729 dont 657 de réflexion (13,6 s). Relever ce délai sans que le plafond de
     # sortie d'une étape ait bougé n'achèterait rien et retarderait la détection d'un appel pendu.
@@ -459,7 +463,16 @@ class Settings(BaseSettings):
     # ne produit pas : le JSON réellement rendu est de **329 à 510 tokens** sur les quatre appels
     # audités. 2 048 était quatre fois trop grand, et cette place volée à la réserve de réflexion
     # est exactement ce qui la rendait insuffisante. 768 majore le pire mesuré de 50 %.
-    verifier_sinistre_json_tokens: int = Field(768, ge=1)
+    #
+    # **1 024 depuis le 03/09/2026 (story 5.6, T1c), et ce n'est pas l'effort qui le déplace : c'est
+    # le nombre d'affirmations à juger.** 768 était dérivé de `draft_max_claims` **à quatre**. Depuis
+    # T1b, la place de l'ébauche servie vaut `navigation_draft_max_claims` = 6. Mesure sur les trois
+    # réponses A16 d'après T1b (`automation/runs/20260902-structure-index/a16-t1b/a16-r{1,2,3}.json`,
+    # sortie moins réflexion) : **738 / 638 / 484 tokens de JSON pour 5 / 4 / 3 affirmations jugées**,
+    # soit ≈ 148 tokens par affirmation au pire. À six : 6 × 148 ≈ 888. 1 024 le majore de 15 %.
+    # Le run à cinq affirmations remplissait déjà 96 % de l'ancien contrat : la borne ne tenait plus
+    # qu'à ce que le modèle juge moins de claims que la borne ne lui en annonce.
+    verifier_sinistre_json_tokens: int = Field(1024, ge=1)
     # 2 048 pour 1 904 mesurés : ~7 % de marge, sur une mesure qui ne couvre qu'un contrat et un
     # cas-témoin. `[HYPOTHÈSE]`, à resserrer quand d'autres cas décisoires auront été joués.
     #
@@ -472,7 +485,27 @@ class Settings(BaseSettings):
     # l'audit des quatre appels donne 2 337 et 2 394 tokens de réflexion, soit 82 % de la sortie.
     # La réserve était donc **déjà dépassée** au moment où elle a été écrite. 2 688 majore 2 394 de
     # 12 %.
-    verifier_thinking_reserve_tokens: int = Field(2688, ge=0)
+    #
+    # **3 072 depuis le 03/09/2026 (story 5.6, T1c), parce que l'effort de l'appel remonte à
+    # `medium`** (`llm/models.EFFORT_PAR_PROMPT` : la dérogation `low` est retirée). Deux mesures
+    # encadrent la réserve, et aucune ne la donne :
+    #   — à `low`, sur la chaîne servie, les trois réponses A16 d'après T1b rendent **1 859 / 2 492 /
+    #     1 668** tokens de réflexion (72 à 80 % de la sortie). 2 688 n'en majorait plus le pire que
+    #     de 8 % : la réserve était déjà à bout **avant** de relever l'effort ;
+    #   — à `medium`, sur le même témoin le 02/09, la réflexion a **saturé** la borne — 3 072 tokens
+    #     au total, zéro caractère de JSON, `LlmParse` terminal. C'est une mesure **censurée** : elle
+    #     dit ≥ 3 072, pas combien.
+    # 3 072 majore de 23 % le pire mesuré à `low`. Surtout, la troncature du 02/09 tient à un
+    # **total** de 3 072 partagé avec le JSON, et `max_tokens` est un total : la place dont la
+    # réflexion dispose avant de tronquer passe de 3 072 à `verifier_sinistre_max_tokens` = **4 096**,
+    # soit un tiers de plus, le contrat JSON ayant en outre sa part propre. La somme vaut de nouveau
+    # **exactement** `llm_max_output_tokens` (4 096) : `_coherence` mord, et toute croissance future
+    # exigera de relever d'abord le plafond du client au lieu de rogner en silence sur la réflexion.
+    # `[HYPOTHÈSE]`, et c'est la plus faible de ce fichier : personne n'a mesuré la réflexion de cet
+    # appel à `medium` sur la chaîne de navigation. La campagne `--repeat 3` doit la relever ; si elle
+    # dépasse 3 072, c'est `llm_max_output_tokens` **et** `llm_timeout_s` qu'il faudra re-dériver
+    # ensemble, jamais la réserve seule.
+    verifier_thinking_reserve_tokens: int = Field(3072, ge=0)
 
     @property
     def verifier_sinistre_max_tokens(self) -> int:

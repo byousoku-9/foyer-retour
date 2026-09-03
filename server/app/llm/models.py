@@ -57,14 +57,30 @@ EFFORT: dict[Tier, str] = {
 # La valeur reste distincte du défaut du tier `reason` et versionnée au même endroit que celui-ci.
 EFFORT_PAR_PROMPT: dict[str, str] = {
     "rediger_sinistre": "low",
-    # *Vérifier* sinistre extrait des valeurs typées (pertinence, facettes, applicabilité) sur des
-    # claims déjà rédigées : AD-6, « le modèle n'effectue aucun calcul ». Mesuré le 02/09/2026 sur
-    # le témoin A16 (« vitre d'insert ») via `POST /api/v1/sinistre` : à l'effort `medium` du tier,
-    # la réflexion adaptative consommait la borne de sortie (3 072 tokens, JSON tronqué → 503
-    # `llm_parse`) ou la deadline (75 s, 503 `timeout`), 3 échecs sur 3 pour 0,13-0,17 € chacun,
-    # alors que le JSON utile fait ≈ 500 caractères. L'effort `low` garde la sortie et la latence
-    # dans les bornes calibrées ; la qualité reste tenue par les gardes de code de *vérifier*.
-    "verifier_sinistre": "low",
+    # **`verifier_sinistre` est revenu au défaut du palier (`medium`) le 03/09/2026 — story 5.6, T1c.**
+    # Il portait `low` depuis la nuit du 02/09 : à l'effort `medium` du tier, sur le témoin A16
+    # (« vitre d'insert », `POST /api/v1/sinistre`), la réflexion adaptative consommait la borne de
+    # sortie (3 072 tokens **au total**, JSON tronqué → 503 `llm_parse`) ou la deadline (75 s, 503
+    # `timeout`), 3 échecs sur 3. La dérogation achetait la latence et la place, pas le jugement.
+    #
+    # **Ce que `low` a coûté, mesuré.** Les trois réponses A16 d'après T1b
+    # (`automation/runs/20260902-structure-index/a16-t1b/a16-r{1,2,3}.json`) sont 2/3 : navigation
+    # et rédaction sont 3/3 — `p34:12` est cité dans les trois —, et c'est le **vérificateur** qui
+    # perd le run 2. Il y rejette la claim `p34:12` en `hors_objet` tout en remplissant, dans le même
+    # objet, une applicabilité qui la traite comme au sujet (`fait_manquant` : « caractère soudain de
+    # l'action de la chaleur… »). Une sortie qui se contredit d'un champ à l'autre n'est pas un
+    # jugement sévère, c'est un jugement pas fini : les deux autres runs, sur le même contrat et la
+    # même ébauche, retiennent la claim. C'est exactement la dépense que l'effort règle.
+    #
+    # **Ce qui rend le retour tenable, et qui n'existait pas le 02/09** : la borne de sortie de cet
+    # appel ne vaut plus 3 072 tokens mais `verifier_sinistre_max_tokens` = **4 096** (contrat JSON
+    # 1 024 + réserve de réflexion 3 072, tous deux re-dérivés sur la mesure T1b — voir `config.py`).
+    # La troncature du 02/09 s'est produite quand la réflexion a saturé un total de 3 072 ; le total
+    # est aujourd'hui un tiers plus grand, et le contrat JSON a sa propre part. `_coherence` tient
+    # les deux bouts : le plafond reste sous `llm_max_output_tokens`, et `llm_timeout_s` (55 s) laisse
+    # le temps de l'écrire (4 096 / 85 + 5 = 53,2 s).
+    # `[HYPOTHÈSE]` : la réflexion à `medium` **n'est pas mesurée** sur cette chaîne — la campagne
+    # `--repeat 3` doit la relever et resserrer la réserve.
 }
 
 
