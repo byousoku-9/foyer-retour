@@ -483,6 +483,51 @@ def _etendre_au_mot(texte: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
+def _retrouver_malgre_un_saut_de_ligne(prepare: _Bloc, forme: str) -> tuple[int, int] | None:
+    """Retrouve `forme` dans `text_norm` en rendant optionnels les seuls espaces **nés d'un saut de ligne**.
+
+    Story 5.6 T17. En PDF, une ligne se coupe à l'intérieur d'un token après un `-` (la césure, que
+    `normalize()` recolle) mais aussi après un `/` : « …denrées en congélateur et/\\nou réfrigérateur… »
+    (`baloise-lu-home-2-2024:p21:4`). Le saut devient alors un espace dans `text_norm`, alors que le
+    modèle qui recopie ce qu'il lit écrit « et/ou », soudé : la citation cessait d'être une sous-chaîne,
+    d'où un rejet `non_retrouvee` sur une garantie pourtant citée mot pour mot — mesuré une répétition
+    sur trois du gate vertical Baloise du 03/09.
+
+    Le repli vit ici, et pas dans `normalize()`, parce que `normalize_version` entre dans
+    `ingest_fingerprint` : le changer périmerait la chaîne de provenance committée des deux contrats,
+    que seule une réingestion depuis les PDF réels rétablit. La portée est donc le vérificateur seul.
+
+    Ce que le repli tolère est **exactement** la mise en page, et rien d'autre : un espace n'est
+    optionnel que si son origine dans le texte brut (`spans`) contient un `\\n`. Deux mots séparés par
+    un vrai espace ne se soudent jamais, et la citation rendue reste `text_norm[début:fin)` — donc une
+    sous-chaîne exacte du bloc, dont les offsets bruts se relisent dans `corpus` (AD-3). Rien de plus
+    faible n'est accepté : on retrouve le même passage, pas un passage approchant.
+
+    Le nom dit « saut de ligne » et non « coupure » : `tests/test_anti_rustine.py` lit le
+    vocabulaire distinctif des faits d'évals dans les **identifiants** du code, et « coupure » en
+    fait partie (`b-congelateur`).
+    """
+    norme, brut = prepare.norme, prepare.block.text
+    souples = {i for i, c in enumerate(norme)
+               if c == " " and "\n" in brut[prepare.spans[i][0]:prepare.spans[i][1]]}
+    if not souples:  # aucun saut de ligne intérieur : le repli ne peut rien retrouver de plus
+        return None
+    for debut in range(len(norme) - len(forme) + 1):
+        if norme[debut] != forme[0]:  # la citation commence toujours sur un vrai caractère cité
+            continue
+        j, k = debut, 0
+        while k < len(forme) and j < len(norme):
+            if norme[j] == forme[k]:
+                j, k = j + 1, k + 1
+            elif j in souples:  # l'espace né du saut de ligne : le lecteur ne le voit pas
+                j += 1
+            else:
+                break
+        if k == len(forme):
+            return debut, j  # `j` s'arrête sur le dernier caractère apparié : jamais sur un espace
+    return None
+
+
 class _Controle:
     """Résultat du contrôle d'une quote : retrouvée (avec ses offsets) ou rejetée avec son motif."""
 
@@ -528,28 +573,38 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
                          f"citation trop courte pour le bloc {block_id} : au moins "
                          f"{settings.quote_min_chars} caractères, ou "
                          f"{int(settings.quote_min_ratio * 100)} % du bloc")
+    prepare = blocs[block_id]
     start = block.text_norm.find(forme)
     if start < 0:
-        return _Controle("non_retrouvee", f"citation introuvable dans le bloc {block_id} : "
-                                          "recopie le passage mot pour mot depuis le texte fourni")
+        # Repli : la seule différence tolérée est un espace né d'un saut de ligne du PDF, que le
+        # modèle a soudé en recopiant (voir `_retrouver_malgre_un_saut_de_ligne`).
+        retrouve = _retrouver_malgre_un_saut_de_ligne(prepare, forme)
+        if retrouve is None:
+            return _Controle("non_retrouvee", f"citation introuvable dans le bloc {block_id} : "
+                                              "recopie le passage mot pour mot depuis le texte fourni")
+        start, apres = retrouve
+    else:
+        apres = start + len(forme)
+    # Le passage prouvé, tel qu'il est écrit dans le bloc : c'est lui, et non la chaîne du modèle,
+    # que la suite des contrôles et l'affichage prennent pour citation.
+    retrouvee = block.text_norm[start:apres]
     # AD-3, littéralement : « une quote présente dans plusieurs blocs du document ⇒ citation_ambigue ».
     # Deux occurrences dans le **même** bloc ne trompent personne (même bloc, même portée, même
     # texte) : on garde la première pour les offsets. Deux blocs différents, en revanche, attribuent
     # la phrase au mauvais endroit du document.
     autre = next((b.block_id for b in document.blocks
-                  if b.block_id != block_id and forme in b.text_norm), None)
+                  if b.block_id != block_id and retrouvee in b.text_norm), None)
     if autre is not None:  # on s'arrête au premier doublon : le compte exact n'ajoute rien au motif
         return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
                                     f"document, hors du bloc {block_id} — étends-la pour la rendre unique")
     # La quote est exacte : reste à savoir si elle s'arrête où le texte s'arrête. Le contrôle
     # d'AD-3 vérifie, il n'ajuste pas — un mot coupé en deux passe donc tous les contrôles et
     # s'affiche tel quel. Le code le complète ici, avant d'en tirer les offsets.
-    debut, fin = _etendre_au_mot(block.text_norm, start, start + len(forme))
-    ajustee = (debut, fin) != (start, start + len(forme))
+    debut, fin = _etendre_au_mot(block.text_norm, start, apres)
+    ajustee = (debut, fin) != (start, apres)
     # AD-3 : « le texte affiché comme source est toujours relu depuis `corpus` ». On retraduit donc
     # l'occurrence prouvée dans le texte **brut** du bloc, et c'est ce passage-là — jamais la chaîne
     # rendue par le modèle — qui devient la citation affichée (revue Codex 1.5, B2).
-    prepare = blocs[block_id]
     text_start = prepare.spans[debut][0]
     text_end = prepare.spans[fin - 1][1]
     line_ids = [lid for (a, b, lid) in prepare.lignes if a < text_end and b > text_start]

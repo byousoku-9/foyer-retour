@@ -600,6 +600,60 @@ async def test_a_quote_over_a_hyphenation_keeps_the_line_ids_of_both_lines(reel:
     assert len(attendus) == 2 and q.line_ids == attendus  # les deux lignes, malgré la césure
 
 
+# --- une coupure de ligne après « / » ne fait pas perdre la citation (story 5.6, T17) ------
+_SOUDEE = "dommages corporels et/ou des dommages matériels subis par les Assurés"
+
+
+async def test_une_quote_soudee_sur_une_coupure_apres_barre_garde_ses_offsets_bruts(
+        reel: Index) -> None:
+    """Le bloc coupe sa ligne après « corporels et/ » ; le modèle qui recopie écrit « et/ou », soudé.
+
+    `normalize()` ne recolle que la césure `-\\n` : le saut après `/` devient un espace, la citation
+    cesse d'être une sous-chaîne de `text_norm`, et la garantie citée mot pour mot est rejetée
+    `non_retrouvee` (mesuré sur `b-congelateur`). Le vérificateur se replie donc sur les seuls espaces
+    nés d'un saut de ligne. Le témoin vérifie surtout ce que le repli ne casse pas : les offsets
+    restent ceux du texte **brut** (AD-3), le passage affiché est celui du contrat, coupure comprise,
+    et les deux `line_ids` traversés sont conservés.
+    """
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p52:8")
+    assert "et/\n" in bloc.text and "et/\n" not in _SOUDEE  # la coupure est bien dans le corpus servi
+    assert normalize(_SOUDEE) not in bloc.text_norm  # sans le repli : citation introuvable
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, _SOUDEE)])), [bloc])
+    q = v.claims[0].quotes[0]
+    # Le passage relu depuis le corpus : la forme d'origine, coupure de ligne comprise.
+    assert q.quote == bloc.text[q.text_start:q.text_end] == (
+        "dommages corporels et/\nou des dommages matériels subis par les Assurés")
+    assert bloc.text_norm[q.start:q.end] == "dommages corporels et/ ou des dommages materiels " \
+                                            "subis par les assures"
+    spans, _ = _lignes_du_bloc(bloc)
+    attendus = [lid for (a, b, lid) in spans if a < q.text_end and b > q.text_start]
+    assert q.line_ids == attendus and len(attendus) == 2
+
+
+async def test_une_quote_qui_recopie_la_coupure_apres_barre_reste_retrouvee(reel: Index) -> None:
+    """L'autre transcription — le saut recopié tel quel — passait déjà : elle passe toujours."""
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p52:8")
+    litterale = _SOUDEE.replace("et/ou", "et/\nou")
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, litterale)])), [bloc])
+    q = v.claims[0].quotes[0]
+    assert q.quote == bloc.text[q.text_start:q.text_end] == litterale
+    assert bloc.text_norm[q.start:q.end] == normalize(litterale)
+
+
+async def test_une_quote_reellement_absente_reste_non_retrouvee_malgre_le_repli(reel: Index) -> None:
+    """Le repli ne tolère que la mise en page : un passage qui n'est pas dans le bloc reste rejeté.
+
+    Le bloc porte bien une coupure après `/` — le repli s'exécute donc vraiment — et la citation
+    change deux mots du contrat. Rien de plus faible n'est accepté au passage.
+    """
+    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p52:8")
+    absente = _SOUDEE.replace("dommages matériels", "préjudices financiers")
+    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, absente)])), [bloc])
+    assert v.claims == []
+    (rejet,) = v.rejected_claims
+    assert rejet.rejection_kind == "non_retrouvee" and "introuvable" in rejet.motif
+
+
 # --- une citation ne s'arrête jamais au milieu d'un mot (story 5.6, T8) -----
 async def test_une_citation_coupee_au_milieu_dun_mot_est_etendue_par_le_code(mini: Index) -> None:
     """Lecture utilisateur des runs A16 : le modèle coupe **au nombre de caractères**.
