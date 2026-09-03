@@ -473,14 +473,23 @@ def test_un_gate_rouge_sur_un_manifest_sans_gate_est_ecrit(tmp_path: Path) -> No
     assert json.loads(chemin.read_text("utf-8"))[GUIDE]["gate"]["evals_ok"] is False
 
 
+def _preuve(block_id: str, *, kind: str = "garantie",
+            hash_preuve: str = "h1") -> dict[str, Any]:
+    return {"doc_id": "contrat-test", "block_id": block_id, "kind": kind,
+            "quote_hash": hash_preuve}
+
+
 def _resultat_sinistre(repetition: int, *, verdict: str = "sous_conditions",
-                       hash_preuve: str = "h1") -> runner.Resultat:
+                       hash_preuve: str = "h1",
+                       blocs: tuple[str, ...] = ("contrat-test:p1:1",),
+                       expected_block_ids: tuple[str, ...] = ("contrat-test:p1:1",),
+                       ) -> runner.Resultat:
     return runner.Resultat(
         id="s-stable", suite="sinistre:contrat-test", label="bonne_reponse",
         variant=runner.DEFAUT_PAR_SUITE["sinistre"],
         found=True, verdict=verdict, repetition=repetition, doc_id="contrat-test",
-        proofs=[{"doc_id": "contrat-test", "block_id": "contrat-test:p1:1",
-                 "kind": "garantie", "quote_hash": hash_preuve}])
+        expected_block_ids=list(expected_block_ids),
+        proofs=[_preuve(b, hash_preuve=hash_preuve) for b in blocs])
 
 
 def _cas_sinistre_stabilite() -> runner.Cas:
@@ -494,20 +503,44 @@ def _cas_sinistre_stabilite() -> runner.Cas:
     })
 
 
-def test_la_stabilite_sinistre_compare_preuve_et_verdict_admissible() -> None:
-    """AC 4.2b : « même claim » ⇔ même `{doc_id, block_id, kind, quote_hash}` et même verdict.
+def test_la_stabilite_sinistre_exige_la_preuve_attendue_et_le_verdict_admissible() -> None:
+    """Story 5.6 T12 : (a) preuve attendue par répétition, (b) verdict admissible identique.
 
-    Un `quote_hash` divergent ou un verdict hors des valeurs admissibles rend le cas instable,
-    et la raison est publiée — jamais masquée.
+    Un `quote_hash` divergent ne rend plus le cas instable — AD-3 vérifie la citation au caractère
+    près, la borne de l'extrait est un choix du modèle sous l'AD-1 amendé. Ce qui rougit reste ce
+    que la stabilité doit garantir : une clause attendue perdue, un verdict qui change.
     """
     cas = _cas_sinistre_stabilite()
     stables = [_resultat_sinistre(i) for i in (1, 2, 3)]
     agregat = runner.agreger_stabilite(stables, [cas], repeat=3)
     assert agregat["cases"]["s-stable"]["stable"] is True
 
-    preuve_divergente = [_resultat_sinistre(1), _resultat_sinistre(2),
-                         _resultat_sinistre(3, hash_preuve="h2")]
-    detail = runner.agreger_stabilite(preuve_divergente, [cas], repeat=3)["cases"]["s-stable"]
+    # La borne de la quote bouge : stable, et la dispersion reste publiée.
+    bornes_variables = [_resultat_sinistre(1), _resultat_sinistre(2),
+                        _resultat_sinistre(3, hash_preuve="h2")]
+    detail = runner.agreger_stabilite(bornes_variables, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is True and detail["raisons"] == []
+    assert detail["preuves"][2] == ["contrat-test:contrat-test:p1:1:garantie:h2"]
+
+    # (a) une répétition perd la clause attendue de l'oracle : rouge, et la clause est nommée.
+    preuve_perdue = [_resultat_sinistre(1), _resultat_sinistre(2),
+                     _resultat_sinistre(3, blocs=("contrat-test:p9:9",))]
+    detail = runner.agreger_stabilite(preuve_perdue, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is False
+    assert ("preuve attendue absente sur au moins une répétition : contrat-test:p1:1"
+            in detail["raisons"])
+
+    # Les trois répétitions perdent **la même** clause : d'accord entre elles, et rouges — c'est la
+    # propriété que la comparaison entre répétitions de 4.2b ne savait pas tenir.
+    perte_unanime = [_resultat_sinistre(i, blocs=("contrat-test:p9:9",)) for i in (1, 2, 3)]
+    detail = runner.agreger_stabilite(perte_unanime, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is False
+    assert detail["signatures"][0] == detail["signatures"][2]  # (b) tenu, (a) non
+
+    # (b) le verdict change entre répétitions, dans les valeurs admissibles : rouge.
+    verdict_change = [_resultat_sinistre(i) for i in (1, 2)] \
+        + [_resultat_sinistre(3, verdict="ne_tranche_pas")]
+    detail = runner.agreger_stabilite(verdict_change, [cas], repeat=3)["cases"]["s-stable"]
     assert detail["stable"] is False
     assert "signatures divergentes entre répétitions" in detail["raisons"]
 
@@ -517,3 +550,41 @@ def test_la_stabilite_sinistre_compare_preuve_et_verdict_admissible() -> None:
     assert detail["stable"] is False
     assert "verdict hors des valeurs admissibles sur au moins une répétition" in detail["raisons"]
     assert "signatures divergentes entre répétitions" in detail["raisons"]
+
+
+def test_les_trois_repetitions_axa_deviennent_stables_sans_perdre_la_propriete() -> None:
+    """Témoin rouge-avant / vert-après, sur la forme mesurée au gate AXA vertical du 03/09.
+
+    Les trois répétitions portent les clauses décisives attendues (`p34:11`, `p34:12`, `p39:9`) et
+    le même verdict `ne_tranche_pas` ; ce qui varie, ce sont les **extraits d'exclusion
+    auxiliaires** (`p39:12`/`p39:14`/`p40:5`/`p40:6`) et les **bornes** des quotes. L'ancienne
+    identité de 4.2b les déclarait divergentes — `stabilite_sinistre = 0.0`, gate rouge.
+    """
+    attendus = ("contrat-test:p34:11", "contrat-test:p34:12", "contrat-test:p39:9")
+    auxiliaires = (("contrat-test:p39:12",), ("contrat-test:p39:14", "contrat-test:p40:5"),
+                   ("contrat-test:p40:6",))
+    repetitions = [
+        _resultat_sinistre(i, verdict="ne_tranche_pas", hash_preuve=f"borne-{i}",
+                           blocs=attendus + aux, expected_block_ids=attendus)
+        for i, aux in enumerate(auxiliaires, start=1)]
+    cas = runner.Cas.model_validate({
+        "id": "s-stable", "suite": "sinistre", "profile": "vertical",
+        "question": "Ce dommage est-il couvert ?",
+        "faits": {"description": "Une bougie a mis le feu à un canapé."},
+        "expected": {"found": True, "block_ids": list(attendus),
+                     "verdict": ["sous_conditions", "ne_tranche_pas"]},
+        "truth": {"source": "lecture_humaine", "validated_by_expert": False, "note": "relu"},
+        "mode_attendu": "bonne_reponse",
+    })
+
+    # Rouge-avant : l'identité de 4.2b comparait l'ensemble des preuves, hachage de citation compris.
+    avant = [sorted({f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
+                     for p in r.proofs}) for r in repetitions]
+    assert any(preuves != avant[0] for preuves in avant[1:])
+
+    # Vert-après : les trois répétitions portent l'oracle et le même verdict admissible.
+    detail = runner.agreger_stabilite(repetitions, [cas], repeat=3)["cases"]["s-stable"]
+    assert detail["stable"] is True and detail["raisons"] == []
+    assert detail["preuve_attendue_manquante"] == [[], [], []]
+    # La dispersion des preuves n'est pas masquée pour autant : elle est publiée telle quelle.
+    assert [len(preuves) for preuves in detail["preuves"]] == [4, 5, 4]

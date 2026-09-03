@@ -202,22 +202,24 @@ temoins:
     criticite: bloquant
     plancher: 1.0
     n: 3
-    numerateur: "cas dont les N repetitions rendent la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible"
+    numerateur: "cas dont chacune des N repetitions porte les block_id de l'oracle expected du cas parmi ses claims retenues, rend un verdict admissible identique entre repetitions, et n'a pas ete interrompue"
     denominateur: "cas sinistre repetes, interruptions comprises"
-    incident: "repetition manquante ou preuve divergente = cas instable, rouge"
+    incident: "repetition manquante, preuve attendue absente d'une repetition, ou verdict divergent = cas instable, rouge"
     scope: suite
     mesure_par: eval_runner
+    note: "re-derive le 2026-09-03 (story 5.6 T12). Ancien numerateur, ecrit en 4.2b : « cas dont les N repetitions rendent la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible ». Il supposait la retrouvaille deterministe d'avant l'amendement AD-1 du 03/09/2026 : le code choisissait les blocs, l'ensemble des citations etait une propriete du corpus. Depuis, le modele navigue et choisit ses citations ; les clauses decisives reviennent, les extraits auxiliaires et les bornes de « la plus courte quote contigue » varient. Le hachage de citation sort du numerateur parce qu'AD-3 verifie deja chaque citation au caractere pres : sa borne est un choix du modele, sa fidelite n'en est pas un. La propriete utile n'est pas affaiblie : l'exigence de preuve devient une exigence PAR repetition (une seule repetition qui perd une clause de l'oracle rougit le cas, la ou une comparaison entre repetitions aurait declare trois pertes identiques stables), le verdict reste admissible ET identique entre repetitions, et toute interruption reste rouge. Un cas sans oracle de preuve est juge sur le verdict et l'absence d'interruption. Le plancher reste 1.0 ; le plancher_digest change, donc ce temoin ne se compare pas d'avant a apres."
   - metric: stabilite_guide
     pipeline: guide
     famille: stabilite
     criticite: bloquant
     plancher: 1.0
     n: 3
-    numerateur: "cas dont les N repetitions rendent le meme statut, found/complete, label et ensemble de fiches"
+    numerateur: "cas dont chacune des N repetitions porte les identifiants de l'oracle expected du cas (block_ids parmi les blocs cites, fiche_ids parmi les fiches citees), rend le meme statut/found/complete/label entre repetitions, et n'a pas ete interrompue"
     denominateur: "cas guide repetes, interruptions comprises"
-    incident: "repetition manquante ou statut divergent = cas instable, rouge"
+    incident: "repetition manquante, preuve attendue absente d'une repetition, ou statut divergent = cas instable, rouge"
     scope: suite
     mesure_par: eval_runner
+    note: "re-derive le 2026-09-03 (story 5.6 T12), pour la meme cause que stabilite_sinistre et sous la meme regle. Ancien numerateur, ecrit en 4.2b : « cas dont les N repetitions rendent le meme statut, found/complete, label et ensemble de fiches ». L'amendement AD-1 porte le guide comme le sinistre — un seul chemin de production —, donc l'ensemble des fiches citees est desormais un choix du modele et non une propriete du corpus. Il sort de la comparaison entre repetitions et entre dans l'exigence PAR repetition : les fiche_ids/block_ids de l'oracle doivent etre cites a chaque repetition. Le statut reste compare a l'identique. Le plancher reste 1.0 ; le plancher_digest change."
   - metric: cases_ok_rate
     pipeline: all
     famille: run

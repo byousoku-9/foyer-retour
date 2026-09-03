@@ -208,9 +208,13 @@ rend fail-closed : un témoin bloquant applicable qu'un run n'émet pas produit 
 | `anti_rustine_pass_rate` | `repo` | `orchestrator` | la garde n'est pas fournie par une preuve trusted |
 | `metamorphique_pass_rate` | `repo` | `orchestrator` | idem |
 
-`_signature_stabilite` n'est **pas** touchée : son numérateur est écrit dans le plancher importé
-(« la meme preuve {doc_id, block_id, kind, quote_hash} et le meme verdict admissible »). La stabilité
-du prédicat décisionnel est un témoin **distinct**, additif, dont le rouge se lit séparément.
+`_signature_stabilite` n'est **pas** touchée par ce témoin-là : son numérateur est écrit dans le
+plancher, et une exigence nouvelle s'y ajoute par un témoin **distinct**, additif, dont le rouge se
+lit séparément. Le numérateur de `stabilite_sinistre`/`stabilite_guide` a en revanche été
+**re-dérivé** le 03/09/2026 (story 5.6 T12), avec sa note datée au plancher et le `plancher_digest`
+qui change : sous l'AD-1 amendé, un cas est stable ssi chaque répétition porte la **preuve attendue
+du cas** (les identifiants de son oracle `expected`, par sorte), rend le **même** verdict admissible
+(guide : le même statut) et n'a pas été interrompue. Voir `docs/evals/protocole.md` § Stabilité.
 
 **Deux périmètres, deux preuves, aucune branche par document.** `typage_confirme_rate`,
 `structure_prouvee_rate` et `arbre_prouve_rate` ne s'appliquent pas au même univers, et c'est ce qui

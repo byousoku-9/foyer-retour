@@ -967,10 +967,13 @@ def _preuves(answer: Answer, index: Index) -> list[dict[str, Any]]:
 
     Story 4.5 : chaque preuve porte en plus `kind_confirmed` — le typage du bloc cité a-t-il été posé
     à la main ou vérifié par le modèle (AD-6, AD-8), ou n'est-ce qu'une heuristique d'ingestion ? Le
-    champ **n'entre pas** dans la signature de stabilité, dont le numérateur est figé au plancher
-    importé (`{doc_id, block_id, kind, quote_hash}`) : `_signature_stabilite` continue de ne lire que
-    ces quatre-là. Il alimente un témoin **distinct**, `typage_confirme_rate` — c'est la seule façon
-    d'ajouter une exigence sans modifier le sens d'une mesure déjà pré-enregistrée.
+    champ **n'entre pas** dans la stabilité : il alimente un témoin **distinct**,
+    `typage_confirme_rate` — c'est la seule façon d'ajouter une exigence sans modifier le sens d'une
+    mesure déjà pré-enregistrée.
+
+    Story 5.6 T12 : cette projection reste ce que la stabilité **publie** (dispersion par répétition)
+    et ce dont `_preuve_attendue_manquante` lit les `block_id` ; le `quote_hash` n'est plus comparé
+    entre répétitions — AD-3 vérifie la citation au caractère près, sa borne est un choix du modèle.
     """
     preuves: list[dict[str, Any]] = []
     for claim in answer.claims:
@@ -1842,34 +1845,76 @@ def _cas_de_lexecution(execution_id: str) -> str:
 
 
 def _signature_stabilite(r: Resultat) -> dict[str, Any]:
-    """L'identité comparée entre répétitions (story 4.2b).
+    """L'identité comparée entre répétitions : le **verdict** en sinistre, le **statut** en guide.
 
-    Sinistre : « même claim » ⇔ même preuve `{doc_id, block_id, kind, quote_hash}`, et même
-    verdict. Guide : même statut (`reason.kind`), `found`/`complete`, label, ensemble de fiches.
+    Amendement du 03/09/2026 (AD-1 amendé, story 5.6 T12). L'identité de 4.2b était « même preuve
+    `{doc_id, block_id, kind, quote_hash}` et même verdict » (guide : même statut **et même ensemble
+    de fiches**). Elle supposait la retrouvaille déterministe d'avant l'amendement : le code
+    choisissait les blocs, deux répétitions du même cas voyaient le même contexte, et l'ensemble des
+    citations était une propriété du corpus. Depuis, **le modèle navigue et choisit ses citations**,
+    et « la plus courte quote contiguë » qui soutient une affirmation est un choix de rédaction :
+    les clauses décisives reviennent, les extraits auxiliaires et les bornes de quote bougent. Cette
+    identité-là ne mesurait plus la stabilité du système, elle mesurait la liberté qu'AD-1 accorde.
+
+    Ce qui sort d'ici n'est pas abandonné : il change de garde. La **preuve attendue du cas** est
+    vérifiée par répétition (`_preuve_attendue_manquante`, critère (a)) — un cas qui perd une clause
+    de son oracle sur une seule répétition reste rouge —, et le `quote_hash` reste inutile ici parce
+    qu'AD-3 vérifie déjà chaque citation **au caractère près** contre le corpus : sa borne est un
+    choix du modèle, sa fidélité n'en est pas un. La dispersion des preuves reste publiée
+    (`stability.cases[*].preuves`), jamais masquée.
+
+    Correctif du tour 2 conservé (rapport citations, A2) : ce qui est comparé est **ce qui est
+    prouvé**, jamais combien de fois c'est répété.
     """
     if r.suite.startswith("sinistre"):
-        # Correctif du tour 2 (rapport citations, A2) : les preuves sont **dédupliquées** avant
-        # comparaison. La liste brute faisait diverger deux répétitions qui prouvaient exactement la
-        # même chose — une preuve contre deux copies de cette preuve —, et l'instabilité mesurée du
-        # cas d'ancrage était un pur artefact de la duplication de la fusion de relance. Une
-        # signature d'identité compare ce qui est prouvé, pas combien de fois c'est répété.
-        return {
-            "verdict": r.verdict,
-            "proofs": sorted({f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
-                              for p in r.proofs}),
-        }
+        return {"verdict": r.verdict}
     return {"found": r.found, "complete": r.complete, "label": r.label,
-            "reason_kind": r.reason_kind, "fiches": list(r.cited_fiche_ids)}
+            "reason_kind": r.reason_kind}
+
+
+def _preuves_publiees(r: Resultat) -> list[str]:
+    """La dispersion des preuves d'une répétition, dédupliquée — publiée, hors de la comparaison."""
+    return sorted({f"{p['doc_id']}:{p['block_id']}:{p['kind']}:{p['quote_hash']}"
+                   for p in r.proofs})
+
+
+def _preuve_attendue_manquante(r: Resultat) -> list[str]:
+    """Les identifiants de l'oracle du cas qu'une répétition n'a **pas** portés, par sorte.
+
+    Critère (a) de la stabilité amendée : `expected.block_ids` parmi les blocs cités par les claims
+    retenues, `expected.fiche_ids` parmi les fiches citées. C'est la propriété utile que l'identité
+    de 4.2b portait indirectement — « la même preuve » — et qu'elle ne peut plus porter sans
+    interdire au modèle le choix que l'AD-1 amendé lui donne : ici l'exigence est **par répétition**,
+    donc trois répétitions qui perdent *toutes* la même clause attendue restent rouges, là où une
+    comparaison entre répétitions les aurait déclarées d'accord.
+
+    Un cas sans oracle de preuve rend une liste vide : il reste jugé sur le verdict et l'absence
+    d'interruption, et rien n'est inventé pour lui. La suite `parsing` est hors de ce critère —
+    son `expected.block_ids` désigne le bloc dont le texte est comparé à une lecture visuelle
+    (AD-14), pas une citation à retrouver dans une réponse.
+    """
+    if r.suite == "parsing":
+        return []
+    cites = {p["block_id"] for p in r.proofs}
+    manquants = [b for b in r.expected_block_ids if b not in cites]
+    manquants += [f for f in r.expected_fiche_ids if f not in r.cited_fiche_ids]
+    return sorted(manquants)
 
 
 def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
                       non_executes: list[str] | None = None) -> dict[str, Any]:
     """L'agrégat de stabilité par cas : preuves, verdicts, dispersion de coût et de latence.
 
-    Un cas est **stable** ssi ses `repeat` répétitions sont toutes là (une répétition manquante
-    est une interruption : rouge) et rendent la même signature — et, pour un sinistre dont le cas
-    borne les verdicts admissibles, un verdict admissible. La dispersion est publiée, jamais
-    masquée.
+    Un cas est **stable** ssi ses `repeat` répétitions (c) sont **toutes** là (une répétition
+    manquante est une interruption : rouge), (a) portent chacune la **preuve attendue du cas** —
+    les identifiants de son oracle `expected`, par sorte — et (b) rendent la **même** signature,
+    admissible quand le cas borne ses verdicts. Un cas sans oracle de preuve est jugé sur (b) et
+    (c) seuls. La dispersion est publiée, jamais masquée.
+
+    Amendement du 03/09/2026 (story 5.6 T12) : (a) était porté par la signature elle-même, qui
+    exigeait la **même** preuve entre répétitions — une propriété de la retrouvaille déterministe,
+    que l'AD-1 amendé a retirée en confiant la navigation et le choix des citations au modèle. Voir
+    `_signature_stabilite` et `_preuve_attendue_manquante` pour les deux moitiés de la dérivation.
 
     Les cas `parsing` sont **exclus des métriques** `stabilite_*` — et l'exclusion est dite, pas
     tue (revue 4.2b, LOW 14) : la suite est locale et déterministe, sa « stabilité » ne mesure
@@ -1884,6 +1929,8 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
     for case_id in sorted({r.id for r in resultats} | set(manquantes)):
         reps = sorted((r for r in resultats if r.id == case_id), key=lambda r: r.repetition)
         signatures = [_signature_stabilite(r) for r in reps]
+        preuves = [_preuves_publiees(r) for r in reps]
+        preuve_manquante = [_preuve_attendue_manquante(r) for r in reps]
         raisons: list[str] = []
         if len(reps) < repeat:
             raisons.append(f"répétitions manquantes : {repeat - len(reps)} sur {repeat}")
@@ -1894,6 +1941,10 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
                 f"numéros de répétition invalides : {sorted(numeros)}, attendus {sorted(attendus)}")
         if signatures and any(s != signatures[0] for s in signatures[1:]):
             raisons.append("signatures divergentes entre répétitions")
+        if any(preuve_manquante):
+            perdus = sorted({identifiant for liste in preuve_manquante for identifiant in liste})
+            raisons.append("preuve attendue absente sur au moins une répétition : "
+                           + ", ".join(perdus))
         c = par_cas.get(case_id)
         if (c is not None and reps and reps[0].suite.startswith("sinistre") and c.expected.verdict
                 and any(r.verdict not in c.expected.verdict for r in reps)):
@@ -1907,6 +1958,8 @@ def agreger_stabilite(resultats: list[Resultat], cas: list[Cas], *, repeat: int,
             "repetitions_completed": len(reps),
             "repetitions_planned": repeat,
             "signatures": signatures,
+            "preuves": preuves,
+            "preuve_attendue_manquante": preuve_manquante,
             "cost_eur": [r.cost_eur for r in reps],
             "latency_ms": [r.ms for r in reps],
         }
@@ -1930,12 +1983,14 @@ def agreger_stabilite_claim(resultats: list[Resultat], cas: list[Cas], *, repeat
     """La stabilité du **prédicat décisionnel** sur les cas sinistre, ou `None` s'il n'y en a pas.
 
     Pourquoi un agrégat **à côté** de `_signature_stabilite`, et pas un champ de plus dedans : le
-    numérateur de `stabilite_sinistre` est écrit dans le plancher pré-enregistré — « la meme preuve
-    {doc_id, block_id, kind, quote_hash} et le meme verdict admissible ». Y glisser le prédicat
-    changerait le sens d'un témoin importé sans diminution, c'est-à-dire un changement de protocole
-    déguisé en amélioration : deux campagnes qui portent le même `plancher_digest` cesseraient de
-    mesurer la même chose. L'exigence nouvelle est donc un témoin nouveau, dont le rouge se lit
-    séparément (`stabilite_claim_decisionnelle`).
+    numérateur de `stabilite_sinistre` est écrit dans le plancher pré-enregistré. Y glisser le
+    prédicat changerait le sens d'un témoin sans que le plancher le dise, c'est-à-dire un changement
+    de protocole déguisé en amélioration : deux campagnes qui portent le même `plancher_digest`
+    cesseraient de mesurer la même chose. L'exigence nouvelle est donc un témoin nouveau, dont le
+    rouge se lit séparément (`stabilite_claim_decisionnelle`). La re-dérivation du 03/09/2026 (story
+    5.6 T12) suit la même règle par l'autre bout : elle **réécrit** le numérateur dans le plancher,
+    donc le `plancher_digest` change et les deux campagnes cessent de se comparer — c'est dit, pas
+    glissé.
 
     Un cas est stable ssi ses `repeat` répétitions sont **toutes** là et rendent le même prédicat.
     Une répétition manquante est une interruption : rouge, jamais retirée du dénominateur.

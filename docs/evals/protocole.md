@@ -70,14 +70,32 @@ dénominateur. Abaisser un seuil ou retirer un témoin est refusé au chargement
 
 `--repeat 3` (au moins), cache de réponse désarmé, publication complète par répétition.
 
-- **Sinistre** : « même claim » ⇔ même preuve `{doc_id, block_id, kind, quote_hash}` **et** même
-  verdict admissible. `quote_hash` = SHA-256 du segment relu (`Block.text_norm[start:end]`)
-  préfixé de `normalize_version` : stable entre répétitions à corpus égal, insensible aux
-  `claim_id` refaits à chaque appel.
-- **Guide** : même statut (`reason.kind`), `found`/`complete`, label et ensemble de fiches citées.
+Un cas est stable ssi ses `N` répétitions satisfont **les trois** :
 
-Tout écart ⇒ cas instable, rouge au plancher `stabilite` ; la dispersion (signatures, coûts,
-latences par répétition) est publiée, jamais masquée.
+- **(a) la preuve attendue du cas, par répétition** : les identifiants de son oracle `expected`, par
+  sorte — `block_ids` parmi les blocs cités par les claims retenues, `fiche_ids` parmi les fiches
+  citées. Une seule répétition qui perd une clause attendue rougit le cas ; un cas sans oracle de
+  preuve est jugé sur (b) et (c) seuls.
+- **(b) le même verdict, admissible** en sinistre ; le même statut (`reason.kind`),
+  `found`/`complete` et label en guide — comparés à l'identique entre répétitions.
+- **(c) aucune interruption** : une répétition manquante est rouge, jamais retirée du dénominateur.
+
+Tout écart ⇒ cas instable, rouge au plancher `stabilite` ; la dispersion (signatures, **preuves par
+répétition**, coûts, latences) est publiée, jamais masquée.
+
+**Re-dérivation du 03/09/2026 (story 5.6 T12).** L'identité de 4.2b était « même preuve
+`{doc_id, block_id, kind, quote_hash}` et même verdict admissible » (guide : même statut **et même
+ensemble de fiches**). Elle supposait la retrouvaille déterministe d'avant l'amendement AD-1 :
+le code choisissait les blocs, l'ensemble des citations était une propriété du corpus. Depuis, le
+modèle navigue et **choisit ses citations** — les clauses décisives reviennent, les extraits
+auxiliaires et les bornes de « la plus courte quote contiguë » varient. Le `quote_hash` (SHA-256 du
+segment relu `Block.text_norm[start:end]`, préfixé de `normalize_version`) reste calculé et publié,
+mais il ne se compare plus : AD-3 vérifie déjà chaque citation **au caractère près** contre le
+corpus, sa borne est un choix du modèle et sa fidélité n'en est pas un. L'exigence de preuve n'est
+pas affaiblie, elle est déplacée — de « la même entre répétitions » à « l'attendue, à chaque
+répétition », ce qui rougit aussi trois répétitions qui perdent *toutes* la même clause. Le plancher
+reste `1.0` ; le `plancher_digest` change, donc les campagnes d'avant et d'après ne se comparent
+pas.
 
 Les cas de la suite `parsing` sont **exclus des métriques** `stabilite_*` : la suite est locale
 et déterministe, sa « stabilité » ne mesure rien du modèle. L'exclusion est explicite dans le
