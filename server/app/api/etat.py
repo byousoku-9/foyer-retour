@@ -903,8 +903,13 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     digest_prompts = prompts_digest()
     # `GateContext` décrit l'image en cours : sans lui, le loader ne peut pas voir qu'un gate a été
     # obtenu avec un autre code ou d'autres modèles (`gate_perime`, AD-7).
+    # `gate_thresholds()` et non `thresholds()` : le contexte de gate ne porte que les seuils qui
+    # peuvent changer une claim, un verdict ou une citation (story 5.6, T20). `/api/v1/sante`
+    # continue de publier `thresholds()` en entier — la transparence est ailleurs que dans la
+    # fraîcheur, et les trois interrupteurs d'exploitation qui diffèrent entre le poste de mesure et
+    # l'image de production périmaient sinon *tous* les gates.
     contexte = GateContext(pipeline_digest=digest_pipeline, prompts_digest=digest_prompts,
-                           model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                           model_ids=dict(TIERS), pipeline_settings=settings.gate_thresholds(),
                            # Story 4.5 : la révision qui tourne, telle que le service la connaît.
                            # Un gate `full` d'un autre commit part en quarantaine (`gate_perime`).
                            candidate_revision=settings.git_sha, env=settings.env)

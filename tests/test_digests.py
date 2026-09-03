@@ -208,9 +208,15 @@ def test_les_gates_du_depot_sont_ceux_de_limage_courante() -> None:
     for doc_id in (reglages.guide_doc_id, reglages.sinistre_doc_id):
         gate = manifest[doc_id]["gate"]
         assert gate is not None, f"{doc_id} n'a pas de gate"
-        declaration = re.search(
+        # **Toutes** les déclarations du document, pas la première (story 5.6, T20). `re.search`
+        # rendait le premier `gate-a-relancer` du fichier, c'est-à-dire le plus ancien : une dette
+        # soldée par un re-gate, puis rouverte par une story suivante, ne pouvait plus être
+        # déclarée — la déclaration neuve était invisible derrière la caduque, dans un fichier
+        # append-only. Une déclaration périmée ne dit jamais oui à un digest courant (elle épingle
+        # celui que le gate portait alors) : les lire toutes ne relâche rien.
+        declarations = re.findall(
             rf"gate-a-relancer: {re.escape(doc_id)} pipeline_digest=([0-9a-f]{{64}})", tests_live)
-        if declaration is not None and gate["pipeline_digest"] == declaration.group(1):
+        if gate["pipeline_digest"] in declarations:
             continue
         for champ, attendu in attendus.items():
             assert gate[champ] == attendu, (

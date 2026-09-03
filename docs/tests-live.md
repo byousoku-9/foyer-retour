@@ -4156,3 +4156,25 @@ Réenregistré à 13:54 sur `7ab4005` : verdict `ne_tranche_pas`, `p34:12` cité
 ### Campagne dictionnaire AXA (03/09 02:05)
 
 `enrich_dictionary --doc-id axa-lu-optihome-2017 --transport standard --max-cost 6.2`, `DICTIONARY_TIER=reason` : 71 requêtes Sonnet 5, **2,2680 €** réels (majorant 6,1139 €), 698 canoniques, 2 682 variantes, 3 intents, 90 déclencheurs ; `validated=false` (validation `--valider` due à Lancelot). Chargeur : plus de fusion transitive des groupes (E1), clé insensible au nombre (E2).
+
+### Dette déclarée (story 5.6, T20) : les trois gates à relancer après la séparation des seuils
+
+Le correctif du contexte de gate touche `server/app/corpus/loader.py` — une couche de
+`pipeline_digest`. L'image passe donc de `cb19f223…` (le digest que les trois gates portent, et
+sous lequel ils étaient **frais**) à `91a957b0…` : AD-7 sert les trois documents avec l'alerte
+`gate_perime`, et le smoke refusera la promotion tant que le re-gate live n'est pas fait. La dette
+est déclarée ici, épinglée sur le digest périmé que les gates portent encore — l'excuse tombe dès
+qu'un gate change de digest.
+
+Ce que le correctif a mesuré, lui, est acquis : sous `ENV=prod PREFIX_KEEPALIVE_ENABLED=true`, les
+144 seuils du sous-ensemble « pipeline » des trois gates sont **identiques** à ceux de l'image
+(0 écart, replay hors ligne du 03/09/2026) ; les trois seuls écarts sur les 180 seuils publiés sont
+`llm_audit_exact`, `prefix_keepalive_enabled` et `live_budget_eur`, qui ne sont plus comparés.
+Autrement dit : après re-gate, `gate_perime` ne reviendra plus par les seuils.
+
+- gate-a-relancer: lux-guide pipeline_digest=cb19f22348ded7c8b859fe6099eebeb8ddff61cc003676e88ec6d018550cd7ff
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=cb19f22348ded7c8b859fe6099eebeb8ddff61cc003676e88ec6d018550cd7ff
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=cb19f22348ded7c8b859fe6099eebeb8ddff61cc003676e88ec6d018550cd7ff
+
+Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section « Dette déclarée :
+gates à relancer par l'orchestrateur » plus haut.

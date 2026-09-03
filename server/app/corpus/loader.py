@@ -96,6 +96,26 @@ def _read_error(exc: OSError | UnicodeDecodeError | ValueError) -> str:
     return type(exc).__name__ if isinstance(exc, OSError) else _first_error(exc)
 
 
+def _seuils_du_gate_projetes(du_gate: dict[str, int | float | str | bool],
+                             courants: dict[str, int | float | str | bool],
+                             ) -> dict[str, int | float | str | bool]:
+    """Les seuils du gate lus **sur les clés du contexte courant**, et sur elles seules.
+
+    Le contexte courant ne porte que le sous-ensemble « pipeline » de `thresholds()`
+    (`Settings.gate_thresholds`, story 5.6 T20) : les interrupteurs d'exploitation en sont
+    absents, parce qu'ils diffèrent par construction entre le poste qui mesure un gate et l'image
+    de production, et qu'ils ne changent ni une claim, ni un verdict, ni une citation.
+
+    La projection porte des deux côtés, et c'est ce qui garde **les gates déjà écrits** frais : un
+    gate mesuré avant ce correctif porte les 180 seuils publiés, dont les trois interrupteurs qui
+    ont fait refuser trois déploiements. Comparer les dictionnaires entiers l'aurait périmé pour
+    des clés que le contexte courant ne prétend plus juger — une relance de campagne facturée pour
+    rien. Une clé **du sous-ensemble** absente du gate, elle, vaut `None` et périme : c'est un gate
+    qui ne dit pas sous quel seuil il a mesuré, pas un gate qui en dit trop.
+    """
+    return {nom: du_gate.get(nom) for nom in courants}
+
+
 def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ungated: bool) -> tuple[str, list[str]]:
     """Règle du gate (AD-7) : (raison de quarantaine, alertes).
 
@@ -103,7 +123,9 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
       l'entrée ⇒ gate invalide : `sans_gate`
       (quarantaine, sauf `allow_ungated` ⇒ alerte) ;
     - `evals_ok=False` ⇒ `gate_echoue`, jamais servi ;
-    - `pipeline_digest`/`prompts_digest`/`model_ids` ≠ `current` (si fourni) ⇒ servi avec l'alerte `gate_perime`.
+    - `pipeline_digest`/`prompts_digest`/`model_ids` ≠ `current` (si fourni) ⇒ servi avec l'alerte `gate_perime` ;
+    - seuils : seuls ceux que `current` porte sont comparés — le sous-ensemble « pipeline »
+      (`Settings.gate_thresholds`), projeté des deux côtés (`_seuils_du_gate_projetes`).
     """
     gate = entry.gate
     if gate is not None and (gate.source_hash, gate.ingest_fingerprint, gate.overlay_hash,
@@ -137,7 +159,8 @@ def _gate_alerts(entry: ManifestEntry, current: GateContext | None, *, allow_ung
         # raison : sous `full`, la politique complète promet que le servi *est* le mesuré.
         return "gate_perime", []
     if current is not None and (
-            gate.pipeline_digest, gate.prompts_digest, gate.model_ids, gate.pipeline_settings) != (
+            gate.pipeline_digest, gate.prompts_digest, gate.model_ids,
+            _seuils_du_gate_projetes(gate.pipeline_settings, current.pipeline_settings)) != (
             current.pipeline_digest, current.prompts_digest, current.model_ids,
             current.pipeline_settings):
         # Story 4.2b : sous un gate `full`, des digests non concordants ne sont plus une simple

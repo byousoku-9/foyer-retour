@@ -2884,6 +2884,11 @@ def construire_gate(entry: ManifestEntry, ctx: Contexte, *, profil: str, cas: li
         cases_hash=snapshot.cases_hash, cases=len(cas),
         countersigned=all(c.truth.countersigned_by is not None for c in cas),
         pipeline_digest=ctx.pipeline_digest_hex, prompts_digest=ctx.prompts_digest_hex,
+        # `thresholds()` en **entier**, et non le sous-ensemble comparé (story 5.6, T20) : le gate
+        # archive les conditions sous lesquelles la campagne a tourné — y compris le budget et
+        # l'audit —, et c'est la comparaison, pas l'archive, qui décide de ce qui périme. Le loader
+        # projette les deux côtés sur les clés du contexte courant : un gate qui en porte plus n'en
+        # est pas périmé.
         model_ids=dict(TIERS), pipeline_settings=ctx.settings.thresholds(), evals_ok=evals_ok,
         decisions=list(decisions or []), run_digest=run_digest,
         # Story 4.5 : le protocole, la révision et le rapport — recopiés, jamais recalculés ici.
@@ -3271,7 +3276,11 @@ def construire_contexte(settings: Settings, data_dir: Path, *, regate: str | Non
             campaign_accrued_eur=campaign_accrued_eur,
             campaign_cost_recorder=campaign_cost_recorder, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                                # Le sous-ensemble « pipeline », comme `api/etat.py` : le runner
+                                # charge exactement comme le service, et un gate ne peut pas être
+                                # frais ici et périmé là (story 5.6, T20).
+                                model_ids=dict(TIERS),
+                                pipeline_settings=settings.gate_thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
                                 # `full` **nomme** à celle qui tourne. Le runner charge exactement
                                 # comme `api/etat.py` : le contexte doit donc la porter ici aussi.
@@ -3317,7 +3326,11 @@ def construire_contexte_parsing(settings: Settings, data_dir: Path, *,
         return relire(data_dir, lambda pincee: construire_contexte_parsing(
             settings, data_dir, lecture=pincee))
     contexte_gate = GateContext(pipeline_digest=pipeline_digest(), prompts_digest=prompts_digest(),
-                                model_ids=dict(TIERS), pipeline_settings=settings.thresholds(),
+                                # Le sous-ensemble « pipeline », comme `api/etat.py` : le runner
+                                # charge exactement comme le service, et un gate ne peut pas être
+                                # frais ici et périmé là (story 5.6, T20).
+                                model_ids=dict(TIERS),
+                                pipeline_settings=settings.gate_thresholds(),
                                 # Story 4.5 (revue B2) : le loader compare la révision qu'un gate
                                 # `full` **nomme** à celle qui tourne. Le runner charge exactement
                                 # comme `api/etat.py` : le contexte doit donc la porter ici aussi.

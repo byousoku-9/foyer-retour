@@ -215,6 +215,66 @@ def test_gate_perime_only_against_current_image(data: Path, current: GateContext
     assert load_corpus(data, allow_ungated=False).alerts == {"lux-guide": []}  # sans `current`, pas de comparaison
 
 
+def test_un_interrupteur_dexploitation_ne_perime_pas_un_gate_mesure_ailleurs(data: Path) -> None:
+    """Story 5.6 (T20) : le gate mesuré sur le poste reste **frais** pour l'image de production.
+
+    Le fait qui a produit ce témoin : le déploiement du 03/09/2026 (comme ceux du 31/08) portait
+    `gate_perime` sur les **trois** documents, job « verifier » vert. Trois seuils publiés diffèrent
+    par construction entre la mesure et la production — `llm_audit_exact` (l'audit exact n'est pas
+    écrit sur un disque partagé), `prefix_keepalive_enabled` (posé par `deploy.yml`, parce que c'est
+    là qu'est décidé `--min-instances=1`), `live_budget_eur` (le plafond de la campagne). Aucun gate
+    mesuré localement ne pouvait donc être frais en production : l'alerte ne parlait plus du code.
+    """
+    from server.app.config import Settings
+
+    mesure = Settings(_env_file=None, env="dev", prefix_keepalive_enabled=False,
+                      live_budget_eur=14.0)
+    production = Settings(_env_file=None, env="prod", prefix_keepalive_enabled=True)
+    # Le rouge-avant, sur la donnée elle-même : les dictionnaires **entiers** diffèrent, et par ces
+    # trois clés-là exactement. C'est la comparaison d'avant T20, et elle périmait tout.
+    assert {nom for nom, valeur in production.thresholds().items()
+            if mesure.thresholds()[nom] != valeur} == {
+        "llm_audit_exact", "prefix_keepalive_enabled", "live_budget_eur"}
+    assert mesure.gate_thresholds() == production.gate_thresholds()
+
+    m = _manifest(data)
+    # Le gate archive les conditions de sa mesure : `thresholds()` en entier, comme l'écrit le
+    # runner. C'est la projection, pas l'archive, qui décide de la fraîcheur.
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"], pipeline_settings=mesure.thresholds())
+    _write_manifest(data, m)
+    courant = GateContext(pipeline_digest="p", prompts_digest="q", model_ids={"micro": "m"},
+                          pipeline_settings=production.gate_thresholds(), env="prod")
+    assert load_corpus(data, allow_ungated=False, current=courant).alerts == {"lux-guide": []}
+
+
+def test_un_seuil_de_pipeline_qui_bouge_perime_toujours_le_gate(data: Path) -> None:
+    """L'autre moitié : la sévérité n'est pas relâchée, elle est mise là où elle porte.
+
+    `navigation_draft_max_claims` borne le nombre de claims qu'un tour de navigation peut rendre :
+    il change une réponse, donc il change ce qu'une campagne a mesuré. Le gate part en `gate_perime`
+    — et un gate `full`, en quarantaine.
+    """
+    from server.app.config import Settings
+
+    mesure = Settings(_env_file=None, navigation_draft_max_claims=6)
+    servie = Settings(_env_file=None, navigation_draft_max_claims=7)
+    m = _manifest(data)
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"], pipeline_settings=mesure.thresholds())
+    _write_manifest(data, m)
+    courant = GateContext(pipeline_digest="p", prompts_digest="q", model_ids={"micro": "m"},
+                          pipeline_settings=servie.gate_thresholds())
+    assert load_corpus(data, allow_ungated=False, current=courant).alerts == {
+        "lux-guide": ["gate_perime"]}
+    # Un gate **muet** sur un seuil du sous-ensemble ne dit pas sous quel seuil il a mesuré : il
+    # périme aussi. La projection ne pardonne que le contraire — un gate qui en porte plus.
+    m["lux-guide"]["gate"] = _gate(m["lux-guide"], pipeline_settings={
+        nom: valeur for nom, valeur in mesure.thresholds().items()
+        if nom != "navigation_draft_max_claims"})
+    _write_manifest(data, m)
+    assert load_corpus(data, allow_ungated=False, current=courant).alerts == {
+        "lux-guide": ["gate_perime"]}
+
+
 def test_manifest_fingerprint_mismatch_quarantines(data: Path) -> None:
     m = _manifest(data)
     m["lux-guide"]["ingest_fingerprint"] = "faux"
