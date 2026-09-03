@@ -1,27 +1,4184 @@
 {
-  "schema_version": "1",
+  "candidate_questions": {},
+  "corpus": {
+    "AXA Assistance": [
+      "Assistenzgesellschaft",
+      "assistance company",
+      "assistance juridique",
+      "centrale d’assistance",
+      "empresa de assistência"
+    ],
+    "Adaptation automatique des montants": [
+      "ajuste automático",
+      "automatic adjustment",
+      "automatische Anpassung",
+      "indexation automatique"
+    ],
+    "Affaissement de terrain": [
+      "Bodensenkung",
+      "effondrement de cavités",
+      "subsidence"
+    ],
+    "Année d'assurance": [
+      "Ano de seguro",
+      "Insurance year",
+      "Versicherungsjahr"
+    ],
+    "Appui juridique téléphonique": [
+      "apoio jurídico",
+      "juristische Beratung",
+      "legal helpline",
+      "renseignements juridiques"
+    ],
+    "Arbitrage": [
+      "Arbitragem",
+      "Arbitration",
+      "Schiedsverfahren",
+      "procédure arbitrale"
+    ],
+    "Assistance animal de compagnie": [
+      "Haustierhilfe",
+      "frais vétérinaire",
+      "pet assistance"
+    ],
+    "Assistance bagages": [
+      "Gepäckhilfe",
+      "P.I.R.",
+      "Property Irregularity Report",
+      "baggage assistance",
+      "destruction de bagages",
+      "perte de bagages",
+      "retard bagages",
+      "vol de bagages"
+    ],
+    "Assistance linguistique": [
+      "Sprachhilfe",
+      "language assistance",
+      "traducteur-interprète",
+      "traduction téléphonique"
+    ],
+    "Assuré": [
+      "Insured",
+      "Segurado",
+      "Versicherte"
+    ],
+    "Avance de caution pénale": [
+      "Kautionsvorschuss",
+      "bail advance",
+      "fiança penal"
+    ],
+    "Avance de fonds": [
+      "Geldvorschuss",
+      "adiantamento de fundos",
+      "cash advance"
+    ],
+    "Bâtiment de villégiature": [
+      "Ferienhaus",
+      "casa de férias",
+      "holiday home",
+      "résidence de vacances",
+      "séjour temporaire"
+    ],
+    "Bâtiments": [
+      "Gebäude",
+      "building",
+      "edifício",
+      "immeuble assuré"
+    ],
+    "Cartes bancaires et chèques": [
+      "Zahlungsmittel",
+      "bank cards",
+      "electronic money",
+      "monnaie électronique",
+      "moyens de paiement"
+    ],
+    "Cas de force majeure": [
+      "actes de terrorisme",
+      "conflits sociaux",
+      "force majeure",
+      "guerre civile",
+      "mobilisation générale"
+    ],
+    "Consigne pénale": [
+      "consignation pénale",
+      "constitution de partie civile",
+      "dépôt de garantie judiciaire"
+    ],
+    "Domicile": [
+      "Wohnsitz",
+      "home",
+      "résidence habituelle",
+      "résidence principale"
+    ],
+    "Déclaration de sinistre": [
+      "Schadensmeldung",
+      "claim declaration",
+      "declaração de sinistro",
+      "notification de sinistre"
+    ],
+    "Déclaration préliminaire": [
+      "Vorabklärung",
+      "conditions préalables",
+      "preliminary declaration"
+    ],
+    "Déclarations de l'Assuré": [
+      "Angaben des Versicherten",
+      "insured's declarations",
+      "renseignements fournis"
+    ],
+    "Définition accident": [
+      "accident corporel ou matériel",
+      "accident de la circulation",
+      "accident definition",
+      "déclaration de sinistre"
+    ],
+    "Définition maladie grave": [
+      "altération de la santé",
+      "définition accident grave",
+      "rechute de maladie préexistante",
+      "serious illness definition"
+    ],
+    "Définitions": [
+      "Definitionen",
+      "Definitions",
+      "Definições"
+    ],
+    "Délai d'attente": [
+      "Wartezeit",
+      "carência",
+      "période de carence",
+      "waiting period"
+    ],
+    "E-commerçant": [
+      "commerçant en ligne",
+      "e-merchant",
+      "online seller",
+      "vendeur en ligne"
+    ],
+    "E-protection": [
+      "appui juridique",
+      "protection juridique en ligne"
+    ],
+    "E-réputation": [
+      "e-reputation",
+      "online reputation",
+      "réputation en ligne"
+    ],
+    "Eaux de crue": [
+      "Hochwasser",
+      "eaux de ruissellement",
+      "flood water",
+      "remontée de nappes"
+    ],
+    "Emergency@Home assistance": [
+      "AXA Assistance",
+      "INTER PARTNER ASSISTANCE",
+      "assistance juridique",
+      "centrale d'assistance"
+    ],
+    "Envoi de médicaments": [
+      "Medikamentenversand",
+      "medication delivery",
+      "médicaments indispensables"
+    ],
+    "Equipement domotique": [
+      "Hausautomation",
+      "domotique",
+      "domótica",
+      "home automation",
+      "système domotique"
+    ],
+    "Etendue de la garantie": [
+      "Deckungsumfang",
+      "alcance da cobertura",
+      "scope of cover"
+    ],
+    "Etendue territoriale": [
+      "cobertura territorial",
+      "territorial coverage",
+      "territoriale Geltung"
+    ],
+    "Europe assurance valable": [
+      "Albanie Turquie",
+      "ex-Yougoslavie",
+      "exclusion pays ex-URSS",
+      "validité géographique"
+    ],
+    "Evénements couverts": [
+      "Versicherungsfälle",
+      "cas de garantie",
+      "covered events",
+      "événements garantis"
+    ],
+    "Exclusions": [
+      "Ausschlüsse",
+      "exclusions",
+      "exclusões"
+    ],
+    "Frais d'annulation": [
+      "cancellation fees",
+      "frais supplémentaires de retour",
+      "remboursement frais annulation"
+    ],
+    "Frais de conservation": [
+      "Erhaltungskosten",
+      "conservation costs",
+      "frais de sauvetage"
+    ],
+    "Frais médicaux exclus": [
+      "excluded medical costs",
+      "exclusions frais médicaux",
+      "frais de cure exclus",
+      "frais de prothèse exclus",
+      "soins esthétiques exclus"
+    ],
+    "Franchise": [
+      "Selbstbehalt",
+      "deductible",
+      "franquia",
+      "part à charge"
+    ],
+    "Garantie annulation": [
+      "annulation de voyage",
+      "assurance annulation",
+      "cancellation cover",
+      "garantie annulation voyage"
+    ],
+    "Glissement de terrain": [
+      "Erdrutsch",
+      "deslizamento de terra",
+      "landslide",
+      "mouvement de terrain"
+    ],
+    "Greffe d'organe": [
+      "convocation médicale greffe",
+      "organ transplant",
+      "transplantation d'organe"
+    ],
+    "Informations avant départ": [
+      "Reiseinformationen",
+      "informations voyage",
+      "travel information",
+      "visas passeports vaccination"
+    ],
+    "Inondation": [
+      "flood",
+      "inundação",
+      "Überschwemmung"
+    ],
+    "Inopposabilité": [
+      "Nichtentgegenhaltbarkeit",
+      "inoponibilidade",
+      "non-opposabilité",
+      "unenforceability"
+    ],
+    "Internet": [
+      "messagerie électronique",
+      "réseau mondial",
+      "réseaux sociaux",
+      "web"
+    ],
+    "Intervention non-contractuelle": [
+      "frais non couverts",
+      "non-contractual intervention"
+    ],
+    "Licenciement économique": [
+      "licenciement pour motif économique",
+      "perte d'emploi",
+      "redundancy",
+      "économic layoff"
+    ],
+    "Limites territoriales": [
+      "geltungsbereich",
+      "limites geográficas",
+      "territorial limits",
+      "zone géographique"
+    ],
+    "Locaux": [
+      "Räumlichkeiten",
+      "bâtiment désigné",
+      "premises"
+    ],
+    "Matériel multimédia": [
+      "Multimediageräte",
+      "electronics",
+      "multimedia equipment",
+      "ordinateur, tablette, console"
+    ],
+    "Matériel nomade": [
+      "Mobilgerät",
+      "matériel portable",
+      "mobile device",
+      "portable equipment"
+    ],
+    "Mobilier": [
+      "Möbel",
+      "bien meuble",
+      "furniture",
+      "meubles",
+      "mobiliário"
+    ],
+    "Murs extérieurs": [
+      "Außenwände",
+      "external walls",
+      "matériaux incombustibles",
+      "murs mitoyens"
+    ],
+    "Objet du contrat": [
+      "Vertragsgegenstand",
+      "indemnisation des dommages",
+      "object of the contract",
+      "objeto do contrato"
+    ],
+    "Objets connectés": [
+      "Internet of Things",
+      "IoT",
+      "appareils connectés",
+      "équipements connectés"
+    ],
+    "Obligation de moyen": [
+      "best efforts obligation",
+      "duty of means",
+      "obrigação de meios"
+    ],
+    "Option Voyage": [
+      "Reiseoption",
+      "assurance voyage",
+      "garantie voyage",
+      "opção viagem",
+      "travel option"
+    ],
+    "Plafond de remboursement": [
+      "15.000 euros maximum",
+      "limite de remboursement",
+      "maximum reimbursement",
+      "plafond d'indemnisation"
+    ],
+    "Preneur d'assurance": [
+      "Versicherungsnehmer",
+      "ayants-droit",
+      "policyholder",
+      "souscripteur",
+      "tomador do seguro"
+    ],
+    "Prestataire LAR": [
+      "AXA Assistance",
+      "INTER PARTNER ASSISTANCE",
+      "Les Assurés Réunis"
+    ],
+    "Propriété intellectuelle": [
+      "droits de propriété industrielle",
+      "intellectual property",
+      "propriété littéraire et artistique"
+    ],
+    "Protection des données": [
+      "Datenschutz",
+      "data protection",
+      "données personnelles",
+      "protection des données personnelles",
+      "proteção de dados"
+    ],
+    "Protection juridique": [
+      "Rechtsschutz",
+      "legal protection",
+      "protecção jurídica"
+    ],
+    "Recours des locataires": [
+      "Mieterregress",
+      "recours locatif",
+      "recurso dos inquilinos",
+      "tenant recourse"
+    ],
+    "Recours des tiers": [
+      "Regress Dritter",
+      "recours des voisins",
+      "recurso de terceiros",
+      "third party recourse"
+    ],
+    "Remboursement des frais médicaux": [
+      "Erstattung medizinischer Kosten",
+      "franchise médicale",
+      "incident médical",
+      "medical expenses reimbursement",
+      "reembolso de despesas médicas"
+    ],
+    "Responsabilité civile chasse": [
+      "Jagdhaftpflicht",
+      "RC chasse",
+      "hunting liability",
+      "responsabilidade civil caça"
+    ],
+    "Responsabilité locative": [
+      "Mieterhaftung",
+      "responsabilidade do inquilino",
+      "responsabilité d'occupant",
+      "tenant liability"
+    ],
+    "Retard de transport public": [
+      "annulation transport public",
+      "grève sauvage",
+      "public transport delay"
+    ],
+    "Risques liés à Internet": [
+      "E-protection",
+      "Internetrisiken",
+      "internet risks",
+      "riscos da internet"
+    ],
+    "Réduction de la prestation": [
+      "déchéance de garantie",
+      "fraude de l'assuré",
+      "préjudice pour AXA Assistance"
+    ],
+    "Régime public vs privé": [
+      "accord service médical",
+      "public healthcare regime",
+      "traitement sous régime privé",
+      "traitement sous régime public"
+    ],
+    "Résiliation": [
+      "Kündigung",
+      "cancellation",
+      "rescisão",
+      "résiliation du contrat",
+      "termination"
+    ],
+    "STATEC": [
+      "institut statistique",
+      "statistical office",
+      "statistiques Luxembourg"
+    ],
+    "Sanctions": [
+      "Sanktionen",
+      "penalties",
+      "pénalités",
+      "sanctions contractuelles"
+    ],
+    "Sanitaires": [
+      "Sanitäranlagen",
+      "baignoires",
+      "bidets",
+      "lavabos",
+      "sanitary fixtures",
+      "toilettes",
+      "éviers"
+    ],
+    "Serrure de sécurité": [
+      "Sicherheitsschloss",
+      "fechadura de segurança",
+      "security lock",
+      "serrure de sûreté",
+      "serrure à double tour",
+      "verrou de sécurité"
+    ],
+    "Seuil d'intervention": [
+      "franchise minimale",
+      "montant minimum de sinistre",
+      "seuil minimal"
+    ],
+    "Subrogation": [
+      "Regressrecht",
+      "Subrogation legal",
+      "Subrogação"
+    ],
+    "Superficie": [
+      "Wohnfläche",
+      "floor area",
+      "superfície",
+      "surface bâtie",
+      "surface habitable",
+      "surface totale"
+    ],
+    "Séjour temporaire": [
+      "estadia temporária",
+      "logement provisoire",
+      "résidence temporaire",
+      "séjour de courte durée",
+      "temporary stay",
+      "vorübergehender Aufenthalt"
+    ],
+    "Tempête": [
+      "Sturm",
+      "storm",
+      "tempestade",
+      "vent de tempête",
+      "vent violent",
+      "vitesse du vent"
+    ],
+    "Tiers": [
+      "Dritte",
+      "terceiro",
+      "third party"
+    ],
+    "Transmission de messages urgents": [
+      "dringende Nachrichten",
+      "mensagens urgentes",
+      "message transmission",
+      "messages urgents"
+    ],
+    "Tremblement de terre": [
+      "Erdbeben",
+      "earthquake",
+      "secousse sismique",
+      "séisme",
+      "terremoto",
+      "échelle de Richter"
+    ],
+    "Usage du bâtiment": [
+      "Gebäudenutzung",
+      "building use",
+      "habitation et garage privé"
+    ],
+    "Usurpation d'identité": [
+      "Identitätsdiebstahl",
+      "fraude d'identité",
+      "identity theft",
+      "roubo de identidade",
+      "vol d'identité"
+    ],
+    "Valeur du jour": [
+      "Marktwert",
+      "market value",
+      "valeur de bourse",
+      "valeur de marché",
+      "valor de mercado"
+    ],
+    "Valeur réelle": [
+      "Realwert",
+      "dépréciation",
+      "real value",
+      "valor real",
+      "vétusté"
+    ],
+    "Valeur vénale": [
+      "Verkehrswert",
+      "market sale value",
+      "valor venal"
+    ],
+    "Valeurs": [
+      "billets de banque",
+      "lingots de métaux précieux",
+      "monnaies",
+      "titres d’actions",
+      "valeurs mobilières",
+      "valuables"
+    ],
+    "Vie privée": [
+      "Privatleben",
+      "activité non professionnelle",
+      "private life",
+      "vida privada"
+    ],
+    "Vol": [
+      "Diebstahl",
+      "furto",
+      "soustraction frauduleuse",
+      "theft",
+      "usage momentané"
+    ],
+    "Vol par agression": [
+      "Raub",
+      "robbery",
+      "roubo",
+      "vol avec violence"
+    ],
+    "Vol par effraction": [
+      "Einbruchdiebstahl",
+      "burglary",
+      "forcement dispositif de fermeture",
+      "furto com arrombamento"
+    ],
+    "Vol simple": [
+      "einfacher Diebstahl",
+      "furto simples",
+      "simple theft",
+      "vol sans effraction"
+    ],
+    "Vol à la sauvette": [
+      "Trickdiebstahl",
+      "furto por escamoteação",
+      "snatch theft"
+    ],
+    "Vol à la tire": [
+      "Taschendiebstahl",
+      "furto por punguismo",
+      "pickpocketing"
+    ],
+    "Voyage": [
+      "Reise",
+      "déplacement",
+      "travel",
+      "viagem"
+    ],
+    "Zone inondable": [
+      "flood zone",
+      "zona inundável",
+      "zone d'inondation",
+      "Überschwemmungsgebiet"
+    ],
+    "abus de confiance": [
+      "Vertrauensmissbrauch",
+      "abuso de confiança",
+      "breach of trust"
+    ],
+    "accident": [
+      "Unfall",
+      "acidente",
+      "dommage matériel accidentel",
+      "événement soudain"
+    ],
+    "accident corporel": [
+      "Körperverletzung",
+      "acidente corporal",
+      "bodily injury",
+      "lésion corporelle"
+    ],
+    "accidentel": [
+      "accidental",
+      "acidental",
+      "relatif à un accident",
+      "unfallbedingt"
+    ],
+    "accidents de travail": [
+      "Arbeitsunfall",
+      "acidente de trabalho",
+      "action en responsabilité civile",
+      "lois spéciales réparation",
+      "work accidents"
+    ],
+    "accidents du travail": [
+      "Arbeitsunfallgesetz",
+      "aide gratuite",
+      "législation accidents travail",
+      "work accident law"
+    ],
+    "achat sur Internet": [
+      "Online-Kauf",
+      "achat en ligne",
+      "commande web",
+      "compra pela Internet",
+      "online purchase"
+    ],
+    "acte de chasse": [
+      "Jagdakt",
+      "chasse",
+      "hunting act"
+    ],
+    "acte de terrorisme": [
+      "action clandestine",
+      "ato de terrorismo",
+      "terroranschlag",
+      "terrorism act"
+    ],
+    "actes intentionnels": [
+      "acte volontaire",
+      "atos intencionais",
+      "intentional acts",
+      "vorsätzliche Handlung"
+    ],
+    "actions collectives": [
+      "ações coletivas",
+      "class action",
+      "kollektive Klagen",
+      "nuisance commune"
+    ],
+    "actions collectives exclues": [
+      "caution et aval exclus",
+      "class action exclusion"
+    ],
+    "activité professionnelle exclue": [
+      "atividade profissional",
+      "berufliche Tätigkeit",
+      "exercice professionnel",
+      "professional activity exclusion"
+    ],
+    "activités à caractère dangereux": [
+      "acte téméraire",
+      "actes intentionnels exclus",
+      "exclusion guerre et terrorisme",
+      "sports dangereux"
+    ],
+    "adaptation automatique des montants": [
+      "adjustment of insured amounts",
+      "ajuste automático dos montantes",
+      "indexation prime"
+    ],
+    "adoption d'un enfant": [
+      "Adoption",
+      "Adoption (Kind)",
+      "Adoção",
+      "adoption",
+      "convocation adoption"
+    ],
+    "agencements intérieurs et extérieurs": [
+      "antennes de radio",
+      "antennes de télévision",
+      "dépendances",
+      "locaux d'habitation"
+    ],
+    "aggravation du risque": [
+      "circonstances nouvelles",
+      "modification des circonstances",
+      "obligation de déclaration"
+    ],
+    "aide à titre gratuit": [
+      "aide bénévole",
+      "ajuda gratuita",
+      "assistance gratuite",
+      "free assistance",
+      "unentgeltliche Hilfe"
+    ],
+    "aménagements immobiliers attachés": [
+      "fest verbundene anlagen",
+      "fixtures attached to property",
+      "instalações fixas ao imóvel"
+    ],
+    "animaux non domestiques": [
+      "exclusion animaux",
+      "gardien d'animaux",
+      "non-domestic animals"
+    ],
+    "annulation de voyage": [
+      "Reiseabsage",
+      "impossibilité de partir",
+      "trip cancellation",
+      "voyage annulé"
+    ],
+    "appareils électriques et électroniques": [
+      "dommages électroniques",
+      "vétusté maximale 80%"
+    ],
+    "appartements loués": [
+      "ascenseurs et monte-charges",
+      "garages compris",
+      "profession libérale"
+    ],
+    "appel téléphonique d'urgence": [
+      "24h/24 7j/7",
+      "Notrufnummer",
+      "chamada de emergência",
+      "hotline",
+      "numéro d'assistance"
+    ],
+    "appui juridique - E-protection": [
+      "assistance juridique téléphonique",
+      "centrale d'assistance",
+      "garantie E-protection"
+    ],
+    "arbitrage entre parties": [
+      "désignation d'arbitres",
+      "procédure d'arbitrage",
+      "tiers arbitre"
+    ],
+    "arbitres désignés": [
+      "désignation d'arbitres",
+      "référé",
+      "tiers arbitre",
+      "tribunal d'arrondissement"
+    ],
+    "arme de chasse": [
+      "Jagdwaffe",
+      "arme de destruction",
+      "hunting weapon"
+    ],
+    "assistance au domicile": [
+      "assistance à domicile",
+      "home assistance",
+      "hospitalisation d'un enfant",
+      "retour des parents"
+    ],
+    "assistance aux personnes": [
+      "Personenhilfe",
+      "assistência pessoal",
+      "personal assistance"
+    ],
+    "assistance médicale": [
+      "assistência médica",
+      "incident médical",
+      "medical assistance",
+      "medizinische Hilfe",
+      "médecin traitant",
+      "premiers secours"
+    ],
+    "assistance voyage": [
+      "Reiseassistenz",
+      "assistência viagem",
+      "travel assistance"
+    ],
+    "assurance obligatoire véhicule": [
+      "Kfz-Pflichtversicherung",
+      "assurance auto obligatoire",
+      "compulsory motor insurance",
+      "seguro obrigatório de veículo",
+      "véhicule automoteur"
+    ],
+    "assurance rendue obligatoire": [
+      "Pflichtversicherung",
+      "assurance obligatoire",
+      "compulsory insurance",
+      "seguro obrigatório"
+    ],
+    "assurances en valeur agréée": [
+      "agreed value insurance",
+      "assurance à valeur convenue",
+      "seguro em valor acordado",
+      "valeur agréée",
+      "wertvereinbarte Versicherung"
+    ],
+    "assuré": [
+      "Versicherter",
+      "insured",
+      "personne assurée",
+      "segurado"
+    ],
+    "atteintes à l'environnement": [
+      "environmental harm",
+      "pollution sol air eau"
+    ],
+    "attentat": [
+      "Terroranschlag",
+      "atentado",
+      "mouvement populaire",
+      "sabotage",
+      "terrorism",
+      "terrorisme",
+      "émeute"
+    ],
+    "autorité médicale compétente": [
+      "competent medical authority",
+      "médecin agréé"
+    ],
+    "autres assurances": [
+      "Mehrfachversicherung",
+      "cumul d'assurances",
+      "déclaration d'autres assurances",
+      "other insurance",
+      "outros seguros"
+    ],
+    "avance de caution pénale": [
+      "Kautionsvorschuss",
+      "adiantamento de fiança",
+      "avance de caution judiciaire",
+      "bail bond advance"
+    ],
+    "bagages non propriétaire": [
+      "nicht Eigentum",
+      "not owned by insured",
+      "não pertence ao segurado",
+      "objets d'autrui"
+    ],
+    "bagages oubliés": [
+      "bagagem esquecida",
+      "forgotten luggage",
+      "oubli",
+      "vergessenes Gepäck"
+    ],
+    "bagages sans surveillance": [
+      "bagagem sem vigilância",
+      "lieu public",
+      "unattended luggage",
+      "unbeaufsichtigtes Gepäck"
+    ],
+    "bateau à moteur": [
+      "Boot",
+      "barco",
+      "boat",
+      "embarcation",
+      "jetski",
+      "waterscooter"
+    ],
+    "bateau à voile": [
+      "Segelboot",
+      "sailboat",
+      "veleiro",
+      "voilier"
+    ],
+    "bien livré défectueux": [
+      "livré cassé",
+      "livré incomplet",
+      "non conforme",
+      "retard de livraison"
+    ],
+    "biens appartenant aux hôtes": [
+      "Gästeeigentum",
+      "bens de hóspedes",
+      "biens des invités",
+      "guest belongings"
+    ],
+    "biens désignés": [
+      "bens designados",
+      "bezeichnete güter",
+      "bâtiment désigné et contenu",
+      "designated assets"
+    ],
+    "biens loués exclus": [
+      "biens confiés",
+      "locataire",
+      "occupant à titre gratuit"
+    ],
+    "biens professionnels": [
+      "Berufsgüter",
+      "bens profissionais",
+      "biens pro",
+      "professional goods"
+    ],
+    "bijoux": [
+      "jewelry",
+      "joias",
+      "objets de parure",
+      "schmuck"
+    ],
+    "bris de vitrages": [
+      "Glasbruch",
+      "bris de glaces",
+      "glass breakage",
+      "quebra de vidros"
+    ],
+    "bris et fêlures accidentels": [
+      "Photovoltaikanlage",
+      "accidental glass breakage",
+      "installations photovoltaïques",
+      "painéis solares",
+      "panneaux solaires",
+      "vitrages et miroirs"
+    ],
+    "bris ou destruction accidentel": [
+      "accidental breakage",
+      "chute choc corps étranger",
+      "dommage accidentel"
+    ],
+    "bâtiment désigné": [
+      "ascenseurs et appareils élévateurs",
+      "mobilier",
+      "trottoirs"
+    ],
+    "bâtiment en construction": [
+      "Gebäude im Bau",
+      "building under construction",
+      "edifício em construção",
+      "rénovation",
+      "transformation"
+    ],
+    "bâtiments en construction": [
+      "reconstruction",
+      "résidence principale future",
+      "transformation de bâtiment"
+    ],
+    "bénéficiaire de l'indemnité": [],
+    "calcul de l'indemnité": [
+      "méthode d'indemnisation"
+    ],
+    "caractéristiques alternatives": [
+      "alternative Bedingungen",
+      "alternative conditions",
+      "conditions alternatives",
+      "condições alternativas",
+      "critères optionnels"
+    ],
+    "caractéristiques cumulatives": [
+      "conditions cumulatives",
+      "condições cumulativas",
+      "cumulative conditions",
+      "exigences combinées",
+      "kumulative Bedingungen"
+    ],
+    "caractéristiques du bien garanti": [
+      "achat sur Internet",
+      "bien neuf transportable"
+    ],
+    "casse d'objets fragiles": [
+      "Bruch zerbrechlicher Gegenstände",
+      "bris d'objets fragiles",
+      "fragile objects breakage",
+      "quebra de objetos frágeis"
+    ],
+    "catastrophes naturelles exclues": [
+      "Naturkatastrophen",
+      "catastrophe naturelle",
+      "natural disasters",
+      "pollution du milieu naturel",
+      "épidémies"
+    ],
+    "centrale d'assistance": [
+      "AXA Assistance",
+      "hotline assistance",
+      "numéro d'assistance"
+    ],
+    "chambre d'étudiant": [
+      "Studentenzimmer",
+      "logement pendant études",
+      "logement étudiant",
+      "student room",
+      "studio loué"
+    ],
+    "chambres d'étudiants": [
+      "logement enfants assurés",
+      "studios d'étudiants"
+    ],
+    "champignons ou moisissures": [
+      "Schimmel",
+      "fungus",
+      "mofo",
+      "moisissure",
+      "mold"
+    ],
+    "charges fiscales sur indemnité": [
+      "TVA",
+      "bénéficiaire de l'indemnité",
+      "taxes sur indemnité"
+    ],
+    "chiens de chasse": [
+      "Jagdhunde",
+      "détenteur de chiens",
+      "hunting dogs"
+    ],
+    "choix de l'avocat": [
+      "choice of legal representative",
+      "représentant autorisé"
+    ],
+    "chute de la foudre": [
+      "Blitzschlag",
+      "foudre",
+      "lightning strike",
+      "queda de raio"
+    ],
+    "chômage commercial": [
+      "Betriebsunterbrechung",
+      "business interruption",
+      "perda comercial",
+      "perte d'exploitation"
+    ],
+    "chômage immobilier": [
+      "Nutzungsausfall",
+      "indemnité de reconstruction",
+      "loss of use",
+      "perte de jouissance"
+    ],
+    "citernes d'huiles minérales": [
+      "installation de mazout",
+      "oil tank filling",
+      "remplissage citerne",
+      "tanque de óleo",
+      "Öltank"
+    ],
+    "clôtures et haies": [
+      "cercas e sebes",
+      "fences and hedges",
+      "zäune und hecken"
+    ],
+    "coffre de voiture découverte": [
+      "Kofferraum",
+      "bagages dans le coffre",
+      "convertible car trunk",
+      "effraction du coffre",
+      "porta-malas"
+    ],
+    "coffre fermé à clé": [
+      "effraction du coffre",
+      "habitacle toit non rigide",
+      "locked trunk",
+      "porta-malas trancado",
+      "verschlossener Kofferraum",
+      "voiture découverte"
+    ],
+    "collection": [
+      "Sammlung",
+      "collection insurance",
+      "objets rassemblés",
+      "rareté",
+      "valeur documentaire"
+    ],
+    "collections": [
+      "Sammlung",
+      "coleção",
+      "collection"
+    ],
+    "commerce illicite": [
+      "biens illégaux",
+      "commerce interdit",
+      "illicit trade",
+      "unerlaubter Handel"
+    ],
+    "communication au Preneur": [
+      "Mitteilung an Versicherungsnehmer",
+      "changement de domicile",
+      "domicile élu",
+      "notification address"
+    ],
+    "compagnie AXA Assurances Luxembourg": [
+      "Versicherungsgesellschaft",
+      "garanties accordées",
+      "insurance company",
+      "siège social"
+    ],
+    "complications de grossesse": [
+      "Schwangerschaftskomplikationen",
+      "accouchement prématuré",
+      "complicações da gravidez",
+      "pregnancy complications",
+      "troubles de la grossesse"
+    ],
+    "complément d'assurance responsabilité": [
+      "contrats de responsabilité sportive",
+      "garantie complémentaire",
+      "responsabilité extra-scolaire",
+      "responsabilité scolaire"
+    ],
+    "compétitions sportives de chasse": [
+      "Schießwettbewerbe",
+      "concours de tir",
+      "exercices de tir",
+      "shooting competitions"
+    ],
+    "concours hippiques": [
+      "Fédérations Officielles",
+      "Reitwettbewerbe",
+      "compétitions équestres",
+      "concursos hípicos",
+      "equestrian competitions"
+    ],
+    "conditions d'octroi": [
+      "Bedingungen",
+      "conditions d'intervention",
+      "eligibility conditions",
+      "montants garantis",
+      "période de validité"
+    ],
+    "conditions de garantie": [
+      "Deckungsbedingungen",
+      "conditions d'application",
+      "condições de cobertura",
+      "coverage conditions"
+    ],
+    "conditions spéciales bagages": [
+      "Sonderbedingungen Gepäck",
+      "conditions particulières",
+      "garantie bagages souscrite",
+      "special luggage conditions"
+    ],
+    "conduite sans âge légal": [
+      "Fahren ohne Fahrerlaubnis",
+      "conduite sans permis",
+      "condução sem idade legal",
+      "underage driving",
+      "véhicule sans autorisation"
+    ],
+    "conflit d'intérêts": [
+      "Interessenkonflikt",
+      "conflict of interest",
+      "conflito de interesses"
+    ],
+    "conflit du travail": [
+      "Arbeitskonflikt",
+      "contestation collective",
+      "labour dispute",
+      "relations du travail"
+    ],
+    "conjoint cohabitant": [
+      "Ehepartner",
+      "cohabiting spouse",
+      "conjoint",
+      "cônjuge coabitante",
+      "partenaire cohabitant"
+    ],
+    "conjoint non séparé": [
+      "cohabitant",
+      "conjoint",
+      "dommages corporels chasse",
+      "parents ou alliés",
+      "partenaire légal",
+      "partenariat"
+    ],
+    "conseil juridique personnalisé": [
+      "Rechtsberatung",
+      "aconselhamento jurídico",
+      "analyse juridique",
+      "assistance juridique amiable",
+      "legal advice"
+    ],
+    "conservation des données": [
+      "Aufbewahrungsfrist",
+      "conservação de dados",
+      "data retention",
+      "délai de prescription légal"
+    ],
+    "construction préfabriquée": [
+      "Fertigbau",
+      "construção pré-fabricada",
+      "prefabricated construction",
+      "préfabriqué"
+    ],
+    "constructions démontables ou délabrées": [
+      "abbaufähige Bauten",
+      "constructions faciles à déplacer",
+      "dismountable constructions",
+      "démolition"
+    ],
+    "conséquences pécuniaires": [
+      "dommages financiers",
+      "pecuniary consequences",
+      "responsabilité civile"
+    ],
+    "conséquences pécuniaires responsabilité civile": [
+      "consequências pecuniárias responsabilidade",
+      "dommages corporels et matériels",
+      "finanzielle Folgen Haftpflicht",
+      "pecuniary consequences liability"
+    ],
+    "contact agence de voyage": [
+      "Reiseveranstalter",
+      "organisateur de voyage",
+      "prévenir agence",
+      "travel agency contact"
+    ],
+    "contenu": [
+      "Hausrat",
+      "biens dans le bâtiment",
+      "cours et jardins",
+      "household contents"
+    ],
+    "contenu des appareils": [
+      "Inhalt des Geräts",
+      "contenu d'un appareil",
+      "device contents",
+      "matières contenues"
+    ],
+    "contestation": [
+      "Beschwerde",
+      "complaint",
+      "doléances",
+      "médiation",
+      "reclamação",
+      "réclamation"
+    ],
+    "contestation de l'indemnité": [
+      "délai de paiement",
+      "responsabilités contestées"
+    ],
+    "contrat bénévole": [
+      "avantage gratuit",
+      "contrat gratuit",
+      "prêt à titre gratuit"
+    ],
+    "copie du dossier répressif": [
+      "dossier pénal",
+      "dossier répressif",
+      "fait intentionnel"
+    ],
+    "copropriétaire et locataire": [
+      "aménagements immobiliers",
+      "locataire occupant",
+      "parties communes",
+      "quote-part de propriété"
+    ],
+    "copropriétaires assurés conjointement": [
+      "Miteigentümer",
+      "co-owners jointly insured",
+      "coproprietários",
+      "copropriété"
+    ],
+    "copropriété": [
+      "Miteigentum",
+      "co-ownership",
+      "copropriedade",
+      "propriétaire",
+      "quote-part parties communes"
+    ],
+    "corps de métier": [
+      "Handwerksberufe",
+      "chauffagiste",
+      "plombier",
+      "profissionais especializados",
+      "serrurier",
+      "tradespeople",
+      "électricien"
+    ],
+    "cours": [
+      "courtyards",
+      "hof",
+      "pátio"
+    ],
+    "couverture bagages en voyage": [
+      "Reisegepäck",
+      "bagages emportés",
+      "luggage during travel",
+      "voyage assuré"
+    ],
+    "couverture objet connecté": [
+      "cobertura objeto conectado",
+      "connected device coverage",
+      "couverture appareil connecté",
+      "garantie objet connecté",
+      "garantie smart device"
+    ],
+    "coût de la reconstruction": [
+      "indemnisation calculée",
+      "pourcentage de vétusté",
+      "valeur de remplacement"
+    ],
+    "crimes ou délits volontaires": [
+      "crime intencional",
+      "délit intentionnel",
+      "infraction volontaire",
+      "intentional crime",
+      "vorsätzliche Straftat"
+    ],
+    "crémation à l'étranger": [
+      "Einäscherung im Ausland",
+      "cremation abroad",
+      "cremação no exterior",
+      "inhumation sur place",
+      "rapatriement de l'urne"
+    ],
+    "cuisines équipées": [
+      "Einbauküche",
+      "cozinha equipada",
+      "cuisine équipée",
+      "kitchen"
+    ],
+    "cycles sans moteur": [
+      "bicyclettes",
+      "remorques de cycles",
+      "vélos"
+    ],
+    "demande en réparation": [
+      "Schadensersatzforderung",
+      "claim for damages",
+      "indemnités",
+      "lésés"
+    ],
+    "descendants ascendants conjoint alliés": [
+      "Familienangehörige",
+      "familiares",
+      "famille de l'assuré",
+      "proches parents",
+      "relatives"
+    ],
+    "diminution du risque": [
+      "diminution de la prime",
+      "diminution sensible et durable",
+      "résiliation par le preneur"
+    ],
+    "direction de la procédure": [
+      "changement d'avocat",
+      "gemeinsame Verfahrensführung",
+      "joint conduct of proceedings"
+    ],
+    "dispositifs de sécurité": [
+      "locaux munis de dispositifs",
+      "protection des locaux"
+    ],
+    "divorce": [
+      "Scheidung",
+      "divorce judiciaire",
+      "divorce proceedings",
+      "divórcio",
+      "procédure de divorce"
+    ],
+    "documents constitutifs du contrat": [
+      "conditions d'assurances",
+      "conditions particulières",
+      "proposition d'assurance"
+    ],
+    "documents justificatifs de sinistre": [
+      "certificats de garantie",
+      "devis de restauration",
+      "expertise d'authenticité",
+      "factures d'achat",
+      "photographies"
+    ],
+    "domicile légal": [
+      "domicile",
+      "domicílio legal",
+      "legal domicile"
+    ],
+    "domicilié au Luxembourg": [
+      "résidence habituelle"
+    ],
+    "dommages aux voiles": [
+      "Segelschäden",
+      "danos às velas",
+      "sail damage",
+      "sports aériens",
+      "sports de glisse",
+      "sports nautiques",
+      "voiles endommagées"
+    ],
+    "dommages corporels": [
+      "dommages immatériels",
+      "dommages matériels",
+      "montant garanti par sinistre",
+      "plafond d'indemnisation"
+    ],
+    "dommages couverts": [
+      "covered damages",
+      "danos cobertos",
+      "gedeckte Schäden",
+      "origine des dommages"
+    ],
+    "dommages d'origine électrique": [
+      "Elektroschäden",
+      "dano elétrico",
+      "dommage électrique",
+      "electrical damage",
+      "panne électrique"
+    ],
+    "dommages environnement": [
+      "atteinte environnementale",
+      "environmental damage"
+    ],
+    "dommages esthétiques": [
+      "cosmetic damage",
+      "dano estético",
+      "préjudice esthétique",
+      "ästhetischer Schaden"
+    ],
+    "dommages esthétiques exclus": [
+      "aesthetic damage excluded",
+      "danos estéticos",
+      "dommage purement esthétique",
+      "préjudice esthétique",
+      "ästhetische Schäden"
+    ],
+    "dommages immatériels": [
+      "consequential loss",
+      "perte de jouissance",
+      "préjudice pécuniaire"
+    ],
+    "dommages incendie explosion eau": [
+      "Feuer- und Wasserschäden",
+      "danos de incêndio",
+      "dégâts d'incendie",
+      "fire explosion water damage"
+    ],
+    "dommages matériels": [
+      "Sachschäden",
+      "danos materiais",
+      "dégâts matériels",
+      "material damage"
+    ],
+    "dommages par le feu": [
+      "déplacement du sol",
+      "eau",
+      "explosion",
+      "fumée",
+      "implosion"
+    ],
+    "dommages produits après livraison": [
+      "garantie produits",
+      "product liability",
+      "responsabilité produit livré"
+    ],
+    "dommages à une collection": [
+      "catalogues Yvert et Tellier",
+      "collection de timbres",
+      "dépréciation collection"
+    ],
+    "données à caractère personnel": [
+      "données personnelles",
+      "personal data",
+      "protection des données"
+    ],
+    "droit propre du lésé": [
+      "paiement direct",
+      "personne lésée"
+    ],
+    "droits de tiers": [
+      "Rechte Dritter",
+      "direitos de terceiros",
+      "droits d'autrui",
+      "third-party rights"
+    ],
+    "droits de tiers exclus": [
+      "droits cédés après sinistre",
+      "third party rights excluded"
+    ],
+    "déchéance de garantie": [
+      "Verwirkung des Deckungsanspruchs",
+      "forfeiture of cover"
+    ],
+    "déchéance non opposable": [
+      "annulation du contrat",
+      "loi Chasse 2011",
+      "suspension du contrat",
+      "victimes d'accidents"
+    ],
+    "décision médecin AXA Assistance": [
+      "decisão médica",
+      "décision transport médical",
+      "medical decision",
+      "médecin d'AXA Assistance",
+      "ärztliche Entscheidung"
+    ],
+    "déclaration d'annulation écrite": [
+      "délai 5 jours",
+      "examen médical",
+      "pièces justificatives",
+      "schriftliche Meldung",
+      "written cancellation notice"
+    ],
+    "déclaration de sinistre": [
+      "Schadensmeldung",
+      "claim notification",
+      "declaração de sinistro",
+      "déclarer le sinistre"
+    ],
+    "déclaration du sinistre": [
+      "Schadensmeldung",
+      "circonstances du sinistre",
+      "claim declaration",
+      "constat d'autorité",
+      "déclaration de sinistre",
+      "procès-verbal"
+    ],
+    "déclarations à la souscription": [
+      "déclaration initiale du risque",
+      "preneur d'assurance",
+      "renseignements fournis"
+    ],
+    "décongélation de denrées alimentaires": [
+      "Auftauen",
+      "arrêt production du froid",
+      "denrées périssables",
+      "décongélation",
+      "food thawing"
+    ],
+    "décès d'un proche": [
+      "Tod eines Angehörigen",
+      "allié",
+      "death of a relative",
+      "morte de um familiar",
+      "parent en ligne directe"
+    ],
+    "défaillance objet connecté": [
+      "achat auprès e-commerçant",
+      "atteinte e-réputation",
+      "fraudulent payment use",
+      "identity theft",
+      "usurpation d'identité"
+    ],
+    "défaut d'entretien": [
+      "Wartungsmangel",
+      "défaut de réparation",
+      "falta de manutenção",
+      "lack of maintenance",
+      "étanchéité mal réalisée"
+    ],
+    "défauts de fonctionnement": [
+      "Funktionsstörung",
+      "defeito de funcionamento",
+      "malfunction"
+    ],
+    "défauts esthétiques": [
+      "aesthetic damage",
+      "bosses et rayures",
+      "dommage cosmétique",
+      "défaut d'apparence",
+      "écaillements",
+      "égratignures"
+    ],
+    "défense amiable des intérêts": [
+      "aide amiable",
+      "règlement amiable"
+    ],
+    "défense judiciaire des intérêts": [
+      "défense en justice",
+      "frais de justice",
+      "legal defense"
+    ],
+    "défense pénale": [
+      "Strafrechtsverteidigung",
+      "criminal defense",
+      "defesa penal",
+      "défense en justice"
+    ],
+    "défense pénale exclue": [
+      "ausgeschlossene Strafverteidigung",
+      "crimes correctionnalisés",
+      "defesa penal excluída",
+      "excluded criminal defense",
+      "exclusion défense pénale"
+    ],
+    "définition accident": [
+      "cause de dommages",
+      "imprévu et extérieur",
+      "événement soudain"
+    ],
+    "définition assuré": [
+      "conjoint cohabitant",
+      "enfants à charge",
+      "personnes vivant au foyer",
+      "preneur d'assurance"
+    ],
+    "définition de l’accident": [
+      "Unfallbegriff",
+      "accident definition",
+      "accident défini",
+      "événement soudain et imprévu"
+    ],
+    "définition du bagage": [
+      "Gepäckdefinition",
+      "luggage definition",
+      "objet à usage personnel",
+      "valeurs exclues",
+      "vol par agression"
+    ],
+    "définition du sinistre": [
+      "connexité",
+      "différend",
+      "instance judiciaire"
+    ],
+    "définition tiers": [
+      "dritte",
+      "third party"
+    ],
+    "dégâts de chaleur exclus": [
+      "exclusion sans embrasement",
+      "heat damage exclusion"
+    ],
+    "dégâts des eaux": [
+      "Wasserschäden",
+      "dommages d'eau",
+      "water damage"
+    ],
+    "dégâts matériels": [
+      "Sachschaden",
+      "danos materiais",
+      "dommages matériels",
+      "material damage"
+    ],
+    "dégâts matériels accidentels graves": [
+      "Sachschaden",
+      "danos materiais",
+      "dommages à la résidence",
+      "dégâts résidence principale",
+      "material damage"
+    ],
+    "dégâts par événement soudain": [
+      "contact avec foyer incandescent",
+      "sudden event damage"
+    ],
+    "dégâts électriques": [
+      "Elektroschäden",
+      "action de l'électricité",
+      "dommages électriques",
+      "electrical damage"
+    ],
+    "délai d'attente": [
+      "E-protection",
+      "délai de carence",
+      "waiting period"
+    ],
+    "délai de 72 heures": [
+      "72 Stunden",
+      "72 horas",
+      "72-hour period"
+    ],
+    "délai de carence": [
+      "Wartezeit",
+      "carence",
+      "délai d'attente",
+      "período de carência",
+      "waiting period"
+    ],
+    "délai de quinze jours": [
+      "15 jours",
+      "délai de déclaration",
+      "fifteen days notice"
+    ],
+    "délai de trois mois": [
+      "Fristablauf",
+      "claim deadline",
+      "clôture du sinistre",
+      "délai de réclamation",
+      "prazo de três meses"
+    ],
+    "délaissement des objets retrouvés": [
+      "remboursement de l'indemnité",
+      "reprise des objets retrouvés"
+    ],
+    "dépendances": [
+      "annexes",
+      "caves",
+      "débarras",
+      "garages",
+      "remises"
+    ],
+    "dépôt de plainte": [
+      "Anzeige",
+      "denúncia",
+      "mesures conservatoires",
+      "plainte auprès des autorités",
+      "titres au porteur volés"
+    ],
+    "e-commerçant non identifié": [
+      "commerçant en ligne inconnu",
+      "e-Händler nicht identifiziert",
+      "e-merchant not identified"
+    ],
+    "effraction caractérisée": [
+      "Einbruch",
+      "effraction du coffre",
+      "forced entry",
+      "vol simultané du véhicule"
+    ],
+    "emballage inapproprié": [
+      "absence d'emballage",
+      "dommages transport",
+      "embalagem inadequada",
+      "improper packaging",
+      "transport instruments musique",
+      "unzureichende Verpackung"
+    ],
+    "enfants à charge": [
+      "dependent children",
+      "enfants poursuivant des études",
+      "filhos a cargo",
+      "unterhaltsberechtigte Kinder"
+    ],
+    "engagement de la Compagnie": [
+      "insurer's commitment",
+      "obligations de l'assureur"
+    ],
+    "entrées d'eaux pluviales": [
+      "Regenwassereintritt",
+      "entrada de águas pluviais",
+      "ouvertures non fermées",
+      "rainwater entry"
+    ],
+    "estimation des dommages": [
+      "Schadensschätzung",
+      "damage assessment",
+      "évaluation des dommages"
+    ],
+    "exceptions à la proportionnalité": [],
+    "exclus de la garantie": [
+      "ne sont pas couverts",
+      "nicht gedeckt",
+      "non couvert",
+      "not covered",
+      "não coberto"
+    ],
+    "exclusion bâtiment en construction": [
+      "transformation rénovation bâtiment",
+      "travaux en cours"
+    ],
+    "exclusion condensation": [
+      "dommages par condensation"
+    ],
+    "exclusion corrosion apparente": [
+      "conduites non traitées",
+      "points de corrosion visibles"
+    ],
+    "exclusion infiltrations eaux souterraines": [
+      "eaux souterraines"
+    ],
+    "exclusion porosité des murs": [
+      "porosité murs bâtiments voisins"
+    ],
+    "exclusion tempête et grêle": [
+      "garantie pluies inondations",
+      "événements tempête grêle"
+    ],
+    "exclusion toiture et étanchéité": [
+      "revêtements étanchéité toiture"
+    ],
+    "exclusions": [
+      "Ausschlüsse",
+      "dommages non couverts",
+      "exclusions of cover",
+      "exclusões"
+    ],
+    "exclusions achat bien mobilier": [
+      "achat e-commerçant exclu",
+      "e-commerce purchase exclusion"
+    ],
+    "exclusions assistance aux personnes": [
+      "Ausschlüsse Personenassistenz",
+      "affections bénignes exclues",
+      "maladies chroniques exclues",
+      "personal assistance exclusions"
+    ],
+    "exclusions atteinte e-réputation": [
+      "diffusion volontaire de données",
+      "e-réputation auto-constituée",
+      "exclusion presse et journaliste",
+      "réseaux sociaux"
+    ],
+    "exclusions bris de vitrages": [
+      "Ausschlüsse Glasbruch",
+      "exclusões quebra de vidros",
+      "glass breakage exclusions"
+    ],
+    "exclusions conditions générales": [
+      "Compagnie ne garantit pas",
+      "exclusions communes"
+    ],
+    "exclusions de garantie": [
+      "Ausschlüsse",
+      "coverage exclusions",
+      "exclusions contractuelles",
+      "non garantie pour"
+    ],
+    "exclusions de garantie matériel": [
+      "Ausschlüsse",
+      "exclusions",
+      "exclusões",
+      "frais d'entretien exclus",
+      "montant non compris",
+      "transformation ou amélioration exclue"
+    ],
+    "exclusions dommages extérieurs": [
+      "choc thermique",
+      "construction en cours",
+      "défaut d'entretien",
+      "matériaux légers",
+      "piscines",
+      "toiture légère",
+      "vétusté"
+    ],
+    "exclusions dégâts des eaux": [
+      "dommages non assurés",
+      "exclusions garantie eau"
+    ],
+    "exclusions dégâts électriques": [
+      "fonctionnement défectueux",
+      "garantie du fabricant",
+      "matériel informatique professionnel",
+      "usure",
+      "équipement domotique"
+    ],
+    "exclusions garantie séisme": [
+      "Ausschlüsse Erdbeben",
+      "dommages non couverts",
+      "exclusions earthquake",
+      "exclusões terremoto"
+    ],
+    "exclusions générales": [
+      "allgemeine ausschlüsse",
+      "exclusões gerais",
+      "general exclusions"
+    ],
+    "exclusions générales communes": [
+      "allgemeine Ausschlüsse",
+      "exclusions applicables",
+      "exclusões gerais comuns",
+      "general common exclusions"
+    ],
+    "exclusions générales du contrat": [
+      "allgemeine Ausschlüsse",
+      "conditions générales communes",
+      "exclusions communes",
+      "exclusões gerais",
+      "general exclusions"
+    ],
+    "exclusions matériel multimédia": [
+      "ausschlüsse",
+      "exclusions",
+      "exclusões"
+    ],
+    "exclusions objets personnels": [
+      "ausgeschlossene Gegenstände",
+      "biens exclus",
+      "excluded personal items",
+      "itens excluídos"
+    ],
+    "exclusions pertes indirectes": [
+      "chômage commercial exclu",
+      "dégâts électriques exclus",
+      "garantie vol exclue",
+      "responsabilité civile immeuble exclue"
+    ],
+    "exclusions tempête et grêle": [
+      "dommages non couverts",
+      "exclusions de garantie",
+      "not covered damages"
+    ],
+    "exclusions usurpation d'identité": [
+      "atteinte e-réputation",
+      "exclusions spécifiques identité"
+    ],
+    "exercice d'une profession": [
+      "activité professionnelle exclue",
+      "exclusion professionnelle"
+    ],
+    "explosion ou implosion": [
+      "Explosion",
+      "explosion",
+      "explosion/implosion",
+      "explosão",
+      "implosion"
+    ],
+    "extension des garanties": [
+      "autres biens couverts",
+      "coverage extension",
+      "extension de couverture"
+    ],
+    "extension des risques couverts": [
+      "Risikoerweiterung",
+      "extension de garantie",
+      "risk extension"
+    ],
+    "extension séjour temporaire": [
+      "dommages en déplacement",
+      "séjour temporaire",
+      "temporary stay extension"
+    ],
+    "fait des animaux domestiques": [
+      "certificat de blessure",
+      "chevaux",
+      "frais vétérinaires",
+      "garde d'animaux",
+      "visites sanitaires"
+    ],
+    "fait des choses gardées": [
+      "biens sous garde"
+    ],
+    "fait des enfants mineurs": [
+      "activités extra-scolaires",
+      "activités scolaires",
+      "enfants sous garde gratuite",
+      "garde d'enfants"
+    ],
+    "fait dommageable": [
+      "déclaration de sinistre",
+      "délais d'attente"
+    ],
+    "fait intentionnel": [
+      "acte intentionnel",
+      "ato intencional",
+      "intentional act",
+      "vorsätzliche Handlung"
+    ],
+    "faits exceptionnels": [
+      "außergewöhnliche Umstände",
+      "circonstances exceptionnelles",
+      "exceptional events",
+      "fatos excepcionais"
+    ],
+    "faute intentionnelle": [
+      "dol",
+      "dolo intencional",
+      "intentional fault",
+      "vorsätzliches Verschulden"
+    ],
+    "faute lourde": [
+      "falta grave",
+      "grobe Fahrlässigkeit",
+      "gross negligence",
+      "negligence grave"
+    ],
+    "faute lourde exclue": [
+      "activité rémunérée",
+      "anti-virus",
+      "crimes correctionnalisés",
+      "propriété intellectuelle",
+      "questions douanières ou fiscales"
+    ],
+    "fermeture du véhicule": [
+      "closed vehicle",
+      "geschlossenes Fahrzeug",
+      "portes bloquées",
+      "toit ouvrant fermé",
+      "veículo fechado",
+      "vitrages fermés"
+    ],
+    "fixation de l'indemnité": [
+      "Festsetzung der Entschädigung",
+      "indemnisation",
+      "settlement of indemnity"
+    ],
+    "forfait remonte-pentes": [
+      "Skipass Erstattung",
+      "hospitalisation 24 heures",
+      "rapatriement",
+      "remboursement forfait ski",
+      "ski pass reimbursement"
+    ],
+    "forme de la résiliation": [
+      "Form der Kündigung",
+      "exploit d'huissier",
+      "form of termination",
+      "lettre recommandée",
+      "récépissé de résiliation"
+    ],
+    "formule Active": [
+      "Active formula",
+      "Aktiv-Formel",
+      "extension Active",
+      "fórmula Ativa"
+    ],
+    "formule Privilège": [
+      "Privilege formula",
+      "Privilegformel",
+      "extension Privilège",
+      "fórmula Privilégio"
+    ],
+    "frais administratifs": [
+      "Verwaltungsgebühren",
+      "administrative fees",
+      "despesas administrativas",
+      "frais de retard"
+    ],
+    "frais annexes": [
+      "Nebenkosten",
+      "additional costs",
+      "despesas anexas"
+    ],
+    "frais couverts": [
+      "covered expenses",
+      "coûts pris en charge",
+      "despesas cobertas",
+      "gedeckte Kosten"
+    ],
+    "frais d'entretien exclus": [
+      "coût des pièces remplacées",
+      "entretien matériel",
+      "maintenance costs exclusion"
+    ],
+    "frais d'expertise": [
+      "Gutachterkosten",
+      "despesas de perícia",
+      "expertise costs"
+    ],
+    "frais d'huissier": [
+      "Gerichtsvollzieherkosten",
+      "bailiff fees",
+      "honoraires d'huissier"
+    ],
+    "frais d'hôtel": [
+      "frais de chambre",
+      "frais de petit déjeuner",
+      "hotel costs"
+    ],
+    "frais de cercueil": [
+      "Sargkosten",
+      "coffin costs",
+      "despesas de funeral",
+      "frais de traitement funéraire"
+    ],
+    "frais de déplacement": [
+      "Anfahrtskosten",
+      "frais de dérangement",
+      "taxa de deslocamento",
+      "travel fee"
+    ],
+    "frais de dépollution": [
+      "assainissement des terrains pollués",
+      "décontamination",
+      "dépollution du terrain",
+      "huile minérale",
+      "pollution des sols"
+    ],
+    "frais de gestion interne": [
+      "frais internes exclus",
+      "gestion du dossier"
+    ],
+    "frais de logement provisoire": [
+      "frais d'hôtel",
+      "hébergement provisoire",
+      "provisorische Unterkunftskosten",
+      "relogement temporaire",
+      "temporary accommodation costs"
+    ],
+    "frais de procédure": [
+      "Verfahrenskosten",
+      "legal proceedings costs",
+      "procédure extrajudiciaire",
+      "procédure judiciaire"
+    ],
+    "frais de procédure judiciaire": [
+      "frais d'expertise",
+      "frais d'huissier",
+      "frais de justice",
+      "honoraires d'avocat",
+      "legal fees"
+    ],
+    "frais de réparation exclus": [
+      "Reparaturkosten",
+      "custos de reparação",
+      "défauts de fonctionnement",
+      "repair costs excluded",
+      "réparation non couverte"
+    ],
+    "frais de sauvetage": [
+      "frais de prévention",
+      "limiter le sinistre",
+      "mesures d'urgence",
+      "rescue costs"
+    ],
+    "frais d’expertise": [
+      "Sachverständigenkosten",
+      "expert fees",
+      "frais d'expert désigné",
+      "honoraires d'expert"
+    ],
+    "frais engagés avant déclaration": [
+      "costs incurred before notification",
+      "déclaration de litige",
+      "frais antérieurs"
+    ],
+    "frais non couverts": [
+      "despesas não cobertas",
+      "exclusions de frais",
+      "nicht gedeckte Kosten",
+      "uncovered costs"
+    ],
+    "frais pris en charge": [
+      "covered costs",
+      "despesas cobertas",
+      "frais de procédure",
+      "frais et honoraires couverts",
+      "übernommene Kosten"
+    ],
+    "franchise 10% minimum 1500€": [
+      "Selbstbehaltbetrag",
+      "deductible amount",
+      "valor da franquia"
+    ],
+    "franchise de 1.500€": [
+      "Selbstbehalt",
+      "deductible",
+      "déduction franchise",
+      "franquia"
+    ],
+    "franchise de 125 euros": [
+      "Selbstbehalt",
+      "deductible",
+      "franchise négligence",
+      "franquia"
+    ],
+    "franchise minimale 100 euros": [
+      "Mindestbetrag",
+      "minimum threshold excluded",
+      "montant minimal exclu",
+      "petits dommages exclus",
+      "seuil de 100 €"
+    ],
+    "franchise séisme": [
+      "Selbstbehalt Erdbeben",
+      "deductible earthquake",
+      "franquia terremoto"
+    ],
+    "fumées et suies": [
+      "Rauch und Ruß",
+      "fumaça e fuligem",
+      "fumée",
+      "smoke and soot",
+      "suie"
+    ],
+    "garage à usage privé": [
+      "garage locataire",
+      "garage propriétaire",
+      "private garage"
+    ],
+    "garages": [
+      "garage",
+      "garagem"
+    ],
+    "garages et parkings": [
+      "parking privé",
+      "private garage",
+      "usage privé"
+    ],
+    "garantie bagages": [
+      "Gepäckversicherung",
+      "assurance bagages",
+      "luggage cover"
+    ],
+    "garantie complémentaire": [
+      "Zusatzdeckung",
+      "cobertura complementar",
+      "complementary cover",
+      "complément d'assurance",
+      "responsabilité civile personnelle"
+    ],
+    "garantie dégâts des eaux": [
+      "Wasserschadenversicherung",
+      "dégâts d'eau",
+      "garantie eaux",
+      "water damage cover"
+    ],
+    "garantie incendie accordée": [
+      "Feuerdeckung",
+      "conditions particulières",
+      "fire coverage granted",
+      "garantia de incêndio"
+    ],
+    "garantie matériel multimédia": [
+      "couverture multimédia",
+      "garantie multimedia",
+      "multimedia equipment cover"
+    ],
+    "garantie monde entier": [
+      "couverture mondiale",
+      "weltweite Deckung",
+      "worldwide coverage"
+    ],
+    "garantie pluies & inondations": [
+      "cobertura de enchentes",
+      "conditions spéciales inondation",
+      "flood coverage",
+      "Überschwemmungsdeckung"
+    ],
+    "garantie protection juridique": [
+      "conditions particulières",
+      "responsabilité civile chasse",
+      "responsabilité civile vie privée"
+    ],
+    "garantie tremblement de terre": [
+      "Erdbebendeckung",
+      "cobertura terremoto",
+      "conditions spéciales séisme",
+      "earthquake coverage"
+    ],
+    "garantie vol": [
+      "Diebstahlversicherung",
+      "assurance vol",
+      "cobertura de roubo",
+      "theft coverage"
+    ],
+    "garantie vol accordée": [
+      "conditions particulières vol",
+      "garantia de roubo concedida",
+      "gewährte Diebstahlgarantie",
+      "theft guarantee granted"
+    ],
+    "garanties de base souscrites": [
+      "dégâts électriques",
+      "incendie et périls connexes",
+      "tempête et grêle"
+    ],
+    "garanties du contrat": [
+      "assistance handyman",
+      "bris de vitrages",
+      "dégâts électriques",
+      "incendie et périls assimilés",
+      "responsabilité locataire copropriétaire propriétaire",
+      "tempête et grêle",
+      "vol"
+    ],
+    "garanties monde entier": [
+      "dommages aux biens",
+      "e-protection",
+      "matériel multimédia nomade",
+      "responsabilité civile vie privée",
+      "voyage annulation bagages"
+    ],
+    "garanties souscrites": [
+      "caractéristiques souscrites",
+      "conditions particulières souscrites"
+    ],
+    "garde d'enfants mineurs": [
+      "Kinderbetreuung",
+      "childcare",
+      "garde à titre gratuit",
+      "guarda de menores"
+    ],
+    "glissement de terrain": [
+      "Erdrutsch",
+      "affaissement de terrain",
+      "deslizamento de terra",
+      "landslide"
+    ],
+    "grève": [
+      "Streik",
+      "arrêt concerté du travail",
+      "salariés",
+      "strike"
+    ],
+    "guerre grève émeute": [
+      "Krieg Streik Aufruhr",
+      "cataclysme naturel",
+      "guerra greve tumulto",
+      "guerre civile",
+      "war strike riot"
+    ],
+    "habitation de l'Assuré": [
+      "bâtiment désigné",
+      "habitação segurada",
+      "home insured",
+      "logement assuré",
+      "résidence assurée",
+      "versichertes Haus"
+    ],
+    "habitation inhabitable": [
+      "inabitável",
+      "oubli de clé",
+      "ouverture de porte",
+      "perte de clé",
+      "unbewohnbar",
+      "unfit for habitation",
+      "vol de clé"
+    ],
+    "heurt": [
+      "Stoßschaden",
+      "collision",
+      "impact"
+    ],
+    "honoraires d'avocat": [
+      "Anwaltskosten",
+      "frais d'avocat",
+      "honorários de advogado",
+      "lawyer fees"
+    ],
+    "humidité et condensation": [
+      "Feuchtigkeit und Kondensation",
+      "capillarité",
+      "humidade e condensação",
+      "humidity and condensation",
+      "porosité"
+    ],
+    "hygrométrie ambiante": [
+      "Luftfeuchtigkeit",
+      "condensation",
+      "humidity",
+      "humidité ambiante",
+      "umidade ambiente"
+    ],
+    "hébergeant ne peut accueillir": [
+      "Gastgeber",
+      "anfitrião",
+      "host unable to receive",
+      "personne chez qui loger"
+    ],
+    "incendie": [
+      "Feuer",
+      "destruction par les flammes",
+      "fire",
+      "garantie incendie",
+      "incêndio"
+    ],
+    "incendie et périls assimilés": [
+      "Feuerversicherung",
+      "fire and related perils",
+      "garantie incendie",
+      "incêndio e riscos assimilados"
+    ],
+    "incident médical": [
+      "maladie ou accident",
+      "medical incident"
+    ],
+    "indemnisation": [
+      "Entschädigung",
+      "compensation",
+      "indemnité",
+      "indenização"
+    ],
+    "indemnisation des bijoux": [
+      "Schmuckentschädigung",
+      "jewelry compensation",
+      "joias",
+      "remplacement bijoux",
+      "réparation bijoux"
+    ],
+    "indemnisation des pièces endommagées": [
+      "compensation for damaged parts",
+      "indemnité pour pièces endommagées",
+      "paiement pour pièces détériorées"
+    ],
+    "indemnisation du bâtiment désigné": [
+      "bâtiment sinistré",
+      "règles complémentaires d'indemnisation"
+    ],
+    "indemnisation du mobilier": [
+      "Mobiliarentschädigung",
+      "household contents indemnification",
+      "règles complémentaires mobilier"
+    ],
+    "indemnisation du préjudice": [
+      "limite globale 5000 €",
+      "offre définitive d'indemnisation"
+    ],
+    "indemnisation du préjudice subi": [
+      "compensation du dommage",
+      "remboursement du préjudice"
+    ],
+    "indemnité non payée": [],
+    "indexation des montants assurés": [
+      "adaptation automatique des montants",
+      "indexation"
+    ],
+    "indice STATEC": [
+      "Verbraucherpreisindex",
+      "consumer price index"
+    ],
+    "indice applicable": [
+      "applicable index",
+      "indexation index",
+      "índice aplicável"
+    ],
+    "infiltration accidentelle par toiture": [
+      "infiltration ciel vitré",
+      "infiltration loggia",
+      "infiltration terrasse balcon"
+    ],
+    "infiltrations d'eaux souterraines": [
+      "Grundwassereintritt",
+      "groundwater infiltration",
+      "infiltração de águas subterrâneas"
+    ],
+    "infraction circulation piétons": [
+      "blessures involontaires",
+      "contravention circulation",
+      "délit vie privée",
+      "homicide involontaire chasse"
+    ],
+    "inoccupation des locaux": [
+      "imóvel desocupado",
+      "résidence secondaire inoccupée",
+      "unbewohnt",
+      "unoccupied premises",
+      "vacance des locaux"
+    ],
+    "inoccupation résidence principale": [
+      "Leerstand Hauptwohnsitz",
+      "desocupação residência principal",
+      "main residence vacancy",
+      "vacance résidence principale"
+    ],
+    "inoccupation résidence secondaire": [
+      "Leerstand Zweitwohnsitz",
+      "desocupação residência secundária",
+      "secondary residence vacancy",
+      "vacance résidence secondaire"
+    ],
+    "inondation": [
+      "crue",
+      "débordement d'égouts",
+      "flood",
+      "inundação",
+      "refoulement d'égouts",
+      "ruissellement",
+      "Überschwemmung"
+    ],
+    "insolvabilité des tiers": [
+      "garantie insolvabilité",
+      "responsable insolvable",
+      "tiers insolvable"
+    ],
+    "inspection du risque assuré": [
+      "droit d'inspection",
+      "risk inspection",
+      "évaluation du risque"
+    ],
+    "installation fixe": [
+      "chaudière",
+      "chauffage central",
+      "climatisation",
+      "domotique",
+      "fest installierte Anlage",
+      "fixed installation",
+      "instalação fixa"
+    ],
+    "installations photovoltaïques": [
+      "painéis solares",
+      "panneaux solaires",
+      "photovoltaikanlagen",
+      "solar panels"
+    ],
+    "instruments de musique exclus": [
+      "Musikinstrumente ausgeschlossen",
+      "casse des cordes",
+      "instrumentos musicais excluídos",
+      "musical instruments excluded",
+      "peaux et anches",
+      "vices de sonorité"
+    ],
+    "interruption volontaire de grossesse": [
+      "IVG",
+      "Schwangerschaftsabbruch",
+      "abortion",
+      "annulation grossesse"
+    ],
+    "intervention domestique": [
+      "domestic intervention",
+      "häuslicher Einsatz",
+      "intervenção doméstica",
+      "problème technique"
+    ],
+    "intervention du réparateur": [
+      "400 euros maximum",
+      "Einsatzbegrenzung",
+      "deux interventions par an",
+      "limite d'intervention",
+      "limite de intervenção",
+      "repair intervention"
+    ],
+    "intoxication alcoolique": [
+      "Trunkenheit",
+      "alcohol intoxication",
+      "embriaguez",
+      "ivresse",
+      "état alcoolique"
+    ],
+    "intoxication alimentaire": [
+      "Lebensmittelvergiftung",
+      "empoisonnement alimentaire",
+      "food poisoning",
+      "intoxicação alimentar"
+    ],
+    "jardins et terrains": [
+      "gardens and land",
+      "superficie 2 hectares"
+    ],
+    "juridiction compétente": [
+      "Gerichtsstand",
+      "competent jurisdiction",
+      "compétence exclusive",
+      "jurisdição competente",
+      "tribunaux compétents"
+    ],
+    "justificatif de commande": [
+      "Kaufnachweis",
+      "comprovativo de encomenda",
+      "confirmation de commande",
+      "preuve d'achat",
+      "proof of purchase"
+    ],
+    "lampes, tubes et fusibles": [
+      "bandes transporteuses",
+      "chaînes mécaniques",
+      "fusibles",
+      "joints et courroies",
+      "pièces d'usure",
+      "tubes et lampes"
+    ],
+    "les garages": [
+      "covered garages",
+      "garage à usage privé",
+      "garages assurés"
+    ],
+    "lexique": [
+      "Begriffsbestimmungen",
+      "definitions",
+      "définitions",
+      "glossaire",
+      "glossário"
+    ],
+    "lieu d'assurance": [
+      "insured location",
+      "lieu assuré",
+      "local seguro",
+      "situé au Luxembourg",
+      "versicherter Ort"
+    ],
+    "limite de 90 jours": [
+      "90 Tage Grenze",
+      "90 day limit",
+      "durée maximale du voyage",
+      "déplacements de 90 jours"
+    ],
+    "limite de réversibilité 30%": [
+      "garantie vol réversibilité",
+      "même ensemble de biens"
+    ],
+    "limite garantie vol Active": [
+      "argent comptant 1500 €",
+      "montant garantie vol",
+      "objets de valeur 40%"
+    ],
+    "limite globale de 5000 €": [
+      "limite annuelle",
+      "plafond d'indemnisation"
+    ],
+    "limite objets de valeur": [
+      "1500 € par sinistre",
+      "500 €",
+      "750 € par sinistre",
+      "argent comptant",
+      "meubles d'époque",
+      "pierres précieuses",
+      "timbres de collection"
+    ],
+    "limites d'indemnité": [
+      "indemnity limits",
+      "limite de garantie",
+      "limites d'indemnisation"
+    ],
+    "litige e-réputation": [
+      "hébergeur",
+      "responsable localisé",
+      "éditeur du site"
+    ],
+    "local pour fête privée": [
+      "local loué",
+      "location pour fête",
+      "private party venue",
+      "salle de fête"
+    ],
+    "lock-out": [
+      "Aussperrung",
+      "conflit du travail",
+      "fermeture provisoire",
+      "lockout"
+    ],
+    "logement temporairement inhabitable": [
+      "relogement",
+      "temporary uninhabitable",
+      "transfert de garantie"
+    ],
+    "loi applicable": [
+      "anwendbares Recht",
+      "droit luxembourgeois",
+      "governing law",
+      "lei aplicável"
+    ],
+    "maison de repos": [
+      "Pflegeheim",
+      "nursing home"
+    ],
+    "maladie": [
+      "Krankheit",
+      "doença",
+      "illness",
+      "trouble de la santé"
+    ],
+    "maladies psychotiques ou mentales": [
+      "doença mental",
+      "maladie mentale sans hospitalisation",
+      "mental illness",
+      "psychische Erkrankung",
+      "troubles nerveux"
+    ],
+    "matériel d'assistance médicale": [
+      "medical equipment",
+      "medizinisches Hilfsmittel",
+      "pompe à insuline",
+      "pompe à oxygène",
+      "prothèse auditive",
+      "vétusté 20%"
+    ],
+    "matériel de chasse": [
+      "Jagdmaterial",
+      "hunting equipment",
+      "miradors de chasse"
+    ],
+    "matériel multimédia": [
+      "Multimediageräte",
+      "equipamento multimédia",
+      "multimedia equipment"
+    ],
+    "mauvaise exécution du service": [
+      "execução deficiente",
+      "exécution défectueuse",
+      "mangelhafte Ausführung",
+      "non-exécution",
+      "service failure"
+    ],
+    "mesures de sécurité": [
+      "Sicherheitsvorkehrungen",
+      "medidas de segurança",
+      "security measures"
+    ],
+    "mesures obligatoires de sécurité": [
+      "medidas de segurança obrigatórias",
+      "obligatorische Sicherheitsmaßnahmen",
+      "obligatory safety measures",
+      "sécurité obligatoire"
+    ],
+    "mobilier": [
+      "furniture",
+      "meubles",
+      "mobiliar"
+    ],
+    "mobilier de jardin": [
+      "Gartenmöbel",
+      "chaises longues",
+      "garden furniture",
+      "meubles de jardin",
+      "mobiliário de jardim"
+    ],
+    "modification du tarif": [
+      "Tarifänderung",
+      "adaptation tarifaire",
+      "alteração de tarifa",
+      "tariff change",
+      "échéance annuelle"
+    ],
+    "montant de la garantie": [
+      "Deckungssumme",
+      "coverage amount",
+      "limite de garantie"
+    ],
+    "montant des garanties": [
+      "8658 euros par sinistre",
+      "limite d'intervention",
+      "plafond de garantie"
+    ],
+    "mouvement populaire": [
+      "désordre populaire",
+      "movimento popular",
+      "popular movement",
+      "volksbewegung"
+    ],
+    "mouvements de terrain": [
+      "glissement de terrain",
+      "landslide"
+    ],
+    "moyens de transport sanitaire": [
+      "ambulance",
+      "avion sanitaire",
+      "medical transport means",
+      "véhicule sanitaire léger"
+    ],
+    "métal précieux": [
+      "edelmetall",
+      "metal precioso",
+      "or argent platine vermeil",
+      "precious metal"
+    ],
+    "non intervention du prestataire": [
+      "absence de solution",
+      "non intervention illégitime"
+    ],
+    "non-reconstitution du mobilier": [
+      "80% des dommages estimés",
+      "vétusté déduite mobilier"
+    ],
+    "non-reconstruction": [
+      "80% des dommages",
+      "non-remplacement",
+      "réduction de la prestation",
+      "vétusté déduite"
+    ],
+    "nouvelle adresse": [
+      "ancienne adresse",
+      "changement de domicile",
+      "déménagement",
+      "transfert de garanties"
+    ],
+    "objets de valeur": [
+      "Wertgegenstände",
+      "bijoux et métaux précieux",
+      "objetos de valor",
+      "valuables"
+    ],
+    "objets en verre": [
+      "Glasgegenstände",
+      "glass objects",
+      "lustres vases vaisselle",
+      "objetos de vidro"
+    ],
+    "objets ou animaux confiés": [
+      "dommages aux biens confiés",
+      "garde d'animaux",
+      "garde d'objets"
+    ],
+    "objets personnels en séjour": [
+      "biens déplacés en voyage",
+      "objets déplacés",
+      "sans règle proportionnelle",
+      "séjour temporaire"
+    ],
+    "objets volés retrouvés": [
+      "objetos roubados recuperados",
+      "stolen items recovered"
+    ],
+    "obligation de prévention": [
+      "Präventionspflicht",
+      "dever de prevenção",
+      "obligation de précaution",
+      "prevention duty"
+    ],
+    "obligations de l’assuré": [
+      "engagements de l’assuré",
+      "paiement du prestataire",
+      "policyholder duties",
+      "présence au rendez-vous"
+    ],
+    "occupation irrégulière": [
+      "irregular occupancy",
+      "ocupação irregular",
+      "unregelmäßige Bewohnung"
+    ],
+    "occupation régulière": [
+      "ocupação regular",
+      "regelmäßige Bewohnung",
+      "regular occupancy"
+    ],
+    "omission intentionnelle": [
+      "déclin de garantie",
+      "inexactitude intentionnelle",
+      "nullité du contrat",
+      "remboursement des indemnités"
+    ],
+    "omission non intentionnelle": [
+      "déclaration inexacte non intentionnelle",
+      "délai d'un mois",
+      "modification du contrat",
+      "résiliation par la compagnie"
+    ],
+    "organisation de la prestation": [
+      "Organisation der Dienstleistung",
+      "délai de 2 heures",
+      "délai de 48 heures",
+      "organização do serviço",
+      "service organization"
+    ],
+    "outillage et appareils ménagers": [
+      "appareils domestiques",
+      "équipement ménager"
+    ],
+    "paiement de l'indemnité": [
+      "Zahlung der Entschädigung",
+      "payment of indemnity",
+      "versement indemnité"
+    ],
+    "paiement de la prime": [
+      "Prämienzahlung",
+      "modalités de paiement",
+      "pagamento do prémio",
+      "premium payment"
+    ],
+    "paris ou défis": [
+      "Wetten oder Mutproben",
+      "apostas ou desafios",
+      "bets or dares",
+      "paris sportifs"
+    ],
+    "paris, crimes, rixes": [
+      "Schlägerei",
+      "bagarre",
+      "brawls and crimes",
+      "brigas e crimes",
+      "légitime défense"
+    ],
+    "pays déconseillé": [
+      "Ministère des Affaires Etrangères",
+      "Reisewarnung",
+      "déclaration officielle",
+      "travel warning",
+      "zone de troubles"
+    ],
+    "personnel de chasse": [
+      "Jagdpersonal",
+      "employés de chasse",
+      "hunting staff"
+    ],
+    "personnel domestique en service": [
+      "domestique",
+      "employé de maison",
+      "fait du personnel"
+    ],
+    "personnes vivant au foyer": [
+      "Haushaltsmitglieder",
+      "household members",
+      "membres du foyer",
+      "membros do agregado",
+      "occupants du logement"
+    ],
+    "perte de loyer": [
+      "Mietverlust",
+      "bailleur",
+      "charges locatives",
+      "loss of rent"
+    ],
+    "pertes de données": [
+      "Datenverlust",
+      "data loss",
+      "perda de dados",
+      "perte d'informations numériques"
+    ],
+    "pertes indirectes": [
+      "consequential loss",
+      "dommages indirects",
+      "indirekte Schäden",
+      "perdas indiretas",
+      "pertes consécutives",
+      "préjudice indirect"
+    ],
+    "pertes indirectes exclues": [
+      "conséquences indirectes",
+      "dommages indirects",
+      "indirect losses excluded",
+      "indirekte Schäden",
+      "perdas indiretas",
+      "préjudice indirect"
+    ],
+    "pierres précieuses": [
+      "diamant",
+      "edelsteine",
+      "gemstones",
+      "perles de culture",
+      "perles naturelles",
+      "rubis",
+      "saphir",
+      "émeraude"
+    ],
+    "pique-nique camping caravaning": [
+      "Camping",
+      "activités de plein air",
+      "camping",
+      "caravaning",
+      "outdoor activities"
+    ],
+    "pièces complémentaires": [
+      "documents additionnels"
+    ],
+    "pièces justificatives": [
+      "documents justificatifs",
+      "preuves à fournir"
+    ],
+    "pièces justificatives fraude bancaire": [
+      "dépôt de plainte",
+      "relevés bancaires",
+      "récépissé de plainte",
+      "transaction frauduleuse"
+    ],
+    "plafond 20.000€": [
+      "20,000 euro limit",
+      "Höchstgrenze 20.000€",
+      "intervention maximale zone inondable"
+    ],
+    "plafond 250.000€": [
+      "250,000 euro limit",
+      "Höchstgrenze 250.000€",
+      "intervention maximale",
+      "limite d'indemnisation"
+    ],
+    "plafond formule Privilège Active": [
+      "limite 10000 euros",
+      "limite 5000 euros",
+      "plafond sans proportionnelle"
+    ],
+    "plafonds d'indemnisation": [
+      "Entschädigungsgrenzen",
+      "indemnity limits",
+      "limites de garantie",
+      "limites de indemnização",
+      "montants par sinistre"
+    ],
+    "plainte auprès des autorités": [
+      "Anzeige bei den Behörden",
+      "denúncia às autoridades",
+      "dépôt de plainte police",
+      "police report filed"
+    ],
+    "pluies et inondations": [
+      "cheia",
+      "enchente",
+      "flood",
+      "inondation",
+      "Überschwemmung"
+    ],
+    "pluies torrentielles": [
+      "Starkregen",
+      "chuvas torrenciais",
+      "orage violent",
+      "torrential rain"
+    ],
+    "pluralités d'assurances": [
+      "Mehrfachversicherung",
+      "clé de répartition",
+      "multiple insurance",
+      "pluralidade de seguros",
+      "épuisement des garanties"
+    ],
+    "pollution accidentelle": [
+      "atteinte à l'environnement",
+      "pollution de l'atmosphère",
+      "pollution des eaux",
+      "pollution du sol"
+    ],
+    "pollutions et nuisances": [
+      "bruit poussières ondes",
+      "nuisance",
+      "privation de vue"
+    ],
+    "poursuites pénales": [
+      "Strafverfahren",
+      "criminal proceedings",
+      "processo penal",
+      "procédure pénale"
+    ],
+    "première tranche d'indemnité": [
+      "clôture de l'expertise",
+      "indemnité minimale",
+      "trente jours"
+    ],
+    "preneur d'assurance": [
+      "Versicherungsnehmer",
+      "policyholder",
+      "souscripteur",
+      "tomador do seguro"
+    ],
+    "prescription": [
+      "Verjährung",
+      "action prescrite",
+      "délai de prescription",
+      "limitation period",
+      "prescrição"
+    ],
+    "prestataire à domicile": [
+      "Handwerker vor Ort",
+      "cadre domestique",
+      "home repair provider",
+      "petits travaux à domicile",
+      "prestador a domicílio"
+    ],
+    "prestations non sollicitées": [
+      "accord d'AXA Assistance",
+      "attestation des autorités locales",
+      "non-reimbursable services",
+      "remboursement à posteriori"
+    ],
+    "principe de répartition": [
+      "groupe I",
+      "groupe II",
+      "répartition des garanties"
+    ],
+    "privation de jouissance immobilière": [
+      "loss of enjoyment",
+      "occupant à titre gratuit",
+      "valeur locative"
+    ],
+    "procédure arbitrale": [
+      "Schiedsverfahren",
+      "arbitrage",
+      "arbitration procedure",
+      "procedimento arbitral"
+    ],
+    "produits toxiques": [
+      "substances toxiques",
+      "toxic products",
+      "toxische Produkte"
+    ],
+    "produits toxiques non autorisés": [
+      "autorisation préalable",
+      "emploi de produits toxiques",
+      "toxic substances"
+    ],
+    "proportionnalité des montants": [
+      "montants assurés insuffisants"
+    ],
+    "proportionnalité des primes": [
+      "prime due",
+      "prime payée"
+    ],
+    "prospection commerciale": [
+      "Direktmarketing",
+      "direct marketing",
+      "marketing direct",
+      "prospecção comercial"
+    ],
+    "protection des données": [
+      "Datenschutz",
+      "data protection",
+      "proteção de dados",
+      "secret professionnel",
+      "traitement des données personnelles"
+    ],
+    "protection juridique immeuble": [
+      "Rechtsschutzversicherung",
+      "assistance juridique bâtiment",
+      "assurance protection juridique",
+      "défense pénale et recours",
+      "garantie protection juridique",
+      "legal protection insurance",
+      "proteção jurídica"
+    ],
+    "précautions utiles": [
+      "Vorsichtsmaßnahmen",
+      "mesures de prévention",
+      "precautionary measures",
+      "recommandations du fabricant"
+    ],
+    "présence d'amiante": [
+      "dispersion d'amiante",
+      "exclusion amiante",
+      "fibres d'amiante"
+    ],
+    "pénalités et amendes": [
+      "Geldstrafen",
+      "fines and penalties",
+      "multas e penalidades"
+    ],
+    "période de garantie": [
+      "Versicherungszeitraum",
+      "coverage period",
+      "délai de réclamation",
+      "período de garantia"
+    ],
+    "radiations ionisantes": [
+      "dommages directs indirects",
+      "ionizing radiation",
+      "noyau atomique"
+    ],
+    "rapatriement": [
+      "Rückführung",
+      "repatriation",
+      "repatriação",
+      "retour au domicile"
+    ],
+    "rapatriement suite incident médical": [
+      "medical repatriation",
+      "medizinischer Rücktransport",
+      "repatriamento médico",
+      "transfert vers centre médical",
+      "transport sanitaire"
+    ],
+    "rapport montant assuré/dû": [
+      "indemnisation proportionnelle",
+      "sous-assurance"
+    ],
+    "rayonnement radioactif": [
+      "effet radioactif",
+      "interdictions officielles",
+      "radioactivity",
+      "radioaktive Strahlung"
+    ],
+    "rayures et égratignures": [
+      "Kratzer",
+      "arranhões",
+      "scratches",
+      "écaillements"
+    ],
+    "recherche du défaut électrique": [
+      "remise en état"
+    ],
+    "reconnaissance de responsabilité": [
+      "Haftungsanerkenntnis",
+      "admission of liability",
+      "fixation de dommage",
+      "promesse d'indemnisation",
+      "transaction"
+    ],
+    "reconstitution du mobilier": [
+      "remplacement du mobilier",
+      "valeur à neuf mobilier"
+    ],
+    "reconstitution du mobilier sinistré": [
+      "indemnité minimale mobilier",
+      "première tranche mobilier"
+    ],
+    "recours contre un tiers": [
+      "Regressanspruch",
+      "action en recours",
+      "recours civil",
+      "recours contre responsable",
+      "recovery action",
+      "recurso contra terceiro"
+    ],
+    "recours des tiers": [
+      "responsabilité civile tiers",
+      "third party recourse"
+    ],
+    "refus de deuxième intervention": [
+      "recusa de segunda intervenção",
+      "réparation définitive non réalisée",
+      "second intervention refusal",
+      "zweite Intervention verweigert"
+    ],
+    "relevés bancaires": [
+      "bank statements",
+      "extraits de compte"
+    ],
+    "remboursement de la caution": [
+      "délai de remboursement",
+      "remboursement immédiat",
+      "restitution de la caution"
+    ],
+    "renonciation à recours": [
+      "Regressverzicht",
+      "abandon de recours",
+      "renonciation au recours",
+      "renúncia ao recurso",
+      "waiver of recourse"
+    ],
+    "responsabilité civile extracontractuelle": [
+      "RC extracontractuelle",
+      "außervertragliche Haftung",
+      "garantie RC",
+      "responsabilidade civil extracontratual",
+      "responsabilité civile hors contrat",
+      "tort liability"
+    ],
+    "responsabilité civile immeuble": [
+      "RC immeuble",
+      "garantie responsabilité civile bâtiment",
+      "haftpflicht gebäude",
+      "responsabilidade civil imóvel"
+    ],
+    "responsabilité civile obligatoire": [
+      "Pflichthaftpflicht",
+      "assurance RC obligatoire",
+      "compulsory civil liability",
+      "responsabilidade civil obrigatória",
+      "responsabilité chasse"
+    ],
+    "responsabilité civile personnelle": [
+      "personal liability",
+      "personnel de chasse",
+      "persönliche Haftpflicht",
+      "tiers"
+    ],
+    "responsabilité civile vie privée": [
+      "Privathaftpflicht",
+      "RC vie privée",
+      "private liability",
+      "responsabilidade civil vida privada"
+    ],
+    "responsabilité contractuelle": [
+      "contractual liability",
+      "litige contractuel",
+      "responsabilidade contratual",
+      "vertragliche Haftung"
+    ],
+    "responsabilité du fabricant": [
+      "Herstellerhaftung",
+      "garantie contractuelle",
+      "garantie fabricant",
+      "manufacturer liability",
+      "responsabilidade do fabricante",
+      "responsabilité contractuelle",
+      "responsabilité du fournisseur",
+      "responsabilité légale du fournisseur"
+    ],
+    "responsabilité du locataire": [
+      "occupant partiel du bâtiment"
+    ],
+    "retour des animaux domestiques": [
+      "Rücktransport Haustiere",
+      "chien chat rapatriement",
+      "pet return"
+    ],
+    "règle de proportionnalité": [
+      "Proportionalitätsregel",
+      "proportionality rule"
+    ],
+    "règle proportionnelle": [
+      "2.500 € par sinistre",
+      "indemnisation sans règle proportionnelle",
+      "proportional rule"
+    ],
+    "récidive et situations assimilées": [
+      "Rückfall",
+      "dépôt de plainte antérieur",
+      "reincidência",
+      "repeat offense",
+      "récidivisme"
+    ],
+    "récupération d’objets volés": [
+      "aviser la Compagnie",
+      "gefundene gestohlene Gegenstände",
+      "objetos roubados recuperados",
+      "objets volés retrouvés",
+      "recovered stolen goods"
+    ],
+    "réduction d'indemnité": [
+      "aggravation du préjudice",
+      "bon père de famille"
+    ],
+    "réparateur": [
+      "Reparaturdienst",
+      "repairman",
+      "reparador",
+      "société de services",
+      "technicien mandaté"
+    ],
+    "réparation des dommages corporels": [
+      "dommages et intérêts",
+      "dommages matériels",
+      "droit de recours",
+      "voies de recours"
+    ],
+    "réparation du préjudice": [
+      "compensation of damages",
+      "dommages corporels et matériels",
+      "recours judiciaire",
+      "réclamation amiable"
+    ],
+    "réparation provisoire": [
+      "provisional repair",
+      "reparação provisória",
+      "réparation temporaire",
+      "vorläufige Reparatur"
+    ],
+    "répartition de l'excédent": [
+      "insuffisance des montants",
+      "montants assurés excédentaires"
+    ],
+    "résidence de remplacement": [
+      "logement de remplacement",
+      "logement temporaire",
+      "replacement residence"
+    ],
+    "résidence de villégiature": [
+      "résidence de vacances",
+      "résidence secondaire",
+      "vacation residence"
+    ],
+    "résidence principale": [
+      "biens immobiliers",
+      "logement principal"
+    ],
+    "résidence principale au Luxembourg": [
+      "cobertura mundial",
+      "monde entier",
+      "weltweiter Geltungsbereich",
+      "worldwide coverage",
+      "étendue mondiale"
+    ],
+    "résidence secondaire": [
+      "Zweitwohnsitz",
+      "locaux professionnels",
+      "residência secundária",
+      "second home",
+      "vol de bicyclettes"
+    ],
+    "résidences secondaires": [
+      "Luxembourg",
+      "Zweitwohnsitz",
+      "second homes"
+    ],
+    "résiliation RC Chasse": [
+      "Jagdhaftpflicht Kündigung",
+      "couverture RC Chasse",
+      "hunting liability termination",
+      "loi sur la chasse"
+    ],
+    "résiliation du contrat": [
+      "Kündigung des Vertrags",
+      "contract termination",
+      "fin du contrat",
+      "resolução do contrato",
+      "résiliation"
+    ],
+    "résiliation par la Compagnie": [
+      "Kündigung durch Versicherer",
+      "cancellation by insurer",
+      "résiliation après sinistre"
+    ],
+    "résiliation par le Preneur": [
+      "Kündigung durch Versicherungsnehmer",
+      "cancellation by policyholder",
+      "lettre recommandée de résiliation",
+      "rescisão pelo tomador",
+      "résiliation à l'échéance"
+    ],
+    "résiliation par le curateur": [
+      "Kündigung durch Insolvenzverwalter",
+      "liquidator termination"
+    ],
+    "résiliation pour aggravation": [
+      "Kündigung wegen Gefahrenerhöhung",
+      "rescisão por agravamento",
+      "résiliation du contrat",
+      "termination for increased risk"
+    ],
+    "réversibilité": [
+      "Reversibility",
+      "Übertragbarkeit"
+    ],
+    "sabotage": [
+      "entrave à la circulation",
+      "sabotage act",
+      "sabotageakt"
+    ],
+    "saisie par autorités publiques": [
+      "Beschlagnahme",
+      "confisco pelas autoridades",
+      "saisie douane",
+      "saisie police",
+      "seizure by authorities"
+    ],
+    "serres à usage privé": [
+      "estufas privadas",
+      "gewächshäuser",
+      "private greenhouses"
+    ],
+    "serrure de sûreté": [
+      "barreaux métalliques",
+      "verrou de sûreté",
+      "volet de sécurité"
+    ],
+    "service d'assistance": [
+      "AXA Assistance",
+      "Beistand",
+      "assistance",
+      "assistance service",
+      "assistance voyage",
+      "assistência",
+      "help service"
+    ],
+    "services amiables au sinistre": [
+      "amicable dispute resolution",
+      "résolution amiable"
+    ],
+    "seuil de 60 euros": [
+      "franchise de 60 €",
+      "minimum claim threshold",
+      "montant minimum de dommage",
+      "seuil d'indemnisation"
+    ],
+    "sinistre avec le transporteur": [
+      "Transportkonflikt",
+      "conflit livreur",
+      "conflito com transportador",
+      "dommage transport",
+      "litige transporteur",
+      "transport dispute"
+    ],
+    "sinistre partiel": [
+      "Teilschaden",
+      "dommage partiel",
+      "partial loss",
+      "sinistro parcial"
+    ],
+    "sinistre total": [
+      "Totalschaden",
+      "perte totale",
+      "sinistro total",
+      "total loss"
+    ],
+    "sinistres liés aux déplacements": [
+      "travel-related claims",
+      "usage de véhicule"
+    ],
+    "sommes avancées": [
+      "droits de l'Assuré",
+      "récupération de sommes"
+    ],
+    "sommes en principal": [
+      "Hauptforderung",
+      "accessoires du litige",
+      "principal sums owed"
+    ],
+    "sort des biens sinistrés": [
+      "Schadensgut",
+      "bens sinistrados",
+      "biens sinistrés",
+      "damaged goods disposal",
+      "reprise réparation remplacement"
+    ],
+    "sport rémunéré ou professionnel": [
+      "bezahlter Sport",
+      "compétition sportive professionnelle",
+      "entraînements préparatoires",
+      "esporte remunerado",
+      "professional sport"
+    ],
+    "sports aériens exclus": [
+      "Luftsport",
+      "aerial sports exclusion",
+      "desportos aéreos",
+      "pratique de sports aériens"
+    ],
+    "sports à risque exclus": [
+      "Risikosportarten",
+      "alpinisme",
+      "dangerous sports",
+      "sports aériens",
+      "sports de combat",
+      "sports mécaniques",
+      "spéléologie"
+    ],
+    "stabilisation de la situation": [
+      "Stabilisierung",
+      "dépannage installation fixe",
+      "estabilização",
+      "réparation temporaire",
+      "stabilization"
+    ],
+    "stipulation spéciale": [
+      "besondere Bestimmung",
+      "conditions particulières",
+      "special stipulation"
+    ],
+    "subrogation": [
+      "dédommagement",
+      "indemnisation par subrogation",
+      "recours contre tiers",
+      "subrogation rights"
+    ],
+    "subrogation dans les droits": [
+      "Regressrecht",
+      "recours contre tiers responsables",
+      "sub-rogação",
+      "subrogation légale",
+      "subrogation rights"
+    ],
+    "subrogation de l'assureur": [
+      "Subrogation",
+      "insurer subrogation",
+      "recours contre tiers",
+      "sub-rogação",
+      "subrogation",
+      "subrogation légale"
+    ],
+    "subrogation de la compagnie": [
+      "droits de l'assuré",
+      "récupération des sommes avancées",
+      "subrogation légale"
+    ],
+    "surconsommations téléphoniques": [
+      "frais téléphoniques",
+      "phone overuse"
+    ],
+    "suspension de la garantie": [
+      "Aussetzung der Deckung",
+      "suspension de garantie",
+      "suspension of cover",
+      "suspensão da garantia"
+    ],
+    "suspension pendant évacuation": [
+      "Aussetzung der Deckung",
+      "faits de guerre",
+      "suspension of cover",
+      "suspensão da cobertura",
+      "troubles civils",
+      "évacuation des locaux"
+    ],
+    "séjour temporaire": [
+      "dégâts matériels accidentels",
+      "séjour privé ou professionnel",
+      "temporary stay"
+    ],
+    "sépulture": [
+      "caveau",
+      "monument funéraire",
+      "tombe",
+      "vandalisme et malveillance"
+    ],
+    "tempête et grêle": [
+      "Sturm und Hagel",
+      "grêle",
+      "installations photovoltaïques",
+      "panneaux solaires",
+      "poids de la neige",
+      "storm and hail",
+      "tempête",
+      "vent violent"
+    ],
+    "terrain non constructible": [
+      "nicht bebaubares Grundstück",
+      "non-buildable land",
+      "terreno não construível"
+    ],
+    "terrains non bâtis": [
+      "superficie d'un hectare",
+      "terrain en Europe"
+    ],
+    "tierce expertise": [
+      "Tribunal d'arrondissement",
+      "collège d'experts",
+      "dritter Sachverständiger",
+      "expert arbitration",
+      "troisième expert"
+    ],
+    "tiers": [
+      "Dritter",
+      "terceiro",
+      "third party"
+    ],
+    "tireur ou chasseur": [
+      "Schütze",
+      "armes à feu",
+      "exclusion de garantie",
+      "shooter or hunter"
+    ],
+    "traitement de données personnelles": [
+      "gestion d'assurance",
+      "gestion du contentieux",
+      "lutte contre la fraude",
+      "sous-traitants"
+    ],
+    "tranches successives d'indemnité": [
+      "paiement échelonné",
+      "reconstruction du bâtiment sinistré",
+      "versement par tranches"
+    ],
+    "tranches ultérieures d'indemnité": [
+      "acte authentique",
+      "dernière tranche",
+      "remplacement du bâtiment"
+    ],
+    "tranches ultérieures reconstitution": [
+      "paiement échelonné mobilier"
+    ],
+    "transaction frauduleuse": [
+      "fraude bancaire",
+      "fraudulent transaction",
+      "opération frauduleuse"
+    ],
+    "transfert de données personnelles": [
+      "données à caractère personnel",
+      "hors Union Européenne"
+    ],
+    "transmission des actes judiciaires": [
+      "assignations",
+      "convocations",
+      "legal documents transmission",
+      "pièces de procédure",
+      "responsabilité civile"
+    ],
+    "transmission maladie contagieuse": [
+      "ansteckende Krankheit",
+      "contagious disease",
+      "maladie animaux",
+      "rage"
+    ],
+    "transmission par décès": [
+      "droits et obligations maintenus",
+      "transfer upon death"
+    ],
+    "transport par avion": [
+      "Lufttransportkosten",
+      "air freight costs",
+      "frais de transport aérien",
+      "transporte aéreo"
+    ],
+    "tremblement de terre": [
+      "Erdbeben",
+      "earthquake",
+      "sismic",
+      "séisme",
+      "terremoto"
+    ],
+    "trouble de voisinage": [
+      "acte de chasse",
+      "article 1382 Code civil",
+      "article 544 Code civil",
+      "responsabilité civile tiers"
+    ],
+    "urgence": [
+      "Notfall",
+      "dommage soudain et imprévisible",
+      "emergency",
+      "situation urgente",
+      "urgência"
+    ],
+    "usage professionnel exclu": [
+      "berufliche Nutzung",
+      "fins professionnelles",
+      "matériels professionnels",
+      "professional use excluded",
+      "usage commercial",
+      "uso profissional"
+    ],
+    "usure et fonctionnement défectueux": [
+      "dysfonctionnement",
+      "effets continuels d'exploitation",
+      "wear and tear"
+    ],
+    "usure et intempéries": [
+      "Verschleiß",
+      "desgaste",
+      "défaut d'entretien",
+      "grêle",
+      "humidité",
+      "vétusté",
+      "wear and tear"
+    ],
+    "usure et vétusté exclues": [
+      "Verschleiß",
+      "desgaste natural",
+      "défaut d'entretien",
+      "détérioration lente",
+      "fonctionnement défectueux",
+      "manifestations atmosphériques",
+      "wear and tear excluded"
+    ],
+    "usurpation d'identité": [
+      "Identitätsdiebstahl",
+      "identity theft",
+      "roubo de identidade",
+      "vol d'identité"
+    ],
+    "vaccinations exigées": [
+      "Impfung",
+      "raisons médicales vaccins",
+      "vaccination obligatoire",
+      "vaccination requirement",
+      "vaccinations pour le voyage",
+      "vacinação"
+    ],
+    "valeur actuelle vétusté déduite": [
+      "current value less depreciation",
+      "dépréciation",
+      "valeur d'assurance",
+      "valor atual deduzido"
+    ],
+    "valeur locative annuelle": [
+      "loyer annuel",
+      "vingt fois le loyer"
+    ],
+    "valeur réelle": [
+      "Zeitwert",
+      "actual value",
+      "valeur actuelle",
+      "valor real"
+    ],
+    "valeur à neuf bâtiment": [
+      "Neuwert",
+      "new value",
+      "valor a novo"
+    ],
+    "vandalisme ou malveillance": [
+      "Vandalismus",
+      "acte de vandalisme",
+      "malveillance",
+      "vandalism"
+    ],
+    "vente aux enchères": [
+      "Versteigerung",
+      "auction sale",
+      "enchères en ligne",
+      "leilão"
+    ],
+    "verres optiques et lunettes": [
+      "Brillengläser",
+      "eyeglasses",
+      "lentes óticas",
+      "optical lenses"
+    ],
+    "vice de construction": [
+      "Baumangel",
+      "bailleur",
+      "construction defect",
+      "défaut d'entretien",
+      "propriétaire"
+    ],
+    "vices ou défauts connus": [
+      "bekannte Mängel",
+      "known defects",
+      "vices préexistants",
+      "vícios conhecidos",
+      "état antérieur connu"
+    ],
+    "vices ou défauts préexistants": [
+      "pre-existing defect",
+      "vice caché connu"
+    ],
+    "vidange des conduites": [
+      "Frostschutz",
+      "antigel",
+      "frost protection",
+      "protection contre le gel",
+      "proteção contra gelo"
+    ],
+    "vie privée": [
+      "Privatleben",
+      "activité lucrative",
+      "activité professionnelle",
+      "private life"
+    ],
+    "vitrages non placés": [
+      "glass not yet installed",
+      "verglasung nicht montiert",
+      "vidros não instalados"
+    ],
+    "vitrages parties communes": [
+      "common area glazing",
+      "gemeinschaftliche Verglasung",
+      "vidraças partes comuns"
+    ],
+    "vol avec complicité": [
+      "Diebstahl mit Komplizenschaft",
+      "complicité familiale",
+      "furto com cumplicidade",
+      "theft with complicity"
+    ],
+    "vol bagages non enregistrés": [
+      "bagages dans véhicule",
+      "nicht aufgegebenes Gepäck",
+      "unregistered luggage theft"
+    ],
+    "vol bien non propriétaire": [],
+    "vol des animaux": [
+      "animaux volés",
+      "theft of animals"
+    ],
+    "vol du matériel multimédia": [
+      "theft of multimedia equipment",
+      "vol dans véhicule",
+      "vol à l'extérieur"
+    ],
+    "vol et effraction": [
+      "Einbruch",
+      "cambriolage",
+      "effraction immobilière",
+      "malveillance",
+      "tentative de vol",
+      "theft",
+      "vandalisme"
+    ],
+    "vol familial exclu": [
+      "exclusion de vol familial",
+      "vol par l'assuré"
+    ],
+    "vol hors surveillance directe": [
+      "objets non surveillés",
+      "theft unattended",
+      "vol sans surveillance"
+    ],
+    "vol occupation partielle": [
+      "serrure de sûreté",
+      "vol garage cave grenier",
+      "vol parties communes"
+    ],
+    "vol par agression": [
+      "Diebstahl durch Überfall",
+      "mobilier de jardin volé",
+      "roubo por agressão",
+      "theft by assault",
+      "vol domicile concierge"
+    ],
+    "vol par complicité": [
+      "Diebstahl mit Komplizenschaft",
+      "furto com cumplicidade",
+      "theft with complicity",
+      "vol commis avec complicité"
+    ],
+    "vol pendant travaux": [
+      "vol en construction",
+      "vol en rénovation",
+      "vol en transformation"
+    ],
+    "vol perte dégâts bagages": [
+      "Diebstahl Verlust",
+      "dégâts fortuits",
+      "perte de bagages",
+      "theft loss damage",
+      "vol de bagages"
+    ],
+    "vol simultané du véhicule": [
+      "effraction caractérisée",
+      "gleichzeitiger Diebstahl",
+      "roubo simultâneo",
+      "simultaneous theft",
+      "vol de la caravane",
+      "vol du bateau"
+    ],
+    "vol sous surveillance directe": [
+      "surveillance immédiate",
+      "theft under direct supervision",
+      "vol surveillé"
+    ],
+    "vols auteur coauteur complice": [
+      "Diebstahlbeteiligung",
+      "complicité de vol",
+      "cumplicidade em roubo",
+      "theft complicity"
+    ],
+    "vols de véhicules automoteurs": [
+      "Fahrzeugdiebstahl",
+      "roubo de veículos",
+      "vehicle theft",
+      "vol de remorques"
+    ],
+    "vols exclus": [
+      "Diebstahlausschlüsse",
+      "exclusions vol",
+      "exclusões de roubo",
+      "theft exclusions"
+    ],
+    "vols par complicité": [
+      "Diebstahl durch Mittäterschaft",
+      "complicité de vol",
+      "roubo por cumplicidade",
+      "theft by complicity"
+    ],
+    "vols simples": [
+      "einfacher Diebstahl",
+      "roubo simples",
+      "simple theft"
+    ],
+    "vols à l'extérieur": [
+      "theft outdoors",
+      "vol dans le jardin",
+      "vol en dépendance isolée"
+    ],
+    "vols à la tire": [
+      "Taschendiebstahl",
+      "furto",
+      "pickpocketing",
+      "vol à la sauvette"
+    ],
+    "voyages réservés avant souscription": [
+      "booking before subscription",
+      "reserva anterior",
+      "réservation antérieure",
+      "vor Vertragsabschluss gebucht"
+    ],
+    "voyages à caractère professionnel": [
+      "Geschäftsreise",
+      "business travel",
+      "viagem profissional",
+      "voyage professionnel"
+    ],
+    "véhicule aérien": [
+      "Luftfahrzeug",
+      "aeronave",
+      "aircraft",
+      "avion",
+      "aéronef"
+    ],
+    "véhicule fermé à clé": [
+      "fahrzeug verschlossen",
+      "habitacle fermé",
+      "locked vehicle"
+    ],
+    "véhicule inoccupé": [
+      "unattended vehicle",
+      "vehicle unattended",
+      "véhicule fermé à clé"
+    ],
+    "véhicule à moteur": [
+      "garde du véhicule",
+      "motor vehicle liability",
+      "responsabilité véhicule"
+    ],
+    "véhicules automoteurs exclus": [
+      "Kraftfahrzeuge",
+      "automobiles exclues",
+      "engins à moteur",
+      "motor vehicles excluded",
+      "veículos automotores",
+      "véhicules motorisés"
+    ],
+    "véhicules en valeur réelle": [
+      "actual cash value vehicle",
+      "remorques valeur réelle",
+      "valor real veículo"
+    ],
+    "véhicules non immatriculés": [
+      "cyclomoteur 50cm3",
+      "deux ou trois roues",
+      "engins de jardinage"
+    ],
+    "véhicules terrestres à moteur": [
+      "Kraftfahrzeuge",
+      "engins motorisés",
+      "motor vehicles",
+      "veículos motorizados"
+    ],
+    "véhicules terrestres, aériens, maritimes": [
+      "Fahrzeuge Ausschluss",
+      "exclusion véhicules",
+      "exclusão de veículos",
+      "vehicles exclusion"
+    ],
+    "vérification avant réparation": [
+      "autorisation de construction",
+      "délaisser les biens sinistrés",
+      "expertise avant réparation",
+      "pluies et inondations",
+      "zone inondable"
+    ],
+    "vétusté déduite": [
+      "Wertminderung",
+      "depreciation",
+      "desvalorização",
+      "dépréciation"
+    ],
+    "vétusté matériel multimédia": [
+      "age du bien",
+      "depreciation multimedia",
+      "desgaste",
+      "vétusté équipement domotique"
+    ],
+    "vétusté normale": [
+      "altération",
+      "desgaste normal",
+      "défaut d'entretien",
+      "manque d'entretien",
+      "normal wear",
+      "normale Abnutzung",
+      "usure"
+    ],
+    "vêtements et accessoires exclus": [
+      "Kleidung ausgeschlossen",
+      "accessoires personnels",
+      "casque et gants",
+      "clothing excluded",
+      "vestuário excluído",
+      "équipement sportif"
+    ],
+    "zone inondable": [
+      "flood zone",
+      "zona inundável",
+      "Überschwemmungsgebiet"
+    ],
+    "zone non inondable": [
+      "fora de zona inundável",
+      "hors zone inondable",
+      "kein Überschwemmungsgebiet",
+      "non flood zone"
+    ],
+    "Éléments d'authentification": [
+      "Authentifizierungsdaten",
+      "authentication data",
+      "identifiants numériques",
+      "login",
+      "mots de passe"
+    ],
+    "Éléments d'identification": [
+      "Identifikationsdaten",
+      "documents d'identité",
+      "identification data",
+      "identification personnelle",
+      "pièces d'identité"
+    ],
+    "échéance principale": [
+      "date de résiliation"
+    ],
+    "écoulement installations hydrauliques": [
+      "fuite installation hydraulique",
+      "infiltration eaux pluviales",
+      "rupture fissure débordement",
+      "tuyaux extérieurs évacuation"
+    ],
+    "électrocution d'animaux": [
+      "Stromschlag Tiere",
+      "electrocution of animals",
+      "électrocution"
+    ],
+    "émanations de gaz": [
+      "fuite de gaz",
+      "installation domestique de gaz"
+    ],
+    "émeute": [
+      "agitation des esprits",
+      "aufstand",
+      "manifestation violente",
+      "riot",
+      "tumulto"
+    ],
+    "équipements attachés à demeure": [
+      "fixtures attached",
+      "fonds à perpétuelle demeure",
+      "équipement fixe"
+    ],
+    "étendue de la garantie": [
+      "Deckungsumfang",
+      "extensão da garantia",
+      "scope of coverage"
+    ],
+    "étendue territoriale": [
+      "cobertura territorial",
+      "monde entier",
+      "territorial scope",
+      "territorialité",
+      "validité territoriale",
+      "weltweite Deckung",
+      "zone géographique couverte"
+    ],
+    "étendue territoriale bagages": [
+      "couverture géographique",
+      "territorial scope",
+      "territorialer Geltungsbereich"
+    ],
+    "évacuation sanitaire": [
+      "evacuação médica",
+      "medical evacuation",
+      "transport sanitaire"
+    ]
+  },
   "corpus_source_hashes": {
     "axa-lu-optihome-2017": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
   },
-  "corpus": {
-    "contenu": [
-      "canapé meublant",
-      "contenu du congélateur",
-      "denrées alimentaires",
-      "mobilier appartenant au propriétaire",
-      "nourriture congelée",
-      "réfrigérateur"
+  "intents": {
+    "bavardage": [
+      "au revoir",
+      "bom dia",
+      "bonjour",
+      "bonne journée",
+      "bonsoir",
+      "comment vas-tu",
+      "danke",
+      "de rien",
+      "enchanté",
+      "good morning",
+      "goodbye",
+      "guten morgen",
+      "hallo",
+      "have a nice day",
+      "hello",
+      "hi there",
+      "how are you",
+      "merci",
+      "merci beaucoup",
+      "obrigado",
+      "olá",
+      "salut",
+      "see you soon",
+      "tchau",
+      "thank you",
+      "tschüss",
+      "tudo bem",
+      "wie geht's",
+      "à bientôt",
+      "ça va"
     ],
-    "responsabilité civile vie privée": [
-      "dégâts causés par un animal",
-      "dommages causés accidentellement à des tiers",
-      "dommages causés par un animal",
-      "responsabilité civile familiale"
+    "hors_perimetre": [
+      "actualité du jour",
+      "actualités politiques",
+      "aktien kurse",
+      "calcul mathématique",
+      "code juridique pénal",
+      "conseil juridique personnel",
+      "conseil médical",
+      "conselho médico",
+      "cooking recipe",
+      "cours de bourse",
+      "diagnostic médical",
+      "déclaration d'impôts",
+      "football score",
+      "horoscope du jour",
+      "imposto de renda",
+      "legal advice",
+      "match de foot",
+      "math problem",
+      "medical advice",
+      "news today",
+      "notícias hoje",
+      "recette de cuisine",
+      "recette gâteau",
+      "rechtsberatung",
+      "recipe for dinner",
+      "résultat sportif",
+      "stock market",
+      "tax return",
+      "traduire ce texte",
+      "translate this text"
+    ],
+    "meteo": [
+      "alerte météo",
+      "canicule prévue",
+      "chuva hoje",
+      "clima amanhã",
+      "climat cette semaine",
+      "ensoleillé demain",
+      "forecast tomorrow",
+      "gelée annoncée",
+      "humidité aujourd'hui",
+      "il pleut",
+      "météo",
+      "orage prévu",
+      "previsão do tempo",
+      "prévisions météo",
+      "quel temps fait-il",
+      "regen heute",
+      "schnee heute",
+      "sonnig morgen",
+      "temperatura hoje",
+      "temps demain",
+      "température aujourd'hui",
+      "tempête météo annoncée",
+      "va-t-il neiger",
+      "va-t-il pleuvoir",
+      "vent fort prévu",
+      "weather forecast",
+      "weather today",
+      "wettervorhersage",
+      "what's the weather",
+      "wie ist das wetter"
     ]
   },
-  "intents": {},
-  "candidate_questions": {},
+  "schema_version": "1",
   "validated": false,
-  "validated_by": null,
-  "validated_at": null
+  "validated_at": null,
+  "validated_by": null
 }
