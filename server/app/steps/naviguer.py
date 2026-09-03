@@ -44,7 +44,8 @@ from typing import Any
 from server.app.config import Settings
 from server.app.corpus.dictionary import Dictionnaire
 from server.app.corpus.ebauche import (fusionner_quotes_du_meme_bloc,
-                                       joindre_amorces_denumeration, rattacher_claims_sinistre)
+                                       joindre_amorces_denumeration, joindre_segments_orphelins,
+                                       rattacher_claims_sinistre)
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.requetes import part_du_mot_borne, variantes_de_nombre
@@ -810,6 +811,15 @@ class Navigation:
                        "qui l'ouvre : l'amorce a été jointe telle quelle à la même affirmation, "
                        "comme son contexte — le contrôle juge une clause entière"))
         if self.faits is None:
+            # Story 5.6 (L1b). Le sinistre n'y passe pas : `rattacher_claims_sinistre`, plus bas,
+            # fait déjà de chaque claim atomique **un** segment entier (reprise différée 5.7).
+            draft, jointures = joindre_segments_orphelins(draft)
+            if jointures:
+                step.checks.append(CheckResult(
+                    name="segment_orphelin_joint", ok=True,
+                    detail=f"{jointures} segment(s) s'ouvraient sur un démonstratif ou un pronom "
+                           "dont l'objet est dans le segment précédent : joints en une seule unité "
+                           "de vérification et d'affichage, une coupe ne les sépare plus"))
             return draft
         draft, _changements = rattacher_claims_sinistre(
             draft, max_claims=self.settings.navigation_draft_max_claims,
