@@ -102,10 +102,18 @@ class LlmUnavailable(PipelineError):
 
 
 class LlmParse(PipelineError):
-    """Réponse non conforme au schéma après le retry autorisé, ou refus du modèle."""
+    """Réponse non conforme au schéma après le retry autorisé, ou refus du modèle.
 
-    def __init__(self, message: str = "") -> None:
+    `stop_reason` porte la raison rendue par le **fournisseur** quand elle est connue. Une sortie
+    coupée par `max_tokens` n'est pas une sortie mal formée : elle est bien formée et inachevée, et
+    l'appelant qui sait la redemander autrement (le tour terminal de `steps/naviguer.py`) doit
+    pouvoir l'en distinguer sans relire le texte français du motif — un message d'erreur n'est pas
+    un contrat, et le lire ainsi casserait à la première reformulation.
+    """
+
+    def __init__(self, message: str = "", *, stop_reason: str | None = None) -> None:
         super().__init__(ErrorCode.llm_parse, message)
+        self.stop_reason = stop_reason
 
 
 class Timeout(PipelineError):

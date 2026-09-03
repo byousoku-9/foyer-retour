@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
@@ -19,6 +21,7 @@ from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Document, Node
 from server.app.domain.ingest import ManifestEntry
+from server.app.domain.errors import LlmParse
 from server.app.domain.question import Faits, ParsedQuestion, QuestionScope
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -116,6 +119,35 @@ def _ebauche(quotes: list[dict[str, str]] | None = None, thinking: int = 0) -> d
     message = fake_message(model=TIERS["reason"], text=json.dumps(draft, ensure_ascii=False))
     message["usage"]["output_tokens_details"] = {"thinking_tokens": thinking}
     return message
+
+
+def _tronquee() -> dict[str, Any]:
+    """Un tour terminal coupé par son plafond : du JSON commencé, `stop_reason=max_tokens`.
+
+    C'est la forme exacte du fait mesuré au gate Baloise du 03/09/2026 (`b-bougie-canape` rép. 3) :
+    la réflexion adaptative a consommé le plafond partagé, et le contrat JSON s'arrête au milieu.
+    """
+    message = fake_message(model=TIERS["reason"], stop_reason="max_tokens",
+                           text='{"segments": [{"text": "Le texte prend en')
+    message["usage"]["output_tokens_details"] = {"thinking_tokens": 3000}
+    return message
+
+
+class _BudgetSansResteApres(RequestBudget):
+    """Un budget dont le reste tombe sous la durée majorée d'une reprise, après N appels servis.
+
+    Le témoin ne peut pas obtenir ce reste-là en raccourcissant `deadline_s` : la durée majorée d'un
+    appel au plafond du tour terminal (≈ 61 s) borne aussi le **premier** appel, qui ne partirait
+    alors pas non plus (C2). Ce qu'on simule est le seul cas réel — une chaîne qui a consommé son
+    temps avant d'arriver là.
+    """
+
+    def __init__(self, fake: FakeAnthropic, *, apres: int, reste: float, **kw: Any) -> None:
+        super().__init__(**kw)
+        self._fake, self._apres, self._reste = fake, apres, reste
+
+    def remaining(self) -> float:
+        return super().remaining() if len(self._fake.requests) < self._apres else self._reste
 
 
 def _ebauche_avec_ecarts(ecartes: list[dict[str, str]]) -> dict[str, Any]:
@@ -587,6 +619,82 @@ async def test_un_tour_terminal_qui_redemande_un_outil_le_sert_puis_obtient_leba
     assert not force.ok and "tool_choice" in force.detail
     assert "1 tour(s) terminal(aux) forcé(s)" in next(
         c.detail for c in step.checks if c.name == "ebauche_dans_la_conversation")
+
+
+async def test_un_tour_terminal_tronque_par_sa_sortie_est_redemande_une_fois_a_low() -> None:
+    """Story 5.6, T14 — le fait mesuré trois fois le 03/09/2026 : `stop_reason=max_tokens`.
+
+    Le gate Baloise l'a rendu à `high` (12 h 11), à 3 072 (13 h 14) puis à 5 056 et `medium`
+    (13 h 43) : sur Sonnet 5 la réflexion adaptative partage `max_tokens` avec le JSON, et sa queue
+    dépasse tout plafond que la deadline autorise. Ce qui manque n'est donc pas de la place mais un
+    tour qui ne réfléchisse pas — le même fil, dont le préfixe est en cache, et `low`.
+
+    Le client relance déjà une fois de lui-même, au **même** effort : c'est le quatrième appel du
+    script, et c'est précisément parce qu'il rejoue la même dépense qu'il ne suffit pas.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _tronquee(), _tronquee(), _ebauche()],
+        navigation_draft_effort="high")
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert isinstance(draft, AnswerDraft) and navigation.tour_terminal_repris == 1
+    terminal, _relance_du_client, reprise = fake.requests[2:]
+    assert terminal["output_config"]["effort"] == "high"
+    assert reprise["output_config"]["effort"] == "low"
+    # Le plafond ne bouge pas — la deadline n'a plus de place à donner (T13) — et le préfixe reste
+    # byte-identique : la reprise ne repaie que ce qu'elle ajoute.
+    assert reprise["max_tokens"] == terminal["max_tokens"]
+    assert reprise["system"] == terminal["system"]
+    # Deux messages de plus dans le **même** fil : l'alternance, puis la consigne du code. La sortie
+    # coupée n'est jamais réinjectée.
+    assert reprise["messages"][:-2] == terminal["messages"]
+    assert reprise["messages"][-2] == {"role": "assistant", "content": "(réponse tronquée omise)"}
+    assert "sans réflexion étendue" in reprise["messages"][-1]["content"]
+    assert "prend en" not in str(reprise["messages"][-2:])
+    repris = next(c for c in step.checks if c.name == "tour_terminal_repris")
+    assert not repris.ok and "1 tour(s)" in repris.detail and "low" in repris.detail
+
+
+async def test_un_tour_terminal_tronque_sans_temps_rend_lerreur_de_troncature() -> None:
+    """Story 5.6, T14 — la borne C2 : la reprise n'est tentée que si le temps la couvre.
+
+    C'est elle qui rend la reprise compatible avec `deadline_s` **sans l'amender** : comptée au
+    plafond, elle sortirait la chaîne de sa deadline (témoin de `test_config.py`). Et l'erreur rendue
+    reste celle de la troncature — pas le `Timeout` que le client lèverait sur l'appel suivant, qui
+    dirait « plus de temps » d'une chaîne dont le vrai défaut est une sortie trop longue.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _tronquee(), _tronquee()])
+    navigation.request_budget = _BudgetSansResteApres(
+        fake, apres=4, reste=30.0, deadline_s=100.0, max_attempts=8, max_cost_eur=0.75)
+
+    await navigation.lire()
+    with pytest.raises(LlmParse) as leve:
+        await navigation.rediger()
+
+    assert "réponse tronquée" in leve.value.message and leve.value.stop_reason == "max_tokens"
+    assert navigation.tour_terminal_repris == 0 and len(fake.requests) == 4
+    repris = next(c for c in leve.value.step.checks if c.name == "tour_terminal_repris")
+    assert not repris.ok and "non repris" in repris.detail and "30.0 s restantes" in repris.detail
+
+
+async def test_un_tour_terminal_nest_jamais_repris_deux_fois() -> None:
+    """Story 5.6, T14 — une reprise, pas une boucle : la seconde troncature est terminale."""
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _tronquee(), _tronquee(), _tronquee(), _tronquee()])
+
+    await navigation.lire()
+    with pytest.raises(LlmParse):
+        await navigation.rediger()
+
+    # Le tour terminal, sa relance interne, la reprise à `low`, la relance interne de la reprise :
+    # quatre appels et pas un de plus.
+    assert navigation.tour_terminal_repris == 1 and len(fake.requests) == 6
 
 
 # --- 6. l'unité d'énumération, gardée par la structure du rendu --------------------------

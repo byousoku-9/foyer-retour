@@ -699,7 +699,7 @@ class LlmClient:
                     # L'appelant qui borne ses tours peut servir l'outil et redemander sa sortie ;
                     # celui qui l'ignore reçoit la `LlmParse` d'avant, au même code d'erreur.
                     raise ToolUseDemande(problem, reponse=message)
-                raise LlmParse(problem)
+                raise LlmParse(problem, stop_reason=message.stop_reason)
             if problem is None:
                 if self._cache is not None:
                     self._cache.set(key, {"response": message.to_dict(), "cost_eur": usage.cost_eur})
@@ -708,7 +708,7 @@ class LlmClient:
             can_retry = (not retried and budget.attempts < budget.max_attempts
                          and budget.remaining() > settings.llm_retry_margin_s)
             if not can_retry:
-                raise LlmParse(problem)
+                raise LlmParse(problem, stop_reason=message.stop_reason)
             retried = True
             step.checks.append(CheckResult(name="parse_retry", ok=False, detail=problem))
             # Le préfixe reste byte-identique : le motif est porté par un tour supplémentaire.

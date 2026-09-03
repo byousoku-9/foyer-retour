@@ -50,7 +50,7 @@ from server.app.corpus.loader import Corpus
 from server.app.corpus.requetes import part_du_mot_borne, variantes_de_nombre
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Block, is_citable
-from server.app.domain.errors import PipelineError
+from server.app.domain.errors import LlmParse, PipelineError
 from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import Faits, ParsedQuestion, Turn
@@ -99,6 +99,25 @@ CONSIGNE_INVENTAIRE = (
 # Ce que « premiers mots » veut dire : de quoi reconnaître un bloc dans une liste, pas de quoi le
 # juger sans le relire. Le texte des blocs est déjà dans le fil, in extenso.
 INVENTAIRE_AMORCE_MAX_CHARS = 140
+# Ce que le code dit au modèle quand sa **propre sortie** a dépassé le plafond du tour terminal.
+# Mesuré le 03/09/2026 (gate Baloise 13 h 43, `b-bougie-canape` rép. 3, effort `medium`, plafond
+# 5 056) : sur Sonnet 5 la réflexion adaptative n'a pas de budget propre — elle partage `max_tokens`
+# avec le contrat JSON (`llm/models.py`, T1d/T10) — et sa queue dépasse tout plafond que la deadline
+# autorise (T13 : 5 888 prescrits, 5 056 possibles). La sortie de ce texte est donc de demander
+# **moins de réflexion**, pas plus de place : l'ébauche directement, à `low`.
+CONSIGNE_REPRISE_TRONQUEE = (
+    "Ta sortie a dépassé le plafond de tokens : elle a été coupée avant la fin du JSON, et rien "
+    "n'en a été retenu. Rends l'ébauche `AnswerDraft` directement, en JSON et sans appel d'outil, "
+    "sans réflexion étendue préalable. Garde toutes les claims et leurs citations exactes ; abrège "
+    "les textes libres.")
+# L'alternance du dialogue demande un tour assistant avant la consigne. La sortie coupée n'est pas
+# réinjectée : elle est incomplète par définition, la refacturer en entrée n'apprend rien au modèle
+# et l'invite à prolonger la même réponse trop longue — le même marqueur constant que le retry de
+# `llm/client.py`.
+REPRISE_ASSISTANT_TRONQUEE = "(réponse tronquée omise)"
+# L'effort de la reprise, et il n'est pas un réglage : la reprise existe **parce que** la réflexion
+# a mangé la place du JSON. Le servir depuis `navigation_draft_effort` la rejouerait à l'identique.
+EFFORT_REPRISE_TRONQUEE = "low"
 RAPPEL_TERMINAL = (
     "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
     "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
@@ -219,6 +238,9 @@ class Navigation:
         # Combien de fois un appel *censé être terminal* a quand même demandé un outil : la trace du
         # cas qui rendait un 503, et qui se répare maintenant en servant l'outil.
         self.tour_terminal_force = 0
+        # Combien de fois un tour terminal a été redemandé parce que **sa propre sortie** avait
+        # dépassé le plafond : jamais plus d'une fois par tour terminal (voir `_appel_terminal`).
+        self.tour_terminal_repris = 0
         self.recherches = 0
         self._messages: list[dict[str, Any]] = [{
             "role": "user", "content": self._demande()}]
@@ -622,8 +644,33 @@ class Navigation:
         un appel censé être terminal appelle quand même un outil, on le sert et on redemande
         l'ébauche, dans la borne des tours **et** du budget de lecture — que `_ouvrir` applique
         inchangé. Jamais une erreur terminale pour une lecture inachevée.
+
+        **Une sortie coupée par son plafond est redemandée une fois, à `low`.** Le second cas est
+        symétrique du premier, et il n'est pas non plus une propriété du fournisseur : le tour
+        terminal rend `stop_reason=max_tokens`, le client relance déjà une fois à consigne
+        « concis » — au **même** effort — puis lève `llm_parse`, c'est-à-dire un 503 sur une lecture
+        entière et une réflexion qui, elle, était allée au bout. Mesuré trois fois le 03/09/2026
+        (gate Baloise 12 h 11 à `high`, 13 h 14 à 3 072, 13 h 43 à 5 056 et `medium`) : sur Sonnet 5
+        la réflexion adaptative partage `max_tokens` avec le JSON et sa queue dépasse tout plafond
+        que la deadline autorise. Ce qui manque n'est donc pas de la place — la deadline n'en a plus
+        à donner (T13) — mais un tour qui ne réfléchisse pas : le même fil, dont le préfixe est en
+        cache, une consigne courte composée par le code, et `output_config.effort="low"`.
+
+        Trois bornes, et elles suffisent à ce que cette reprise ne puisse rien coûter d'imprévu :
+        une seule reprise par tour terminal, jamais deux ; seulement sur `stop_reason=max_tokens`,
+        jamais sur un schéma invalide ni un refus ; et seulement si le temps restant couvre la durée
+        majorée d'un appel au plafond (C2) — sinon l'erreur de troncature reste telle quelle, au
+        lieu d'un `Timeout` levé plus loin pour un appel qu'on savait perdu. C'est cette dernière
+        borne qui rend la reprise compatible avec `deadline_s` **sans l'amender** : comptée au
+        plafond, elle sortirait la chaîne de sa deadline (voir
+        `tests/test_config.py::test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele`), donc
+        elle n'est tentée que quand le chemin réel a laissé de quoi la payer.
         """
         settings = self.settings
+        effort_du_palier = (settings.navigation_draft_effort
+                            if MODEL_CAPS[model_for(self.tier)]["effort"] else None)
+        effort = effort_du_palier
+        repris = False
         while True:
             try:
                 resultat = await self.client.parse(
@@ -636,8 +683,7 @@ class Navigation:
                     # sont citées, et les trois runs A16 de `f858a28` le mesurent à 0 token de
                     # réflexion. Un palier épinglé sur un modèle sans `effort` n'en reçoit aucun —
                     # le client refuserait le paramètre (AD-9), même idiome que *rédiger*.
-                    effort=(settings.navigation_draft_effort
-                            if MODEL_CAPS[model_for(self.tier)]["effort"] else None),
+                    effort=effort,
                     thinking=REFLEXION_ADAPTATIVE)
             except ToolUseDemande as exc:
                 if self.tours >= settings.navigation_max_llm_turns:
@@ -647,6 +693,34 @@ class Navigation:
                 self.tours += 1
                 self.tour_terminal_force += 1
                 messages = self._servir_les_outils_du_tour_terminal(messages, exc.reponse)
+                continue
+            except LlmParse as exc:
+                if repris or exc.stop_reason != "max_tokens" or effort_du_palier is None:
+                    raise
+                requise = settings.duree_majoree_pour(settings.navigation_rediger_max_tokens)
+                if self.request_budget.remaining() < requise:
+                    # C2, appliqué ici plutôt que subi plus loin : le client refuserait de lui-même
+                    # cet appel, mais en `Timeout` — l'appelant perdrait la raison réelle de
+                    # l'échec, qui est la troncature.
+                    step.checks.append(CheckResult(
+                        name="tour_terminal_repris", ok=False,
+                        detail=f"tour terminal tronqué (stop_reason=max_tokens) non repris : "
+                               f"{requise:.1f} s requises au débit minoré pour une reprise au "
+                               f"plafond, {self.request_budget.remaining():.1f} s restantes"))
+                    raise
+                repris = True
+                self.tour_terminal_repris += 1
+                effort = EFFORT_REPRISE_TRONQUEE
+                messages = [*messages,
+                            {"role": "assistant", "content": REPRISE_ASSISTANT_TRONQUEE},
+                            {"role": "user", "content": CONSIGNE_REPRISE_TRONQUEE}]
+                step.checks.append(CheckResult(
+                    name="tour_terminal_repris", ok=False,
+                    detail=f"{self.tour_terminal_repris} tour(s) terminal(aux) tronqué(s) par leur "
+                           f"propre sortie (max_tokens="
+                           f"{settings.navigation_rediger_max_tokens}) : l'ébauche a été redemandée "
+                           f"une fois dans le même fil à l'effort {EFFORT_REPRISE_TRONQUEE}, au lieu "
+                           "d'un échec terminal"))
                 continue
             return resultat, messages
 

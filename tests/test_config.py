@@ -803,6 +803,18 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     le majorant de 729 est un prototype quand le gate les voit saturer leurs 1 024 — ne pourra plus
     être absorbé, et c'est l'ordre d'AD-11 qu'il faudra rouvrir.
 
+    **T14, 03/09/2026 : le chemin de reprise du tour terminal tronqué n'est pas un terme de cette
+    dérivation, et ce témoin dit pourquoi.** `steps/naviguer.py::_appel_terminal` redemande une fois
+    l'ébauche à l'effort `low` quand la sortie a été coupée par `max_tokens`. Compté honnêtement — un
+    appel de plus **au plafond**, comme les deux autres tours terminaux —, il porte la queue majorée
+    à 350,0 s, bien au-delà des 290 s : la deadline ne peut pas l'absorber, exactement comme elle ne
+    pouvait pas absorber les 5 888 tokens que T13 prescrivait. La reprise n'est donc pas une dépense
+    garantie mais une tentative **conditionnée au temps réellement restant** : le code ne l'envoie
+    que si `remaining()` couvre `duree_majoree_pour(navigation_rediger_max_tokens)` (64,5 s à la
+    marge de latence du client, plus stricte que les 2 s de cette dérivation), et rend sinon la
+    troncature telle quelle. C'est ce qui la rend compatible avec `deadline_s` sans l'amender —
+    l'assertion ci-dessous tient ce raisonnement, en refusant qu'on la compte comme acquise.
+
     Le témoin est écrit contre la **cible du spine** (8 tours), et non contre le plafond du code :
     la deadline doit couvrir le chemin que l'architecture rend légitime. La seconde assertion tient
     l'autre bout — une configuration qui autoriserait plus de tours que la cible sortirait de la
@@ -863,6 +875,13 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
         f"deadline {s.deadline_s} s sous la queue majorée du chemin de navigation d'AD-1 "
         f"({queue:.1f} s pour {tokens} tokens à {s.llm_output_tokens_per_s_min} tokens/s et "
         f"{appels} appels) : un `Timeout` terminal reste atteignable sur une question nominale")
+    # T14 : la reprise du tour terminal tronqué, comptée au plafond, ne tient pas dans la deadline —
+    # c'est le fait qui interdit d'en faire un terme et qui oblige à la conditionner au reste.
+    reprise = TOUR_TERMINAL / s.llm_output_tokens_per_s_min + LATENCE_PAR_APPEL_S
+    assert queue + reprise > s.deadline_s, (
+        f"la reprise du tour terminal tronqué ({reprise:.1f} s au plafond) tiendrait dans la "
+        f"deadline ({queue + reprise:.1f} s ≤ {s.deadline_s} s) : elle cesserait d'avoir besoin "
+        "d'être conditionnée au temps restant, et `_appel_terminal` peut alors être simplifié")
     # Le débit publié **minore** encore la mesure : 85,3 tokens/s au plus lent des quatre runs du
     # prototype (bougie : 1 194 tokens de sortie en 16,0 s, deux appels).
     assert s.llm_output_tokens_per_s_min <= 85.3
