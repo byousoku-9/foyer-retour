@@ -2228,11 +2228,19 @@ async def test_le_focus_heading_prime_localement_sans_changer_lordre_rendu() -> 
     assert deterministe_serre.blocs == outils_serre.blocs
     assert deterministe_serre.truncated == outils_serre.truncated is True
 
+    # **Correctif du tour 6 (F2), et c'est ici que les deux variantes cessent de coïncider — pour
+    # une raison qui n'est pas la variante.** Le déterministe ouvre `n2` parce que ce nœud porte des
+    # hits : il lit sa fenêtre, `d:p2:1` (« Contexte voisin contingent. ») compris. Le navigateur, lui,
+    # n'a jamais ouvert `n2` ; la fenêtre n'existe que pour **honorer une réservation**, et honorer
+    # une réservation, c'est lire son unité — plus ce que la recherche a proposé, plus le titre —,
+    # pas le voisinage. Mesuré sur trois runs réels : la réservation gardait 99 tokens et
+    # l'honoration en admettait 829 à 1 889, dont sept blocs de dégâts des eaux pour un bloc réservé
+    # hors sujet, pendant que 13 à 15 candidats du navigateur restaient non lus faute de budget.
     deterministe_large, outils_large = await executer(4)
-    attendu_large = ["d:p1:1", "d:p2:1", "d:p2:2", "d:p2:3"]
-    assert deterministe_large.opened_block_ids == outils_large.opened_block_ids == attendu_large
-    assert deterministe_large.blocs == outils_large.blocs
-    assert deterministe_large.truncated == outils_large.truncated is False
+    assert deterministe_large.opened_block_ids == ["d:p1:1", "d:p2:1", "d:p2:2", "d:p2:3"]
+    assert outils_large.opened_block_ids == ["d:p1:1", "d:p2:2", "d:p2:3"]
+    # Le nœud reste ouvert sans être lu en entier : la lecture est bornée, et les deux le disent.
+    assert deterministe_large.truncated is False and outils_large.truncated is True
 
 
 async def test_une_reservation_primaire_ordinaire_reste_seule() -> None:
@@ -5277,3 +5285,40 @@ def test_une_section_qui_porte_des_sous_parties_nest_pas_une_enumeration() -> No
     attendue = [f"{doc_id}:p34:{n}" for n in (6, 7, 8, 9, 10, 11, 12)]
     assert index.enumeration_de(f"{doc_id}:p34:6") == attendue
     assert index.enumeration_de(f"{doc_id}:p34:12") == attendue
+
+
+# --- Correctif du tour 6 (F2) : une réservation s'honore par son unité --------------------------
+
+
+async def test_honorer_une_reservation_nouvre_pas_la_fenetre_du_noeud_entier() -> None:
+    """F2 — 829 à 1 889 tokens par run partaient dans le voisinage d'un bloc réservé hors sujet.
+
+    La réservation garde la place d'**une unité** — mesuré 99 tokens — et l'honoration ouvrait la
+    fenêtre entière de son nœud. Le compteur du tour 5 le publiait déjà : « 99 token(s) gardé(s)
+    pour 1 326 admis ». Ce qui entre désormais est l'unité, ce que la recherche du navigateur a
+    proposé, et le titre de la section ; le corps du voisinage, que personne n'a demandé, reste
+    dehors — et la lecture bornée se dit.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    voisins = [Block(block_id=f"d:p1:{i}", loc="p1", seq=i,
+                     text=f"Disposition de contexte numéro {i}, sans rapport avec la question.")
+               for i in range(2, 7)]
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les fumées assurées sont prises en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle, *voisins]), ("autre", [autre]))
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés", "fumées assurées"]),
+                      _tool("ouvrir_noeud", "t2", node_id="autre", focus_block_id="d:p2:1")),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés", "fumées assurées"],
+                       facettes=["vitrages assurés", "fumées assurées"]),
+        budget=_budget(max_opens=3, node_window=6, search_limit=20, max_blocks=8, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert "d:p1:1" in result.opened_block_ids
+    assert not [b for b in result.opened_block_ids if b.startswith("d:p1:") and b != "d:p1:1"]
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    assert gardes > 0 and admis == gardes
+    assert result.truncated is True

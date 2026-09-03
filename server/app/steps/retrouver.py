@@ -947,7 +947,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
     def execute(name: str, args: object, *, mechanism: bool = False,
-                prioritize_focus: bool = False) -> tuple[dict[str, Any], bool]:
+                prioritize_focus: bool = False,
+                unite_seule: bool = False) -> tuple[dict[str, Any], bool]:
         nonlocal opens, truncated, valid_window_attempted
         if not isinstance(args, dict):
             return invalid()
@@ -1137,6 +1138,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 *sorted(ordre[len(tete):],
                         key=lambda block_id: 0 if _decisionnel_confirme(block_id) else 1),
             ]
+            if unite_seule and focus is not None:
+                # **F2 : honorer une réservation, c'est lire son unité, pas le nœud qui la porte.**
+                # La réservation garde la place d'une unité — mesuré 99 tokens — et l'honoration
+                # ouvrait la fenêtre entière du nœud : 829 à 1 889 tokens admis par run, dont sept
+                # blocs de dégâts des eaux pour un bloc réservé hors sujet, pendant que 13 à 15
+                # candidats du navigateur restaient non lus faute de budget. L'unité, elle, entre
+                # atomiquement par `admit()` — amorce et items compris (C9, F1) —, les frères que
+                # la **recherche du navigateur** a proposés restent admissibles (eux, quelqu'un les a
+                # demandés) et le **titre** de la section aussi : il coûte quelques tokens et situe la
+                # clause. Ce qui est retiré est le corps du voisinage, que personne n'a demandé et
+                # que la fenêtre apportait par le seul fait d'exister.
+                garde = [block_id for block_id in admission_ids
+                         if block_id == focus or block_id in relevant_candidates
+                         or block(block_id).kind == "heading"]
+                if len(garde) < len(admission_ids):
+                    # Le nœud a été ouvert et n'est pas lu en entier : la lecture est bornée et se
+                    # dit, exactement comme la fenêtre le déclare déjà dans sa charge utile
+                    # (`truncated` y vaut « un bloc de la fenêtre n'a pas été admis »).
+                    truncated = True
+                admission_ids = garde
             for primary_id in admission_ids:
                 item = window_block_by_id[primary_id]
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
@@ -1268,7 +1289,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return
         for block_id, node_id in reserved_candidates:
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
-                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                        unite_seule=True)
 
     def mappings_par_rang() -> list[tuple[int, dict[str, list[str]] | list[str]]]:
         """Les requêtes de facette, avec leur rang, dans l'état **effectif** du dictionnaire.
@@ -1700,7 +1722,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 _payload, is_error = execute(
                     "ouvrir_noeud",
                     {"node_id": candidat.node_uid, "focus_block_id": candidat.clause_uid},
-                    prioritize_focus=True)
+                    prioritize_focus=True, unite_seule=True)
                 # C5 : même mesure que pour la réserve — la fenêtre ouverte, pas l'unité visée.
                 entres = [b for b in admitted_set - avant]
                 if entres:
