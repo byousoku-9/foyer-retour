@@ -130,6 +130,11 @@ class ClauseCitee(DomainModel):
     # mots du texte : elles ne sont jamais affichées, elles ne servent qu'à savoir laquelle des deux
     # pièces du dossier la clause subordonne (`steps.verifier.RENVOIS_CP` / `RENVOIS_OPTION`).
     renvois: list[str] = Field(default_factory=list)
+    # Story 5.6 (T19), troisième lecture du même texte : les tournures par lesquelles la clause
+    # subordonne son effet à une qualité de la **personne** (« ou ceux dont vous avez la garde »,
+    # « incomber aux assurés »). Racines du lexique `steps.verifier.QUALITES_DE_PERSONNE`, jamais
+    # affichées telles quelles — c'est lui qui porte le libellé rendu au client.
+    qualites_personne: list[str] = Field(default_factory=list)
 
 
 class ClaimJugee(DomainModel):

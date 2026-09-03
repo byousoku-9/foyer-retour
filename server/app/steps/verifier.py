@@ -274,8 +274,30 @@ def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: i
         for racine, mot in _mots_qualifiants(" ".join(clause.qualificatifs)).items():
             attendus.setdefault(racine, mot)
     deja = set(_mots_qualifiants(nommees))
-    return [f"caractère « {mot} » exigé par la clause citée"
-            for racine, mot in attendus.items() if racine not in deja][:max(place, 0)]
+    libelles = [f"caractère « {mot} » exigé par la clause citée"
+                for racine, mot in attendus.items() if racine not in deja]
+    # T19 : les qualités de **personne**, même mécanisme et même liste d'arrivée. `QUALIFICATIFS` ne
+    # porte que des qualités de l'événement ou du bien ; une clause qui ne joue que pour un bien
+    # « dont vous avez la garde » ou pour une responsabilité « incombant aux assurés » exige tout
+    # autant, et rien ne l'établissait. Seules les clauses `garantie` sont relues ici : c'est un
+    # `oui` de garantie qui ouvre la règle (3) d'AD-6, tandis qu'une exclusion rendue `humain`
+    # retirerait un `non_couvert` correct — le contrôle serait moins conservateur, pas plus.
+    plat = normalize(nommees)
+    for clause in clauses:
+        if clause.kind != "garantie":
+            continue
+        for racine in clause.qualites_personne:
+            libelle, mots = QUALITES_DE_PERSONNE[racine]
+            # « Déjà nommée » se lit sur les mots qui **distinguent** la qualité, pas sur le libellé
+            # entier : le modèle écrit « garde du bien par l'assuré » là où la clause écrit « dont
+            # vous avez la garde ». Tous les mots sont exigés — « qualité d'assuré de l'invité »
+            # (run réel, répétitions 1 et 3) éteint la qualité d'assuré, « garde du bien par
+            # l'assuré » ne l'éteint pas, parce que le mot « assuré » seul est partout.
+            if all(re.search(rf"\b{re.escape(mot)}", plat) for mot in mots):
+                continue
+            if libelle not in libelles:
+                libelles.append(libelle)
+    return libelles[:max(place, 0)]
 
 
 class QualiteEtablie(BaseModel):
@@ -718,6 +740,57 @@ def _mots_renvoi(texte: str) -> set[str]:
     return trouves
 
 
+# Story 5.6 (T19). Le troisième lexique, et le dernier morceau de B3 : `QUALIFICATIFS` porte les
+# qualités de l'**événement** ou du **bien** (« soudain », « accidentel »), pas celles de la
+# **personne**. Or une clause d'habitation subordonne tout aussi souvent son effet à qui est en cause
+# — le bien doit être sous la garde de l'assuré, la responsabilité doit incomber à un assuré, la
+# personne doit vivre au foyer. Mesuré sur le gate Baloise `-7` : la répétition qui a rendu `couvert`
+# tenait sur deux garanties dont le texte écrit « ou ceux dont vous avez la garde » et « incomber aux
+# assurés », avec `qualites_exigees: []` — deux listes vides sur deux exigences écrites.
+#
+# **Formes, pas mots.** Le mot « assuré » seul est partout — 224 blocs chez Baloise, 539 chez AXA :
+# le retenir rendrait toute clause conditionnelle. N'entrent ici que des tournures qui expriment une
+# *condition sur la personne*, cherchées telles quelles dans `normalize(texte)`. Rayon mesuré sur les
+# deux contrats servis : **9 des 169 blocs `garantie` de Baloise (5 %), 5 des 271 d'AXA (2 %)**.
+#
+# Chaque entrée porte le libellé rendu au client — il finit dans `missing.faits` et dans une question
+# bornée — et les mots qui **distinguent** la qualité, pour savoir si le modèle l'avait déjà nommée
+# dans ses propres termes (`_qualites_de_la_clause`).
+QUALITES_DE_PERSONNE: dict[str, tuple[str, frozenset[str]]] = {
+    "dont vous avez la garde": ("garde du bien par l'assuré, exigée par la clause citée",
+                                frozenset({"garde"})),
+    "dont il a la garde": ("garde du bien par l'assuré, exigée par la clause citée",
+                           frozenset({"garde"})),
+    "vivant habituellement": ("appartenance au foyer de l'assuré, exigée par la clause citée",
+                              frozenset({"vivant"})),
+    "sous votre toit": ("appartenance au foyer de l'assuré, exigée par la clause citée",
+                        frozenset({"toit"})),
+    "vos preposes": ("qualité de préposé de l'assuré, exigée par la clause citée",
+                     frozenset({"prepose"})),
+    "vos locataires": ("qualité de locataire ou de sous-locataire, exigée par la clause citée",
+                       frozenset({"locataire"})),
+    "incomber aux assures": ("qualité d'assuré de la personne en cause, exigée par la clause citée",
+                             frozenset({"qualite", "assure"})),
+    "personne assuree": ("qualité d'assuré de la personne en cause, exigée par la clause citée",
+                         frozenset({"qualite", "assure"})),
+    "personnes assurees": ("qualité d'assuré de la personne en cause, exigée par la clause citée",
+                           frozenset({"qualite", "assure"})),
+    "qualite d'assure": ("qualité d'assuré de la personne en cause, exigée par la clause citée",
+                         frozenset({"qualite", "assure"})),
+}
+
+
+def _qualites_de_personne(texte: str) -> list[str]:
+    """Les tournures du lexique que le texte d'une clause emploie, dans l'ordre du lexique.
+
+    Même relecture que `_mots_renvoi` : `normalize()` seul, parce que c'est elle qui rattrape la
+    casse, les diacritiques et les césures du PDF. Les tournures sont composées — aucune n'est un mot
+    isolé —, donc cherchées telles quelles : c'est ce qui tient le rayon à une poignée de blocs.
+    """
+    plat = normalize(texte)
+    return [racine for racine in QUALITES_DE_PERSONNE if racine in plat]
+
+
 def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
@@ -746,7 +819,11 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # une pièce que le verdict ne lit pas. `cp_requise: false` sur une clause qui écrit
             # « dans la limite prévue dans vos conditions particulières » passait pour « la clause n'y
             # renvoie pas » (`_mots_renvoi`).
-            renvois=sorted(_mots_renvoi(block.text))))
+            renvois=sorted(_mots_renvoi(block.text)),
+            # T19 : et les qualités de **personne** que la clause écrit, lues à la même source. Elles
+            # rejoignent `qualificatifs` dans `_qualites_de_la_clause` : ce que la clause exige et que
+            # le modèle n'a nommé nulle part devient une qualité non établie, donc `humain`.
+            qualites_personne=_qualites_de_personne(block.text)))
     return clauses
 
 

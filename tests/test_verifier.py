@@ -1308,6 +1308,30 @@ RENVOI_OPTION = "Le mobilier de jardin est garanti si le pack « Jardin » est s
 Q_RENVOI_OPTION = "garanti si le pack « Jardin » est souscrit"
 RENVOI_ABSENT = "L'adoption d'un animal de compagnie ne modifie pas les garanties du présent contrat."
 Q_RENVOI_ABSENT = "adoption d'un animal de compagnie ne modifie pas les garanties"
+# Story 5.6 (T19). Les textes **exacts** des deux garanties sur lesquelles la répétition 2 du gate
+# Baloise `-7` a rendu `couvert` (`p26:14`, `p28:8`), et celui de la troisième clause du même run
+# (`p11:18`, qui cumule trois qualités de personne). Aucun n'écrit de qualificatif de `QUALIFICATIFS`
+# ni de renvoi contractuel : sans le contrôle de T19 ils atteignent `oui`.
+GARDE_LOCATAIRES = ("Nous garantissons également les conséquences pécuniaires des dommages corporels, "
+                    "matériels et immatériels consécutifs causés par les biens meubles mis à "
+                    "disposition de vos locataires ou sous-locataires.")
+Q_GARDE_LOCATAIRES = "biens meubles mis à disposition de vos locataires ou sous-locataires"
+RC_ASSURES = ("Nous assurons la responsabilité civile extracontractuelle qui pourrait incomber aux "
+              "assurés pour tous les faits, actes ou omissions de la vie privée ayant causé des "
+              "dommages à un tiers.")
+Q_RC_ASSURES = "responsabilité civile extracontractuelle qui pourrait incomber aux assurés"
+MOBILIER_GARDE = ("Vos objets mobiliers ou ceux dont vous avez la garde, ceux de vos préposés et de "
+                  "toute personne vivant habituellement sous votre toit et situés à l'intérieur des "
+                  "bâtiments garantis.")
+Q_MOBILIER_GARDE = "objets mobiliers ou ceux dont vous avez la garde"
+# La borne : le mot « assuré » seul, qui est partout et n'exprime aucune condition sur la personne.
+PERSONNE_ABSENTE = "L'assuré déclare la valeur de son mobilier au titre du présent contrat."
+Q_PERSONNE_ABSENTE = "déclare la valeur de son mobilier au titre du présent contrat"
+# L'exclusion `p31:4` du même run : elle écrit « par toute personne assurée », et le contrôle de T19
+# ne la relit **pas** (il ne lit que les clauses `garantie`).
+EXCLUSION_PERSONNE = ("Les dommages causés aux biens et aux animaux confiés à, loués ou empruntés par "
+                      "toute personne assurée.")
+Q_EXCLUSION_PERSONNE = "biens et aux animaux confiés à, loués ou empruntés par toute personne assurée"
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
               description="Une bougie a mis le feu au mobilier de salon, sans embrasement ; "
@@ -1351,6 +1375,17 @@ def contrat() -> Index:
          "kind_source": "manual", "scope_node_id": "cg:socle"},
         {"block_id": "cg:p1:12", "loc": "p1", "seq": 12, "kind": "garantie", "text": RENVOI_ABSENT,
          "kind_source": "manual", "scope_node_id": "cg:socle"},
+        # T19 : les qualités de **personne** que la clause écrit (textes réels de Baloise).
+        {"block_id": "cg:p1:13", "loc": "p1", "seq": 13, "kind": "garantie", "text": GARDE_LOCATAIRES,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:14", "loc": "p1", "seq": 14, "kind": "garantie", "text": RC_ASSURES,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:15", "loc": "p1", "seq": 15, "kind": "garantie", "text": MOBILIER_GARDE,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:16", "loc": "p1", "seq": 16, "kind": "garantie",
+         "text": PERSONNE_ABSENTE, "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:17", "loc": "p1", "seq": 17, "kind": "exclusion",
+         "text": EXCLUSION_PERSONNE, "kind_source": "manual", "scope_node_id": "cg:socle"},
     ]
     doc = Document(
         doc_id="cg", kind="contrat", title="Mini contrat", edition="juin 2017",
@@ -1359,7 +1394,10 @@ def contrat() -> Index:
                            {"block_id": "cg:p1:5"}, {"block_id": "cg:p1:6"},
                            {"block_id": "cg:p1:7"}, {"block_id": "cg:p1:8"},
                            {"block_id": "cg:p1:9"}, {"block_id": "cg:p1:10"},
-                           {"block_id": "cg:p1:11"}, {"block_id": "cg:p1:12"}]),
+                           {"block_id": "cg:p1:11"}, {"block_id": "cg:p1:12"},
+                           {"block_id": "cg:p1:13"}, {"block_id": "cg:p1:14"},
+                           {"block_id": "cg:p1:15"}, {"block_id": "cg:p1:16"},
+                           {"block_id": "cg:p1:17"}]),
                Node(node_id="cg:ext", level=1, title="Extensions", scope={"kind": "extension"},
                     items=[{"block_id": "cg:p1:2"}]),
                Node(node_id="cg:root", level=0, title="Contrat",
@@ -1982,6 +2020,117 @@ async def test_le_code_ne_ramene_jamais_un_renvoi_rendu_a_faux(contrat: Index) -
                                         verdicts=[("c1", True)])])
     assert v.claims[0].status.applicable == "humain"
     assert v.verdict is not None and v.verdict.value == "sous_conditions"
+
+
+async def test_la_forme_exacte_de_la_repetition_qui_a_rendu_couvert_ne_rend_plus_couvert(
+        contrat: Index) -> None:
+    """Story 5.6 (T19) : la forme **exacte** de `b-invite-cigarette` répétition 2 (gate Baloise `-7`).
+
+    Audit du candidat, `run:3d32990e-c2b1-460a-b6a0-fa623bcd146f` : deux garanties du socle rendues
+    `fait_requis_present=true`, `option_requise=false`, `cp_requise=false`, `fait_manquant=null`,
+    `qualites_exigees=[]`, `qualites_etablies=[]` — donc `oui`, donc règle (3) d'AD-6, donc `couvert`,
+    hors des valeurs admissibles de l'oracle. Les répétitions 1 et 3 rendaient les **mêmes** clauses
+    avec « garde du bien par l'assuré » et « qualité d'assuré de l'invité » en fait manquant, d'où
+    `ne_tranche_pas`. La variance porte donc sur ce que le modèle a bien voulu énumérer, et le texte
+    des clauses, lui, ne varie pas : `p26:14` écrit « mis à disposition de vos locataires », `p28:8`
+    « incomber aux assurés ». Ce sont des qualités de **personne** — `QUALIFICATIFS` n'en porte
+    aucune, et c'est le trou que B3 avait laissé.
+
+    L'exclusion `p31:4` du run réel n'est pas rejouée : dans ce mini-contrat sa portée couvrirait le
+    socle et la règle (1) trancherait avant, ce qui prouverait autre chose. Le chemin mesuré ici est
+    exactement celui qui a produit le `couvert`.
+    """
+    draft = _draft(("c1", "La responsabilité civile de l'invité est garantie.",
+                    [("cg:p1:14", Q_RC_ASSURES)]),
+                   ("c2", "Les biens meubles mis à disposition du locataire sont garantis.",
+                    [("cg:p1:13", Q_GARDE_LOCATAIRES)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        ("c2", True, False, False, None, [], []),
+                                        verdicts=[("c1", True), ("c2", True)])])
+    assert [c.status.applicable for c in v.claims] == ["humain", "humain"]
+    assert len([c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]) == 2
+    assert v.verdict is not None and v.verdict.value != "couvert"
+    assert v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == [
+        "qualité d'assuré de la personne en cause, exigée par la clause citée",
+        "qualité de locataire ou de sous-locataire, exigée par la clause citée"]
+    assert all(any(libelle in q for q in v.verdict.ask_client)
+               for libelle in v.verdict.missing.faits)
+
+
+async def test_une_clause_qui_cumule_trois_qualites_de_personne_les_demande_toutes(
+        contrat: Index) -> None:
+    """`p11:18`, la troisième clause du même run : garde, préposés, personne vivant sous le toit.
+
+    Trois tournures dans un seul bloc, et le modèle n'en nomme aucune. Le libellé de la garde et
+    celui du foyer sont distincts ; « vos préposés » en est un troisième. Rien n'est fusionné ni
+    tronqué en deçà de la borne.
+    """
+    draft = _draft(("c1", "Le mobilier gardé par l'assuré est couvert.",
+                    [("cg:p1:15", Q_MOBILIER_GARDE)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and v.verdict.missing.faits == [
+        "garde du bien par l'assuré, exigée par la clause citée",
+        "appartenance au foyer de l'assuré, exigée par la clause citée",
+        "qualité de préposé de l'assuré, exigée par la clause citée"]
+
+
+async def test_le_mot_assure_seul_nest_pas_une_qualite_de_personne(contrat: Index) -> None:
+    """La borne du lexique, et la raison pour laquelle il ne porte que des **tournures**.
+
+    « L'assuré déclare la valeur de son mobilier » : le mot y est, la condition sur la personne n'y
+    est pas. Le mot « assuré » apparaît dans 224 blocs du contrat Baloise et 539 d'AXA — le retenir
+    seul rendrait conditionnelle à peu près chaque clause du contrat et fermerait la règle (3)
+    d'AD-6 à tout le monde. Ce témoin existe pour qu'un futur élargissement au mot nu soit refusé par la suite plutôt
+    que découvert en live.
+    """
+    draft = _draft(("c1", "La valeur du mobilier est déclarée.", [("cg:p1:16", Q_PERSONNE_ABSENTE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
+
+
+async def test_une_qualite_de_personne_deja_nommee_par_le_modele_nest_pas_redemandee(
+        contrat: Index) -> None:
+    """Le dédoublonnage se lit sur les mots qui **distinguent** la qualité, pas sur le libellé entier.
+
+    C'est la forme des répétitions 1 et 3 du même run : le modèle nomme « qualité d'assuré de
+    l'invité » en fait manquant. Le code n'a rien à ajouter — le client lirait deux fois la même
+    exigence sous deux formulations, ce que la story 5.6 T8 a précisément corrigé pour les
+    qualificatifs.
+    """
+    draft = _draft(("c1", "La responsabilité civile de l'invité est garantie.",
+                    [("cg:p1:14", Q_RC_ASSURES)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, "qualité d'assuré de l'invité", [], []),
+                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and v.verdict.missing.faits == ["qualité d'assuré de l'invité"]
+
+
+async def test_une_qualite_de_personne_dune_exclusion_ne_retire_pas_son_oui(contrat: Index) -> None:
+    """Seules les clauses `garantie` sont relues, et la borne est asymétrique **à dessein**.
+
+    `p31:4` de Baloise — l'exclusion du run réel — écrit « par toute personne assurée ». La relire
+    rendrait l'exclusion `humain` et retirerait un `non_couvert` correct : le contrôle serait moins
+    conservateur, pas plus, et les deux oracles `non_couvert` du gate vertical AXA tomberaient. Le
+    mode d'échec mesuré est un `oui` de **garantie** qui ouvre la règle (3), et c'est lui seul que le
+    code ferme.
+    """
+    draft = _draft(("c1", "Les biens confiés à un assuré sont exclus.",
+                    [("cg:p1:17", Q_EXCLUSION_PERSONNE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
+    assert v.verdict is not None and v.verdict.missing.faits == []
 
 
 async def test_a_fact_that_shares_a_word_but_denies_the_quality_establishes_nothing(
