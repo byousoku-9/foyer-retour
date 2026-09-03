@@ -928,7 +928,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             run_reservations: list[tuple[str, str]] = []
             hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
                                   question=canonical_question,
-                                  groupes_prioritaires=parsed.facettes,
+                                  groupes_prioritaires=[requete for _rang, requete
+                                                        in mappings_par_rang()],
                                   reservations_out=run_reservations)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
@@ -2324,6 +2325,15 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     dictionary_ready = False
     expanded_search: dict[str, list[str]] | None = None
     hits: list[ScoredHit] = []
+    # C6 : la variante déterministe réserve avec la **même** requête que la variante outils. Elle
+    # est relue à l'emploi, comme `mappings_par_rang` là-bas, parce que `dictionary_ready` dépend de
+    # l'ordre déclaré des mécanismes et non de l'ordre où le code se trouve écrit.
+    def mappings_deterministes() -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+        return _mappings_facettes(
+            parsed.facettes, dictionnaire=dictionnaire, dictionary_ready=dictionary_ready,
+            index=index, doc_id=doc_id,
+            variante_max_part=settings.facette_variante_max_part,
+            dictionnaire_max_part=settings.dictionnaire_variante_max_part)
     # Nœuds candidats par phase puis, à l'intérieur de chaque phase, dans l'ordre propre de la
     # source. Il n'y a aucun retri global des hits documentaires.
     nodes: list[str] = []
@@ -2348,7 +2358,7 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 cherches, limit=budget.search_limit, doc_id=doc_id,
                 question=canonical_question,
                 kinds_prioritaires=kinds_prioritaires,
-                groupes_prioritaires=parsed.facettes,
+                groupes_prioritaires=[requete for _rang, requete in mappings_deterministes()],
                 reservations_out=phase_reservations)
             reserved_candidates.extend(
                 reservation for reservation in phase_reservations
