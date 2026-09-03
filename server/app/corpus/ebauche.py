@@ -13,10 +13,12 @@ déjà le texte des blocs — et les deux bornes de `config.py` leur arrivent en
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from server.app.corpus.index import Index
 from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft, AnswerSegment, Claim, Quote
+from server.app.domain.verdict import KINDS_DECISIONNELS
 
 
 def fusionner_quotes_du_meme_bloc(draft: AnswerDraft, *, index: Index,
@@ -117,6 +119,25 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: st
 
     Un bloc d'un autre document, inconnu de l'index ou sans amorce est laissé tel quel : ce n'est
     pas ici qu'on juge une citation.
+
+    **Deux bornes de plus, story 5.6 (L1c), et c'est la même leçon que la quatrième.** Une amorce
+    jointe traverse ensuite les contrôles du code, et deux d'entre eux peuvent rejeter la claim
+    **entière** à cause du passage qu'on vient d'ajouter — la projection censée sauver une citation
+    la détruisait alors une seconde fois, par un autre chemin :
+
+    - **l'amorce doit être unique dans le document.** AD-3 rejette `ambigue` une citation dont le
+      passage se relit dans un autre bloc, et la phrase qui ouvre une énumération d'exclusions est
+      précisément la plus répétée d'un contrat (« Les exclusions mentionnées aux conditions
+      générales communes sont d'application. En outre, ne sont pas assurés : », dans chaque section
+      d'AXA). Mesuré le 04/09/2026 sur le rejeu « vol » : deux affirmations d'exclusion, justes et
+      citées, rejetées `ambigue` sur un passage que le modèle n'avait pas écrit ;
+    - **l'amorce ne doit pas ajouter un second `kind` décisionnel.** « Une seule clause par
+      affirmation » (D6) est un contrôle de code : une claim qui cite une `garantie` et une
+      `condition` rend la table d'AD-6 indécidable et part en `ambigue`. Or la phrase qui ouvre une
+      énumération de garanties est souvent typée `condition` (« La Compagnie garantit, pour autant
+      qu'une plainte ait été déposée : »). Même rejeu, trois affirmations de plus.
+
+    Dans les deux cas l'item reste cité seul — l'état d'avant cette projection, jamais moins.
     """
     servis = set(blocs_servis)
     jointes = 0
@@ -131,11 +152,16 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: st
                 amorce = index.amorce_de_lenumeration(quote.block_id)
                 if amorce is None or amorce in deja or amorce not in servis:
                     continue
-                texte = index.corpus.documents[doc_id].block(amorce).text_norm
+                document = index.corpus.documents[doc_id]
+                texte = document.block(amorce).text_norm
             except KeyError:
                 continue
             if not texte.strip():
                 continue
+            if any(b.block_id != amorce and texte in b.text_norm for b in document.blocks):
+                continue  # AD-3 la rejetterait `ambigue`, et la claim avec elle
+            if _second_kind_decisionnel(document, amorce, deja):
+                continue  # D6 la rejetterait `ambigue` : deux clauses dans une même affirmation
             deja.add(amorce)
             ajouts.append(Quote(block_id=amorce, quote=texte))
         claims.append(claim.model_copy(update={"quotes": [*claim.quotes, *ajouts]})
@@ -144,6 +170,31 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: st
     if not jointes:
         return draft, 0
     return draft.model_copy(update={"claims": claims}), jointes
+
+
+def _second_kind_decisionnel(document: Any, amorce: str, deja: set[str]) -> bool:
+    """L'amorce ajouterait-elle à cette claim un **second** `kind` décisionnel (D6) ?
+
+    Le typage vient de l'ingestion, jamais du modèle, et c'est exactement le calcul que
+    `steps.verifier` refait sur les blocs cités : deux kinds décisionnels dans une même affirmation
+    la font rejeter `ambigue`. Une amorce non décisionnelle (un paragraphe, une définition) est le
+    contexte de la clause et n'entre pas dans ce compte — c'est ce que la projection sert à joindre.
+    """
+    try:
+        kind = document.block(amorce).kind
+    except KeyError:
+        return False
+    if kind not in KINDS_DECISIONNELS:
+        return False
+    kinds = {kind}
+    for block_id in deja:
+        try:
+            autre = document.block(block_id).kind
+        except KeyError:
+            continue
+        if autre in KINDS_DECISIONNELS:
+            kinds.add(autre)
+    return len(kinds) > 1
 
 
 def rattacher_claims_sinistre(draft: AnswerDraft, *, max_claims: int,

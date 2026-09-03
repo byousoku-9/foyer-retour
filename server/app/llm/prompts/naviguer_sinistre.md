@@ -105,9 +105,12 @@ jamais.
   décrit » ; les mots peuvent naturellement rester dans une quote exacte.
 - **Une seule clause par affirmation.** Une claim ne cite qu'**une** clause du contrat : si un
   passage de garantie et un passage d'exclusion se rapportent tous deux au sinistre, fais-en deux
-  claims distinctes. Tu peux joindre à la clause le passage qui l'éclaire (une définition, la
-  phrase d'amorce de l'énumération, la condition d'applicabilité de la garantie) : c'est son
-  contexte, cité **dans la même claim**, pas une seconde claim. Le `text` d'une claim est relu seul,
+  claims distinctes. La règle vaut pour les **quatre** natures de clause — garantie, exclusion,
+  condition, franchise : joindre la condition d'applicabilité à la garantie qu'elle conditionne
+  fait rejeter la claim entière, garantie comprise. C'est la claim distincte demandée plus haut
+  qui la porte. Tu peux en revanche joindre à la clause le passage qui l'**éclaire** sans rien
+  décider (une définition, la phrase d'amorce de l'énumération, le paragraphe d'introduction de
+  l'article) : c'est son contexte, cité **dans la même claim**, pas une seconde claim. Le `text` d'une claim est relu seul,
   hors de la phrase qui l'affiche : il porte son propre sujet ; ni pronom ni renvoi (« cette
   garantie », « cette même clause ») qui obligerait à lire une autre claim.
 - **Une claim par clause qui décide.** Pour chaque sous-question, cite chaque clause décisionnelle

@@ -298,6 +298,31 @@ async def test_lamorce_de_lenumeration_est_jointe_a_litem_cite_seul() -> None:
     hors = draft({"block_id": item.block_id, "quote": item.text})
     assert joindre_amorces_denumeration(hors, index=index, doc_id=doc.doc_id,
                                         blocs_servis=[item.block_id]) == (hors, 0)
+    # Fermeture 5 (story 5.6, L1c) : une amorce dont le texte se relit **ailleurs** dans le document
+    # n'est pas jointe. `p41:2` — « Les exclusions mentionnées aux conditions générales communes sont
+    # d'application. En outre, ne sont pas assurés : » — ouvre l'énumération de `p41:3` et se relit
+    # mot pour mot en `p69:2` : AD-3 la rejetterait `ambigue`, et la claim avec elle. Mesuré le
+    # 04/09/2026 sur le rejeu « vol » (les deux affirmations d'exclusion perdues), et sur 72 des 287
+    # items d'AXA qui ont une amorce.
+    exclusion = doc.block("axa-lu-optihome-2017:p41:3")
+    amorce_repetee = doc.block("axa-lu-optihome-2017:p41:2")
+    assert index.amorce_de_lenumeration(exclusion.block_id) == amorce_repetee.block_id
+    ambigue = draft({"block_id": exclusion.block_id, "quote": exclusion.text})
+    assert joindre_amorces_denumeration(
+        ambigue, index=index, doc_id=doc.doc_id,
+        blocs_servis=[exclusion.block_id, amorce_repetee.block_id]) == (ambigue, 0)
+    # Fermeture 6 (même tour, même principe) : une amorce qui ajouterait un **second** `kind`
+    # décisionnel n'est pas jointe non plus. « Une seule clause par affirmation » (D6) est un
+    # contrôle de code : une claim qui cite une `condition` et une `garantie` rend la table d'AD-6
+    # indécidable et part en `ambigue`. La projection ne fabrique pas ce qu'elle sait rejeté.
+    conditionne = doc.block("axa-lu-optihome-2017:p52:11")
+    garantie = doc.block("axa-lu-optihome-2017:p52:10")
+    assert index.amorce_de_lenumeration(conditionne.block_id) == garantie.block_id
+    assert (conditionne.kind, garantie.kind) == ("condition", "garantie")
+    deux_kinds = draft({"block_id": conditionne.block_id, "quote": conditionne.text})
+    assert joindre_amorces_denumeration(
+        deux_kinds, index=index, doc_id=doc.doc_id,
+        blocs_servis=[conditionne.block_id, garantie.block_id]) == (deux_kinds, 0)
 
 
 async def test_rediger_sinistre_trace_la_jonction_de_lamorce() -> None:
