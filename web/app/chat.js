@@ -20,7 +20,7 @@ window.CHAT = (function () {
   // les retient de la sonde. Ce qui suit n'est qu'un **repli**, pour la premiere requete quand la
   // sonde n'a pas encore repondu.
   var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
-  var DEADLINE_SERVEUR_REPLI = 250;     // config.deadline_s
+  var DEADLINE_SERVEUR_REPLI = 290;     // config.deadline_s
   // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne. Ce n'etait pas
   // un seuil du serveur, c'en est un : `config.client_abort_margin_s`, publie par `/sante`. Ce qui
   // reste ici n'est, comme les deux autres, qu'un **repli**.
@@ -29,12 +29,15 @@ window.CHAT = (function () {
   // est dictee par l'ordre qu'AD-11 impose depuis l'amendement AD-1 — attente du client **>**
   // `--timeout` Cloud Run (300 s) **>** deadline serveur. Story 5.6 (T1c) : la deadline passe a
   // 250 s et cette marge est le **reste**, pas un seuil propre — 250 + 65 = 315 s, la meme
-  // patience qu'avant, repartie autrement. En
+  // patience qu'avant, repartie autrement. Story 5.6 (T1d) : la deadline passe a 290 s parce que
+  // le plafond de sortie du verificateur a ete re-derive sur la mesure, et le reste tombe a 25 —
+  // 290 + 25 = 315 s, encore la meme patience. Il n'y a plus de reste a prendre : la prochaine
+  // hausse de la deadline devra relever le `--timeout` de Cloud Run, et cette patience avec. En
   // dessous, la page couperait avant l'infrastructure et afficherait « assistant indisponible »
   // pour une requete que Cloud Run a tuee : un repli sans echec reel, ce qu'AD-11 interdit. Ce
   // n'est pas une attente, c'est le delai au bout duquel on renonce ; une reponse normale arrive
   // en 20 a 30 s, et un 503 est affiche des qu'il arrive.
-  var MARGE_ABANDON_S_REPLI = 65;       // config.client_abort_margin_s
+  var MARGE_ABANDON_S_REPLI = 25;       // config.client_abort_margin_s
   // Le budget d'un petit GET — ici `/sante` — n'est **pas** la marge ci-dessus. Il l'empruntait
   // tant qu'elles valaient toutes deux 10 s ; depuis que la marge est dictee par le `--timeout` de
   // Cloud Run, l'emprunt verrouillerait la saisie plus d'une minute devant un serveur
