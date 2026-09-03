@@ -22,6 +22,7 @@ un modèle hors d'une étape.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from server.app.config import RETRIEVAL_DEFAULT, Settings
@@ -160,12 +161,22 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                          pipeline_digest_hex: str | None = None,
                          prompts_digest_hex: str | None = None,
                          dictionnaire: Any = None,
-                         variant: str | None = None) -> tuple[Answer, Trace]:
+                         variant: str | None = None,
+                         on_etape: Callable[[str], None] | None = None,
+                         on_tour: Callable[[int], None] | None = None) -> tuple[Answer, Trace]:
     """Une question du guide → l'unique `Answer` d'AD-4 et sa `Trace`.
 
     Toute sortie normale — réponse, refus, clarification, claims toutes rejetées — est un `Answer`
     (l'API en fera un 200, AD-11). Seules les entrées hors bornes (`InvalidRequest`) et les échecs
     terminaux des étapes (`Timeout`, `LlmParse`, `BudgetExceeded`, `LlmUnavailable`) remontent.
+
+    `on_etape` / `on_tour` (story 5.6, L1) : deux rappels d'avancement **optionnels**, `None` par
+    défaut, appelés par du code pur au moment où une étape commence et où la navigation entame un
+    tour d'outils. Ils ne décident de rien, ne peuvent rien annuler et ne voient ni la question, ni
+    les faits, ni un texte de bloc — un nom d'étape et un numéro. Ils existent pour que la route de
+    progression (`POST …/progression`, SSE) dise ce que le pipeline est en train de faire pendant
+    qu'il le fait ; sans eux, une requête de trois minutes est un écran vide. Le défaut `None` est ce
+    qui garantit que les évals, les gates et les tests hermétiques ne changent pas d'un octet.
     """
     variant = variant or settings.retrieval_variant
     if variant not in VARIANTS:
@@ -232,6 +243,10 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         La latence réelle reste bornée ailleurs, et rien n'y touche : `client_abort_margin_s`
         côté navigateur (AD-11) et le délai d'infrastructure au déploiement.
         """
+        if on_etape is not None:
+            # Avant la deadline : une étape que la deadline refuse a bien **commencé** du point de
+            # vue de qui regarde, et le flux doit pouvoir la nommer avant de rendre l'erreur.
+            on_etape(avant)
         if budget.remaining() > 0:
             return
         if avant not in ETAPES_SANS_APPEL:
@@ -473,7 +488,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
                                     doc_id=doc_id, settings=settings, client=client,
                                     request_budget=budget, prompt="naviguer_guide",
-                                    historique=historique, profil=profil)
+                                    historique=historique, profil=profil, on_tour=on_tour)
             try:
                 step_retrouver = await navigation.lire()
             except PipelineError as exc:

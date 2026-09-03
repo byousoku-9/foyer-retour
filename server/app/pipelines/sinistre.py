@@ -24,7 +24,7 @@ Comme le guide, le pipeline ne voit ni `corpus` ni `llm` (table des couches) : `
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -487,7 +487,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
               budget: Any = None, dossier: MissingPackage | None = None,
               dictionnaire: Any = None,
               pipeline_digest_hex: str | None = None,
-              prompts_digest_hex: str | None = None) -> tuple[Answer, Trace]:
+              prompts_digest_hex: str | None = None,
+              on_etape: Callable[[str], None] | None = None,
+              on_tour: Callable[[int], None] | None = None) -> tuple[Answer, Trace]:
     """Un sinistre décrit → l'unique `Answer` d'AD-4, verdict compris, et sa `Trace`.
 
     Toute sortie normale — verdict, refus, clauses toutes rejetées — est un `Answer` (l'API en fera un
@@ -501,6 +503,14 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
     inconnu et la règle (2) plafonne le verdict à `sous_conditions` — « au regard des conditions
     générales seules ». Rien dans le pipeline ne le fabrique ni ne le devine ; les `faits[]` qu'il
     porterait sont ignorés, ils sont dérivés des libellés rendus par le modèle.
+
+    `on_etape` / `on_tour` (story 5.6, L1) : deux rappels d'avancement **optionnels**, `None` par
+    défaut, appelés par du code pur au moment où une étape commence et où la navigation entame un
+    tour d'outils. Ils ne décident de rien, ne peuvent rien annuler et ne voient ni la question, ni
+    les faits, ni un texte de bloc — un nom d'étape et un numéro. Ils existent pour que la route de
+    progression (`POST …/progression`, SSE) dise ce que le pipeline est en train de faire pendant
+    qu'il le fait ; sans eux, une requête de trois minutes est un écran vide. Le défaut `None` est ce
+    qui garantit que les évals, les gates et les tests hermétiques ne changent pas d'un octet.
     """
     if variant not in VARIANTES:
         # Avant tout appel facturé : une variante inconnue est une faute d'appel, pas un cas à traiter.
@@ -556,6 +566,10 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         La latence réelle reste bornée ailleurs, et rien n'y touche : `client_abort_margin_s`
         côté navigateur (AD-11) et le délai d'infrastructure au déploiement.
         """
+        if on_etape is not None:
+            # Avant la deadline : une étape que la deadline refuse a bien **commencé** du point de
+            # vue de qui regarde, et le flux doit pouvoir la nommer avant de rendre l'erreur.
+            on_etape(avant)
         if budget.remaining() > 0:
             return
         if avant not in ETAPES_SANS_APPEL:
@@ -712,7 +726,8 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # d'AD-3 un message de plus encore. La chaîne d'étapes, elle, ne bouge pas.
         navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
                                 doc_id=doc_id, settings=settings, client=client,
-                                request_budget=budget, prompt="naviguer_sinistre", faits=faits)
+                                request_budget=budget, prompt="naviguer_sinistre", faits=faits,
+                                on_tour=on_tour)
         try:
             step_retrouver = await navigation.lire()
         except PipelineError as exc:

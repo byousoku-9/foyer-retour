@@ -33,10 +33,11 @@ d'entrée. Le message dit pourquoi.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from server.app.api.conversation_token import signer, verifier as verifier_token
 from server.app.api.presenter import champs_de_journal, clauses_de
+from server.app.api.progression import Progression, diffuser
 from server.app.api.routes.chat import verifier_quota
 from server.app.api.schemas import (
     VIA,
@@ -57,11 +58,8 @@ router = APIRouter()
 KIND_ATTENDU = "contrat"
 
 
-@router.post("/sinistre", response_model=SinistreResponse, response_model_exclude_none=False,
-             dependencies=[Depends(verifier_quota)])
-async def sinistre(request: Request, demande: SinistreRequest) -> SinistreResponse | JSONResponse:
-    etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
-
+def _bornes(etat, demande: SinistreRequest) -> None:  # type: ignore[no-untyped-def]
+    """Les deux refus 400 d'AD-11, **avant** tout appel facturé — et avant tout flux SSE."""
     document = etat.corpus.documents.get(demande.doc_id)
     if document is None:
         # AD-15 : le `doc_id` reçu n'est pas recopié dans le message — c'est une chaîne de l'appelant.
@@ -74,6 +72,42 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         raise InvalidRequest("ce document n'est pas un contrat : un sinistre se confronte à des "
                              "conditions générales, et ce document n'en porte aucune (voir "
                              "GET /api/v1/documents, champ `kind`)")
+
+
+@router.post("/sinistre", response_model=SinistreResponse, response_model_exclude_none=False,
+             dependencies=[Depends(verifier_quota)])
+async def sinistre(request: Request, demande: SinistreRequest) -> SinistreResponse | JSONResponse:
+    return await executer_sinistre(request, demande)
+
+
+@router.post("/sinistre/progression", dependencies=[Depends(verifier_quota)])
+async def sinistre_progression(request: Request, demande: SinistreRequest) -> StreamingResponse:
+    """Story 5.6 (L1) — la **même** réponse que `/sinistre`, dite pendant qu'elle se calcule (SSE).
+
+    `executer_sinistre` est la fonction que la route classique appelle, et l'événement `resultat`
+    porte le JSON de ce qu'elle rend — l'en-tête `X-Sinistre-Conversation` compris. Les deux refus
+    400 sont levés **avant** le flux : une faute d'appel reste une vraie erreur HTTP.
+    """
+    etat = request.app.state.foyer
+    _bornes(etat, demande)
+    progression = Progression("sinistre")
+
+    async def produire() -> JSONResponse:
+        reponse = await executer_sinistre(request, demande, progression=progression)
+        if isinstance(reponse, JSONResponse):
+            return reponse
+        return JSONResponse(content=reponse.model_dump(mode="json"))
+
+    return diffuser(request, pipeline="sinistre", settings=etat.settings,
+                    progression=progression, produire=produire)
+
+
+async def executer_sinistre(request: Request, demande: SinistreRequest, *,
+                            progression: Progression | None = None
+                            ) -> SinistreResponse | JSONResponse:
+    """Le corps de `POST /sinistre`, partagé mot pour mot avec la route de progression."""
+    etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
+    _bornes(etat, demande)
 
     # Story 5.6 (T5) — le cache de réponses, **avant** le budget et avant tout appel facturé, mais
     # après les deux refus 400 : un `doc_id` inconnu ou qui n'est pas un contrat reste une faute
@@ -114,7 +148,10 @@ async def sinistre(request: Request, demande: SinistreRequest) -> SinistreRespon
         # baseline de comparaison des évals, jamais un chemin sélectionnable par une requête.
         # AD-1 (« un `pipeline.variant` inconnu ⇒ 400 ») est servi par `extra="forbid"` du schéma,
         # avant le premier appel facturé.
-        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex)
+        pipeline_digest_hex=etat.pipeline_digest_hex, prompts_digest_hex=etat.prompts_digest_hex,
+        # Story 5.6 (L1) : `None` sur la route classique, donc rien ne change pour elle.
+        on_etape=progression.on_etape if progression is not None else None,
+        on_tour=progression.on_tour if progression is not None else None)
 
     reponse = _servir(request, etat, demande, answer, trace, via=VIA,
                       cout_de_la_requete=trace.total_cost_eur)

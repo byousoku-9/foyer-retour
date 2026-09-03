@@ -27,8 +27,10 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from server.app.api.presenter import champs_de_journal, fiches_de, sources_de
+from server.app.api.progression import Progression, diffuser
 from server.app.api.schemas import VIA, VIA_CACHE, ChatRequest, ChatResponse
 from server.app.cache import EntreeDeCache, composantes_de_cle
 from server.app.corpus.text import normalize
@@ -64,6 +66,34 @@ def comparateur_de(question: str) -> bool:
 
 @router.post("/chat", response_model=ChatResponse, response_model_exclude_none=False)
 async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
+    return await executer_chat(request, demande)
+
+
+@router.post("/chat/progression")
+async def chat_progression(request: Request, demande: ChatRequest) -> StreamingResponse:
+    """Story 5.6 (L1) — la **même** réponse que `/chat`, dite pendant qu'elle se calcule (SSE).
+
+    Rien n'est dupliqué : `executer_chat` est la fonction que la route classique appelle, et
+    l'événement `resultat` porte le JSON de la `ChatResponse` qu'elle rend. Ce qui s'ajoute sont les
+    deux rappels d'avancement, que le pipeline reçoit à `None` partout ailleurs. Le limiteur, les
+    bornes du schéma et `borner()` s'appliquent **avant** le flux : une requête refusée l'est en
+    vraie erreur HTTP, avec l'enveloppe d'AD-16, exactement comme sur la route classique.
+    """
+    etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance de routeur)
+    demande.borner(etat.settings)
+    progression = Progression("guide")
+
+    async def produire() -> JSONResponse:
+        reponse = await executer_chat(request, demande, progression=progression)
+        return JSONResponse(content=reponse.model_dump(mode="json"))
+
+    return diffuser(request, pipeline="guide", settings=etat.settings,
+                    progression=progression, produire=produire)
+
+
+async def executer_chat(request: Request, demande: ChatRequest, *,
+                        progression: Progression | None = None) -> ChatResponse:
+    """Le corps de `POST /chat`, partagé mot pour mot avec la route de progression."""
     etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
     demande.borner(etat.settings)
 
@@ -101,7 +131,10 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         # (table des couches) et ne peut donc pas le charger lui-même. Toujours un objet, jamais
         # `None` : un dictionnaire absent est un `Dictionnaire` inerte, qui n'arme rien.
         dictionnaire=etat.dictionnaire,
-        variant=variant)
+        variant=variant,
+        # Story 5.6 (L1) : `None` sur la route classique, donc rien ne change pour elle.
+        on_etape=progression.on_etape if progression is not None else None,
+        on_tour=progression.on_tour if progression is not None else None)
 
     reponse = _projeter(request, demande, etat, answer, trace, via=VIA,
                         cout_de_la_requete=trace.total_cost_eur)

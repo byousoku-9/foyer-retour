@@ -78,6 +78,13 @@ affirmation dont le sujet est le contrat et qui conserve les conditions de la qu
 pas le verdict demandé par la question — même si elle emploie « couvre ». Ne rends jamais
 `conclusion_ajoutee` pour cette seule forme.
 
+**La clause voisine, citée pour montrer la limite, répond à l'objet.** Quand aucune clause lue ne
+vise le dommage déclaré, l'affirmation qui rapporte ce qu'une clause **proche** couvre réellement est
+ce qui répond à la question : c'est elle qui montre où passe la limite. Elle ne nomme ni le cas ni la
+sous-question — c'est ce qu'on demande à la rédaction — et elle n'est pas `hors_objet` pour autant.
+Son périmètre contraire se dit dans ses champs typés (question 1), pas dans son verdict de
+pertinence.
+
 L'objet peut être une décision finale **ou** l'identification des catégories de dommages, garanties,
 exclusions ou règles à examiner. Dans ce second cas, une règle soutenue qui traite l'un des dommages
 déclarés répond déjà à l'objet : elle reste `pertinente = true`, même si elle ne rattache pas encore
@@ -95,8 +102,17 @@ un motif de `hors_objet`.
 Contrôle enfin cette cohérence avant de rendre le JSON. Renseigner pour une affirmation un
 `fait_manquant`, ou une seule `qualite_exigee`, c'est avoir déjà jugé que sa clause vise ce cas : son
 verdict ne peut alors pas être `hors_objet`. De même, une affirmation que tu ranges dans une facette
-y répond : elle ne peut pas être `hors_objet`. Une affirmation dont la clause ne vise pas ce cas rend
-les deux listes vides et `fait_manquant = null` — c'est la seule forme compatible avec ce motif.
+y répond : elle ne peut pas être `hors_objet`.
+
+**Un périmètre contraire n'est pas un hors-objet**, et confondre les deux est l'erreur la plus
+coûteuse de ce formulaire. Ce sont deux questions différentes, posées dans deux champs différents :
+« cette clause vise-t-elle ce sinistre ? » se répond dans `fait_requis_present` ; « cette
+affirmation répond-elle à la question posée ? » se répond dans `pertinente`. Une clause **voisine** —
+la garantie dont l'énumération ne comprend pas l'événement, la responsabilité civile qui ne couvre
+que les dommages causés à autrui — est précisément ce qui répond quand aucune clause ne vise le
+dommage : c'est elle qui montre où passe la limite. Elle est `pertinente = true` avec un périmètre
+contraire dans ses champs typés. `hors_objet` reste réservé à l'affirmation qui parle d'autre chose
+que de la demande — un délai de résiliation quand on demande une couverture.
 
 - `claim_id` : reprends **tel quel** l'identifiant de l'affirmation. N'invente aucun identifiant,
   n'en réponds aucun deux fois, n'en rends pas pour une affirmation sans clause décisionnelle.
@@ -106,8 +122,9 @@ les deux listes vides et `fait_manquant = null` — c'est la seule forme compati
 Une clause ne joue que si des faits sont réunis. Pose-toi les deux questions ci-dessous **dans cet
 ordre**, et n'examine pas les suivantes après la première qui répond.
 
-**1. Le périmètre.** La clause vise-t-elle le bien, le lieu et la situation du sinistre décrit ? Si
-les faits déclarés disent le **contraire**, alors `fait_requis_present = false` et `fait_manquant =
+**1. Le périmètre.** La clause vise-t-elle le bien, le lieu et la situation du sinistre décrit ?
+
+Si les faits déclarés disent le **contraire**, alors `fait_requis_present = false` et `fait_manquant =
 null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le cas quand :
 
   - la clause vise le **bâtiment** et le sinistre porte sur le **contenu** (ou l'inverse) ;
@@ -119,13 +136,21 @@ null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le
   Le périmètre prime : une clause qui ne vise pas ce cas n'a pas à être examinée plus loin, même si
   l'événement qu'elle décrit ressemble à celui du dossier.
 
-  Le périmètre se tranche **sur les faits, et jusqu'au bout** : la nature de l'événement en fait
-  partie, et elle ne se renvoie pas au client. Reprenons l'exemple étranger du glissement de
-  terrain : une clause qui vise « l'affaissement du sol par suite de glissement ou d'effondrement de
-  terrain » et des faits qui disent un talus cédé sous la terrasse décrivent le même événement — le
-  périmètre est bon, et `fait_manquant` ne nomme pas « le glissement de terrain ». Ne demande jamais
-  au client de confirmer ce que sa propre déclaration énonce ; ce qui reste à établir, ce sont les
+  Le périmètre se tranche **sur les faits**, dans les deux sens, et il ne se renvoie jamais au
+  client. Reprenons l'exemple étranger du glissement de terrain : une clause qui vise
+  « l'affaissement du sol par suite de glissement ou d'effondrement de terrain » et des faits qui
+  disent un talus cédé sous la terrasse décrivent le même événement — le périmètre est bon, et
+  `fait_manquant` ne nomme pas « le glissement de terrain ». Ne demande jamais au client de
+  confirmer ce que sa propre déclaration énonce : ce qui reste à établir, ce sont les
   **qualificatifs** de la question 2, pas le nom que le contrat donne à ce qu'il a décrit.
+
+  L'inverse est tout aussi tranché, et il est plus fréquent. Une clause qui **énumère** ce que le
+  contrat garantit — une liste de périls, une puce par garantie — et dont l'énumération ne comprend
+  pas l'événement déclaré a un périmètre **contraire** : `fait_requis_present = false`,
+  `fait_manquant = null`. Il en va de même d'une clause d'objet ou de préambule, qui annonce ce que
+  le contrat fait sans nommer aucun péril : elle ne vise aucun sinistre en particulier, donc pas
+  celui-ci. Ces clauses se citent — c'est même souvent elles qui montrent la limite —, mais elles ne
+  visent pas ce cas et ne doivent jamais passer pour la garantie qui l'attrape.
 
   Une clause qui se limite à des **points nommés du contrat** (« pour les extensions mentionnées aux
   points 3.1.8.3 à 3.1.8.6 ») est une question de périmètre, et **les faits déclarés la tranchent** :

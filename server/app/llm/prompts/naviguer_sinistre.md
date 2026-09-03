@@ -36,6 +36,15 @@ Cherche les dispositions **qui décident** : ce qui est garanti, ce qui est excl
 conditions, avec quelles franchises ou limites. Décompose la demande en sous-questions et traite-les
 **toutes** ; celle que le document ne soutient pas se dit, elle ne s'invente pas.
 
+**Une garantie ne joue pas toute seule : ouvre aussi le nœud parent.** Une garantie vit dans une
+section qui pose sa **condition d'applicabilité** — « les présentes conditions spéciales sont
+applicables si les conditions particulières mentionnent que la garantie … est souscrite », « si
+l'option … a été souscrite ». Cette condition n'est pas dans le nœud de la garantie, elle est un
+cran au-dessus, avec le titre de la section. Après avoir ouvert le nœud d'une garantie qui vise les
+faits, ouvre donc son **nœud parent**, et cite la condition que tu y trouves comme une claim
+distincte : sans elle, la réponse affirme une couverture que le contrat subordonne à une pièce que
+personne n'a lue.
+
 **Quand un tiers paraît dans les faits** — un voisin, un locataire, un bailleur, un passant, ou
 des biens qui ne sont pas ceux de l'assuré —, la demande porte **deux** questions : ce que
 le contrat fait pour les biens de l'assuré, et ce qu'il fait pour le dommage causé à autrui. Ouvre
@@ -44,9 +53,11 @@ voisins, des locataires), et cite la clause qui règle ce second dommage. Ne pas
 moitié de la demande sans réponse, et c'est la moitié qu'on ne sait pas deviner seul.
 
 **Quand aucune garantie ne vise l'événement**, la lecture n'est pas finie pour autant : ouvre le
-nœud qui **énumère les garanties du contrat**, celui que le sommaire annonce comme la liste des
-périls ou des garanties. C'est lui qui rend l'absence lisible — sans lui, tu n'as rien à montrer
-qu'une suite de nœuds fermés.
+nœud qui **énumère les garanties du contrat entier**. C'est souvent le **nœud racine** du sommaire —
+la première ligne, celle qui porte le titre du document — ou une rubrique liminaire ; ce n'est
+jamais l'énumération interne d'une garantie particulière, qui ne liste que ses propres périls.
+C'est cette liste qui rend l'absence lisible : sans elle, tu n'as rien à montrer qu'une suite de
+nœuds fermés.
 
 Quand tu as fini de lire, **n'appelle plus aucun outil** et réponds par le seul mot `PRÊT`. Dans
 tous les cas, un message t'annoncera le **tour terminal** — « rends maintenant l'ébauche JSON, sans
@@ -108,10 +119,11 @@ jamais.
     décident rien et ne tiennent la place d'aucune des clauses ci-dessus. Un item d'énumération dont
     le texte vise ces faits **est**, lui, une telle clause : traite-le comme les autres, et ne le
     tiens pas pour un doublon de l'item voisin.
-- **Qualifier un fait déclaré n'est pas conclure.** Quand les faits décrits remplissent
-  manifestement le terme que la clause emploie, dis-le : ajoute à la claim, après un point-virgule,
-  une seconde proposition dont le sujet est **le fait déclaré** et le prédicat **le mot de la
-  clause**. Exemple normatif, étranger par construction à tout cas soumis : une clause vise
+- **Qualifie le fait déclaré, dans chaque claim dont la clause nomme l'événement.** Ce n'est pas
+  une option de style : sans elle, le contrôle en aval ne peut pas savoir que le fait décrit est
+  celui que la clause vise, et il pose au client une question sur ce qu'il vient d'écrire. Ajoute
+  donc à la claim, après un point-virgule, une seconde proposition dont le sujet est **le fait
+  déclaré** et le prédicat **le mot de la clause**. Exemple normatif, étranger par construction à tout cas soumis : une clause vise
   « l'affaissement du sol par suite de glissement ou d'effondrement de terrain » et les faits disent
   que le talus a cédé sous la terrasse ; la claim s'écrit « le contrat couvre l'affaissement du sol
   par suite de glissement de terrain ; un talus qui cède sous la terrasse est un glissement de
@@ -127,9 +139,14 @@ jamais.
   chaleur a agi. Ces qualités-là restent à confirmer, et la claim n'en dit rien.
 
 - **Quand aucune clause lue ne vise l'événement**, ne dresse pas l'inventaire de ce que tu n'as pas
-  lu. Écris, dans cet ordre et rien de plus :
-  - une claim dont la quote est le **bloc qui énumère les garanties du contrat**, et dont le `text`
-    rapporte que le contrat garantit ces périls-là ;
+  lu. Écris, dans cet ordre, et **rien de plus — pas d'exclusion générale, pas de clause de
+  procédure** :
+  - une claim dont la quote est le **bloc qui énumère les garanties du contrat entier** : une liste
+    de périls, une puce par garantie, celle qu'ouvre le nœud racine ou une rubrique liminaire. Ni
+    l'énumération interne d'une garantie particulière, qui ne liste que ses propres périls, ni la
+    clause d'**objet** du contrat, qui annonce ce qu'il fait sans nommer aucun péril : ni l'une ni
+    l'autre ne dit ce que le contrat garantit. Le `text` rapporte que le contrat garantit ces
+    périls-là ;
   - **au plus une** claim sur la clause voisine la plus proche du dossier, dont le `text` dit ce
     qu'elle vise réellement (« la responsabilité civile couvre les dommages causés à autrui par les
     animaux dont l'assuré a la garde ») — c'est ce qui montre pourquoi elle ne rejoint pas ce cas,

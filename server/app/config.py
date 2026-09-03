@@ -436,6 +436,13 @@ class Settings(BaseSettings):
     # endroit où les trois nombres se rencontrent — ils vivent dans trois fichiers qui ne se lisent
     # pas l'un l'autre.
     client_abort_margin_s: float = Field(25.0, gt=0)
+    # Story 5.6 (L1) — l'intervalle du commentaire SSE (`:` seul) que les routes de progression
+    # émettent quand aucune étape ne commence. Cloud Run ferme un flux inactif ; une navigation peut
+    # tenir plus d'une minute sur un seul tour d'outils, et le commentaire est la seule chose qui
+    # dise à l'infrastructure que la connexion vit. 15 s : bien en deçà de tout délai d'inactivité
+    # documenté, et assez rare pour que le flux reste lisible. `[HYPOTHÈSE]`, comme les autres
+    # bornes de temps. Seuil d'**exploitation** : il ne change pas d'un mot la réponse servie.
+    sse_keepalive_s: float = Field(15.0, gt=0)
     # Story 3.5 : les raisons de quarantaine sont affichées sur deux surfaces publiques
     # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
     # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
@@ -1885,6 +1892,7 @@ class Settings(BaseSettings):
             "llm_output_tokens_per_s_min": self.llm_output_tokens_per_s_min,
             "llm_latence_marge_s": self.llm_latence_marge_s,
             "client_abort_margin_s": self.client_abort_margin_s,
+            "sse_keepalive_s": self.sse_keepalive_s,
             "client_probe_timeout_s": self.client_probe_timeout_s,
             "raison_publiable_max_chars": self.raison_publiable_max_chars,
             "quote_min_chars": self.quote_min_chars,
@@ -2149,6 +2157,7 @@ SEUILS_DEXPLOITATION: frozenset[str] = frozenset({
     "request_max_bytes", "conversation_rate_limit_per_minute", "conversation_rate_limit_per_day",
     # Délais et marges côté client, télémétrie : l'appelant et l'observateur, pas le pipeline.
     "client_abort_margin_s", "client_probe_timeout_s", "cloud_trace_max_chars",
+    "sse_keepalive_s",
     # Rendu PDF : la file et le cache d'images. Le `dpi` et le nombre de pixels, eux, changent
     # l'image qu'une citation montre — ils sont de l'autre côté.
     "pdf_render_concurrency", "pdf_render_cache_pages", "pdf_render_queue_timeout_s",

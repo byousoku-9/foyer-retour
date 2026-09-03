@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from server.app.config import Settings
@@ -174,6 +174,14 @@ def sommaire_complet(corpus: Corpus, doc_id: str, *, racine: str | None = None) 
     if racine is not None and racine not in par_id:
         raise KeyError(racine)
     noeuds = list(doc.nodes)
+    # Le nœud racine porte le titre du document, déjà connu : sa ligne n'apprend rien **tant qu'il
+    # ne porte aucun bloc en propre**. Quand il en porte — le contrat AXA y attache la liste des
+    # garanties souscrites, cinq blocs de la page 5 —, le taire les rend **inatteignables** :
+    # `ouvrir_noeud` demande un `node_id`, et le seul qui les rendrait n'est nommé nulle part.
+    # Mesuré le 03/09/2026 : interrogé sur un dommage qu'aucune garantie ne vise, le modèle a cité
+    # l'énumération interne d'une garantie faute de pouvoir ouvrir celle du contrat. La règle est
+    # structurelle et vaut pour tout document : un nœud qui porte des blocs citables se voit.
+    racine_citable = any(is_citable(doc.block(b)) for b in par_id[doc_id].blocks) if doc_id in par_id else False
     if racine is not None:
         garde: list[str] = [racine]
         vus: set[str] = set()
@@ -184,9 +192,11 @@ def sommaire_complet(corpus: Corpus, doc_id: str, *, racine: str | None = None) 
             vus.add(courant)
             garde.extend(par_id[courant].children)
         noeuds = [n for n in noeuds if n.node_id in vus]
-    base = min((n.level for n in noeuds), default=0)
-    return "\n".join(f"{'  ' * max(0, n.level - base)}{n.node_id} — {n.title}"
-                     for n in noeuds if n.node_id != doc_id)
+    rendus = [n for n in noeuds if n.node_id != doc_id or racine_citable]
+    # La profondeur de référence est celle des lignes **rendues** : un document dont la racine reste
+    # tue s'indente comme avant, à l'espace près.
+    base = min((n.level for n in rendus), default=0)
+    return "\n".join(f"{'  ' * max(0, n.level - base)}{n.node_id} — {n.title}" for n in rendus)
 
 
 def blocs_du_noeud(corpus: Corpus, doc_id: str, node_id: str) -> list[Block]:
@@ -244,7 +254,8 @@ class Navigation:
                  dictionnaire: Dictionnaire | None, doc_id: str, settings: Settings,
                  client: LlmClient, request_budget: RequestBudget, prompt: str,
                  faits: Faits | None = None, historique: Iterable[Turn] = (),
-                 profil: Profil | None = None) -> None:
+                 profil: Profil | None = None,
+                 on_tour: Callable[[int], None] | None = None) -> None:
         if doc_id not in corpus.documents:
             raise KeyError(doc_id)
         self.parsed, self.corpus, self.index = parsed, corpus, index
@@ -252,6 +263,10 @@ class Navigation:
         self.client, self.request_budget, self.prompt = client, request_budget, prompt
         self.faits, self.historique = faits, list(historique)
         self.profil = profil
+        # Story 5.6 (L1) : le rappel d'avancement de la route de progression, **optionnel** et sans
+        # pouvoir — il reçoit le numéro du tour d'outils qui commence, rien d'autre. `None` par
+        # défaut : les évals, les gates et les tests hermétiques ne voient aucune différence.
+        self.on_tour = on_tour
         self.tier = settings.navigation_tier
         # Ce que la lecture a fait entrer, dans l'ordre où le modèle l'a ouvert.
         self.ouverts: dict[str, Block] = {}
@@ -456,6 +471,8 @@ class Navigation:
         try:
             while self.tours < settings.navigation_max_llm_turns:
                 self.tours += 1
+                if self.on_tour is not None:
+                    self.on_tour(self.tours)
                 resultat = await self.client.tool_turn(
                     tier=self.tier, system_prefix=self.prefixe, messages=self._messages,
                     tools=OUTILS, budget=self.request_budget, step=step,
