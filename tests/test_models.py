@@ -96,10 +96,14 @@ def test_aucune_surface_active_nattribue_un_appel_servi_au_tier_micro() -> None:
 
 
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
-    # Les deux étapes sinistre qui n'ont pas à raisonner longuement : la rédaction transcrit des
-    # clauses retrouvées, le vérificateur extrait des valeurs typées (mesuré sur A16, 02/09/2026).
-    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {
-        "rediger_sinistre": "low", "verifier_sinistre": "low"}
+    # Une seule dérogation depuis T1c (03/09/2026) : la rédaction sinistre transcrit des clauses
+    # déjà retrouvées. *Vérifier* est **revenu au défaut de son palier** — la dérogation `low` lui
+    # coûtait un jugement contradictoire sur A16 (voir `llm/models.py`), et un effort abaissé n'est
+    # tenable que sur une étape qui n'a rien à décider.
+    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low"}
+    # La conséquence, épinglée ici parce que c'est elle qui compte : l'appel part à l'effort du tier.
+    assert "verifier_sinistre" not in models.EFFORT_PAR_PROMPT
+    assert models.EFFORT[models.STEP_TIERS["verifier"]] == "medium"
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, key: str) -> None:

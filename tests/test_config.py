@@ -21,18 +21,21 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_defaults_match_spine_hypotheses() -> None:
     s = Settings(_env_file=None)
-    # `deadline_s` : 165 depuis la story 5.6 (T3, 03/09/2026) — la navigation par le modèle
-    # (AD-1 amendé, 6 à 8 tours, *rédiger* fusionné) majore à 141,4 s le pire chemin nominal
-    # mesuré sur le prototype validé ; 100 s le laissait sortir en 503.
+    # `deadline_s` : 250 depuis la story 5.6 (T1c, 03/09/2026) — la navigation par le modèle
+    # (AD-1 amendé, 6 à 8 tours, *rédiger* fusionné) majore à 240,8 s le pire chemin nominal, une
+    # fois la dérivation refaite sur le pipeline intégré (T1b) et sur le vérificateur revenu à
+    # l'effort `medium` (T1c). 165 s le laissait sortir en 503 dès la relance d'AD-3.
     # `llm_timeout_s` : 55 depuis le correctif du tour 3, et **inchangé** par 5.6 — il borne un
     # appel, pas la chaîne, et la plus longue sortie d'étape (4 096 tokens depuis T1c) demande
     # 53,2 s, soit 3,3 % sous le délai : c'est `_coherence` qui tient cette marge-là. À 40, le
     # plafond de sortie du vérificateur sinistre était inatteignable dans le temps qu'on lui
     # laissait, et une réponse valide mourait sur son délai d'appel.
-    # `client_abort_margin_s` : 150 depuis 5.6 — l'ordre d'AD-11 (client 315 s > Cloud Run 300 s >
-    # serveur 165 s) la dicte ; elle ne se choisit plus « un peu au-dessus de la deadline ».
-    assert s.deadline_s == 165 and s.llm_timeout_s == 55
-    assert s.client_abort_margin_s == 150
+    # `client_abort_margin_s` : 65 depuis T1c — l'ordre d'AD-11 (client 315 s > Cloud Run 300 s >
+    # serveur 250 s) la dicte ; elle ne se choisit plus « un peu au-dessus de la deadline », elle est
+    # le **reste** entre la patience du client et la deadline serveur.
+    assert s.deadline_s == 250 and s.llm_timeout_s == 55
+    assert s.client_abort_margin_s == 65
+    assert s.deadline_s + s.client_abort_margin_s == 315
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
     # `max_llm_turns` : trois depuis le correctif du tour 2 — à deux, le verdict terminal de la
@@ -724,9 +727,15 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
 
     Les termes sont **mesurés**, pas choisis. Le prototype validé (`automation/runs/
     20260902-structure-index/proto-runs/serie2/`, 03/09/2026 07 h 00, A16 ×3 + bougie ×1, sommaire
-    AXA complet de 42 967 tokens en préfixe caché) donne les charges de navigation ; les charges de
-    *comprendre*, *rédiger* et *vérifier* restent les maxima des 108 réponses Sonnet enregistrées,
-    déjà retenus par `tests/test_budget.py`.
+    AXA complet de 42 967 tokens en préfixe caché) donne la charge d'un tour d'outils ; les trois
+    réponses A16 du pipeline intégré (`.../a16-t1b/a16-r{1,2,3}.json`) donnent celles de *comprendre*
+    et du tour terminal.
+
+    **Le terme de *vérifier* n'est pas un maximum mesuré, et c'est délibéré (T1c).** L'effort de cet
+    appel vient de repasser à `medium` : sa sortie sur cette chaîne n'a jamais été mesurée à cet
+    effort, et les 3 130 tokens relevés à `low` majorent un appel qu'on ne fait plus. Le seul
+    majorant honnête est le plafond réellement envoyé, `verifier_sinistre_max_tokens` — donc le
+    témoin le lit sur la configuration, au lieu de figer un nombre que la prochaine mesure démentira.
 
     Le témoin est écrit contre la **cible du spine** (8 tours), et non contre `max_llm_turns` : la
     deadline doit couvrir le chemin que l'architecture rend légitime, que le code de l'étape ait
@@ -737,8 +746,10 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
 
     # AD-1, amendement du 03/09/2026 : « navigation par le modèle sur sommaire complet en 6–8 tours ».
     TOURS_CIBLE_AD1 = 8
-    # Maxima enregistrés (108 réponses Sonnet, cf. `deadline_s` dans `config.py`).
-    COMPRENDRE = 220
+    # **Re-mesuré le 03/09/2026 (T1c) : 360, et non 220.** 220 était le maximum des 108 réponses
+    # Sonnet enregistrées, sur un prompt que la navigation a remplacé. Les trois réponses A16 du
+    # pipeline intégré rendent 316 / 336 / 359 tokens ; 360 majore le pire.
+    COMPRENDRE = 360
     # **Re-dérivé le 03/09/2026 (T1b), et c'est le seul terme que T1b déplace.** 1 509 était le pire
     # *rédiger* enregistré **à quatre claims**, sur l'ancien étage. Depuis que la place de l'ébauche
     # de navigation vaut `navigation_draft_max_claims` (6), ce maximum ne majore plus rien. Mesure :
@@ -747,7 +758,6 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # au pire ≈ 315 par claim. À six claims : 6 × 315 ≈ 1 890 de JSON, plus les 496 tokens de
     # réflexion réellement observés sur ce tour.
     TOUR_TERMINAL = 2_386   # l'ébauche `AnswerDraft` à six claims : 1 890 de JSON + 496 de réflexion
-    VERIFIER = 820          # pire *vérifier* enregistré
     # Pire tour d'outils du prototype : 729 tokens, dont 657 de réflexion adaptative (A16 run 1,
     # tour 3). Les tours terminaux mesurés du prototype (709 à 900) restent sous `TOUR_TERMINAL`.
     TOUR_D_OUTILS = 729
@@ -757,6 +767,9 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     LATENCE_PAR_APPEL_S = 2.0
 
     s = Settings(_env_file=None, anthropic_api_key="")
+    # Le seul terme lu sur la configuration, pour la raison dite dans la docstring : à `medium`, la
+    # sortie de *vérifier* n'est pas mesurée, et son plafond est ce qui la borne.
+    VERIFIER = s.verifier_sinistre_max_tokens
     assert s.max_llm_turns <= TOURS_CIBLE_AD1, (
         f"max_llm_turns ({s.max_llm_turns}) dépasse la cible d'AD-1 ({TOURS_CIBLE_AD1}) : la "
         "deadline a été dérivée pour ce nombre de tours, il faut la re-dériver avant de le franchir")

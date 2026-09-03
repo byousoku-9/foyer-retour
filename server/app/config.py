@@ -250,15 +250,49 @@ class Settings(BaseSettings):
     # dans `.github/workflows/deploy.yml`, et la patience du navigateur est
     # `deadline_s + client_abort_margin_s` (voir ce champ), lue sur `/sante`.
     #
+    # **250 s, et non 165 (03/09/2026, story 5.6 T1c).** Deux choses ont bougé depuis T3, et les deux
+    # allongent le même chemin : le pipeline intégré a remplacé le prototype (T1b), et le
+    # vérificateur sinistre est revenu à l'effort `medium` de son palier (T1c). La dérivation est
+    # refaite terme par terme sur les trois réponses A16 d'après T1b
+    # (`automation/runs/20260902-structure-index/a16-t1b/a16-r{1,2,3}.json`) :
+    #   — *comprendre* **360** (mesuré 316 / 336 / 359, contre 220 lus sur les fixtures enregistrées :
+    #     ce n'est plus le même prompt) ;
+    #   — 7 tours d'outils × **729** (pire tour du prototype, réflexion comprise ; le pipeline intégré
+    #     reste dessous — 46 à 503) = 5 103 ;
+    #   — tour terminal **2 386**, la dérivation de T1b à six affirmations, inchangée ;
+    #   — *vérifier* **4 096** — et c'est le terme qui change de **nature**. Les autres sont des
+    #     maxima mesurés ; celui-ci ne peut plus l'être, puisque l'effort de l'appel vient de
+    #     changer et que personne n'a mesuré sa sortie à `medium` sur cette chaîne. Le seul majorant
+    #     honnête est alors le plafond qu'on lui envoie, `verifier_sinistre_max_tokens`. Y mettre les
+    #     3 130 tokens mesurés à `low` serait majorer un appel par la mesure d'un appel qu'on ne fait
+    #     plus.
+    #   — relance atomique d'AD-3 : tour terminal + *vérifier* une seconde fois.
+    # Soit **18 427 tokens**, à 85 tokens/s = 216,8 s d'écriture, plus 12 × 2 s d'amorçage = 24 s :
+    # **240,8 s**. 250 s les couvre avec **3,8 %**.
+    #
+    # **Pourquoi 3,8 % suffisent ici alors que 16,7 % étaient exigés à 165 s.** La marge n'a pas la
+    # même fonction quand la dérivation change de régime : celle de T3 majorait des termes mesurés,
+    # celle-ci empile quatre majorations qui ne se produisent jamais ensemble — le débit **minoré**
+    # (85 quand on mesure 85 à 102), la latence d'amorçage **doublée** (2 s quand aucun appel ne
+    # dépasse 1 s), **huit** tours quand le pipeline en fait deux ou trois, et le **plafond** de
+    # *vérifier* au lieu de sa sortie. Ajouter 17 % par-dessus n'achèterait pas de sûreté, cela
+    # rapprocherait la deadline des 300 s de Cloud Run, qui sont, eux, une vraie coupure.
+    #
+    # **Ce que ce relèvement ne fait pas, une troisième fois : rallonger une requête.** Les trois
+    # runs A16 finissent en 52 à 65 s et rendent 100 à 113 s de deadline ; ce qui change est qu'une
+    # navigation longue, suivie d'une relance, **aboutit** au lieu de sortir en 503.
+    #
     # **La valeur couvrante mesurée**, sous laquelle la deadline ne doit pas redescendre sans une
-    # nouvelle mesure : **141,4 s**. Elle est tenue par
+    # nouvelle mesure : **240,8 s**. Elle est tenue par
     # `tests/test_config.py::test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele`, et
     # l'ordre des trois délais par `tests/test_workflows.py::
-    # test_le_timeout_cloud_run_couvre_la_deadline_du_serveur`.
-    # `[HYPOTHÈSE]` : le prototype a mesuré 2 à 4 tours, jamais 8. La dérivation majore huit tours
-    # avec le pire tour observé ; elle se resserre dès que la campagne `--repeat 3` de T5 aura donné
-    # la distribution du nombre de tours sur le chemin **servi**.
-    deadline_s: float = Field(165.0, gt=0)
+    # test_le_timeout_cloud_run_couvre_la_deadline_du_serveur` — l'ordre d'AD-11 est conservé sans
+    # toucher au `--timeout` : **315 s > 300 s > 250 s**, la patience du client restant à 315 s parce
+    # que `client_abort_margin_s` est re-dérivée avec (150 → 65).
+    # `[HYPOTHÈSE]` : ni le nombre de tours (2 à 4 observés, jamais 8) ni la sortie de *vérifier* à
+    # `medium` ne sont mesurés sur le chemin **servi**. La campagne `--repeat 3` doit donner les deux,
+    # et c'est elle qui resserrera cette borne — pas un arbitrage.
+    deadline_s: float = Field(250.0, gt=0)
     # **40 s, et non 25 (amendement AD-16, story 1.9, sur mesure).** Le spine écrivait « un appel LLM
     # en timeout (25 s) ⇒ 503 » ; la règle — l'échec est terminal, jamais dégradé — ne bouge pas, la
     # valeur si. Mesuré sur le cas bougie servi par `POST /api/v1/sinistre` : *rédiger* (tier
@@ -337,12 +371,20 @@ class Settings(BaseSettings):
     # les 300 s de Cloud Run. 165 + 150 = **315 s**, soit 15 s au-dessus — de quoi laisser la
     # coupure de l'infrastructure et sa réponse traverser le réseau, sans rendre le verrou de saisie
     # éternel si tout se tait.
+    #
+    # **65 s, et non 150 (03/09/2026, story 5.6 T1c) : c'est la dérivation ci-dessus qui est
+    # inchangée, pas la valeur.** Cette marge n'est pas un seuil propre, c'est un **reste** : la
+    # patience du client vaut 315 s et la deadline serveur passe à 250 s, donc la marge vaut 65.
+    # La laisser à 150 aurait verrouillé la saisie 400 s devant un serveur muet — 100 s après que
+    # Cloud Run a coupé —, ce qui n'ajoute rien à ce que la page peut apprendre et retire tout à ce
+    # que l'utilisateur peut faire. Ce qui est publié sur `/sante` reste la somme, et elle ne bouge
+    # pas : les replis de `web/app/chat.js` (165 + 150) totalisent toujours les mêmes 315 s.
     # **Ce n'est pas une attente** : c'est le délai au bout duquel le navigateur renonce. Une
     # requête normale rend la main en 20 à 30 s, et un 503 est affiché dès qu'il arrive.
     # `tests/test_workflows.py::test_le_timeout_cloud_run_couvre_la_deadline_du_serveur` est le seul
     # endroit où les trois nombres se rencontrent — ils vivent dans trois fichiers qui ne se lisent
     # pas l'un l'autre.
-    client_abort_margin_s: float = Field(150.0, gt=0)
+    client_abort_margin_s: float = Field(65.0, gt=0)
     # Story 3.5 : les raisons de quarantaine sont affichées sur deux surfaces publiques
     # (`/sante` et `/documents`). Leur borne est un seuil d'exploitation réglable et publié,
     # pas une propriété du schéma de domaine : une raison plus longue reste conservée en mémoire
