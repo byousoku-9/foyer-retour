@@ -11,12 +11,25 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# **L'unique autorité des noms de variante de retrieval** (story 5.6, T6). Elle était écrite trois
+# fois — un `Literal` sur `Settings`, un ensemble dans `load_retrieval_default`, un tuple dans la
+# matrice 4.4 —, et les trois nommaient encore `deterministe` et `outils` après que T2 les a
+# retirées avec les passes de code qui choisissaient. Un nom accepté ici est un nom qu'un client
+# peut poster et qu'un défaut versionné peut porter : accepter ce qui n'existe plus, c'est promettre
+# un chemin qui n'existe plus, fût-ce pour le refuser trois étages plus bas.
+#
+# Les deux variantes servies par AD-1 amendé, et elles seules : `navigation` (le modèle lit
+# lui-même — c'est ce qui est servi) et `full_context` (comparaison, jamais servie, sans repli).
+RetrievalVariant = Literal["navigation", "full_context"]
+VARIANTS_CONNUES: frozenset[str] = frozenset(get_args(RetrievalVariant))
 
 
 @dataclass(frozen=True)
@@ -35,7 +48,7 @@ def load_retrieval_default(path: Path) -> RetrievalDefault:
     expected = {"variant", "tier", "prompt_cache"}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError("défaut retrieval : champs exacts variant, tier, prompt_cache attendus")
-    if value["variant"] not in {"navigation", "deterministe", "outils", "full_context"}:
+    if value["variant"] not in VARIANTS_CONNUES:
         raise ValueError(f"défaut retrieval : variant invalide {value['variant']!r}")
     if value["tier"] not in {"reason", "micro"}:
         raise ValueError(f"défaut retrieval : tier invalide {value['tier']!r}")
@@ -745,14 +758,12 @@ class Settings(BaseSettings):
     # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
     # « navigation » est le chemin servi depuis l'amendement AD-1 du 03/09/2026, et depuis la tâche
     # T2 c'est le seul du sinistre ; `full_context` reste réglable pour rejouer une comparaison sur
-    # le guide. `deterministe` et `outils` **n'existent plus** : leur code a été supprimé. Elles
-    # restent **nommables** ici parce que la matrice de comparaison 4.4 (`server/evals/baselines.py`)
-    # et sa preuve scellée les nomment, et que resserrer ce `Literal` rendrait cette matrice
-    # illisible avant qu'un protocole de remplacement ait été mesuré (T6). Les demander au service
-    # ne dégrade rien en silence : les deux pipelines refusent la variante par `InvalidRequest`,
-    # **avant** le premier appel facturé, et `data/retrieval-default.json` sert `navigation`.
-    retrieval_variant: Literal["navigation", "deterministe", "outils",
-                               "full_context"] = RETRIEVAL_DEFAULT.variant
+    # le guide. `deterministe` et `outils` ne sont **plus nommables** (T6) : leur code a été
+    # supprimé, la matrice 4.4 est reformulée sur les deux variantes qui existent, et le nom se lit
+    # désormais sur `RetrievalVariant`, l'unique autorité. Les laisser passer ici ne dégradait rien
+    # en silence — les pipelines les refusaient par `InvalidRequest` — mais cela promettait au
+    # client un chemin qui n'existe plus.
+    retrieval_variant: RetrievalVariant = RETRIEVAL_DEFAULT.variant
     retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
     retrieval_prompt_cache: bool = RETRIEVAL_DEFAULT.prompt_cache
     # Artefact exact réservé aux runners et ingestions hors ligne. L'API en ligne emploie un sink

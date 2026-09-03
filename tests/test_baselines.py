@@ -65,13 +65,13 @@ def _valid_child(argv: list[str], *, producer: str = "builder", cost: float = 0.
 
 
 def test_plan_is_canonical_under_cli_permutations_and_rejects_empty() -> None:
-    first = canonical_plan("deterministe,outils,full_context", "reason", suite="guide")
-    second = canonical_plan("full_context,deterministe,outils", "reason", suite="guide")
+    first = canonical_plan("navigation,full_context", "reason", suite="guide")
+    second = canonical_plan("full_context,navigation", "reason", suite="guide")
     assert first == second
     assert [cell.key for cell in first] == [
-        "deterministe/reason", "outils/reason", "full_context/reason"]
+        "navigation/reason", "full_context/reason"]
     with pytest.raises(BaselineError, match="vides"):
-        canonical_plan("deterministe,,outils,full_context", "reason", suite="guide")
+        canonical_plan("navigation,,full_context", "reason", suite="guide")
 
 
 def _cell(key: str, recall: float, cost: float, latency: int, *, complete: bool = True):
@@ -85,10 +85,9 @@ def _cell(key: str, recall: float, cost: float, latency: int, *, complete: bool 
 
 
 def test_only_strict_triple_dominance_can_recommend() -> None:
-    cells = [_cell("deterministe/reason", 1.0, 0.01, 10)] + [
-        _cell(key, 0.9, 0.02, 20) for key in (
-            "outils/reason", "full_context/reason")]
-    assert dominant(cells)["key"] == "deterministe/reason"
+    cells = [_cell("navigation/reason", 1.0, 0.01, 10),
+             _cell("full_context/reason", 0.9, 0.02, 20)]
+    assert dominant(cells)["key"] == "navigation/reason"
     cells[-1]["complete"] = False
     assert dominant(cells) is None
 
@@ -139,7 +138,7 @@ def test_matching_4_2d_proof_is_reused_and_markdown_publishes_its_measures(
         "recall": 0.1333, "cost_eur": -0.0649, "latency_p50_ms": -14123.0}
     rendered = markdown({
         "complete": False, "max_cost_eur": 1.0,
-        "default_before": {"variant": "outils", "tier": "micro", "prompt_cache": True},
+        "default_before": {"variant": "full_context", "tier": "micro", "prompt_cache": True},
         "cells": [], "recommendation": None, "sinistre_4_2d": resolved,
     })
     assert "mesures structurées reprises" in rendered
@@ -186,10 +185,10 @@ def test_malformed_or_divergent_4_2d_proof_resolves_to_replay_without_measures(
     assert resolved["status"] == "replay_required" and resolved["measures"] is None
 
 
-def test_interruption_publishes_six_states_and_preserves_technical_code(tmp_path: Path) -> None:
+def test_interruption_publishes_chaque_etat_and_preserves_technical_code(tmp_path: Path) -> None:
     default_path = tmp_path / "default.json"
     default_path.write_text(
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n', encoding="utf-8")
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n', encoding="utf-8")
     calls = 0
 
     def invoke(argv: list[str]) -> int:
@@ -218,22 +217,21 @@ def test_interruption_publishes_six_states_and_preserves_technical_code(tmp_path
         return 0 if calls == 1 else 3
 
     output_json, output_md = tmp_path / "baselines.json", tmp_path / "baselines.md"
-    plan = canonical_plan("deterministe,outils,full_context", "reason", suite="guide")
+    plan = canonical_plan("navigation,full_context", "reason", suite="guide")
     assert run_comparison(plan=plan, max_cost_eur=1.0, base_argv=[], invoke=invoke,
                           output_json=output_json, output_markdown=output_md,
                           default_path=default_path) == 3
     report = json.loads(output_json.read_text(encoding="utf-8"))
-    assert [cell["status"] for cell in report["cells"]] == [
-        "completed", "interrupted", "not_run"]
-    assert all(value is None for value in report["cells"][2]["metrics"].values())
+    assert [cell["status"] for cell in report["cells"]] == ["completed", "interrupted"]
+    assert all(value is None for value in report["cells"][1]["metrics"].values())
     assert default_path.read_text(encoding="utf-8") == \
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n'
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n'
 
 
 def test_divergent_effective_retrieval_settings_interrupt_without_mutating_default(
         tmp_path: Path) -> None:
     default_path = tmp_path / "default.json"
-    original = '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n'
+    original = '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n'
     default_path.write_text(original, encoding="utf-8")
 
     def invoke(argv: list[str]) -> int:
@@ -258,12 +256,12 @@ def test_divergent_effective_retrieval_settings_interrupt_without_mutating_defau
                 "documents": {},
                 # La première cellule demande reason/cache : ce rapport prétend avoir exécuté
                 # micro/no-cache. Le plan ne peut jamais remplacer ce fait runtime.
-                "retrieval": _retrieval_identity("deterministe", "micro"),
+                "retrieval": _retrieval_identity("navigation", "micro"),
             },
         }), encoding="utf-8")
         return 0
 
-    plan = canonical_plan("deterministe,outils,full_context", "reason", suite="guide")
+    plan = canonical_plan("navigation,full_context", "reason", suite="guide")
     output_json = tmp_path / "baselines.json"
     code = run_comparison(
         plan=plan, max_cost_eur=1.0, base_argv=[], invoke=invoke,
@@ -272,15 +270,14 @@ def test_divergent_effective_retrieval_settings_interrupt_without_mutating_defau
 
     report = json.loads(output_json.read_text(encoding="utf-8"))
     assert code == 3
-    assert [cell["status"] for cell in report["cells"]] == [
-        "interrupted", "not_run", "not_run"]
+    assert [cell["status"] for cell in report["cells"]] == ["interrupted", "not_run"]
     assert "divergents" in report["cells"][0]["stop_reason"]
     assert report["recommendation"] is None and report["default_changed"] is False
     assert default_path.read_text(encoding="utf-8") == original
 
 
 def test_cell_profile_pairs_reason_with_cache_and_micro_without_cache() -> None:
-    plan = canonical_plan("deterministe,outils,full_context", "reason", suite="guide")
+    plan = canonical_plan("navigation,full_context", "reason", suite="guide")
     assert all(isinstance(cell, BaselineCell) for cell in plan)
     assert all(cell.prompt_cache is (cell.tier == "reason") for cell in plan)
 
@@ -296,7 +293,7 @@ def test_orchestrator_matrix_keeps_provenance_without_4_2b_repeat_requirement(
     monkeypatch.setattr(baselines, "run_comparison", fake_comparison)
     monkeypatch.setenv("LIVE_CAMPAIGN_ID", "baseline-4-4-test")
     code = runner.main([
-        "--suite", "guide", "--compare", "full_context,outils,deterministe",
+        "--suite", "guide", "--compare", "full_context,navigation",
         "--tiers", "reason", "--producer", "orchestrator",
         "--series-kind", "baseline", "--series-id", "guide-4-4",
         "--max-cost", "0.2", "--output-json", str(tmp_path / "baselines.json"),
@@ -313,7 +310,7 @@ def test_orchestrator_matrix_keeps_provenance_without_4_2b_repeat_requirement(
 def test_complete_strict_winner_replaces_the_whole_default_triplet_atomically(tmp_path: Path) -> None:
     default_path = tmp_path / "default.json"
     default_path.write_text(
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n', encoding="utf-8")
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n', encoding="utf-8")
 
     def invoke(argv: list[str]) -> int:
         output = Path(argv[argv.index("--output-json") + 1])
@@ -339,7 +336,7 @@ def test_complete_strict_winner_replaces_the_whole_default_triplet_atomically(tm
         output.write_text(json.dumps(report), encoding="utf-8")
         return 0
 
-    plan = canonical_plan("deterministe,outils,full_context", "reason", suite="guide")
+    plan = canonical_plan("navigation,full_context", "reason", suite="guide")
     code = run_comparison(
         plan=plan, max_cost_eur=1.0, base_argv=[], invoke=invoke,
         output_json=tmp_path / "baselines.json", output_markdown=tmp_path / "baselines.md",
@@ -352,7 +349,7 @@ def test_complete_strict_winner_replaces_the_whole_default_triplet_atomically(tm
 
 def test_complete_builder_matrix_is_diagnostic_and_never_promotes(tmp_path: Path) -> None:
     default_path = tmp_path / "default.json"
-    original = b'{"prompt_cache":true,"tier":"micro","variant":"outils"}\n'
+    original = b'{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n'
     default_path.write_bytes(original)
 
     def invoke(argv: list[str]) -> int:
@@ -366,7 +363,7 @@ def test_complete_builder_matrix_is_diagnostic_and_never_promotes(tmp_path: Path
 
     output = tmp_path / "baselines.json"
     code = run_comparison(
-        plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+        plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
         max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output,
         output_markdown=tmp_path / "baselines.md", default_path=default_path,
         proof_4_2d_path=tmp_path / "missing.json")
@@ -378,14 +375,16 @@ def test_complete_builder_matrix_is_diagnostic_and_never_promotes(tmp_path: Path
 
 def test_common_identity_divergence_makes_orchestrator_report_partial(tmp_path: Path) -> None:
     default_path = tmp_path / "default.json"
-    original = b'{"prompt_cache":true,"tier":"micro","variant":"outils"}\n'
+    original = b'{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n'
     default_path.write_bytes(original)
     count = 0
 
     def invoke(argv: list[str]) -> int:
         nonlocal count
         report = _valid_child(argv, producer="orchestrator", recall=0.8, cost=0.02)
-        if count == 2:
+        if count == 1:
+            # La **seconde** cellule diverge : la matrice n'en compte plus que deux depuis sa
+            # reformulation, et ce qui est mesuré est la divergence entre cellules, pas son rang.
             report["identity"]["image"]["harness_digest"] = "9" * 64  # type: ignore[index]
         count += 1
         Path(argv[argv.index("--output-json") + 1]).write_text(
@@ -394,7 +393,7 @@ def test_common_identity_divergence_makes_orchestrator_report_partial(tmp_path: 
 
     output = tmp_path / "baselines.json"
     code = run_comparison(
-        plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+        plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
         max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output,
         output_markdown=tmp_path / "baselines.md", producer="orchestrator",
         default_path=default_path, proof_4_2d_path=tmp_path / "missing.json")
@@ -406,7 +405,7 @@ def test_common_identity_divergence_makes_orchestrator_report_partial(tmp_path: 
 
 @pytest.mark.parametrize(
     ("failure", "expected_code"), [("invoke", 3), ("no_code", 3), ("json", 4)])
-def test_runner_boundary_always_publishes_six_states_on_exceptions(
+def test_runner_boundary_always_publishes_chaque_etat_on_exceptions(
         tmp_path: Path, failure: str, expected_code: int) -> None:
     def invoke(argv: list[str]) -> int:
         if failure == "invoke":
@@ -418,17 +417,16 @@ def test_runner_boundary_always_publishes_six_states_on_exceptions(
 
     default_path = tmp_path / "default.json"
     default_path.write_text(
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n', encoding="utf-8")
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n', encoding="utf-8")
     output = tmp_path / "baselines.json"
     code = run_comparison(
-        plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+        plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
         max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output,
         output_markdown=tmp_path / "baselines.md", default_path=default_path,
         proof_4_2d_path=tmp_path / "missing.json")
     report = json.loads(output.read_text(encoding="utf-8"))
     assert code == expected_code
-    assert [cell["status"] for cell in report["cells"]] == [
-        "interrupted", "not_run", "not_run"]
+    assert [cell["status"] for cell in report["cells"]] == ["interrupted", "not_run"]
     assert all(value is None for value in report["cells"][0]["metrics"].values())
 
 
@@ -451,10 +449,10 @@ def test_completed_child_requires_finite_complete_billable_metrics(
 
     default_path = tmp_path / "default.json"
     default_path.write_text(
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n', encoding="utf-8")
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n', encoding="utf-8")
     output = tmp_path / "baselines.json"
     assert run_comparison(
-        plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+        plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
         max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output,
         output_markdown=tmp_path / "baselines.md", default_path=default_path,
         proof_4_2d_path=tmp_path / "missing.json") == 3
@@ -487,20 +485,19 @@ def test_cells_receive_global_remaining_balance_and_isolated_response_caches(tmp
 
     default_path = tmp_path / "default.json"
     default_path.write_text(
-        '{"prompt_cache":true,"tier":"micro","variant":"outils"}\n', encoding="utf-8")
+        '{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n', encoding="utf-8")
     output = tmp_path / "baselines.json"
     code = run_comparison(
-        plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+        plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
         max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output,
         output_markdown=tmp_path / "baselines.md", default_path=default_path,
         proof_4_2d_path=tmp_path / "missing.json")
     report = json.loads(output.read_text(encoding="utf-8"))
-    assert balances == [1.0, 0.9, 0.7]
-    assert len(set(cache_dirs)) == 3
+    assert balances == [1.0, 0.9]
+    assert len(set(cache_dirs)) == 2
     assert not any(path.exists() for path in [*cache_dirs, *private_reports])
     assert all(path.parent == cache_dirs[0].parent for path in private_reports)
-    assert [cell["status"] for cell in report["cells"]] == [
-        "completed", "completed", "completed"]
+    assert [cell["status"] for cell in report["cells"]] == ["completed", "completed"]
     assert code == 0
 
 
@@ -516,7 +513,7 @@ def test_cells_receive_global_remaining_balance_and_isolated_response_caches(tmp
 def test_la_matrice_refuse_les_options_4_5_quelle_ne_consomme_pas(
         option: str, value: str) -> None:
     code = runner.main([
-        "--suite", "guide", "--compare", "deterministe,outils,full_context",
+        "--suite", "guide", "--compare", "navigation,full_context",
         "--tiers", "reason", option, value,
     ])
     assert code == 2
@@ -526,7 +523,7 @@ def test_pair_and_default_are_rolled_back_on_publication_failure(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     default_path = tmp_path / "default.json"
     output_json, output_md = tmp_path / "baselines.json", tmp_path / "baselines.md"
-    original_default = b'{"prompt_cache":true,"tier":"micro","variant":"outils"}\n'
+    original_default = b'{"prompt_cache":true,"tier":"micro","variant":"full_context"}\n'
     original_json, original_md = b'{"old":true}\n', b"ancien markdown\n"
     default_path.write_bytes(original_default)
     output_json.write_bytes(original_json)
@@ -554,7 +551,7 @@ def test_pair_and_default_are_rolled_back_on_publication_failure(
     monkeypatch.setattr(baselines, "_write_atomic", fail_default_once)
     with pytest.raises(OSError, match="panne défaut"):
         run_comparison(
-            plan=canonical_plan("deterministe,outils,full_context", "reason", suite="guide"),
+            plan=canonical_plan("navigation,full_context", "reason", suite="guide"),
             max_cost_eur=1.0, base_argv=[], invoke=invoke, output_json=output_json,
             output_markdown=output_md, producer="orchestrator", default_path=default_path,
             proof_4_2d_path=tmp_path / "missing.json")

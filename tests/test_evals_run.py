@@ -44,6 +44,7 @@ from server.app.domain.errors import (
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.trace import LLMCall, StepTrace, Trace, Usage
 from server.app.domain.verdict import Verdict
+from server.evals import baselines
 from server.evals import run as runner
 from server.evals.espace import GENERATIONS, REPERTOIRE_ESPACE
 from server.evals.plancher import charger_plancher
@@ -1878,7 +1879,7 @@ def _main(tmp_path: Path, argv: list[str], monkeypatch: pytest.MonkeyPatch, *,
     )
 
 
-def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_canoniques(
+def test_commande_matrice_sans_sorties_traverse_chaque_cellule_et_ecrit_les_canoniques(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data = tmp_path / "data"
     data.mkdir()
@@ -1886,7 +1887,7 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
     cases = _cases_dir(tmp_path, guide=CAS_GUIDE)
     _corpus_, index = _corpus()
     answer = _reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))])
-    variants = ["deterministe", "outils", "full_context"]
+    variants = list(baselines.VARIANTS)  # lues sur la matrice, jamais recopiées
     double = DoublePipeline([(answer, _trace(variant=variant)) for variant in variants])
     _COURANT["guide"] = double
     _COURANT["sinistre"] = DoublePipeline([])
@@ -1907,20 +1908,19 @@ def test_commande_matrice_sans_sorties_traverse_six_fois_le_runner_et_ecrit_les_
         cibles=(Path("docs/evals/baselines.json"), Path("docs/evals/baselines.md")),
     )
     code = runner.main([
-        "--suite", "guide", "--compare", "deterministe,outils,full_context",
+        "--suite", "guide", "--compare", ",".join(variants),
         "--tiers", "reason", "--max-cost", "1.0",
         "--cases-dir", str(cases), "--data-dir", str(data),
     ])
 
     assert code == 0
-    assert len(double.appels) == 3
+    assert len(double.appels) == len(variants)
     assert [call["kw"]["variant"] for call in double.appels] == variants
     json_path = tmp_path / "docs" / "evals" / "baselines.json"
     markdown_path = tmp_path / "docs" / "evals" / "baselines.md"
     assert json_path.is_file() and markdown_path.is_file()
     report = json.loads(json_path.read_text(encoding="utf-8"))
-    assert [cell["key"] for cell in report["cells"]] == [
-        "deterministe/reason", "outils/reason", "full_context/reason"]
+    assert [cell["key"] for cell in report["cells"]] == [f"{v}/reason" for v in variants]
     assert all(cell["complete"] for cell in report["cells"])
 
 

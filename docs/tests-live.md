@@ -2130,6 +2130,33 @@ Le garde a été vérifié par mutation : en déclarant « ecole » et « arrive
 **cinq des six cas** rougissent hors ligne. Signature humaine des six jugements : toujours **due**
 (M1, input non bloquant).
 
+**03/09/2026 — les six mesures ci-dessus datent de la variante `deterministe`, retirée par la story
+5.6 (T2).** Le témoin qui les rejoue (`tests/test_langues_live.py::test_six_reponses_sont_fideles_apres_retraduction`)
+a été réécrit sur le chemin **servi** : il n'épingle plus aucune variante, il prend celle que
+`Settings.retrieval_variant` désigne. Le corps de requête de la navigation n'ayant rien de commun
+avec celui de la variante retirée, les six fixtures lèvent `FixtureMissing` et sont **à
+réenregistrer avec la clé** :
+
+| Cas | Fixture à réenregistrer |
+|---|---|
+| `en-arrivee` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_en-arrivee_.json` |
+| `en-ecole` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_en-ecole_.json` |
+| `de-arrivee` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_de-arrivee_.json` |
+| `de-adem` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_de-adem_.json` |
+| `pt-arrivee` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_pt-arrivee_.json` |
+| `pt-ecole` | `tests/llm_fixtures/test_langues_live.test_six_reponses_sont_fideles_apres_retraduction_pt-ecole_.json` |
+
+Coût annoncé, majoré par les mesures ci-dessus (pipeline + contrôle) : **≈ 0,17 €** pour les six
+cas sur l'ancien chemin ; la navigation lit davantage et paie son sommaire une fois par cas — la
+série du prototype la mesure à 0,05 € par requête à cache chaud, donc **≈ 0,35 € au plus** pour les
+six, contrôle `micro` compris. Tant que la dépense n'est pas faite, `charger_references` accepte le
+scellé (le `test_id` désigne bien le témoin qui rejoue le chemin servi) et ce sont les six cas qui
+rougissent, nommément — jamais un gate qui passe sur un enregistrement périmé.
+
+La septième fixture du même tour, `tests/llm_fixtures/test_pipeline_live.test_every_displayed_sentence_is_backed_by_a_verified_quote.json`,
+est à réenregistrer avec elles : son témoin porte l'adossement de chaque phrase affichée à une
+citation relue, **et** les deux fiches distinctes de la question à deux sujets, sur la navigation.
+
 ### Les deux gates, rejoués une troisième fois (revue Codex 2.4)
 
 `steps/` et `pipelines/` ayant changé, `pipeline_digest` bouge et les deux gates étaient périmés.

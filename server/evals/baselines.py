@@ -1,4 +1,4 @@
-"""Comparaison canonique 4.4 : trois variantes × deux profils de retrieval."""
+"""Comparaison canonique 4.4 : les variantes du guide × son profil de retrieval."""
 
 from __future__ import annotations
 
@@ -22,10 +22,28 @@ from server.app.config import (
 from server.app.digests import cases_hash, harness_digest, pipeline_digest, prompts_digest
 from server.evals.plancher import PlancherInvalide, charger_plancher
 
-VARIANTS = ("deterministe", "outils", "full_context")
+# **Reformulation du 03/09/2026 (story 5.6, T6).** La matrice comparait `deterministe`, `outils` et
+# `full_context` ; les deux premières ont été retirées par T2 avec les passes de code qui
+# choisissaient ce que la rédaction verrait, et une matrice qui les nomme encore demande au harness
+# de tourner des cellules que les deux pipelines refusent par `InvalidRequest`.
+#
+# La comparaison garde pourtant son objet, et c'est **exactement** celui qu'AD-1 amendé lui donne :
+# le guide sert `navigation` — le modèle lit le document lui-même — et garde `full_context` comme
+# variante de comparaison, qui ne classe ni ne réserve rien et donne tout le corpus citable d'un
+# coup. Recall, coût et latence de l'une contre l'autre disent ce que la lecture par le modèle
+# gagne ou perd contre la lecture exhaustive : c'est la question de la story 4.4, sur les deux
+# variantes qui existent. La règle de domination triple ne bouge pas.
+VARIANTS = ("navigation", "full_context")
 TIERS = ("reason",)
 CANONICAL_CELLS = tuple((variant, tier) for variant in VARIANTS for tier in TIERS)
 SHA256_LEN = 64
+# **Archive, et rien d'autre, depuis le 03/09/2026.** Cette preuve scellée mesure la comparaison
+# sinistre de la story 4.2d entre `deterministe` et `outils`. Les deux variantes ont été retirées
+# par T2 ; aucune campagne ne peut plus les mesurer, donc aucune preuve courante ne peut plus
+# concorder. Les chiffres restent publiés — c'est de l'histoire, et l'effacer reviendrait à effacer
+# la mesure qui a décidé du défaut d'alors —, mais le rapport ne réclame plus un rejeu qui n'est pas
+# orchestrable : il dit que la comparaison est **close**. Ce qui remplace la question de 4.2d, c'est
+# la matrice 4.4 reformulée ci-dessus, sur les deux variantes du guide qui existent.
 REFERENCE_4_2D = {
     "date": "2026-08-28",
     "runs": {
@@ -459,7 +477,7 @@ def markdown(report: dict[str, Any]) -> str:
             f"{latency} |")
     sinistre = report["sinistre_4_2d"]
     reference = sinistre["reference"]
-    lines.extend(["", "## Comparaison sinistre 4.2d", "",
+    lines.extend(["", "## Comparaison sinistre 4.2d (archive close)", "",
                   f"Référence {reference['date']} : `deterministe` "
                   f"{reference['runs']['deterministe']}, `outils` "
                   f"{reference['runs']['outils']}.", ""])
@@ -484,8 +502,11 @@ def markdown(report: dict[str, Any]) -> str:
     else:
         reason = sinistre.get("reason") or "preuve courante non réutilisable"
         lines.extend([
-            f"La comparaison exige un rejeu orchestré : {reason}. Aucune mesure courante n'est "
-            "reprise.", "",
+            f"Comparaison **close** : {reason}, et les deux variantes qu'elle mesurait "
+            "(`deterministe`, `outils`) ont été retirées le 03/09/2026 — aucun rejeu ne peut plus "
+            "les produire. Les chiffres de référence ci-dessus restent visibles comme archive ; "
+            "aucune mesure courante n'est reprise, et la question qu'ils tranchaient est reprise "
+            "par la matrice ci-dessus, sur `navigation` et `full_context`.", "",
         ])
     if report["recommendation"] is None:
         lines.append("Aucune recommandation : preuve non trusted, cellules non comparables ou "

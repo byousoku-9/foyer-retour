@@ -571,9 +571,12 @@ def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from server.app import config as module
 
+    # Les deux triplets promus emploient des variantes qui **existent** : depuis T6, `outils` n'est
+    # plus un nom acceptable, ni pour le triplet versionné ni pour `Settings` (`RetrievalVariant`).
+    # Ce que le témoin mesure est la relecture de l'artefact par une instance neuve, pas le nom.
     path = tmp_path / "retrieval-default.json"
     path.write_text(
-        '{"variant":"outils","tier":"reason","prompt_cache":true}', encoding="utf-8")
+        '{"variant":"navigation","tier":"reason","prompt_cache":true}', encoding="utf-8")
     monkeypatch.setattr(module, "RETRIEVAL_DEFAULT_PATH", path)
     first = module.Settings(_env_file=None)
     path.write_text(
@@ -581,7 +584,7 @@ def test_a_fresh_settings_snapshot_adopts_the_promoted_versioned_triplet(
     fresh = module.Settings(_env_file=None)
 
     assert (first.retrieval_variant, first.retrouver_outils_tier,
-            first.retrieval_prompt_cache) == ("outils", "reason", True)
+            first.retrieval_prompt_cache) == ("navigation", "reason", True)
     assert (fresh.retrieval_variant, fresh.retrouver_outils_tier,
             fresh.retrieval_prompt_cache) == ("full_context", "reason", False)
 
