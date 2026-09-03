@@ -323,7 +323,14 @@ def test_les_cinq_verticaux_restent_byte_identiques() -> None:
         "guide/g-luxtrust-prix.yaml": "f2e571839b87973ba6507343558a64cd2eb136c357f84f2fbe6e65cec78f58df",
         "sinistre/s-bougie-canape.yaml": "207ebc073d8e32869737d1e609810e17f0b065d8c4c78776b41d4d06c56e78c2",
         "sinistre/baloise-lu-home-2-2024/b-bougie-canape.yaml": "6b98d6906df82d303c8a41c1226b07eebcfb50d84dc2b00144403f7cd92395aa",
-        "sinistre/baloise-lu-home-2-2024/b-congelateur.yaml": "89c243e258152d9aded0a33f9de48a5998704384867b15718c9be600b8ecde6f",
+        # Re-épinglée le 03/09/2026 (story 5.6 T15, commit `35afbb1`) : le cas exige désormais
+        # `expected.block_ids: [baloise-lu-home-2-2024:p21:4]`, la garantie qui le fonde. C'est un
+        # **durcissement** de l'oracle, jamais un abaissement — le verdict attendu, `found` et le
+        # `mode_attendu` sont inchangés, et l'attente ajoutée est une exigence de plus, mesurée
+        # citée aux répétitions 1 et 2 du gate vertical du 03/09. L'empreinte existe pour qu'un
+        # affaiblissement furtif rougisse ; la re-épingler sans dire lequel des deux sens a joué la
+        # viderait de son objet.
+        "sinistre/baloise-lu-home-2-2024/b-congelateur.yaml": "92fd60dee8ed773236cf9de590ed3ddc5bd84d867edb67e7b9500ec47eff5630",
         "sinistre/baloise-lu-home-2-2024/b-invite-cigarette.yaml": "a6e19c8872db005e4152594844c45608538660088c16ae4e0e6504208a8e15b8",
     }
     for relatif, attendu in attendus.items():
