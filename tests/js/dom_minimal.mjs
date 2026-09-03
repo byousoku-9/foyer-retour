@@ -86,6 +86,16 @@ class Noeud {
     return n;
   }
 
+  /** `Node.replaceChild` : l'attente se rafraichit **en place**, sans remonter dans le journal. */
+  replaceChild(neuf, ancien) {
+    const i = this.childNodes.indexOf(ancien);
+    if (i === -1) throw new Error("replaceChild : le noeud remplacé n'est pas un enfant");
+    ancien.parentElement = null;
+    neuf.parentElement = this;
+    this.childNodes[i] = neuf;
+    return ancien;
+  }
+
   remove() {
     const p = this.parentElement;
     if (!p) return;

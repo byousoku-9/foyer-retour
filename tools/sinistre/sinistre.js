@@ -795,6 +795,28 @@
     return m + ":" + (r < 10 ? "0" + r : String(r));
   }
 
+  // Les trois états d'une étape, et leurs mots. Ils sont composés **une fois** et lus par la vue
+  // comme par la mise à jour en place : deux tables auraient divergé au premier changement.
+  var ETATS_ETAPE = { faite: "terminé", encours: "en cours", attente: "à venir" };
+
+  function etatEtape(rang, i) { return i < rang ? "faite" : (i === rang ? "encours" : "attente"); }
+
+  function libellesEtapes(etat) {
+    var e = etat || {};
+    return tableau(e.libelles).length
+      ? tableau(e.libelles).map(String)
+      : ETAPES_SINISTRE.map(function (x) { return x.libelle; });
+  }
+
+  function noteAttente(serveur) {
+    return serveur
+      ? "Le serveur annonce l'étape en cours ; comptez environ " + DUREE_ANNONCEE_S +
+        " secondes en tout."
+      : "Plusieurs appels au modèle s'enchaînent, et une vérification peut en relancer un : " +
+        "comptez environ " + DUREE_ANNONCEE_S + " secondes. L'avancement ci-dessus est estimé " +
+        "sur le temps écoulé.";
+  }
+
   /**
    * L'état de la barre après `msEcoule` millisecondes, sans aucun événement du serveur.
    *
@@ -819,33 +841,55 @@
    */
   function vueAttente(etat) {
     var e = etat || {};
-    var libelles = tableau(e.libelles).length
-      ? tableau(e.libelles).map(String)
-      : ETAPES_SINISTRE.map(function (x) { return x.libelle; });
     var rang = typeof e.rang === "number" && isFinite(e.rang) ? e.rang : 0;
-    var etapes = libelles.map(function (libelle, i) {
-      var cle = i < rang ? "faite" : (i === rang ? "encours" : "attente");
+    var etapes = libellesEtapes(e).map(function (libelle, i) {
+      var cle = etatEtape(rang, i);
       return noeud("li", "prog-etape prog-" + cle, null, [
         noeud("span", "prog-puce", "", null, { "aria-hidden": "true" }),
         noeud("span", "prog-libelle", libelle),
         // L'état de chaque étape est écrit en toutes lettres : la puce colorée ne le porte pas
         // seule, et un lecteur d'écran entend « terminé », « en cours », « à venir ».
-        noeud("span", "prog-etat",
-              cle === "faite" ? "terminé" : (cle === "encours" ? "en cours" : "à venir"))
+        noeud("span", "prog-etat", ETATS_ETAPE[cle])
       ]);
     });
     return noeud("div", "carte attente", null, [
       noeud("ol", "prog", null, etapes),
       noeud("div", "prog-pied", null, [
         noeud("span", "prog-chrono", chrono(e.msEcoule || 0)),
-        noeud("span", "attente-note", e.serveur
-          ? "Le serveur annonce l'étape en cours ; comptez environ " + DUREE_ANNONCEE_S +
-            " secondes en tout."
-          : "Plusieurs appels au modèle s'enchaînent, et une vérification peut en relancer un : " +
-            "comptez environ " + DUREE_ANNONCEE_S + " secondes. L'avancement ci-dessus est estimé " +
-            "sur le temps écoulé.")
+        noeud("span", "attente-note", noteAttente(e.serveur))
       ])
     ]);
+  }
+
+  /**
+   * Met la barre à jour **en place**, ou rend `false` si sa structure a changé.
+   *
+   * Repeindre la carte entière chaque seconde était deux fautes en une. `#resultat` porte
+   * `aria-live="polite"` : un lecteur d'écran aurait relu la barre et son chronomètre **à chaque
+   * seconde**, pendant une minute. Et un nœud remplacé perd le focus qu'il portait. Ici seuls les
+   * textes et les classes changent ; le nombre d'étapes, lui, ne change que si le serveur en
+   * annonce un autre — et c'est le seul cas où la carte est repeinte.
+   */
+  function majAttente(racine, etat) {
+    if (!racine || typeof racine.querySelectorAll !== "function") return false;
+    var e = etat || {};
+    var libelles = libellesEtapes(e);
+    var rang = typeof e.rang === "number" && isFinite(e.rang) ? e.rang : 0;
+    var etapes = racine.querySelectorAll(".prog-etape");
+    if (etapes.length !== libelles.length) return false;
+    etapes.forEach(function (n, i) {
+      var cle = etatEtape(rang, i);
+      n.className = "prog-etape prog-" + cle;
+      var mot = n.querySelector(".prog-etat");
+      if (mot) mot.textContent = ETATS_ETAPE[cle];
+      var libelle = n.querySelector(".prog-libelle");
+      if (libelle) libelle.textContent = libelles[i];
+    });
+    var horloge = racine.querySelector(".prog-chrono");
+    if (horloge) horloge.textContent = chrono(e.msEcoule || 0);
+    var note = racine.querySelector(".attente-note");
+    if (note) note.textContent = noteAttente(e.serveur);
+    return true;
   }
 
   /**
@@ -859,11 +903,15 @@
     var debut = Date.now();
     var etat = { rang: 0, libelles: null, msEcoule: 0, serveur: false };
     var minuteur = null;
+    var carte = null;
 
     function peindreEtat() {
       etat.msEcoule = Date.now() - debut;
       if (!etat.serveur) etat.rang = rangEstime(etat.msEcoule);
-      peindre(vueAttente(etat), hote);
+      // Mise à jour en place tant que la structure tient ; repeinture seulement quand le serveur
+      // annonce un autre nombre d'étapes (voir `majAttente`).
+      if (carte && majAttente(carte, etat)) return;
+      carte = peindre(vueAttente(etat), hote);
     }
 
     peindreEtat();
@@ -1729,7 +1777,8 @@
     enfants.push(noeud("p", "gf gf-retire", retirees === null
       ? "Des phrases ont été retirées : aucun passage ne les soutenait"
       : pluriel(retirees, "phrase") + " retirée" + (retirees > 1 ? "s" : "") +
-        (retirees ? " : aucun passage ne les soutenait" : "")));
+        (retirees ? (retirees > 1 ? " : aucun passage ne les soutenait"
+                                  : " : aucun passage ne la soutenait") : "")));
 
     enfants.push(noeud("p", "gf gf-regle",
       "Verdict calculé par des règles fixes, pas par le modèle · conditions générales seules · " +
@@ -2405,11 +2454,21 @@
     };
   }
 
-  /** Le flux est-il consommable par ce navigateur ? Sinon la page prend la route classique. */
+  /**
+   * Le corps d'une réponse SSE peut-il être lu **au fil de l'eau** ?
+   *
+   * Sinon il reste lisible d'un bloc (`r.text()`) : on perd l'avancement en direct, pas la réponse.
+   * C'est la distinction qui compte pour le portefeuille — un corps qu'on ne lit pas est un appel
+   * payé pour rien, et le renvoyer sur la route classique le paierait deux fois.
+   */
   function fluxLisible(reponse) {
     return !!(reponse && reponse.body && typeof reponse.body.getReader === "function" &&
               typeof TextDecoder === "function");
   }
+
+  // La route de progression n'existe pas sur tous les serveurs. Un 404 une fois vaut pour la page :
+  // la sonder à chaque soumission ajouterait un aller-retour inutile à chaque soumission.
+  var progressionAbsente = false;
 
   /**
    * Soumet via le flux de progression, en appelant `sur.etape` à chaque étape annoncée.
@@ -2420,6 +2479,11 @@
   function soumettreProgression(saisie, sur) {
     if (!enLigne()) {
       return Promise.reject(erreurSinistre({ kind: "requete", code: "hors_ligne", statut: 0 }));
+    }
+    if (progressionAbsente) {
+      var absente = new Error("bascule");
+      absente.bascule = true;
+      return Promise.reject(absente);
     }
     var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
     var options = {
@@ -2435,14 +2499,15 @@
 
     return fetch(API_BASE + "/api/v1/sinistre/progression", options).then(function (r) {
       // 404/405 : la route n'existe pas sur ce serveur. Rien n'a tourné, rien n'a coûté.
-      if (r.status === 404 || r.status === 405) { finir(); throw bascule(); }
+      if (r.status === 404 || r.status === 405) {
+        progressionAbsente = true;
+        finir();
+        throw bascule();
+      }
       if (!r.ok) {
         return r.json().then(function (j) { return j; }, function () { return null; })
           .then(function (j) { finir(); throw erreurHttp(r.status, r.headers, j); });
       }
-      if (!fluxLisible(r)) { finir(); throw bascule(); }
-      var lecteur = r.body.getReader();
-      var decodeur = new TextDecoder("utf-8");
       var decoupeur = decoupeurSSE();
       var resultat = null;
       var erreurServeur = null;
@@ -2456,19 +2521,39 @@
         if (evt.type === "erreur" && evt.data) { erreurServeur = evt.data; }
       }
 
-      function boucle() {
-        return lecteur.read().then(function (pas) {
-          if (pas && pas.value) decoupeur.pousser(decodeur.decode(pas.value, { stream: true }))
-            .forEach(traiter);
-          if (pas && pas.done) {
-            decoupeur.pousser(decodeur.decode()).forEach(traiter);
-            return null;
-          }
-          return boucle();
-        });
+      // Le serveur a répondu : son corps est **payé**. On le lit — au fil de l'eau si le navigateur
+      // sait le faire, d'un bloc sinon. Le jeter pour redemander la même chose à la route classique
+      // paierait deux fois le même travail.
+      function lire() {
+        if (fluxLisible(r)) {
+          var lecteur = r.body.getReader();
+          var decodeur = new TextDecoder("utf-8");
+          return (function boucle() {
+            return lecteur.read().then(function (pas) {
+              if (pas && pas.value) {
+                decoupeur.pousser(decodeur.decode(pas.value, { stream: true })).forEach(traiter);
+              }
+              if (pas && pas.done) {
+                decoupeur.pousser(decodeur.decode()).forEach(traiter);
+                return null;
+              }
+              return boucle();
+            });
+          })();
+        }
+        if (typeof r.text === "function") {
+          return r.text().then(function (t) { decoupeur.pousser(t).forEach(traiter); return null; });
+        }
+        // Ni flux ni corps : l'environnement ne permet pas de lire ce que le serveur a envoyé. Ce
+        // n'est pas une route absente — redemander ferait payer deux fois.
+        throw erreurSinistre({ kind: "requete", code: "reponse_illisible", statut: r.status });
       }
 
-      return boucle().then(function () {
+      // `Promise.resolve().then(lire)` et non `lire()` : un `lire()` qui lève **avant** de
+      // rendre sa promesse court-circuiterait le gestionnaire d'échec ci-dessous, donc
+      // `finir()` — la minuterie d'abandon resterait armée jusqu'à sa borne, plusieurs
+      // minutes après que la page a fini d'attendre.
+      return Promise.resolve().then(lire).then(function () {
         finir();
         // Un `resultat` reçu clôt la soumission : plus jamais de seconde requête, même si le flux
         // s'est ensuite coupé. C'est **la** garde contre le double appel payant.
@@ -3052,8 +3137,11 @@
         // La barre d'étapes remplace la phrase figée : elle se repeint chaque seconde et suit le
         // flux de progression quand le serveur en sert un. `attente.fin()` arrête son minuteur sur
         // **les deux** issues — sans quoi il repeindrait l'attente par-dessus le verdict.
-        var attente = suivreAttente(null);
+        // `verrouiller(true)` **avant** la première peinture : c'est lui qui pose `aria-busy` sur
+        // `#resultat`, et une région `aria-live` qui reçoit la barre avant d'être marquée occupée
+        // la ferait annoncer, puis relire à chaque mise à jour.
         verrouiller(true);
+        var attente = suivreAttente(null);
         soumettreAvecProgression(saisie, attente.etape)
           .then(function (r) {
             attente.fin();
@@ -3107,12 +3195,17 @@
     vueErreur: vueErreur,
     // Réseau et peinture.
     documents: documents,
+    // Story 5.6 (L2) : la lecture stricte d'AD-11, exposée pour que les corps figés du harnais de
+    // rendu la traversent avant d'être peints — un corps figé qui ne tiendrait pas le contrat
+    // serait une preuve sans valeur.
+    lireReponse: lireReponse,
     soumettre: soumettre,
     soumettreConversation: soumettreConversation,
     soumettreProgression: soumettreProgression,
     soumettreAvecProgression: soumettreAvecProgression,
     decoupeurSSE: decoupeurSSE,
     suivreAttente: suivreAttente,
+    majAttente: majAttente,
     rangEstime: rangEstime,
     ETAPES: ETAPES_SINISTRE.map(function (e) { return { nom: e.nom, libelle: e.libelle, ms: e.ms }; }),
     DUREE_ANNONCEE_S: DUREE_ANNONCEE_S,

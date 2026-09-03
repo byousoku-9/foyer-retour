@@ -35,7 +35,30 @@ const ELEMENTS = [
   { tag: "input", id: "widget-input" },
   { tag: "button", id: "chat-send" },
   { tag: "button", id: "widget-send" },
+  // Story 5.6 (L2) : les deux conteneurs que `montrerFiche()` touche. Le reste de la page (les
+  // onglets, la carte, la frise) n'est pas monté : ce qu'on vérifie ici est le corps de la fiche.
+  { tag: "div", id: "fiche-detail" },
+  { tag: "div", id: "fiches-liste" },
 ];
+
+/**
+ * Story 5.6 (L2) : la route de progression n'existe pas encore côté serveur. Le défaut du harnais
+ * est donc **404**, l'état réel du service — les cas qui l'exercent fournissent leur propre double.
+ */
+function sansProgression(fetchDouble) {
+  if (!fetchDouble) return fetchDouble;
+  return (url, options) => {
+    if (String(url).endsWith("/progression")) {
+      return Promise.resolve({
+        ok: false, status: 404,
+        headers: { get: () => null },
+        json: () => Promise.resolve({ error: { code: "not_found" } }),
+        text: () => Promise.resolve(""),
+      });
+    }
+    return fetchDouble(url, options);
+  };
+}
 
 function monter(fetchDouble) {
   const document = new Document();
@@ -58,10 +81,12 @@ function monter(fetchDouble) {
     localStorage,
     addEventListener: () => {},
     matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+    scrollTo: () => {},
     // Aucun appel réseau n'est déclenché : le démarrage (donc la sonde) est sauté, et la seule
     // action exercée est la recherche simple, qui est purement locale. Un `fetch` appelé quand
     // même doit faire échouer le harnais, pas passer inaperçu.
-    fetch: fetchDouble || (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
+    fetch: sansProgression(fetchDouble) ||
+      (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
     __UI_SANS_DEMARRAGE: true,
   };
 
@@ -73,7 +98,8 @@ function monter(fetchDouble) {
     // introuvables dans le bac à sable. Sans double fourni, `fetch` lève — un appel réseau non
     // attendu dans ce harnais doit faire échouer, pas passer inaperçu.
     Promise, isFinite, AbortController,
-    fetch: fetchDouble || (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
+    fetch: sansProgression(fetchDouble) ||
+      (() => { throw new Error("aucun appel réseau n'est attendu dans ce harnais"); }),
   };
   bac.globalThis = bac;
   vm.createContext(bac);
@@ -153,8 +179,12 @@ function reponseAvecBalisage() {
   };
   return {
     texte: answer.texte, segments,
-    sources: [{ block_id: "b1", fiche_id: "arrivee", titre: "Les huit premiers jours",
-                url: "https://guichet.public.lu/arrivee",
+    // Le titre porte du balisage : depuis la story 5.6 (L2), c'est **lui** que la puce affiche,
+    // et c'est donc lui qui doit arriver littéralement dans le DOM (AD-15).
+    // L'URL est **précise** (deux segments parlants) : la puce « source officielle » l'affiche.
+    sources: [{ block_id: "b1", fiche_id: "arrivee",
+                titre: "<script>alert(1)</script> Les huit premiers jours",
+                url: "https://guichet.public.lu/fr/citoyens/citoyennete.html",
                 quote: "<script>alert(1)</script> huit jours", status: "verifiee" }],
     fiches: [], unknown: [], comparateur: false, answer, via: "api/v1",
     // `pipeline` est obligatoire au sens de la lecture stricte d'AD-11 (`chat.js::verifierTrace`) :
@@ -215,7 +245,7 @@ async function main() {
       boutons_de_repli: repliDans(document),
       // Le balisage d'une citation est rendu **littéralement** : c'est la propriété d'AD-15, et le
       // DOM minimal lève sur toute pose d'`innerHTML` non vide, donc arriver ici la démontre.
-      citation: bulles[0].querySelector(".cite-q").textContent,
+      puce: bulles[0].querySelector(".cite-puce").textContent,
       lien: releverLien(bulles[0].querySelector(".cite-lien")),
       dans_le_document: document.querySelectorAll(".msg").length,
     };
@@ -356,6 +386,31 @@ async function main() {
         busy: ["chat-log", "widget-log"].map((id) => elements[id].getAttribute("aria-busy")),
       },
       texte: elements["chat-log"].textContent,
+    };
+  }
+
+  // --- story 5.6 (L2) : l'attente se rafraîchit **en place** ---------------
+  {
+    const { window, elements } = monter();
+    const debut = 1000;
+    window.UI.peindre(window.CHAT.vueAttente(window.CHAT.etatAttente(debut, debut, null)));
+    const bulle = elements["chat-log"].querySelectorAll(".msg.bot.attente")[0];
+    const premiere = bulle.querySelectorAll(".prog-etape")[0];
+    // Un repère que seule une repeinture ferait disparaître : s'il survit, aucun `replaceChild`
+    // n'a eu lieu — donc aucune relecture de la barre par un lecteur d'écran.
+    premiere.setAttribute("data-repere", "1");
+    // Ce que `chat.js` décide, tel que `ui.js` l'écrira : la fonction pure, d'abord.
+    const decide = window.CHAT.majAttente(
+      window.CHAT.etatAttente(debut, debut + 26000, null),
+      bulle.querySelectorAll(".prog-etape").length);
+    // Puis le chemin réel, par la boucle d'envoi (un `fetch` qui ne répond jamais).
+    cas.attente_en_place = {
+      decide,
+      structure_changee: window.CHAT.majAttente(
+        window.CHAT.etatAttente(debut, debut, { rang: 0, libelles: ["A", "B"] }),
+        bulle.querySelectorAll(".prog-etape").length),
+      repere: premiere.getAttribute("data-repere"),
+      bulles: elements["chat-log"].querySelectorAll(".msg.bot.attente").length,
     };
   }
 
@@ -612,6 +667,55 @@ async function main() {
         .flatMap((p) => p.querySelectorAll("li").concat(p.querySelectorAll("span")))
         .filter((n) => n.getAttribute("id")).length,
       texte: bulles[0].querySelector(".pourquoi").textContent,
+    };
+  }
+
+  // --- story 5.6 (L2) : la fiche s'ouvre sur la phrase citée, surlignée ----
+  {
+    const { window, elements } = monter();
+    const fiche = window.KB.fiches.filter((f) => f.id === "arrivee")[0];
+    // Le passage tel que le corpus le sert : une sous-chaîne d'un paragraphe du corps de la fiche.
+    const passage = "vous disposez de huit jours pour déclarer votre arrivée";
+    let defile = null;
+    const marques = () => elements["fiche-detail"].querySelectorAll(".passage-cite");
+    window.UI.montrerFiche("arrivee", true, passage);
+    let marque = marques()[0];
+    if (marque) { marque.scrollIntoView = (o) => { defile = o; }; }
+    // `scrollIntoView` est appelé **pendant** `montrerFiche` : on rejoue avec le double en place.
+    elements["fiche-detail"].textContent = "";
+    const original = window.document.createElement;
+    window.document.createElement = (tag) => {
+      const n = original.call(window.document, tag);
+      if (String(tag).toLowerCase() === "mark") n.scrollIntoView = (o) => { defile = o; };
+      return n;
+    };
+    window.UI.montrerFiche("arrivee", true, passage);
+    window.document.createElement = original;
+    marque = marques()[0];
+    cas.fiche_passage = {
+      titre: fiche.titre,
+      marques: marques().length,
+      texte_marque: marque ? marque.textContent : null,
+      defile,
+      // Le paragraphe qui porte la marque est bien celui du corps, rendu entier.
+      paragraphe: marque ? marque.parentElement.textContent : null,
+    };
+
+    // Un passage que la fiche ne contient pas : aucune marque, aucune erreur, la fiche s'ouvre.
+    const b = monter();
+    b.window.UI.montrerFiche("arrivee", true, "une phrase absente de cette fiche");
+    cas.fiche_passage_introuvable = {
+      marques: b.elements["fiche-detail"].querySelectorAll(".passage-cite").length,
+      rendue: b.elements["fiche-detail"].querySelectorAll("p").length > 0,
+      cachee: !!b.elements["fiche-detail"].hidden,
+    };
+
+    // Sans passage du tout : le comportement d'avant, inchangé.
+    const c = monter();
+    c.window.UI.montrerFiche("arrivee", true);
+    cas.fiche_sans_passage = {
+      marques: c.elements["fiche-detail"].querySelectorAll(".passage-cite").length,
+      rendue: c.elements["fiche-detail"].querySelectorAll("p").length > 0,
     };
   }
 

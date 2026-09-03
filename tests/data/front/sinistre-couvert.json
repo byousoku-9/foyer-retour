@@ -1,0 +1,212 @@
+{
+  "answer": {
+    "found": true,
+    "complete": true,
+    "lang": "fr",
+    "lang_fallback": false,
+    "texte": "Le contrat couvre les brûlures faites au mobilier par une bougie, même sans incendie. La garantie « incendie et périls assimilés » vise l'action subite de la chaleur ou le contact direct avec un foyer incandescent, et elle le dit sans exiger d'embrasement. Votre canapé est du mobilier au sens du contrat, et il se trouvait dans le bâtiment désigné.",
+    "segments": [
+      {
+        "text": "Le contrat couvre les brûlures faites au mobilier par une bougie, même sans incendie",
+        "kind": "factuel",
+        "claim_ids": [
+          "cl1"
+        ]
+      },
+      {
+        "text": "La garantie « incendie et périls assimilés » vise l'action subite de la chaleur ou le contact direct avec un foyer incandescent, et elle le dit sans exiger d'embrasement",
+        "kind": "factuel",
+        "claim_ids": [
+          "cl1"
+        ]
+      },
+      {
+        "text": "Votre canapé est du mobilier au sens du contrat, et il se trouvait dans le bâtiment désigné.",
+        "kind": "factuel",
+        "claim_ids": [
+          "cl2"
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "claim_id": "cl1",
+        "text": "La garantie vise l'action subite de la chaleur, sans exiger d'embrasement.",
+        "quotes": [
+          {
+            "block_id": "axa:p34:1",
+            "quote": "par un événement soudain, résultant de l'action subite de la chaleur"
+          }
+        ],
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "edition": "juin 2017"
+        }
+      },
+      {
+        "claim_id": "cl2",
+        "text": "Un canapé est du mobilier assuré au sens du contrat.",
+        "quotes": [
+          {
+            "block_id": "axa:p09:1",
+            "quote": "1.12.1 le mobilier"
+          }
+        ],
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "edition": "juin 2017"
+        }
+      }
+    ],
+    "rejected_claims": [],
+    "reason": null,
+    "lecture_partielle": null,
+    "clarification": null,
+    "unknown": [],
+    "verdict": {
+      "value": "couvert",
+      "reason": "Une garantie s'applique et aucune exclusion lue ne la retire (au regard des conditions générales seules)",
+      "missing": {
+        "conditions_particulieres": true,
+        "options_souscrites": true,
+        "avenants": true,
+        "date_effet": true,
+        "faits": []
+      },
+      "ask_client": [],
+      "escalate": []
+    },
+    "faits_compris": {
+      "themes": [
+        "habitation",
+        "incendie"
+      ],
+      "bien": "canapé du salon",
+      "evenement": "brûlure sans embrasement",
+      "lieu": "domicile assuré",
+      "cause": "bougie renversée",
+      "moment": "2026-08-30"
+    }
+  },
+  "sources": [
+    {
+      "block_id": "axa:p34:1",
+      "page": 34,
+      "bbox": null,
+      "line_ids": [
+        "p34:1:l1"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
+      "status": "verifiee",
+      "quote": "par un événement soudain, résultant de l'action subite de la chaleur",
+      "texte_bloc": "3.1.1.1.6 Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.",
+      "chemin": [
+        "3.1.1 Incendie et périls assimilés",
+        "3.1.1.1 Étendue de la garantie",
+        "3.1.1.1.6 Dégâts au mobilier"
+      ],
+      "claim_id": "cl1"
+    },
+    {
+      "block_id": "axa:p09:1",
+      "page": 9,
+      "bbox": null,
+      "line_ids": [
+        "p09:1:l3"
+      ],
+      "kind": "definition",
+      "kind_confirmed": true,
+      "status": "verifiee",
+      "quote": "1.12.1 le mobilier",
+      "texte_bloc": "1.12 Contenu\nEnsemble des biens repris ci-dessous qui se trouvent dans le bâtiment désigné, y compris ses cours et jardins, et qui appartiennent ou sont confiés à un Assuré.\nIl comprend les rubriques suivantes :\n1.12.1 le mobilier ;\n1.12.2 les animaux domestiques, d'élevage, ainsi que les animaux d'agrément (à l'exclusion de ceux qui vivent normalement à l'état sauvage, même s'ils ont été domestiqués). Ils sont garantis en tous lieux ;\n1.12.3 les seuls véhicules automoteurs non soumis à immatriculation à deux ou trois roues d'une cylindrée de maximum 50 cm³, ainsi que les engins automoteurs de jardinage.\nIl ne comprend :\n- ni les pierres précieuses et les perles fines non montées ;\n- ni les valeurs.",
+      "chemin": [
+        "1. Définitions",
+        "1.12 Contenu"
+      ],
+      "claim_id": "cl2"
+    }
+  ],
+  "via": "api/v1",
+  "trace": {
+    "request_id": "fige-4192",
+    "pipeline": "sinistre",
+    "variant": "deterministe",
+    "total_cost_eur": 0.0412,
+    "retries": 0,
+    "truncations": 0,
+    "thresholds": {
+      "deadline_s": 290.0,
+      "max_opens": 8
+    },
+    "gate": {
+      "profile": "vertical",
+      "cases": 2,
+      "countersigned": true,
+      "alerts": []
+    },
+    "blocs": [
+      {
+        "block_id": "axa:p34:1",
+        "doc_id": "axa",
+        "node_id": "axa:n34",
+        "fiche_id": null,
+        "titre": "3.1.1.1.6 Dégâts au mobilier"
+      },
+      {
+        "block_id": "axa:p09:1",
+        "doc_id": "axa",
+        "node_id": "axa:n09",
+        "fiche_id": null,
+        "titre": "1.12 Contenu"
+      }
+    ],
+    "steps": [
+      {
+        "name": "comprendre",
+        "tier": "micro",
+        "ms": 1400,
+        "checks": []
+      },
+      {
+        "name": "retrouver",
+        "tier": "reason",
+        "ms": 9200,
+        "opened_block_ids": [
+          "axa:p34:1",
+          "axa:p09:1"
+        ],
+        "discarded_block_ids": [],
+        "checks": []
+      },
+      {
+        "name": "rediger",
+        "tier": "reason",
+        "ms": 14100,
+        "checks": []
+      },
+      {
+        "name": "verifier",
+        "tier": "micro",
+        "ms": 5300,
+        "checks": [
+          {
+            "name": "citations",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      },
+      {
+        "name": "restituer",
+        "tier": null,
+        "ms": 2,
+        "checks": []
+      }
+    ]
+  }
+}

@@ -19,7 +19,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
@@ -1410,7 +1410,7 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
 def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
     """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
     scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
-    assert scripts == ["sinistre.js?v=4"]
+    assert scripts == ["sinistre.js?v=5"]
     # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
     # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
     # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les
@@ -1635,3 +1635,415 @@ def test_le_chiffre_de_la_lecture_est_le_meme_texte_que_sur_le_guide(cas: dict[s
     assert textes["singulier"].startswith("Lecture partielle : 1 section lue, 1 passage")
     assert textes["plancher"] == textes["singulier"]
     assert textes["absente"] == ""
+
+# =========================================================================
+# Story 5.6 (L2) — les quatre blocs, le surlignage, la progression.
+# =========================================================================
+
+
+def test_les_quatre_blocs_sont_dans_lordre_et_aucun_nest_replie(cas: dict[str, Any]) -> None:
+    """AC : « quatre blocs fixes, jamais repliés, dans cet ordre ».
+
+    C'est le défaut que Lancelot a vu en prod : en vue conversationnelle, « Clauses citées » était
+    un `<details>` fermé, et la seule chose lisible était « ne tranche pas » suivi de questions.
+    Le test porte donc sur l'ordre **et** sur le tag : un bloc peint en `<details>` repasserait.
+    """
+    vu = cas["verdict"]
+    assert vu["blocs"] == ["bloc bloc-reponse", "bloc bloc-appuis", "bloc bloc-manques",
+                           "bloc bloc-gardefous", "dossier details-preuves", "trace"]
+    assert vu["blocs_titres"] == ["1 La réponse", "2 Sur quoi je m'appuie",
+                                  "3 Ce qu'il me manque pour aller plus loin", "4 Garde-fous"]
+    # Le dossier conversationnel vient **après** les quatre blocs, replié, et il s'appelle « Dossier ».
+    assert vu["dossier_tag"] == ["details"] and vu["dossier_titre"] == ["Dossier"]
+
+
+def test_la_reponse_souvre_par_sa_premiere_phrase(cas: dict[str, Any]) -> None:
+    """AC : la première phrase en grand, puis l'explication. Aucune phrase n'est perdue."""
+    vu = cas["verdict"]
+    assert vu["reponse_phrase"] == ["La garantie vise l'action subite de la chaleur."]
+    assert vu["reponse_suite"] == ["Une condition reste ouverte."]
+
+
+def test_les_questions_decisives_ne_sont_posees_quune_fois(cas: dict[str, Any]) -> None:
+    """Elles sont le bloc 3. Les laisser aussi dans le dossier doublerait les boutons de réponse
+    et le champ libre sous une seule question sélectionnée."""
+    # La fixture nominale n'a pas de conversation : aucune question active, donc aucune sélection.
+    assert cas["verdict"]["questions"] == 0
+    fil = cas["fil"]
+    assert fil["questions"] == ["Le caractère subit est-il établi ?",
+                                "Le dommage est-il accidentel ?",
+                                "Une option a-t-elle été souscrite ?"]
+    assert fil["bloc_porteur"] == ["bloc bloc-manques"]
+    assert fil["dossier_porte_des_questions"] is False
+    # Un seul champ libre et un seul jeu de boutons : la mécanique existante, déplacée, pas doublée.
+    assert fil["champs_libres"] == 1
+    assert fil["boutons_oui_non"] == ["Oui", "Non", "Ne sait pas"]
+
+
+@pytest.mark.parametrize("valeur", sorted(get_args(VerdictValue)))
+def test_chaque_valeur_du_domaine_a_un_libelle_lisible(cas: dict[str, Any], valeur: str) -> None:
+    """AC : « traduis toutes, ne laisse aucune valeur brute ».
+
+    Le paramétrage vient de `VerdictValue` lui-même (`domain/verdict.py`) : une cinquième valeur
+    ajoutée au domaine fera rougir ce test tant que la page ne saura pas la dire.
+    """
+    libelles = cas["libelles_verdict"][valeur]
+    for forme in ("avec_clause", "sans_clause"):
+        texte = libelles[forme]["texte"]
+        assert libelles[forme]["cle"] == valeur, (valeur, forme)
+        assert texte and texte != valeur and "_" not in texte, (valeur, forme)
+        assert texte[0].isupper(), (valeur, forme)
+
+
+def test_les_libelles_de_verdict_sont_ceux_valides_par_la_maquette(cas: dict[str, Any]) -> None:
+    assert cas["verdicts_table"] == {
+        "couvert": "Couvert",
+        "non_couvert": "Exclu",
+        "sous_conditions": "Sous conditions",
+        "ne_tranche_pas": "Je ne peux pas trancher",
+    }
+    ne_tranche = cas["libelles_verdict"]["ne_tranche_pas"]
+    assert ne_tranche["sans_clause"]["texte"] == "Pas de clause qui s'applique"
+
+
+def test_une_valeur_de_verdict_inconnue_nest_jamais_traduite(cas: dict[str, Any]) -> None:
+    """AD-16 : le serveur aurait rendu quelque chose que le contrat ne prévoit pas. L'afficher comme
+    un verdict connu serait le dégradé silencieux que cet AD interdit."""
+    inconnu = cas["libelles_verdict"]["farfelu"]
+    assert inconnu["avec_clause"] == {"cle": "inconnu", "texte": "verdict non reconnu"}
+    assert inconnu["sans_clause"] == {"cle": "inconnu", "texte": "verdict non reconnu"}
+
+
+def test_pas_de_clause_qui_sapplique_se_dit_sur_labsence_daffirmation(cas: dict[str, Any]) -> None:
+    """La distinction porte sur les **affirmations retenues**, pas sur `sources[]`.
+
+    Une claim retenue dont l'appariement a échoué reste une claim retenue : dire « pas de clause qui
+    s'applique » au-dessus d'un verdict fondé sur une affirmation serait un mensonge d'affichage.
+    """
+    vu = cas["verdict_sans_clause"]
+    assert vu["aucune_claim"] == ["Pas de clause qui s'applique"]
+    assert vu["claims_sans_source"] == ["Je ne peux pas trancher"]
+
+
+# --- le bloc 2 : le paragraphe entier, citation surlignée ----------------
+
+def test_la_quote_est_retrouvee_malgre_apostrophes_et_espaces(cas: dict[str, Any]) -> None:
+    """AD-3 : la quote est ré-extraite du corpus aux offsets prouvés — mais le fil transporte des
+    apostrophes typographiques, des espaces insécables et les retours à la ligne de la mise en page
+    du PDF. Un `indexOf` nu échouait sur des paragraphes où la citation est pourtant là."""
+    vu = cas["surlignage"]
+    assert vu["bornes"] == {"debut": 26, "fin": 87}
+    # Le surlignage porte sur le texte **original** : apostrophe typographique, espace insécable et
+    # retour à la ligne sont conservés tels quels.
+    assert vu["extrait"] == "l’écoulement de l’eau\ndes installations, par suite de rupture"
+    assert vu["introuvable"] is None
+    assert vu["quote_vide"] is None
+
+
+def test_une_clause_affiche_son_chemin_son_paragraphe_et_sa_phrase_en_clair(
+        cas: dict[str, Any]) -> None:
+    vu = cas["appui_avec_bloc"]
+    assert vu["chemin"] == ["3.1.4 Dégâts des eaux › Étendue de la garantie"]
+    assert vu["paragraphe"].startswith("3.1.4.1 Le contrat couvre")
+    assert vu["paragraphe"].endswith("l’oubli d’un robinet.")
+    assert vu["marques"] == [
+        "l’écoulement de l’eau\ndes installations, par suite de rupture"]
+    assert "La garantie vise l'action subite de la chaleur." in vu["en_clair"]
+    # Sous le seuil : le paragraphe entier est affiché d'emblée, sans bouton.
+    assert vu["extraits"] == 0 and vu["boutons_plus"] == 0
+
+
+def test_une_citation_introuvable_dans_son_bloc_saffiche_seule(cas: dict[str, Any]) -> None:
+    """Le corpus servi et le bloc publié peuvent diverger : la page ne surligne rien au jugé."""
+    vu = cas["appui_citation_introuvable"]
+    assert vu["marques"] == 0
+    assert vu["note"] and "sans surlignage inventé" in vu["note"][0]
+    assert vu["texte"][0].startswith("« événement soudain")
+
+
+def test_un_bloc_long_montre_la_phrase_et_ses_voisines_avec_un_bouton(cas: dict[str, Any]) -> None:
+    """AC : « phrase citée + une phrase avant et après, et un bouton "Voir le paragraphe entier" »."""
+    vu = cas["appui_bloc_long"]
+    assert vu["seuil_depasse"] is True
+    assert vu["bouton"] == ["Voir le paragraphe entier"]
+    assert vu["extrait"].count("Une phrase de remplissage") == 2, "une phrase avant, une après"
+    assert "La phrase qui décide est ici." in vu["extrait"]
+    # Le paragraphe entier est **posé masqué**, pas absent : aucun aller-retour serveur au clic.
+    assert vu["entier_masque"] == ["hidden"]
+
+
+def test_le_depliage_est_a_la_demande_et_jamais_linverse(cas: dict[str, Any]) -> None:
+    """Un contenu qui se referme sous le lecteur est exactement ce que cette refonte retire."""
+    vu = cas["depliage"]
+    assert vu["avant"] == {"entier": "hidden", "extrait": None, "bouton": None}
+    assert vu["apres"] == {"entier": None, "extrait": "hidden", "bouton": "hidden"}
+
+
+def test_une_clause_ecartee_passe_en_retrait_apres_les_autres(cas: dict[str, Any]) -> None:
+    """AC : « les clauses citées comme ne s'appliquant pas sont affichées en retrait, plus
+    discrètes ». L'ordre de lecture suit la décision, pas l'ordre de publication du serveur."""
+    vu = cas["appuis_ecartes"]
+    assert vu["ordre"] == ["appui", "appui appui-ecarte"]
+    # La clause écartée est publiée **en premier** par le serveur et affichée en second.
+    assert vu["chemins"] == ["Une condition reste ouverte.",
+                             "La garantie vise l'action subite de la chaleur."]
+
+
+def test_un_claim_id_sur_la_clause_rattache_sans_appariement_positionnel(
+        cas: dict[str, Any]) -> None:
+    """Contrat du tour moteur : `sources[i].claim_id` dit qui cite ce bloc. L'appariement de D6
+    tombait ici — les sources sont dans l'ordre inverse des claims —, et le `claim_id` le rattrape
+    sans rien deviner."""
+    assert cas["appuis_par_claim_id"] == [
+        {"bloc": "cg-mini:p12:3", "texte": "Une condition reste ouverte."},
+        {"bloc": "cg-mini:p9:2", "texte": "La garantie vise l'action subite de la chaleur."}]
+
+
+# --- le bloc 4 : les garde-fous -----------------------------------------
+
+def test_les_garde_fous_chiffrent_ce_qui_a_ete_relu_et_retire(cas: dict[str, Any]) -> None:
+    """AC : « N citations relues », « M phrases retirées » (0 affiché aussi), et la règle."""
+    vu = cas["phrases_retirees"]
+    assert vu["gf_zero"][0] == "2 citations relues mot pour mot dans le contrat"
+    assert vu["gf_zero"][1] == "0 phrase retirée"
+    assert vu["gf_trois"][1] == "3 phrases retirées : aucun passage ne les soutenait"
+    assert vu["gf_zero"][2] == (
+        "Verdict calculé par des règles fixes, pas par le modèle · conditions générales seules · "
+        "pas un avis d'expert")
+
+
+def test_le_compte_des_phrases_retirees_vient_du_controle_et_jamais_dun_defaut(
+        cas: dict[str, Any]) -> None:
+    """`segments_retires` est aujourd'hui le **seul** porteur de ce nombre sur le fil.
+
+    Contrôle absent ⇒ aucune phrase retirée, donc zéro. Contrôle présent mais détail non chiffré ⇒
+    la page dit la chose **sans** le nombre, plutôt que d'en inventer un. Une reprise différée
+    demande au moteur de publier ce compteur typé.
+    """
+    vu = cas["phrases_retirees"]
+    assert vu["aucun_controle"] == 0
+    assert vu["trois"] == 3
+    assert vu["sans_detail"] is None
+    assert vu["gf_sans_detail"][1] == "Des phrases ont été retirées : aucun passage ne les soutenait"
+
+
+# --- la progression -----------------------------------------------------
+
+def test_le_flux_de_progression_annonce_ses_etapes_et_rend_le_resultat(
+        cas: dict[str, Any]) -> None:
+    vu = cas["progression_flux"]
+    assert vu["urls"] == ["/api/v1/sinistre/progression"], "un seul appel, aucun repli"
+    assert [e["libelle"] for e in vu["etapes"]] == ["Je lis le contrat", "J'écris la réponse"]
+    assert [e["rang"] for e in vu["etapes"]] == [0, 1]
+    assert vu["verdict"] == "sous_conditions"
+
+
+def test_une_route_de_progression_absente_bascule_puis_nest_plus_sondee(
+        cas: dict[str, Any]) -> None:
+    """404 : la route n'existe pas, rien n'a tourné, rien n'a coûté — l'appel classique qui suit est
+    le premier et le seul. Et la sonder à chaque soumission ajouterait un aller-retour par
+    soumission : le 404 vaut pour la page."""
+    assert cas["progression_absente"]["urls"] == [
+        "/api/v1/sinistre/progression", "/api/v1/sinistre", "/api/v1/sinistre"]
+
+
+def test_un_flux_coupe_avant_le_resultat_bascule_une_seule_fois(cas: dict[str, Any]) -> None:
+    vu = cas["progression_coupee"]
+    assert vu["urls"] == ["/api/v1/sinistre/progression", "/api/v1/sinistre"]
+    assert vu["verdict"] == "sous_conditions"
+
+
+def test_un_flux_coupe_apres_le_resultat_ne_renvoie_jamais_la_requete(
+        cas: dict[str, Any]) -> None:
+    """**La** garde contre le double appel payant : le serveur a déjà fait, et facturé, le travail."""
+    vu = cas["progression_coupee_apres_resultat"]
+    assert vu["urls"] == ["/api/v1/sinistre/progression"]
+    assert vu["verdict"] == "sous_conditions"
+
+
+def test_un_503_sur_le_flux_nouvre_aucun_repli(cas: dict[str, Any]) -> None:
+    """AD-16 : « aucun repli pour le sinistre ». Un serveur qui refuse n'est pas un serveur absent."""
+    vu = cas["progression_503"]
+    assert vu["urls"] == ["/api/v1/sinistre/progression"]
+    assert vu["code"] == "llm_unavailable" and vu["kind"] == "indisponible"
+
+
+def test_un_corps_lisible_seulement_dun_bloc_nest_pas_redemande(cas: dict[str, Any]) -> None:
+    """Sans `ReadableStream`, on perd l'avancement en direct — pas la réponse. Jeter un corps déjà
+    payé pour redemander la même chose à la route classique le paierait deux fois."""
+    vu = cas["progression_sans_flux"]
+    assert vu["urls"] == ["/api/v1/sinistre/progression"]
+    assert vu["verdict"] == "sous_conditions"
+
+
+def test_lattente_nomme_ses_etapes_et_porte_un_chronometre(cas: dict[str, Any]) -> None:
+    """AC : « jamais d'écran figé sans mouvement »."""
+    vu = cas["attente"]
+    assert vu["etapes_nommees"] == ["Je lis le contrat", "J'écris la réponse",
+                                    "Je vérifie chaque citation"]
+    depart = vu["depart"]
+    assert [e["etat"] for e in depart["etapes"]] == ["en cours", "à venir", "à venir"]
+    assert depart["chrono"] == ["0:00"]
+    milieu = vu["milieu"]
+    assert [e["etat"] for e in milieu["etapes"]] == ["terminé", "en cours", "à venir"]
+    assert milieu["chrono"] == ["0:41"]
+
+
+def test_lavancement_estime_se_dit_comme_une_estimation(cas: dict[str, Any]) -> None:
+    """Une barre qui avance toute seule ne doit pas se faire passer pour une mesure."""
+    vu = cas["attente"]
+    assert "estimé sur le temps écoulé" in vu["depart"]["note"][0]
+    assert "estimé" not in vu["milieu"]["note"][0]
+    assert "Le serveur annonce l'étape en cours" in vu["milieu"]["note"][0]
+    # La dernière étape reste « en cours » indéfiniment : une barre qui atteint la fin avant la
+    # réponse ment sur ce qui se passe.
+    assert vu["rangs"] == [0, 0, 1, 1, 2, 2]
+    assert vu["duree_annoncee"] == 60
+
+
+def test_la_duree_annoncee_na_pas_de_seuil_serveur_correspondant() -> None:
+    """AC : « lue depuis les seuils de `/sante` si un tel seuil existe, sinon constante nommée ».
+
+    Il n'y en a pas : `Settings.thresholds()` publie des **bornes** (`deadline_s`, les plafonds de
+    jetons), pas une durée typique. La constante est donc nommée dans le script, et ce test tient la
+    prémisse — le jour où `thresholds()` publiera une durée attendue, il rougira.
+    """
+    publies = set(Settings().thresholds())
+    attendus = {n for n in publies if "duree" in n or "typique" in n or "attendu" in n}
+    assert not attendus, (
+        f"le serveur publie désormais {sorted(attendus)} : la phrase d'attente doit s'y adosser "
+        "plutôt que sur la constante `DUREE_ANNONCEE_S`")
+
+
+# --- les trois corps figés, rendus bloc par bloc -------------------------
+#
+# `tests/data/front/*.json` porte trois réponses **complètes** — un cas couvert, un cas sous
+# conditions, un cas où aucune clause ne s'applique —, construites sur les blocs réels du contrat
+# AXA (`tests/data/axa/*.txt`). `tests/js/sinistre_rendus.mjs` les fait traverser la lecture stricte
+# d'AD-11 puis la peinture, et relève ce que chacun des quatre blocs montre.
+#
+# Ce que ces cas prouvent et que les fixtures minimales ne prouvent pas : la refonte tient sur des
+# réponses entières, avec des paragraphes de contrat réels — dont un qui dépasse le seuil de
+# dépliage —, et l'ordre des blocs ne dépend pas de la forme de la réponse.
+
+HARNAIS_RENDUS = REPO_ROOT / "tests" / "js" / "sinistre_rendus.mjs"
+
+
+@pytest.fixture(scope="module")
+def rendus() -> dict[str, Any]:
+    node = shutil.which("node")
+    if node is None:
+        motif = "node absent de la machine : les rendus figés ne peuvent pas être produits"
+        if REQUIS:
+            pytest.fail("FRONT_TESTS_REQUIS=1 mais " + motif)
+        pytest.skip(motif)
+    fini = subprocess.run([node, str(HARNAIS_RENDUS)], capture_output=True, text=True, timeout=120,
+                          cwd=str(REPO_ROOT), check=False)
+    assert fini.returncode == 0, f"le harnais a échoué ({fini.returncode}) :\n{fini.stderr}"
+    charge = json.loads(fini.stdout)
+    assert charge.get("ok") is True, charge.get("erreur")
+    return charge["rendus"]
+
+
+@pytest.mark.parametrize("nom", ["sinistre-couvert", "sinistre-sous-conditions",
+                                 "sinistre-sans-clause"])
+def test_les_quatre_blocs_tiennent_sur_une_reponse_entiere(rendus: dict[str, Any],
+                                                           nom: str) -> None:
+    """L'ordre est le même quelle que soit la forme de la réponse, et rien n'est replié avant les
+    garde-fous — c'est exactement ce qui manquait en production."""
+    vu = rendus[nom]
+    attendu = ["bloc bloc-reponse", "bloc bloc-appuis", "bloc bloc-manques", "bloc bloc-gardefous",
+               "dossier details-preuves", "trace"]
+    if vu["bloc2"] is None:  # un refus n'a aucune clause à montrer : le bloc 2 n'existe pas
+        attendu.remove("bloc bloc-appuis")
+    assert vu["ordre"] == attendu
+    assert vu["replies_avant_les_gardefous"] == 0
+    assert vu["bloc1"]["phrase"], "la réponse s'ouvre toujours par une phrase"
+    assert vu["bloc3"]["pieces"], "les pièces non lues tiennent en une ligne, sur les trois cas"
+
+
+def test_le_cas_couvert_montre_sa_garantie_et_le_paragraphe_entier(
+        rendus: dict[str, Any]) -> None:
+    vu = rendus["sinistre-couvert"]
+    assert vu["bloc1"]["verdict"] == "Couvert"
+    assert vu["bloc1"]["verdict_cls"] == "badge verdict-couvert"
+    assert vu["bloc1"]["inconnu"] == []
+    garantie, definition = vu["bloc2"]
+    assert garantie["chemin"] == ("3.1.1 Incendie et périls assimilés › "
+                                  "3.1.1.1 Étendue de la garantie › 3.1.1.1.6 Dégâts au mobilier")
+    assert garantie["page"] == "page 34" and garantie["type"] == "garantie"
+    # Le paragraphe du contrat est rendu **entier**, et la partie citée y est surlignée.
+    assert garantie["paragraphe"].startswith("3.1.1.1.6 Les dégâts occasionnés au mobilier")
+    assert garantie["paragraphe"].endswith("ni commencement d'incendie.")
+    assert garantie["surligne"] == [
+        "par un événement soudain, résultant de l'action subite de la chaleur"]
+    assert garantie["en_clair"].startswith("La garantie vise l'action subite")
+    assert garantie["bouton_entier"] == [], "ce bloc tient sous le seuil"
+    # La définition du « contenu » dépasse le seuil : extrait + bouton, entier posé masqué.
+    assert definition["bouton_entier"] == ["Voir le paragraphe entier"]
+    assert definition["paragraphe_entier_masque"] == ["hidden"]
+    assert vu["bloc4"]["lignes"][0] == "2 citations relues mot pour mot dans le contrat"
+    assert vu["bloc4"]["etat"] == ["sûr"] and vu["bloc4"]["ecartees"] == []
+
+
+def test_le_cas_sous_conditions_met_la_clause_ecartee_en_retrait(rendus: dict[str, Any]) -> None:
+    vu = rendus["sinistre-sous-conditions"]
+    assert vu["bloc1"]["verdict"] == "Sous conditions"
+    assert vu["bloc1"]["inconnu"][0].startswith("Ce que je ne sais pas :")
+    garantie, exclusion = vu["bloc2"]
+    assert garantie["ecartee"] is False and exclusion["ecartee"] is True
+    assert exclusion["chemin"] == "3.1.8 Extensions de garantie › Exclusions propres aux extensions"
+    assert exclusion["surligne"] == [
+        "sont exclus en l'absence d'embrasement ou de commencement d'incendie"]
+    assert vu["bloc3"]["demandes"] == [
+        "Vos conditions particulières mentionnent-elles une extension aux points 3.1.8.3 à 3.1.8.6 ?"]
+    assert vu["bloc3"]["faits_exiges"] == ["l'extension souscrite au titre du bâtiment"]
+    assert vu["bloc4"]["lignes"][1] == "1 phrase retirée : aucun passage ne la soutenait"
+    # L'affirmation écartée reste consultable, derrière les garde-fous, dépliable.
+    assert vu["bloc4"]["ecartees_repliees"] == ["details"]
+    assert "franchise de 150" in vu["bloc4"]["ecartees"][0]
+    # Et sa citation n'est **jamais** montrée (D7) : elle est restée la chaîne du modèle.
+    assert "franchise de 150 EUR" not in vu["bloc4"]["ecartees"][0]
+
+
+def test_le_cas_sans_clause_dit_pas_de_clause_qui_sapplique(rendus: dict[str, Any]) -> None:
+    """Le cas que Lancelot a vu en prod : « ne tranche pas », des questions, et rien d'autre."""
+    vu = rendus["sinistre-sans-clause"]
+    assert vu["bloc1"]["verdict"] == "Pas de clause qui s'applique"
+    assert vu["bloc1"]["phrase"].startswith("Aucune garantie des conditions générales")
+    assert vu["bloc2"] is None
+    assert vu["bloc4"]["lignes"][0] == "0 citation relue mot pour mot dans le contrat"
+    assert vu["bloc4"]["lignes"][1] == "0 phrase retirée"
+    assert vu["bloc4"]["preuve"] == [
+        "Termes cherchés : souillure, déjection, animal domestique, canapé — "
+        "12 variantes essayées, 1457 passages parcourus"]
+    assert vu["bloc4"]["etat"] == ["inconnu"]
+
+
+def test_lattente_se_met_a_jour_en_place_et_non_par_repeinture(cas: dict[str, Any]) -> None:
+    """`#resultat` porte `aria-live="polite"`.
+
+    Repeindre la carte entière chaque seconde était deux fautes en une : un lecteur d'écran aurait
+    relu la barre et son chronomètre à chaque seconde pendant une minute, et un nœud remplacé perd
+    le focus qu'il portait. Le repère posé sur la première étape survit à la mise à jour : c'est la
+    preuve qu'aucun `replaceChild` ni aucun vidage de conteneur n'a eu lieu.
+    """
+    vu = cas["attente_en_place"]
+    assert vu["maj"] is True
+    assert vu["repere_survivant"] == "1"
+    assert vu["cartes"] == 1
+    assert vu["classes"] == ["prog-etape prog-faite", "prog-etape prog-faite",
+                             "prog-etape prog-encours"]
+    assert vu["mots"] == ["terminé", "terminé", "en cours"]
+    assert vu["chrono"] == "0:41"
+    assert "Le serveur annonce l'étape en cours" in vu["note"]
+    # Le serveur annonce un autre nombre d'étapes : la structure a changé, il faut repeindre.
+    assert vu["maj_structure_changee"] is False
+
+
+def test_aria_busy_est_pose_avant_la_premiere_peinture_de_lattente() -> None:
+    """Une région `aria-live` qui reçoit la barre **avant** d'être marquée occupée la ferait
+    annoncer, puis relire à chaque mise à jour."""
+    source = SCRIPT.read_text(encoding="utf-8")
+    verrou = source.index("verrouiller(true);\n        var attente = suivreAttente(null);")
+    assert verrou > 0

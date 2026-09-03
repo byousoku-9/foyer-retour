@@ -73,6 +73,53 @@ function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = 
   };
 }
 
+/** Un flux SSE doublé : la suite d'événements, telle que le serveur les écrirait. */
+function fluxSSE(evenements) {
+  return evenements.map(({ type, data }) =>
+    `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+}
+
+/**
+ * Une `Response` doublée qui porte un **flux** lisible au fil de l'eau.
+ *
+ * Le corps est découpé en deux morceaux pour que le découpeur SSE soit exercé sur un événement
+ * coupé en deux — c'est le cas que le réseau produit et qu'un corps rendu d'un bloc ne teste pas.
+ * `coupeApres` fait échouer la lecture **après** le dernier morceau : le résultat est déjà arrivé,
+ * et la page ne doit alors rien renvoyer.
+ */
+function reponseSSE(texte, { coupeApres = false } = {}) {
+  const encodeur = new TextEncoder();
+  const milieu = Math.floor(texte.length / 2);
+  const morceaux = [encodeur.encode(texte.slice(0, milieu)), encodeur.encode(texte.slice(milieu))];
+  let i = 0;
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    json: () => Promise.reject(new Error("un flux SSE n'est pas du JSON")),
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (i < morceaux.length) return Promise.resolve({ value: morceaux[i++], done: false });
+          if (coupeApres) return Promise.reject(new Error("flux coupé"));
+          return Promise.resolve({ value: undefined, done: true });
+        },
+      }),
+    },
+  };
+}
+
+/** Une `Response` doublée dont le corps n'est lisible **que** d'un bloc (`text()`). */
+function reponseTexteSSE(texte) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    json: () => Promise.reject(new Error("un flux SSE n'est pas du JSON")),
+    text: () => Promise.resolve(texte),
+  };
+}
+
 /** Charge `sinistre.js` dans un contexte neuf, avec un DOM minimal monté. */
 function charger(href, repondre, { demarrage = false } = {}) {
   const appels = [];
@@ -112,6 +159,9 @@ function charger(href, repondre, { demarrage = false } = {}) {
     window, document, localStorage, fetch: fetchDouble, console: journal, URL: URLDouble,
     setTimeout, clearTimeout, AbortController,
     JSON, Math, Date, Number, String, Array, Object, isFinite, parseInt, Error, Promise, RegExp,
+    // Story 5.6 (L2) : le flux de progression arrive en octets. Le bac à sable est un realm neuf,
+    // il n'hérite d'aucun global de Node.
+    TextDecoder, TextEncoder, setInterval, clearInterval,
   };
   bac.globalThis = bac;
   vm.createContext(bac);
@@ -447,6 +497,24 @@ async function main() {
 
     const conversation = reponseConversation();
     cas.conversation_vue = SINISTRE.conversationVue(conversation.conversation);
+    // Story 5.6 (L2) : les questions décisives sont le bloc 3, et n'apparaissent **qu'une fois**
+    // dans la carte peinte — les poser aussi dans le dossier doublerait les boutons de réponse et
+    // le champ libre sous une seule question sélectionnée.
+    {
+      const vueFil = SINISTRE.vueVerdict(conversation, { doc_id: DOC_ID });
+      const platFil = aplatirVue(vueFil);
+      cas.fil = {
+        questions: platFil.filter((n) => n.cls === "conv-selection-question").map((n) => n.texte),
+        champs_libres: platFil.filter((n) => n.cls === "conv-reponse-libre").length,
+        boutons_oui_non: platFil.filter((n) => n.cls === "conv-repondre").map((n) => n.texte),
+        // Le bloc qui les porte, et le fait que le dossier n'en porte plus.
+        bloc_porteur: platFil.filter((n) => premiereClasse(n) === "bloc")
+          .filter((b) => aplatirVue(b).some((x) => x.cls === "conv-selection-question"))
+          .map((n) => n.cls),
+        dossier_porte_des_questions: platFil.filter((n) => premiereClasse(n) === "dossier")
+          .some((d) => aplatirVue(d).some((x) => x.cls === "conv-selection-question")),
+      };
+    }
     const avecBascule = JSON.parse(JSON.stringify(conversation));
     avecBascule.conversation.history.push({
       turn: 1, value: "couvert", reason: "qualité confirmée", changed: true,
@@ -1125,6 +1193,11 @@ async function main() {
         if (String(url).includes("/pages/")) {
           return reponseHttp({ entetes: { "X-Document-Pages": "12" } });
         }
+        // Story 5.6 (L2) : la route de progression n'existe pas encore côté serveur — le double
+        // rend donc ce que le service rend, et la page bascule sur la route classique.
+        if (String(url).endsWith("/progression")) {
+          return reponseHttp({ status: 404, corps: { error: { code: "not_found" } } });
+        }
         return reponseHttp({ corps: reponseVerdict() });
       },
       { demarrage: true });
@@ -1181,9 +1254,7 @@ async function main() {
     cas.attente_peinte = elements.resultat.querySelectorAll(".attente").length;
     cas.verrouille_pendant = ["contrat", "description", "analyser"]
       .map((id) => !!elements[id].disabled);
-    await tick();
-    await tick();
-    await tick();
+    for (let i = 0; i < 8; i++) await tick();
     const poste = appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre"))[0];
     cas.soumission = {
       corps: JSON.parse(poste.options.body),
@@ -1388,11 +1459,14 @@ async function main() {
     elements.question.value = QUESTION;
     elements.description.value = SAISIE.description;
     elements.montant.value = "-100";
-    const avant = appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre")).length;
+    // `includes` et non `endsWith` : depuis la story 5.6 (L2), une soumission part d'abord sur
+    // `/api/v1/sinistre/progression`. Ce qu'on compte ici est **une** soumission, pas la route.
+    const soumissions = () => appels.filter((a) => String(a.url).includes("/api/v1/sinistre")).length;
+    const avant = soumissions();
     elements.formulaire.declencher("submit");
     await tick();
     cas.montant_negatif_soumis = {
-      appels: appels.filter((a) => String(a.url).endsWith("/api/v1/sinistre")).length - avant,
+      appels: soumissions() - avant,
       texte: elements.resultat.textContent,
       cartes_erreur: elements.resultat.querySelectorAll(".erreur").length,
       badges: elements.resultat.querySelectorAll(".badge").length,
@@ -1850,6 +1924,306 @@ async function main() {
       code: erreur && erreur.code,
       appels_reseau: appels.length,
       message: SINISTRE.messageErreur(erreur),
+    };
+  }
+
+
+  // ==========================================================================
+  // Story 5.6 (L2) — les quatre blocs, le surlignage, la progression.
+  // ==========================================================================
+
+  // --- les libellés de verdict, sur les valeurs réelles du domaine --------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    cas.libelles_verdict = {};
+    for (const v of ["couvert", "non_couvert", "sous_conditions", "ne_tranche_pas", "farfelu"]) {
+      cas.libelles_verdict[v] = {
+        avec_clause: SINISTRE.libelleVerdict(v, false),
+        sans_clause: SINISTRE.libelleVerdict(v, true),
+      };
+    }
+    cas.verdicts_table = SINISTRE.VERDICTS;
+    // « Pas de clause qui s'applique » se dit quand **aucune affirmation n'a été retenue**, pas
+    // quand `sources[]` est vide : une claim retenue dont l'appariement a échoué reste retenue.
+    const sansClaim = reponseRefus();
+    const avecClaimSansSource = reponseVerdict();
+    avecClaimSansSource.answer.verdict.value = "ne_tranche_pas";
+    avecClaimSansSource.sources = [];
+    avecClaimSansSource.answer.claims[0].quotes = [];
+    avecClaimSansSource.answer.claims[1].quotes = [];
+    cas.verdict_sans_clause = {
+      aucune_claim: aplatirVue(SINISTRE.vueVerdict(sansClaim))
+        .filter((n) => premiereClasse(n) === "badge").map((n) => n.texte),
+      claims_sans_source: aplatirVue(SINISTRE.vueVerdict(avecClaimSansSource))
+        .filter((n) => premiereClasse(n) === "badge").map((n) => n.texte),
+    };
+  }
+
+  // --- le paragraphe entier, citation surlignée ---------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    // La quote arrive avec des apostrophes droites et des espaces simples ; le bloc, tel que le PDF
+    // l'a rendu, porte une apostrophe typographique, une espace insécable et un retour à la ligne.
+    const bloc = "3.1.4.1 Le contrat couvre l’écoulement de l’eau\ndes installations, " +
+      "par suite de rupture, fissure ou débordement de ces installations. Aucune exclusion ne vise " +
+      "l’oubli d’un robinet.";
+    const quote = "l'écoulement de l'eau des installations, par suite de rupture";
+    cas.surlignage = {
+      bornes: SINISTRE.trouverPassage(bloc, quote),
+      // Ce que la page peint : les trois morceaux, dont le `<mark>` au milieu.
+      extrait: (() => {
+        const b = SINISTRE.trouverPassage(bloc, quote);
+        return b ? bloc.slice(b.debut, b.fin) : null;
+      })(),
+      introuvable: SINISTRE.trouverPassage(bloc, "une phrase qui n'est pas dans ce bloc"),
+      quote_vide: SINISTRE.trouverPassage(bloc, "   "),
+    };
+
+    const avecBloc = reponseVerdict();
+    avecBloc.sources[0].texte_bloc = bloc;
+    avecBloc.sources[0].quote = quote;
+    avecBloc.sources[0].chemin = ["3.1.4 Dégâts des eaux", "Étendue de la garantie"];
+    avecBloc.answer.claims[0].quotes = [{ block_id: "cg-mini:p9:2", quote: quote }];
+    const vueBloc = SINISTRE.vueVerdict(avecBloc, { doc_id: "cg-mini" });
+    const cartes = aplatirVue(vueBloc).filter((n) => premiereClasse(n) === "appui");
+    cas.appui_avec_bloc = {
+      chemin: textesDe(vueBloc, "appui-chemin"),
+      // Le texte est peint en morceaux : le `<mark>` est celui du milieu.
+      marques: aplatirVue(vueBloc).filter((n) => n.cls === "appui-mark").map((n) => n.texte),
+      paragraphe: aplatirVue(cartes[0]).filter((n) => premiereClasse(n) === "appui-texte")
+        .flatMap((n) => aplatirVue(n).map((x) => x.texte)).filter((t) => t !== undefined).join(""),
+      en_clair: textesDe(vueBloc, "appui-clair"),
+      // Le bloc tient sous le seuil : ni extrait, ni bouton de dépliage.
+      extraits: aplatirVue(vueBloc).filter((n) => (n.cls || "").indexOf("appui-extrait") !== -1).length,
+      boutons_plus: aplatirVue(vueBloc).filter((n) => n.cls === "appui-plus").length,
+    };
+
+    // Une citation que le paragraphe ne contient pas : la quote seule, et la page le dit.
+    const desaccord = reponseVerdict();
+    desaccord.sources[0].texte_bloc = "Un paragraphe qui ne contient pas la citation attendue.";
+    const vueDesaccord = SINISTRE.vueVerdict(desaccord, { doc_id: "cg-mini" });
+    cas.appui_citation_introuvable = {
+      marques: aplatirVue(vueDesaccord).filter((n) => n.cls === "appui-mark").length,
+      note: textesDe(vueDesaccord, "appui-note"),
+      texte: textesDe(vueDesaccord, "appui-texte"),
+    };
+
+    // Un bloc long : extrait + bouton, le paragraphe entier posé masqué.
+    const remplissage = "Une phrase de remplissage sans intérêt pour la question posée. ";
+    const long = remplissage.repeat(8) + "La phrase qui décide est ici. " + remplissage.repeat(8);
+    const vueLongue = (() => {
+      const r = reponseVerdict();
+      r.sources[0].texte_bloc = long;
+      r.sources[0].quote = "La phrase qui décide est ici.";
+      r.answer.claims[0].quotes = [{ block_id: "cg-mini:p9:2", quote: "peu importe" }];
+      return SINISTRE.vueVerdict(r, { doc_id: "cg-mini" });
+    })();
+    const carteLongue = aplatirVue(vueLongue).filter((n) => premiereClasse(n) === "appui")[0];
+    cas.appui_bloc_long = {
+      seuil_depasse: long.length > 600,
+      bouton: aplatirVue(carteLongue).filter((n) => n.cls === "appui-plus").map((n) => n.texte),
+      extrait: aplatirVue(carteLongue)
+        .filter((n) => (n.cls || "").indexOf("appui-extrait") !== -1)
+        .flatMap((n) => aplatirVue(n).map((x) => x.texte)).filter((t) => t !== undefined).join(""),
+      entier_masque: aplatirVue(carteLongue).filter((n) => n.cls === "appui-entier")
+        .map((n) => (n.attrs || {}).hidden || null),
+    };
+  }
+
+  // --- le dépliage du paragraphe entier, dans le DOM ----------------------
+  {
+    const { SINISTRE, elements } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const remplissage = "Une phrase de remplissage sans intérêt pour la question posée. ";
+    const r = reponseVerdict();
+    r.sources[0].texte_bloc = remplissage.repeat(8) + "La phrase qui décide est ici. " +
+      remplissage.repeat(8);
+    r.sources[0].quote = "La phrase qui décide est ici.";
+    r.answer.claims[0].quotes = [{ block_id: "cg-mini:p9:2", quote: "peu importe" }];
+    const peint = SINISTRE.peindre(SINISTRE.vueVerdict(r, { doc_id: "cg-mini" }), elements.resultat);
+    SINISTRE.brancherAppuis(peint);
+    const avant = {
+      entier: peint.querySelector(".appui-entier").getAttribute("hidden"),
+      extrait: peint.querySelector(".appui-extrait").getAttribute("hidden"),
+      bouton: peint.querySelector(".appui-plus").getAttribute("hidden"),
+    };
+    peint.querySelector(".appui-plus").declencher("click", { target: peint.querySelector(".appui-plus") });
+    cas.depliage = {
+      avant,
+      apres: {
+        entier: peint.querySelector(".appui-entier").getAttribute("hidden"),
+        extrait: peint.querySelector(".appui-extrait").getAttribute("hidden"),
+        bouton: peint.querySelector(".appui-plus").getAttribute("hidden"),
+      },
+    };
+  }
+
+  // --- le compte des phrases retirées -------------------------------------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const avecRetraits = reponseVerdict();
+    avecRetraits.trace.steps[2].checks = [
+      { name: "segments_retires", ok: false, detail: "3 segment(s) factuel(s) sans claim survivante retiré(s)" },
+    ];
+    const sansDetail = reponseVerdict();
+    sansDetail.trace.steps[2].checks = [{ name: "segments_retires", ok: false, detail: "" }];
+    cas.phrases_retirees = {
+      aucun_controle: SINISTRE.phrasesRetirees(reponseVerdict().trace),
+      trois: SINISTRE.phrasesRetirees(avecRetraits.trace),
+      sans_detail: SINISTRE.phrasesRetirees(sansDetail.trace),
+      gf_zero: aplatirVue(SINISTRE.vueVerdict(reponseVerdict()))
+        .filter((n) => premiereClasse(n) === "gf").map((n) => n.texte),
+      gf_trois: aplatirVue(SINISTRE.vueVerdict(avecRetraits))
+        .filter((n) => premiereClasse(n) === "gf").map((n) => n.texte),
+      gf_sans_detail: aplatirVue(SINISTRE.vueVerdict(sansDetail))
+        .filter((n) => premiereClasse(n) === "gf").map((n) => n.texte),
+    };
+  }
+
+  // --- les clauses écartées passent en retrait, après les autres ----------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const r = reponseVerdict();
+    r.answer.claims[0].status.applicable = "non";
+    r.answer.claims[0].status.applicable_reason = "hors_portee";
+    const vue = SINISTRE.vueVerdict(r, { doc_id: "cg-mini" });
+    cas.appuis_ecartes = {
+      ordre: aplatirVue(vue).filter((n) => premiereClasse(n) === "appui").map((n) => n.cls),
+      // La clause écartée est en second, quoique publiée en premier par le serveur.
+      chemins: aplatirVue(vue).filter((n) => premiereClasse(n) === "appui")
+        .map((n) => aplatirVue(n).filter((x) => x.cls === "appui-clair").map((x) => x.texte)[0]),
+    };
+    // `sources[i].claim_id` : le rattachement sans l'appariement positionnel de D6.
+    const parId = reponseVerdict();
+    parId.sources = [Object.assign({}, parId.sources[1], { claim_id: "c2" }),
+                     Object.assign({}, parId.sources[0], { claim_id: "c1" })];
+    cas.appuis_par_claim_id = SINISTRE.appuisDe(parId).entrees.map((e) => ({
+      bloc: e.src.block_id, texte: e.texte,
+    }));
+  }
+
+  // --- la progression : le flux, et la bascule qui ne paie jamais deux fois -
+  {
+    // 1. Le flux nominal : trois étapes puis le résultat. Un seul appel.
+    const nominal = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseSSE(fluxSSE([
+          { type: "etape", data: { nom: "comprendre", rang: 0, total: 3, ms_ecoule: 10, libelle: "Je lis le contrat" } },
+          { type: "etape", data: { nom: "rediger", rang: 1, total: 3, ms_ecoule: 9000, libelle: "J'écris la réponse" } },
+          { type: "resultat", data: reponseVerdict() },
+        ]))
+      : reponseHttp({ corps: reponseVerdict() })));
+    const etapesVues = [];
+    const r1 = await nominal.SINISTRE.soumettreAvecProgression(SAISIE, (e) => etapesVues.push(e));
+    cas.progression_flux = {
+      urls: nominal.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      etapes: etapesVues,
+      verdict: r1.answer.verdict.value,
+    };
+
+    // 2. La route n'existe pas : 404, bascule, **un seul** appel payant. Et la page ne la sonde
+    //    plus pour les soumissions suivantes.
+    const absente = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseHttp({ status: 404, corps: { error: { code: "not_found" } } })
+      : reponseHttp({ corps: reponseVerdict() })));
+    await absente.SINISTRE.soumettreAvecProgression(SAISIE, () => {});
+    await absente.SINISTRE.soumettreAvecProgression(SAISIE, () => {});
+    cas.progression_absente = {
+      urls: absente.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+    };
+
+    // 3. Le flux se coupe **avant** le résultat : bascule, une seule fois.
+    const coupe = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseSSE(fluxSSE([
+          { type: "etape", data: { nom: "comprendre", rang: 0, total: 3, ms_ecoule: 10, libelle: "Je lis le contrat" } },
+        ]))
+      : reponseHttp({ corps: reponseVerdict() })));
+    const r3 = await coupe.SINISTRE.soumettreAvecProgression(SAISIE, () => {});
+    cas.progression_coupee = {
+      urls: coupe.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      verdict: r3.answer.verdict.value,
+    };
+
+    // 4. Le flux se coupe **après** le résultat : rien n'est renvoyé. C'est la garde contre le
+    //    double appel payant — le serveur a déjà fait, et facturé, le travail.
+    const apres = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseSSE(fluxSSE([{ type: "resultat", data: reponseVerdict() }]), { coupeApres: true })
+      : reponseHttp({ corps: reponseVerdict() })));
+    const r4 = await apres.SINISTRE.soumettreAvecProgression(SAISIE, () => {});
+    cas.progression_coupee_apres_resultat = {
+      urls: apres.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      verdict: r4.answer.verdict.value,
+    };
+
+    // 5. Un 503 sur le flux **n'ouvre aucun repli** : AD-16, « aucun repli pour le sinistre ».
+    const indispo = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseHttp({ status: 503, corps: { error: { code: "llm_unavailable", request_id: "r-5" } } })
+      : reponseHttp({ corps: reponseVerdict() })));
+    let erreur5 = null;
+    try { await indispo.SINISTRE.soumettreAvecProgression(SAISIE, () => {}); } catch (e) { erreur5 = e; }
+    cas.progression_503 = {
+      urls: indispo.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      code: erreur5 && erreur5.code,
+      kind: erreur5 && erreur5.kind,
+    };
+
+    // 6. Le corps n'est lisible que d'un bloc (pas de `ReadableStream`) : la page le lit quand
+    //    même, plutôt que de payer une seconde fois le même travail.
+    const sansFlux = charger(PAGE, (url) => (String(url).endsWith("/progression")
+      ? reponseTexteSSE(fluxSSE([{ type: "resultat", data: reponseVerdict() }]))
+      : reponseHttp({ corps: reponseVerdict() })));
+    const r6 = await sansFlux.SINISTRE.soumettreAvecProgression(SAISIE, () => {});
+    cas.progression_sans_flux = {
+      urls: sansFlux.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      verdict: r6.answer.verdict.value,
+    };
+  }
+
+  // --- l'attente se met à jour **en place** -------------------------------
+  {
+    const { SINISTRE, elements } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const suivi = SINISTRE.suivreAttente(elements.resultat);
+    const carte = elements.resultat.querySelectorAll(".attente")[0];
+    const puce = carte.querySelectorAll(".prog-etape")[0];
+    // Un repère que seule une repeinture ferait disparaître : si le nœud survit à la mise à jour,
+    // c'est qu'aucun `replaceChild` ni aucun `innerHTML = ""` n'a eu lieu.
+    puce.setAttribute("data-repere", "1");
+    const majFaite = SINISTRE.majAttente(carte, { rang: 2, msEcoule: 41000, serveur: true });
+    cas.attente_en_place = {
+      maj: majFaite,
+      // Le même nœud, avec de nouvelles classes et de nouveaux mots.
+      repere_survivant: elements.resultat.querySelector(".prog-etape").getAttribute("data-repere"),
+      cartes: elements.resultat.querySelectorAll(".attente").length,
+      classes: carte.querySelectorAll(".prog-etape").map((n) => n.className),
+      mots: carte.querySelectorAll(".prog-etat").map((n) => n.textContent),
+      chrono: carte.querySelector(".prog-chrono").textContent,
+      note: carte.querySelector(".attente-note").textContent,
+      // Le serveur annonce un autre nombre d'étapes : la structure a changé, il faut repeindre.
+      maj_structure_changee: SINISTRE.majAttente(carte, { rang: 0, libelles: ["A", "B"] }),
+    };
+    suivi.fin();
+  }
+
+  // --- la vue d'attente : les étapes, le chronomètre, l'estimation ---------
+  {
+    const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
+    const releve = (etat) => {
+      const vue = SINISTRE.vueAttente(etat);
+      return {
+        etapes: aplatirVue(vue).filter((n) => premiereClasse(n) === "prog-etape").map((n) => ({
+          cls: n.cls,
+          libelle: aplatirVue(n).filter((x) => x.cls === "prog-libelle").map((x) => x.texte)[0],
+          etat: aplatirVue(n).filter((x) => x.cls === "prog-etat").map((x) => x.texte)[0],
+        })),
+        chrono: textesDe(vue, "prog-chrono"),
+        note: textesDe(vue, "attente-note"),
+      };
+    };
+    cas.attente = {
+      depart: releve({ rang: 0, msEcoule: 0, serveur: false }),
+      milieu: releve({ rang: 1, msEcoule: 41000, serveur: true }),
+      // Les rangs estimés sur le temps écoulé, sans un seul événement du serveur.
+      rangs: [0, 13999, 14001, 35999, 36001, 600000].map((ms) => SINISTRE.rangEstime(ms)),
+      etapes_nommees: SINISTRE.ETAPES.map((e) => e.libelle),
+      duree_annoncee: SINISTRE.DUREE_ANNONCEE_S,
     };
   }
 
