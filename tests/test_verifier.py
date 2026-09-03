@@ -149,7 +149,12 @@ def _settings(**kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.20)
+    # Le majorant d'un appel de *vérifier* en mode sinistre, marge comprise. Il a suivi la croissance
+    # du préfixe (story 5.6, L1 : la qualification et le périmètre tranché par les faits) — 0,20 €
+    # ne laissait plus passer l'estimation d'un seul appel (0,2036 € mesurés). Ce n'est pas un seuil
+    # d'exploitation : le plafond servi est `max_cost_eur_per_request` (1,30 €, `config.py`), et ces
+    # tests n'en mesurent aucun — ils veulent seulement qu'un appel démarre.
+    return RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.30)
 
 
 def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
@@ -1332,6 +1337,17 @@ Q_PERSONNE_ABSENTE = "déclare la valeur de son mobilier au titre du présent co
 EXCLUSION_PERSONNE = ("Les dommages causés aux biens et aux animaux confiés à, loués ou empruntés par "
                       "toute personne assurée.")
 Q_EXCLUSION_PERSONNE = "biens et aux animaux confiés à, loués ou empruntés par toute personne assurée"
+# Story 5.6 (L1). Une garantie qui **nomme l'événement** dans le vocabulaire du contrat et n'écrit
+# aucun qualificatif : les faits d'un assuré ne reprendront jamais ces mots-là, et c'est précisément
+# ce que le contrôle strict du tour 3 rendait indémontrable.
+DEGATS_DES_EAUX = ("La Compagnie couvre l'écoulement de l'eau des installations hydrauliques, par "
+                   "suite de rupture, fissure ou débordement de ces installations.")
+Q_DEGATS_DES_EAUX = "par suite de rupture, fissure ou débordement de ces installations"
+QUALITE_DEBORDEMENT = "rupture, fissure ou débordement de ces installations"
+FAITS_ROBINET = Faits(date="2026-08-01", lieu="domicile", montant_eur=3000.0,
+                      description="J'ai oublié de fermer un robinet, mon appartement est inondé et "
+                                  "le parquet s'est décollé.")
+FRAGMENT_ROBINET = "oublié de fermer un robinet"
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
               description="Une bougie a mis le feu au mobilier de salon, sans embrasement ; "
@@ -1386,6 +1402,9 @@ def contrat() -> Index:
          "text": PERSONNE_ABSENTE, "kind_source": "manual", "scope_node_id": "cg:socle"},
         {"block_id": "cg:p1:17", "loc": "p1", "seq": 17, "kind": "exclusion",
          "text": EXCLUSION_PERSONNE, "kind_source": "manual", "scope_node_id": "cg:socle"},
+        # L1 : la garantie qui nomme l'événement sans le qualifier.
+        {"block_id": "cg:p1:18", "loc": "p1", "seq": 18, "kind": "garantie",
+         "text": DEGATS_DES_EAUX, "kind_source": "manual", "scope_node_id": "cg:socle"},
     ]
     doc = Document(
         doc_id="cg", kind="contrat", title="Mini contrat", edition="juin 2017",
@@ -1397,7 +1416,7 @@ def contrat() -> Index:
                            {"block_id": "cg:p1:11"}, {"block_id": "cg:p1:12"},
                            {"block_id": "cg:p1:13"}, {"block_id": "cg:p1:14"},
                            {"block_id": "cg:p1:15"}, {"block_id": "cg:p1:16"},
-                           {"block_id": "cg:p1:17"}]),
+                           {"block_id": "cg:p1:17"}, {"block_id": "cg:p1:18"}]),
                Node(node_id="cg:ext", level=1, title="Extensions", scope={"kind": "extension"},
                     items=[{"block_id": "cg:p1:2"}]),
                Node(node_id="cg:root", level=0, title="Contrat",
@@ -2154,6 +2173,55 @@ async def test_a_fact_that_shares_a_word_but_denies_the_quality_establishes_noth
     assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
     assert SUBITE in v.verdict.missing.faits
+
+
+async def test_une_qualite_que_la_clause_nomme_est_remplie_par_le_fait_declare(
+        contrat: Index) -> None:
+    """Story 5.6 (L1) : la qualification, mesurée en prod le 03/09/2026.
+
+    « J'ai oublié de fermer un robinet » ne contient ni *rupture*, ni *fissure*, ni *débordement* :
+    le contrôle strict du tour 3 tenait donc la qualité pour non établie, l'affirmation valait
+    `humain`, et le système **demandait à l'assuré de confirmer le débordement qu'il venait de
+    décrire**. La qualité n'écrit aucun qualificatif du lexique, ses mots se relisent dans le passage
+    cité, le fragment se relit dans les faits : elle est remplie.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
+                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", True, False, False, None, [QUALITE_DEBORDEMENT],
+                         [(QUALITE_DEBORDEMENT, FRAGMENT_ROBINET)]),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert v.claims[0].status.applicable == "oui"
+    assert [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert not [c for c in step.checks if c.name == "fait_cite_hors_sujet"]
+
+
+async def test_un_qualificatif_ecrit_par_la_clause_ne_se_qualifie_jamais_par_les_faits(
+        contrat: Index) -> None:
+    """La contre-épreuve du témoin précédent, et la borne que L1 ne franchit pas.
+
+    Le passage cité écrit « l'action subite de la chaleur » : tous les mots de la qualité s'y
+    relisent, exactement comme pour le débordement. Mais *subite* appartient au lexique
+    `QUALIFICATIFS` — la vitesse à laquelle la chaleur a agi n'est dans aucune circonstance
+    déclarée. La porte de la qualification reste fermée, et le client reste interrogé.
+    """
+    faits = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
+                  description="Une bougie allumée est tombée sur le canapé.")
+    draft = _draft(("c1", "Le contrat exclut les dégâts au bâtiment causés par la chaleur.",
+                    [("cg:p1:2", Q_EXCLUSION)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", True, False, False, None, [SUBITE],
+                         [(SUBITE, "Une bougie allumée est tombée sur le canapé")]),
+                        verdicts=[("c1", True)])],
+        faits=faits, blocs=["cg:p1:2"])
+    assert v.claims[0].status.applicable == "humain"
+    assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and SUBITE in v.verdict.missing.faits
 
 
 async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:

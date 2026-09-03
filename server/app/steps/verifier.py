@@ -246,6 +246,37 @@ def _dit_la_qualite(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
     return all(any(a.startswith(b) or b.startswith(a) for b in cites) for a in mots)
 
 
+def _qualifie_par_la_clause(qualite: str, preuve_norm: str, *, min_chars: int) -> bool:
+    """La qualité est-elle **le nom que la clause donne** au fait, plutôt qu'un qualificatif à établir ?
+
+    Story 5.6 (L1). Le contrôle du tour 3 exige que le fragment des faits emploie **chacun** des mots
+    porteurs de la qualité. C'est ce qu'il faut pour « action subite de la chaleur » — la vitesse à
+    laquelle la chaleur a agi n'est dans aucune circonstance déclarée, et l'inférer est précisément
+    le mode d'échec mesuré. Mais c'est structurellement impossible pour une qualité qui **nomme
+    l'événement dans le vocabulaire du contrat** : les faits d'un assuré disent « j'ai oublié de
+    fermer un robinet », ils ne diront jamais « débordement de ces installations ». Mesuré en prod le
+    03/09/2026 : le système demandait à l'assuré de confirmer le débordement qu'il venait de décrire.
+
+    La ligne de partage est le lexique `QUALIFICATIFS` — celui-là même que le code relit dans la
+    clause et qu'il ajoute d'office aux qualités non établies. Une qualité qui en porte un
+    (« soudain », « subit », « accidentel », « violent »…) reste soumise au contrôle strict : elle ne
+    se déduit jamais des circonstances. Une qualité qui n'en porte aucun décrit **ce qui s'est
+    passé** ; elle relève du périmètre, que les faits déclarés tranchent.
+
+    Ce qui est alors exigé, c'est que la qualité soit **écrite dans le passage cité** : chacun de ses
+    mots porteurs se relit dans les citations vérifiées de l'affirmation. Le modèle ne peut donc pas
+    inventer l'exigence qu'il déclare remplie ; le rattachement du fait au terme reste son jugement,
+    affiché dans la claim et relisible par l'utilisateur, et il n'ouvre cette porte que lorsqu'il a
+    par ailleurs déclaré le fait requis présent (voir l'appelant).
+    """
+    if _mots_qualifiants(qualite):
+        return False
+    mots = _mots_significatifs(qualite, min_chars=min_chars)
+    if not mots:
+        return False
+    return all(re.search(rf"\b{re.escape(mot)}", preuve_norm) for mot in mots)
+
+
 def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
     """Les qualités que **le texte de la clause** exige et que le modèle n'a pas nommées (B3, tour 3).
 
@@ -1627,6 +1658,14 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     qualites_rendues: dict[str, set[str]] = {}
     if sinistre and isinstance(result.parsed, SortieVerifierSinistre):
         doublons: set[str] = set()
+        # Le texte des passages **relus du corpus** pour chaque affirmation, normalisé une fois : la
+        # seule source qui puisse dire qu'une qualité est bien celle que la clause écrit
+        # (`_qualifie_par_la_clause`). Jamais la chaîne du modèle — la même règle qu'ailleurs.
+        preuves_relues: dict[str, str] = {}
+        for claim_evaluee, quotes_evaluees, _edition in evaluees:
+            preuves_relues[claim_evaluee.claim_id] = " ".join(
+                corpus.documents[index.doc_of(q.block_id)].block(q.block_id).text_norm[q.start:q.end]
+                for q in quotes_evaluees)
         # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
@@ -1711,6 +1750,20 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 # plus se corroborer lui-même en recopiant une liste dans l'autre.
                 if _dit_la_qualite(q.qualite, q.fait_cite, min_chars=settings.qualite_mot_min_chars):
                     etablies.add(normalize(q.qualite))
+                elif (a.fait_requis_present
+                      and _qualifie_par_la_clause(q.qualite, preuves_relues.get(a.claim_id, ""),
+                                                  min_chars=settings.qualite_mot_min_chars)):
+                    # L1 : la qualité nomme l'événement dans le vocabulaire du contrat, elle est
+                    # écrite dans le passage cité, le fragment des faits est authentique, et le
+                    # modèle a déclaré le fait requis présent. Les faits d'un assuré ne reprendront
+                    # jamais ce vocabulaire : exiger d'eux le mot de la clause revenait à lui faire
+                    # confirmer ce qu'il venait de déclarer. La porte reste fermée aux qualificatifs
+                    # de `QUALIFICATIFS`, qui, eux, ne se déduisent d'aucune circonstance.
+                    etablies.add(normalize(q.qualite))
+                    step.checks.append(CheckResult(
+                        name="qualite_etablie_par_qualification", ok=True,
+                        detail="une qualité écrite par la clause citée, sans qualificatif à "
+                               "établir, est tenue pour remplie par le fait déclaré qui la nomme"))
                 else:
                     step.checks.append(CheckResult(
                         name="fait_cite_hors_sujet", ok=False,
