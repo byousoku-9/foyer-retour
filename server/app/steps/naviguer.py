@@ -188,11 +188,44 @@ class Navigation:
                                        sommaire_complet(self.corpus, self.doc_id)))
         return self._prefixe
 
+    def fiches_suggerees(self) -> list[tuple[str, str]]:
+        """Les fiches que le profil déclaré désigne (story 2.3), avec leur titre — pour **indication**.
+
+        `parsed.scope.noeuds` est calculé par *comprendre* en code pur, depuis `Document.parcours` :
+        des `node_id` de notre ingestion, jamais un mot du modèle (AD-10 les autorise donc dans la
+        trace). L'AC de la story 2.3 dit « *retrouver* priorise ces nœuds » ; la passe qui les
+        honorait — une réservation de places dans un budget d'ouvertures — appartenait à la variante
+        retirée, et **c'est bien elle qu'AD-1 amendé interdit** : aucun code ne choisit plus ce que
+        la rédaction verra.
+
+        Ce qui reste de l'AC, et qui n'est pas rien, c'est la désignation elle-même. Elle est servie
+        au modèle comme ce qu'elle est : une suggestion nommée, dans la demande, à côté de la
+        question. Le modèle ouvre s'il juge que c'est utile, ou n'ouvre pas ; rien n'est ouvert
+        d'office, aucune place n'est réservée, aucun classement n'est modifié, et le budget de
+        lecture ne connaît pas le profil. La trace publie ensuite ce qu'il en a fait — c'est la
+        seule façon honnête de mesurer une priorisation qu'on ne force plus.
+
+        Les nœuds étrangers au document servi sont écartés en silence : ils viennent du parcours
+        d'un autre document et n'auraient aucun sens dans ce sommaire.
+        """
+        scope = self.parsed.scope
+        if scope is None or not scope.noeuds:
+            return []
+        par_id = {n.node_id: n for n in self.corpus.documents[self.doc_id].nodes}
+        return [(node_id, par_id[node_id].title)
+                for node_id in dict.fromkeys(scope.noeuds) if node_id in par_id]
+
     def _demande(self) -> str:
         """Question, faits et sous-questions, délimités comme tout contenu non fiable (AD-15)."""
         demande: dict[str, Any] = {"question": self.parsed.question_resolue,
                                    "sous_questions": list(self.parsed.facettes),
                                    "termes": self.parsed.termes_de_recherche()}
+        suggerees = self.fiches_suggerees()
+        if suggerees:
+            # La clé n'apparaît que si le profil a désigné quelque chose : un dossier de sinistre
+            # n'a ni profil ni parcours, et son corps de requête ne bouge pas d'un octet.
+            demande["fiches_suggerees_par_le_profil"] = [
+                {"node_id": node_id, "titre": titre} for node_id, titre in suggerees]
         if self.faits is not None:
             demande["faits"] = self.faits.model_dump(mode="json", exclude_none=True)
         parts = [untrusted("demande", json.dumps(demande, ensure_ascii=False, sort_keys=True))]
@@ -352,6 +385,21 @@ class Navigation:
                 name="lecture_refusee", ok=False,
                 detail=f"{len(self.refuses)} bloc(s) laissé(s) fermé(s) : le budget de lecture "
                        f"({settings.navigation_budget_tokens} tokens) n'en laissait pas la place"))
+        suggerees = self.fiches_suggerees()
+        if suggerees:
+            # AD-10 : des `node_id` produits par l'ingestion, jamais une clé de profil, jamais un
+            # terme cherché, jamais un contenu de bloc. `ok=True` sans condition, et c'est le fond
+            # de l'affaire : une fiche suggérée que le modèle n'ouvre pas n'est pas une faute, ni la
+            # sienne ni celle du code — c'est une lecture qu'il a jugée inutile, et le contrôle la
+            # **rapporte** au lieu de la juger. Un `ok=False` ici rétablirait par la porte de la
+            # trace la contrainte que l'amendement retire.
+            ouvertes = [node_id for node_id, _ in suggerees if node_id in self.noeuds_ouverts]
+            step.checks.append(CheckResult(
+                name="noeuds_du_profil", ok=True,
+                detail=f"{len(suggerees)} fiche(s) suggérée(s) par le profil "
+                       f"({', '.join(node_id for node_id, _ in suggerees)}), "
+                       f"{len(ouvertes)} ouverte(s) par le modèle ({', '.join(ouvertes) or 'aucune'})"
+                       " : une indication, jamais une ouverture"))
         step.checks.append(CheckResult(
             name="navigation", ok=True,
             detail=f"{self.tours} tour(s), {len(self.noeuds_ouverts)} nœud(s) ouvert(s) "

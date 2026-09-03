@@ -842,6 +842,7 @@ window.CHAT = (function () {
     raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
     refus: "refus composé, avec sa preuve d'absence",
     navigation: "lecture du document par le modèle : tours, sections ouvertes et budget",
+    noeuds_du_profil: "fiches suggérées par votre profil : celles que le modèle a ouvertes, celles qu'il a laissées",
     lecture_refusee: "des sections sont restées fermées : le budget de lecture n'en laissait pas la place",
     tours_epuises: "plafond de tours de lecture atteint : la lecture est déclarée bornée",
     ebauche_dans_la_conversation: "réponse rédigée dans la conversation de lecture, sur les seules sections ouvertes",

@@ -19,7 +19,7 @@ from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Document, Node
 from server.app.domain.ingest import ManifestEntry
-from server.app.domain.question import Faits, ParsedQuestion
+from server.app.domain.question import Faits, ParsedQuestion, QuestionScope
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -74,13 +74,15 @@ def _settings(**kw: Any) -> Settings:
 
 
 def _navigation(script: list[Any], *, prompt: str = "naviguer_sinistre",
-                faits: Any = DEFAUT, **reglages: Any) -> tuple[Navigation, FakeAnthropic]:
+                faits: Any = DEFAUT, scope: Any = None,
+                **reglages: Any) -> tuple[Navigation, FakeAnthropic]:
     corpus, index = _corpus()
     settings = _settings(**reglages)
     fake = FakeAnthropic(script)
     parsed = ParsedQuestion(question_resolue="Le signalement déposé est-il pris en charge ?",
                             intent="question", terms=["prise en charge", "signalement"],
-                            facettes=["prise en charge", "délai"])
+                            facettes=["prise en charge", "délai"],
+                            **({"scope": scope} if scope is not None else {}))
     navigation = Navigation(
         parsed, corpus=corpus, index=index, dictionnaire=None, doc_id=DOC_ID, settings=settings,
         client=LlmClient(settings, anthropic_client=fake),
@@ -426,3 +428,80 @@ def test_ouvrir_un_noeud_rend_lenumeration_entiere_amorce_et_items() -> None:
     noeud = index.parent_node(amorce)
     rendus = [b.block_id for b in blocs_du_noeud(corpus, doc_id, noeud)]
     assert set(enumeration) <= set(rendus), (enumeration, rendus)
+
+
+# --- 6. la portée dérivée du profil (AC 2.3) ---------------------------------------------
+
+
+async def test_les_fiches_du_profil_sont_suggerees_au_modele_jamais_ouvertes_par_le_code() -> None:
+    """AC 2.3 sur le chemin servi : le profil **désigne**, le modèle décide, la trace le publie.
+
+    L'AC dit « *retrouver* priorise ces nœuds ». La passe qui l'honorait réservait des places dans
+    un budget d'ouvertures — c'est-à-dire qu'elle choisissait pour le modèle, ce que l'amendement
+    AD-1 interdit désormais. Ce qui reste honorable de l'AC est la désignation : elle est servie
+    **dans la demande**, nommément, et rien d'autre ne se produit.
+
+    Ce que ce témoin tient, et qui n'est pas une reformulation de l'implémentation :
+    aucune ouverture avant le premier tour du modèle ; la suggestion nomme la fiche **et** son
+    titre ; le nœud ouvert est celui que le modèle a demandé — ici l'annexe, que le profil ne
+    suggérait pas — et la fiche suggérée qu'il a ignorée reste fermée.
+    """
+    navigation, _fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+        _fin_de_lecture()],
+        scope=QuestionScope(themes=["prise en charge"], noeuds=[SOCLE, "autre-doc:fiche"]))
+
+    # La désignation est une donnée du code, pas un jugement du modèle : elle est là avant le
+    # premier appel, et le nœud d'un autre document n'y entre pas.
+    assert navigation.fiches_suggerees() == [(SOCLE, "Socle")]
+    demande = navigation._demande()
+    assert '"fiches_suggerees_par_le_profil"' in demande
+    assert f'"node_id": "{SOCLE}"' in demande and '"titre": "Socle"' in demande
+    # Et **rien** n'est ouvert de ce fait : le code n'a lu aucun bloc avant que le modèle le demande.
+    assert navigation.ouverts == {} and navigation.noeuds_ouverts == []
+
+    step = await navigation.lire()
+
+    # Le modèle a ouvert l'annexe, que le profil ne suggérait pas, et laissé la fiche suggérée :
+    # c'est son droit entier, et le contrôle le **rapporte** sans le tenir pour une faute.
+    assert navigation.noeuds_ouverts == [ANNEXE]
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.ok is True
+    assert check.detail == (f"1 fiche(s) suggérée(s) par le profil ({SOCLE}), 0 ouverte(s) par le "
+                            "modèle (aucune) : une indication, jamais une ouverture")
+    # AD-10 : des `node_id` de l'ingestion, jamais une clé de profil ni un contenu de bloc.
+    assert "enfants" not in check.detail and TEXTE_REGLE[:20] not in check.detail
+
+
+async def test_une_fiche_suggeree_que_le_modele_ouvre_est_publiee_comme_ouverte() -> None:
+    """Le versant positif : la trace distingue la fiche suivie de la fiche ignorée."""
+    navigation, _fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture()],
+        scope=QuestionScope(noeuds=[SOCLE, ANNEXE]))
+
+    step = await navigation.lire()
+
+    (check,) = [c for c in step.checks if c.name == "noeuds_du_profil"]
+    assert check.detail == (f"2 fiche(s) suggérée(s) par le profil ({SOCLE}, {ANNEXE}), "
+                            f"1 ouverte(s) par le modèle ({SOCLE}) : une indication, jamais une "
+                            "ouverture")
+
+
+async def test_sans_profil_la_demande_et_la_trace_sont_inchangees() -> None:
+    """Le corps de requête du sinistre ne bouge pas : il n'a ni profil ni parcours.
+
+    C'est la borne qui rend le changement sûr — la clé `fiches_suggerees_par_le_profil` n'existe
+    que si le profil a désigné quelque chose, et le contrôle n'est publié que dans ce cas. Sans
+    quoi les fixtures enregistrées du sinistre cesseraient de se rejouer, sans qu'aucune règle ait
+    bougé.
+    """
+    sans, _fake = _navigation([_fin_de_lecture()])
+    avec_scope_vide, _fake2 = _navigation([_fin_de_lecture()], scope=QuestionScope())
+
+    assert sans.fiches_suggerees() == [] and avec_scope_vide.fiches_suggerees() == []
+    assert "fiches_suggerees" not in sans._demande()
+    assert sans._demande() == avec_scope_vide._demande()
+
+    step = await sans.lire()
+    assert [c.name for c in step.checks if c.name == "noeuds_du_profil"] == []
