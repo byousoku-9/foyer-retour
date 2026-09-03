@@ -979,6 +979,59 @@
       }
     }
   },
+  "claude-sonnet-5:20e134cd5d85cc3c": {
+    "certificate": {
+      "messages_sha256": "d4ab1a70f572d4f96ac4d58dbfcb559649935c1d7bec4f350a6b4466f75e66bc",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "1fd84747bfa725227ec69388805fa3c28ad4bd267cadeca30bce4f7cd2e62469",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:20e134cd5d85cc3c",
+    "response": {
+      "content": [
+        {
+          "signature": "EuQDCpABCBEYAipACbO4f3rCUTbgc6OfAel9RXf/6eE0tmhQk8EU+bul4GLNChbak19sSha9PRS/b909SVUGgHbhiyDPEaxGkoOxqzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZXA5dQGEgyYlrOjcCNa4ez6xQYaDA+9AO2h7zSvqA778iIw+q+THxi2W1qREPe3m57vMn1qhclEw8luhoUA7VkXO7xedqi87sNSFYL3zV0fBwi8KoACvfGI66/NzFqL2JQ7Ljt0zmLGFHfVHqKd1YVxxdnA4w2HbKolh3lqcFURRjfGU00SRIcGk4C4zhPYLFn9JZPdPQ/x/uBFP9cen3J9IFgaFXgXfX6moe33n1ikVRLRZjODpzXwVbN64dCQqZy4BKDe98ScOVU2efKErsO446kMV+t73JB7hrC3NXT0XHVruIGO/RT5B6g46AQCETP2XIUrabhToBv8LZLa7K803u556NdikEBNc7bqobAdm9VV3Aa4VU0tcJEfBlr6Y9Gk+8zEHyiKKAmyb6ZXrCX+uUVclkAWRjCJDXX184EhD448W0JmjHCL+FLyz8vwCPnX7oeIdxgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01NUsmNjhHo6vNHdJCAiPw9U",
+          "input": {
+            "termes": "bougie flamme nue exclusion"
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CegTkktjSD5z2wVVJinZc",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45962,
+        "inference_geo": "global",
+        "input_tokens": 1765,
+        "output_tokens": 150,
+        "output_tokens_details": {
+          "thinking_tokens": 89
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:21a3a9d23e552ed7": {
     "certificate": {
       "messages_sha256": "e76ffaa380ce2536090ed570ef3577420d9451e768d391f7632f2e8fd7ac6039",
@@ -1539,11 +1592,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le mobilier de salon (canapé) a brûlé partiellement après la chute d'une bougie allumée posée sur une table basse, dans le salon du domicile assuré, sans embrasement ni commencement d'incendie, sans propagation de flammes ni dégât au bâtiment : ce sinistre est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât des objets brûlés\",\"incendie\",\"commencement d'incendie\",\"bougie\"],\"themes\":[],\"facettes\":[\"La garantie incendie/dégâts par le feu peut-elle intervenir pour un dommage sans embrasement ni commencement d'incendie ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"chute d'une bougie allumée sur le canapé provoquant une brûlure partielle du mobilier, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée d'une table basse\",\"moment\":\"2026-08-01\"}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le mobilier de salon (canapé) a brûlé partiellement au domicile assuré après la chute d'une bougie allumée posée sur une table basse, sans embrasement ni commencement d'incendie, ni flammes propagées, ni dégât au bâtiment : ce sinistre est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"dégâts mobiliers dus au feu\",\"brûlure sans incendie\",\"mobilier de salon\",\"canapé\",\"bougie\",\"commencement d'incendie\"],\"themes\":[],\"facettes\":[\"Le contrat couvre-t-il les dommages par brûlure au mobilier en l'absence de commencement d'incendie ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure partielle du canapé sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"chute d'une bougie allumée sur le canapé\",\"moment\":\"2026-08-01\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CegLHMWVZNpFpiAPbUHTj",
+      "id": "msg_011CegTk2Humr1KxYB84DfLy",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1559,7 +1612,7 @@
         "cache_read_input_tokens": 3996,
         "inference_geo": "global",
         "input_tokens": 249,
-        "output_tokens": 378,
+        "output_tokens": 357,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2485,6 +2538,70 @@
       }
     }
   },
+  "claude-sonnet-5:73294866cee306ef": {
+    "certificate": {
+      "messages_sha256": "2c1edbcae77ff025734a88173e5091ae0c76708567b7abc7c0407a2fe744bb06",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "1fd84747bfa725227ec69388805fa3c28ad4bd267cadeca30bce4f7cd2e62469",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:73294866cee306ef",
+    "response": {
+      "content": [
+        {
+          "signature": "EpYECpABCBEYAipAYxU+Zl3aKQXpolfiCLcylvm7QsYTak6UWgzLbdGAVI+zWpmTMaMApuQYVYGMKGwew+dfvo/hVCI/B/9r3PlgNTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZLA5dQGEgx0l7qfXHpDg3gqf9gaDMEDlpn1UbQJkxHzvSIwjAAJA5DNOGMYWt5jTda7clu8GpK922Kr+jfecExLKP5UkOqh7SZ3TlcIdhHv+jKwKrICguP7KUul5qgQpnC2xk2Q6QI0SyEoQqJt3jNwr0ouHVNdFvh5+qslV8IeOhZVq4NQKHoEVNAa+s45RAiJBjm+2fbWcEE2XwjkyQAHWHJLRQvnEsFQ4feMAHUydHksdXL9on4R7OCudb2eCJfEcH0/360OxyF69VAXioqmDq2xwKNIaHvxaB2QUtzL7Nt/t9QS+pQQz5WOPv6RAPjPtatNEOjisRC2SuShdgwIeAKrB46xzZg8W6xByUuf0ruVvRYn4Dp7Lbld1tcoItIxHHHmDtMyDmGZzJEd5h2MANDNfUjrXJuP14AYawYij14qmK/cX3xl/fumVbFBzjQu0JDdX0zMC5QYXVSeD8ZK1ParklQr4yZl5DLy9/iXlK+mosvuGbLcMDR4RnKYBGMTWM4BqgcWGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01LqYzAJVTZ88C5yXPiQcKbu",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01TM822eSR33Pd16qCepcB4g",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.2"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CegTkMvN5hAFmEcpfY8Zd",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45962,
+        "inference_geo": "global",
+        "input_tokens": 473,
+        "output_tokens": 268,
+        "output_tokens_details": {
+          "thinking_tokens": 119
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:7b17d266f71bb04b": {
     "certificate": {
       "messages_sha256": "95c65c731ec081c3b722d8f4a705c2d3eb5127ba8b2f315904a3044bfbfcd459",
@@ -2561,6 +2678,48 @@
         "inference_geo": "global",
         "input_tokens": 14125,
         "output_tokens": 130,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:919b1909ef3b34a9": {
+    "certificate": {
+      "messages_sha256": "dc472cd94d96f1f828f267a90b20dbf7b16207f3b48346ae14f9896f7797438f",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "df010e1b47f46a386815ef3b25a7de2cdc8abc64d448649eee1f12cf4979eb6b",
+      "system_sha256": "bb6cc98f1859d28a3e0a2b9a87d5c71054cd27e0134540ceb2db5c6be8c3d455",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:919b1909ef3b34a9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c2\",\"c3\"]}],\"segments\":[{\"segment\":3,\"soutenu\":true},{\"segment\":4,\"soutenu\":true},{\"segment\":5,\"soutenu\":true}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur ou contact direct et immédiat avec un foyer ou une substance incandescente\"],\"qualites_etablies\":[{\"qualite\":\"caractère soudain de l'événement\",\"fait_cite\":\"Une bougie allumée posée sur une table basse est tombée sur le canapé\"},{\"qualite\":\"action subite de la chaleur ou contact direct et immédiat avec un foyer ou une substance incandescente\",\"fait_cite\":\"Une bougie allumée posée sur une table basse est tombée sur le canapé\"}]},{\"claim_id\":\"c3\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegTnUZmeNu3map1fRA92",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 13806,
+        "inference_geo": "global",
+        "input_tokens": 2009,
+        "output_tokens": 576,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2897,6 +3056,48 @@
         "inference_geo": "global",
         "input_tokens": 11558,
         "output_tokens": 149,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a6879157f726a277": {
+    "certificate": {
+      "messages_sha256": "26898b28d3bf3b6b5adfe2a7f06223a0507327dd21b54811c0f974c3a176a914",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "2f28271fd5bf4b86d998499552511a5bea03a0e4a45574eeb768e2e576f4038a",
+      "system_sha256": "1fd84747bfa725227ec69388805fa3c28ad4bd267cadeca30bce4f7cd2e62469",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:a6879157f726a277",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La garantie « Incendie et périls assimilés » couvre plusieurs périls énumérés, dont l'incendie proprement dit.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le contrat étend cette garantie de base aux dégâts au mobilier causés par un événement soudain lié à la chaleur ou au contact avec un foyer, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'incendie proprement dit est défini comme la destruction par des flammes qui se propagent ou sont susceptibles de se propager en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"D'autres périls de la même garantie de base visent des événements distincts (explosion/implosion, foudre, électrocution d'animaux, fumées et suies), sans rapport direct avec une brûlure de mobilier par une flamme de bougie.\",\"kind\":\"limite\"},{\"text\":\"Les garanties complémentaires listées (décongélation de denrées, dégradation du contenu des sèche-linge) portent sur d'autres types de sinistres et ne concernent pas les faits déclarés.\",\"kind\":\"limite\"},{\"text\":\"Ma lecture n'a pas couvert les clauses d'exclusions générales (point 2.10) ni les exclusions propres à la garantie incendie qui pourraient qualifier davantage les circonstances déclarées ; elles n'ont pas été ouvertes dans le détail applicable au péril 3.1.1.1.6.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La Compagnie assure les biens désignés contre plusieurs périls, dont l'incendie et les périls qui lui sont assimilés.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"quote\":\"La Compagnie assure les biens désignés, contre les périls suivants :\"}]},{\"claim_id\":\"c2\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c3\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal, ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}]}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"Péril explosion/implosion, sans rapport avec une brûlure de mobilier par bougie.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"Péril chute de foudre, sans rapport avec les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"Péril électrocution d'animaux, sans rapport avec les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Péril fumées et suies, distinct du dommage par brûlure décrit.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:14\",\"motif\":\"Titre introductif des garanties complémentaires, ne décide rien par lui-même.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:15\",\"motif\":\"Extension relative à la décongélation de denrées alimentaires, sans rapport avec les faits.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:16\",\"motif\":\"Extension relative aux sèche-linge/lave-linge, sans rapport avec les faits.\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegTmE8atWZ41n93HorQG",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 47501,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 47501,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 11106,
+        "output_tokens": 1599,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -3832,6 +4033,47 @@
         "inference_geo": "global",
         "input_tokens": 1854,
         "output_tokens": 87,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:e974e867b4eeb88a": {
+    "certificate": {
+      "messages_sha256": "c2d9039303b147d2f8f5a6af73addbfbebe683ff23e65862487118aa5fa37190",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "1fd84747bfa725227ec69388805fa3c28ad4bd267cadeca30bce4f7cd2e62469",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:e974e867b4eeb88a",
+    "response": {
+      "content": [
+        {
+          "text": "I dispose de suffisamment d'éléments pour répondre.\n\nPRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegTkzDg7P12EQMvhsnHS",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45962,
+        "inference_geo": "global",
+        "input_tokens": 9735,
+        "output_tokens": 29,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
