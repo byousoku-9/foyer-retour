@@ -36,7 +36,11 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # définitions, les seuils orphelins — et surtout **ce que le retrait coûte** (dix témoins live sans
 # preuve réelle jusqu'au prochain enregistrement, la portée du profil qui n'atteint plus la lecture)
 # se consignent ici. Rien n'a été retiré ni réécrit.
-ANNEXE_SHA256 = "b530b3d74e6eff37ff6fa286e4efaf0ebbd02fca7770f0100e1d729f99c81c53"
+# Bougé le 03/09/2026 (story 5.6, T20) : le registre gagne « un gate compare ce qui change une
+# réponse ». La synthèse est bornée à environ deux pages ; le fait qui a décidé la séparation — trois
+# déploiements refusés à la promotion, job « verifier » vert, `gate_perime` sur les trois documents —
+# et la règle de classement se consignent ici. Rien n'a été retiré ni réécrit.
+ANNEXE_SHA256 = "9835fa056a90d0662a6fd4182ff6566df9676f0cc4c31aa60f6d21c3f0b70de1"
 
 
 def _document() -> str:
