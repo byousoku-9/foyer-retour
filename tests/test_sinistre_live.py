@@ -329,7 +329,7 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     # navigation par outils (AD-1, amendement du 25/08/2026) — c'est ce que sert `POST /api/v1/sinistre`,
     # donc ce que ce témoin live doit mesurer. *retrouver* porte maintenant son appel de navigation et
     # publie son tier réel, lu sur la configuration (AD-9) et jamais recopié ici.
-    assert trace.pipeline == "sinistre" and trace.variant == sinistre.VARIANT == "outils"
+    assert trace.pipeline == "sinistre" and trace.variant == sinistre.VARIANT == "navigation"
     retrouver = trace.steps[1]
     assert retrouver.name == "retrouver"
     verifier_etage(retrouver, settings, etape="retrouver_outils")
