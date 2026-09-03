@@ -19,6 +19,16 @@ L'étape publie **deux** `StepTrace`, et c'est la chaîne d'AD-1 qui l'exige : l
 *retrouver*, l'appel qui rend l'ébauche est *rédiger*. L'ordre *comprendre → retrouver → rédiger →
 vérifier → restituer* ne bouge pas ; ce qui change est l'implémentation interne de deux étapes.
 
+**Le tour terminal est demandé sans outils.** La boucle d'outils va jusqu'à
+`navigation_max_llm_turns` ; l'appel qui rend l'ébauche, lui, part avec `tool_choice` fermé et le
+dit au modèle. Mesuré le 03/09/2026 sur l'audit exact (runs 1 et 3 de la série A16) : le tour
+terminal répondait `stop_reason=tool_use` — le modèle voulait ouvrir un nœud de plus — et le code
+levait « dialogue d'outils non supporté », c'est-à-dire un 503 sur une lecture qui n'avait rien
+d'anormal. Le prototype ne connaissait pas ce cas parce que sa boucle ne demandait l'ébauche
+qu'après un `end_turn` ; la chaîne, elle, la demande aussi quand la borne des tours est atteinte.
+Si un appel censé être terminal appelle quand même un outil, on le sert et on redemande l'ébauche,
+dans la borne des tours et du budget de lecture — jamais une erreur terminale pour cela.
+
 Mesures qui ont décidé les défauts (prototype `scripts/proto_navigation.py`, série du 03/09/2026,
 `automation/runs/20260902-structure-index/proto-runs/serie2/`) : A16 strict 3/3, 2 à 4 tours,
 12 à 27 s, 0,05 € à cache chaud.
@@ -45,7 +55,7 @@ from server.app.domain.question import Faits, ParsedQuestion, Turn
 from server.app.domain.retrieval import BudgetSnapshot, RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
 from server.app.llm.budget import RequestBudget
-from server.app.llm.client import LlmClient
+from server.app.llm.client import LlmClient, ToolUseDemande
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
@@ -53,6 +63,27 @@ from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 # le prototype : sans ce paramètre, le tour **qui cite** ne réfléchit sur aucun run (0 token, contre
 # 56 à 131 au tour qui navigue) — et c'est le seul tour où le prototype perdait.
 REFLEXION_ADAPTATIVE: dict[str, Any] = {"type": "adaptive"}
+
+# Le tour terminal se demande **sans outil**, et c'est `tool_choice` qui les ferme plutôt que le
+# retrait de `tools` du corps : chez le fournisseur, un changement de `tool_choice` laisse intacts
+# les caches d'outils et de système, alors que retirer `tools` réécrirait le préfixe entier — les
+# 42 470 tokens de sommaire compris — à chaque question. La même conversation, le même préfixe, un
+# seul tour où les outils sont clos.
+TOOL_CHOICE_AUCUN: dict[str, Any] = {"type": "none"}
+
+# Ce que le message du tour terminal dit au modèle : *où il en est*. Mesuré le 03/09/2026 (audit
+# exact, runs 1 et 3 de la série A16) : sans cette phrase et avec les outils ouverts, le tour qui
+# devait rendre l'ébauche rendait `stop_reason=tool_use` — le modèle voulait ouvrir un nœud de plus
+# — et l'étape levait « dialogue d'outils non supporté », c'est-à-dire un 503 sur une lecture qui
+# n'avait rien d'anormal.
+DEMANDE_TERMINALE = (
+    "Tu as fini de lire : ce message ouvre le **tour terminal** et les outils y sont fermés. Rends "
+    "maintenant l'ébauche `AnswerDraft` demandée par le préfixe, en JSON et sans appel d'outil, en "
+    "ne citant que des blocs rendus par `ouvrir_noeud` dans cette conversation.")
+RAPPEL_TERMINAL = (
+    "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
+    "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
+    "`ouvrir_noeud` t'a rendus ; dis dans un segment `limite` ce que ta lecture n'a pas couvert.")
 
 # Les quatre outils d'AD-1. `sommaire` et `chercher` proposent ; `ouvrir_noeud` seul rend citable ;
 # `definitions` est appelé par le modèle et n'est plus une passe implicite du code.
@@ -166,6 +197,9 @@ class Navigation:
         self.refuses: list[str] = []
         self.tokens_lus = 0
         self.tours = 0
+        # Combien de fois un appel *censé être terminal* a quand même demandé un outil : la trace du
+        # cas qui rendait un 503, et qui se répare maintenant en servant l'outil.
+        self.tour_terminal_force = 0
         self.recherches = 0
         self._messages: list[dict[str, Any]] = [{
             "role": "user", "content": self._demande()}]
@@ -378,12 +412,9 @@ class Navigation:
                        blocs_a_conserver: Iterable[str] = ()) -> tuple[AnswerDraft, StepTrace]:
         """L'ébauche, demandée dans le fil de la navigation — la première fois comme à la relance."""
         t0 = time.monotonic()
-        settings = self.settings
         step = StepTrace(name="rediger", tier=self.tier, prompt_cache=True,
                          opened_block_ids=list(self.ouverts))
-        demande = [consigne] if consigne is not None else [
-            "Tu as fini de lire. Rends maintenant l'ébauche `AnswerDraft` demandée par le préfixe, "
-            "en ne citant que des blocs rendus par `ouvrir_noeud` dans cette conversation."]
+        demande = [consigne] if consigne is not None else [DEMANDE_TERMINALE]
         demande.append(
             f"Langue de rédaction : {LANGUES_SERVIES[self.parsed.language]} "
             f"({self.parsed.language}). Les citations restent recopiées mot pour mot dans la "
@@ -404,26 +435,87 @@ class Navigation:
             demande.append(untrusted("motif", motif))
         messages = [*self._messages, {"role": "user", "content": "\n\n".join(demande)}]
         try:
-            resultat = await self.client.parse(
-                tier=self.tier, system_prefix=self.prefixe, messages=messages,
-                output_model=AnswerDraft, budget=self.request_budget, step=step,
-                tools=OUTILS, max_tokens=settings.navigation_rediger_max_tokens,
-                thinking=REFLEXION_ADAPTATIVE)
+            resultat, messages = await self._appel_terminal(messages, step=step)
         except PipelineError as exc:
             step.ms = int((time.monotonic() - t0) * 1000)
             exc.step = step
             raise
+        # Une lecture faite au tour terminal entre dans les blocs ouverts : la trace de l'étape la
+        # publie comme les autres.
+        step.opened_block_ids = list(self.ouverts)
         # Le fil garde l'ébauche : la relance corrige un texte que le modèle a **sous les yeux**.
         self._messages = [*messages, {"role": "assistant",
                                       "content": resultat.parsed.model_dump_json()}]
         draft = self._projeter(resultat.parsed, step=step)
+        if self.tour_terminal_force:
+            step.checks.append(CheckResult(
+                name="tour_terminal_force", ok=False,
+                detail=f"{self.tour_terminal_force} appel(s) terminal(aux) ont demandé un outil "
+                       "malgré `tool_choice` fermé : l'outil a été exécuté et l'ébauche redemandée "
+                       "dans la borne des tours et du budget de lecture, au lieu d'un échec de "
+                       "dialogue"))
         step.checks.append(CheckResult(
             name="ebauche_dans_la_conversation", ok=True,
             detail=f"ébauche rendue dans le fil de navigation ({len(self.ouverts)} bloc(s) "
-                   f"ouvert(s) citables), réflexion "
+                   f"ouvert(s) citables), {self.tours} tour(s) dont "
+                   f"{self.tour_terminal_force} tour(s) terminal(aux) forcé(s), réflexion "
                    f"{sum(call.thinking for call in step.calls)} tokens"))
         step.ms = int((time.monotonic() - t0) * 1000)
         return draft, step
+
+    async def _appel_terminal(self, messages: list[dict[str, Any]], *, step: StepTrace
+                              ) -> tuple[Any, list[dict[str, Any]]]:
+        """L'appel qui rend l'ébauche : outils fermés, et une lecture de plus si le modèle insiste.
+
+        La navigation reste une boucle d'outils jusqu'à `navigation_max_llm_turns` ; ce qui change
+        ici est le **tour terminal**, demandé sans outils et annoncé comme tel. Le prototype ne
+        connaissait pas ce cas parce que sa boucle continuait tant que le modèle appelait des outils
+        et ne demandait l'ébauche qu'après un `end_turn` : la chaîne, elle, demande aussi l'ébauche
+        quand la borne des tours est atteinte, et c'est là que le tour terminal partait avec les
+        outils ouverts.
+
+        Le refus qu'on remplace n'était pas une propriété du fournisseur mais une borne du code : si
+        un appel censé être terminal appelle quand même un outil, on le sert et on redemande
+        l'ébauche, dans la borne des tours **et** du budget de lecture — que `_ouvrir` applique
+        inchangé. Jamais une erreur terminale pour une lecture inachevée.
+        """
+        settings = self.settings
+        while True:
+            try:
+                resultat = await self.client.parse(
+                    tier=self.tier, system_prefix=self.prefixe, messages=messages,
+                    output_model=AnswerDraft, budget=self.request_budget, step=step,
+                    tools=OUTILS, tool_choice=TOOL_CHOICE_AUCUN,
+                    max_tokens=settings.navigation_rediger_max_tokens,
+                    thinking=REFLEXION_ADAPTATIVE)
+            except ToolUseDemande as exc:
+                if self.tours >= settings.navigation_max_llm_turns:
+                    # La borne est une borne : au-delà, l'insistance du modèle n'est plus une
+                    # lecture inachevée mais un dialogue qui ne se referme pas.
+                    raise
+                self.tours += 1
+                self.tour_terminal_force += 1
+                messages = self._servir_les_outils_du_tour_terminal(messages, exc.reponse)
+                continue
+            return resultat, messages
+
+    def _servir_les_outils_du_tour_terminal(self, messages: list[dict[str, Any]],
+                                            reponse: Any) -> list[dict[str, Any]]:
+        """Le tour d'outils que le modèle a réclamé au tour terminal, puis le rappel de l'ébauche.
+
+        Le rappel voyage dans le **même** message que les résultats, en bloc `text` après eux : le
+        modèle doit savoir où il en est au moment où il lit ce que son outil a rendu, et un message
+        de plus ne le dirait pas mieux tout en allongeant le fil.
+        """
+        contenu = [b.model_dump(mode="json") if hasattr(b, "model_dump") else dict(b)
+                   for b in reponse.content]
+        rendus: list[dict[str, Any]] = [
+            {"type": "tool_result", "tool_use_id": appel.get("id"),
+             "content": self.executer(str(appel.get("name")), dict(appel.get("input") or {}))}
+            for appel in contenu if appel.get("type") == "tool_use"]
+        rendus.append({"type": "text", "text": RAPPEL_TERMINAL})
+        return [*messages, {"role": "assistant", "content": contenu},
+                {"role": "user", "content": rendus}]
 
     def _projeter(self, brut: AnswerDraft, *, step: StepTrace) -> AnswerDraft:
         """Les deux projections de *rédiger*, inchangées : fusion des extraits, claims affichées."""
@@ -456,9 +548,10 @@ class Navigation:
         """
         return await self._rediger(
             blocs_a_conserver=blocs_a_conserver,
-            consigne="Ton ébauche précédente a été contrôlée. Corrige exactement ce que le motif "
-                     "ci-dessous décrit, conserve les affirmations déjà acquises, et rends une "
-                     "ébauche `AnswerDraft` complète — pas seulement la correction.",
+            consigne="Ton ébauche précédente a été contrôlée. La lecture est close et les outils "
+                     "sont fermés : corrige exactement ce que le motif ci-dessous décrit, conserve "
+                     "les affirmations déjà acquises, et rends une ébauche `AnswerDraft` complète, "
+                     "en JSON et sans appel d'outil — pas seulement la correction.",
             motif=motif)
 
     # --- ce que l'étape rend ---------------------------------------------------------------

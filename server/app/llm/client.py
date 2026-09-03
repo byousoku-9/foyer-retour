@@ -195,6 +195,21 @@ class ToolTurnResult:
     call: LLMCall
 
 
+class ToolUseDemande(LlmParse):
+    """Un appel structuré a rendu `stop_reason=tool_use` : le modèle veut encore un outil.
+
+    Rester une `LlmParse` garde le comportement d'avant pour toute étape qui ne connaît pas ce cas —
+    même code, même trace, même refus. Ce que la sous-classe ajoute est le **message brut**, sans
+    lequel l'appelant ne peut rien faire de la demande : une étape qui borne déjà ses tours et sa
+    lecture peut alors servir l'outil et redemander sa sortie structurée, au lieu de rendre une
+    erreur terminale pour une lecture que le modèle n'avait pas fini.
+    """
+
+    def __init__(self, message: str = "", *, reponse: Any = None) -> None:
+        super().__init__(message)
+        self.reponse = reponse
+
+
 def structured_request_parts(
     *, tier: Tier, system_prefix: str, messages: list[dict[str, Any]],
     output_model: type[T], max_tokens: int,
@@ -468,6 +483,7 @@ class LlmClient:
         budget: RequestBudget,
         step: StepTrace,
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         effort: Literal["low", "medium", "high", "max"] | None = None,
         thinking: dict[str, Any] | None = None,
@@ -480,6 +496,12 @@ class LlmClient:
         `budget_tokens` est refusé). Il entre dans le corps audité et dans la clé de cache d'évals :
         deux appels qui ne réfléchissent pas pareil ne sont pas le même appel. Absent, rien n'est
         envoyé — le comportement historique de toutes les étapes qui ne le demandent pas.
+
+        `tool_choice` part de même tel quel, et n'entre **pas** dans l'empreinte de préfixe : le
+        fournisseur laisse intacts ses caches d'outils et de système quand il change (seul le cache
+        de messages, que nous ne posons nulle part, en dépend). C'est ce qui permet de **fermer les
+        outils** sur un tour sans réécrire le préfixe caché de la conversation — retirer `tools`,
+        lui, le réécrirait en entier.
         """
         settings = self._settings
         max_tokens = max_tokens or settings.llm_max_output_tokens
@@ -507,8 +529,8 @@ class LlmClient:
                 raise Timeout(f"deadline épuisée avant l'appel ({budget.remaining():.1f} s restantes)")
 
             body = {"model": model, "max_tokens": max_tokens, "system": system, "messages": msgs,
-                    "output_config": output_config, "tools": tools, "extra_body": extra_body,
-                    "thinking": thinking}
+                    "output_config": output_config, "tools": tools, "tool_choice": tool_choice,
+                    "extra_body": extra_body, "thinking": thinking}
             key = _cache_key(body)
             if self._cache is not None and (hit := self._cache.get(key)) is not None:
                 try:
@@ -551,6 +573,8 @@ class LlmClient:
                                       "messages": msgs, "output_config": output_config, "timeout": timeout}
             if tools is not None:
                 kwargs["tools"] = tools
+            if tool_choice is not None:
+                kwargs["tool_choice"] = tool_choice
             if thinking is not None:
                 kwargs["thinking"] = thinking
             if extra_body is not None:
@@ -633,6 +657,10 @@ class LlmClient:
             self._apply_audit(call, projection)
             self._note_call(step, call, tier)
             if hard_problem:
+                if message.stop_reason == "tool_use":
+                    # L'appelant qui borne ses tours peut servir l'outil et redemander sa sortie ;
+                    # celui qui l'ignore reçoit la `LlmParse` d'avant, au même code d'erreur.
+                    raise ToolUseDemande(problem, reponse=message)
                 raise LlmParse(problem)
             if problem is None:
                 if self._cache is not None:
