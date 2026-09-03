@@ -545,7 +545,15 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 # pas ; la requête, elle, a déjà sa réponse vérifiée. C2 : la marge est désormais
                 # **ce que le cycle demande** — la somme des durées majorées de ses deux appels au
                 # débit minoré —, et non un nombre fixe sans rapport avec ce qu'il va écrire.
-                duree_du_cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+                # T7 : le plafond lu est celui de l'appel que la relance va **réellement** faire.
+                # Sur le chemin servi, elle est un message de plus dans la conversation de
+                # navigation (`navigation.relancer`, plafonnée à `navigation_rediger_max_tokens`) ;
+                # sur `full_context`, elle reste un appel de `steps/rediger.py`. Lire
+                # `rediger_max_tokens` dans les deux cas minorait la marge exigée du chemin servi,
+                # c'est-à-dire rouvrait la porte que ce contrôle a été écrit pour fermer.
+                plafond_de_la_redaction = (settings.navigation_rediger_max_tokens
+                                           if navigation is not None else settings.rediger_max_tokens)
+                duree_du_cycle = (settings.duree_majoree_pour(plafond_de_la_redaction)
                                   + settings.duree_majoree_pour(settings.verifier_max_tokens))
                 if budget.remaining() <= duree_du_cycle:
                     raise Timeout(f"temps insuffisant pour la relance : {duree_du_cycle:.1f} s "
