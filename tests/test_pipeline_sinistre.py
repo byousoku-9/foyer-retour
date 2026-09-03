@@ -2710,22 +2710,39 @@ async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Inde
     Mesuré sur A16 : la garde s'ouvrait à 43,3 s restantes (`llm_retry_margin_s = 5`) pour un cycle
     qui en demande 74,8 au débit minoré. Les deux appels sont partis, le second a expiré sans écrire
     un token, et il a emporté la marge de la remise — 43,3 s et 0,052 € pour rien, puis un 503.
+
+    **Et le cycle est celui de l'appel que la relance fait vraiment (T7, 03/09/2026).** La garde
+    lisait `rediger_max_tokens`, le plafond d'une étape qui ne rédige plus sur le chemin servi :
+    depuis l'amendement AD-1, la relance est un message de plus dans la conversation de navigation,
+    plafonné à `navigation_rediger_max_tokens`. Elle exigeait donc 1 024 tokens de moins que ce que
+    le cycle écrit — douze secondes au débit minoré — et rouvrait, d'exactement cette largeur, la
+    porte qu'elle avait été écrite pour fermer. La seconde moitié du témoin est cette largeur-là :
+    une deadline prise **entre** l'ancienne marge et la nouvelle doit refuser, pas lancer.
     """
     settings = _settings()
-    cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
-             + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
+    verifier_s = settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens)
+    cycle = settings.duree_majoree_pour(settings.navigation_rediger_max_tokens) + verifier_s
+    # Ce que la garde exigeait quand elle lisait le plafond de l'étape qui ne rédige plus.
+    cycle_sous_estime = settings.duree_majoree_pour(settings.rediger_max_tokens) + verifier_s
+    assert cycle_sous_estime < cycle, (
+        "la sous-estimation a disparu : ce témoin n'a plus de bande à éprouver")
+
+    async def relance_refusee(deadline_s: float):
+        budget = RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.30)
+        answer, trace, fake = await _run(
+            index, [_comprendre(), _rediger(GAR, MAUVAISE),
+                    _verifier(("c1", True, True, False, False, None))], budget=budget)
+        assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
+        assert answer.found is True and answer.complete is False
+        verifier = next(s for s in trace.steps if s.name == "verifier")
+        (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
+        assert "temps insuffisant pour la relance" in abandon.detail
+
     # De quoi écrire chaque appel de la chaîne, jamais le cycle entier.
-    budget = RequestBudget(deadline_s=cycle - 5, max_attempts=8, max_cost_eur=0.30)
-
-    answer, trace, fake = await _run(
-        index, [_comprendre(), _rediger(GAR, MAUVAISE),
-                _verifier(("c1", True, True, False, False, None))], budget=budget)
-
-    assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
-    assert answer.found is True and answer.complete is False
-    verifier = next(s for s in trace.steps if s.name == "verifier")
-    (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
-    assert "temps insuffisant pour la relance" in abandon.detail
+    await relance_refusee(cycle - 5)
+    # Et la bande que la sous-estimation laissait passer : assez pour l'ancien calcul, pas pour le
+    # cycle réel. Sans le correctif, les deux appels partaient ici.
+    await relance_refusee((cycle_sous_estime + cycle) / 2)
 
 
 # --- Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question -------------
