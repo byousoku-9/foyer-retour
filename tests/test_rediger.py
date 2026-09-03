@@ -746,18 +746,18 @@ async def test_un_extrait_introuvable_nest_pas_fusionne_mais_laisse_a_verifier(
     assert not [c for c in step.checks if c.name == "quotes_fusionnees"]
 
 
-async def test_chaque_sous_question_porte_les_blocs_decisionnels_que_le_code_lui_a_mesures(
+async def test_la_sous_question_ne_porte_jamais_une_attribution_lexicale_de_blocs(
         mini_index: Index) -> None:
-    """Correctif du tour 7 (G2) — AD-1 dans sa forme la plus simple : le code mesure, le modèle rédige.
+    """Correctif du tour 7b (H1) — le code ne sait pas apparier une clause à une sous-question.
 
-    *retrouver* publie déjà, par rang, les blocs décisionnels confirmés **transmis** que le
-    classement de cette sous-question a proposés — c'est la mesure qui alimente
-    `facettes_retrouvees` et la couverture de *vérifier*. Le rédacteur devait pourtant redécouvrir
-    lui-même quels blocs concernaient quelle sous-question. Mesuré sur trois runs : les blocs
-    étaient bien tous transmis, et deux des trois ébauches ont laissé une sous-question sans la
-    clause qui la vise.
+    Le tour 7 joignait à chaque sous-question les blocs que son propre classement avait proposés, au
+    motif qu'AD-1 fait mesurer le code. Cette attribution n'est pas une mesure du **sens** : elle est
+    lexicale, et elle porte les collisions de l'index. Mesuré sur trois runs : la sous-question du
+    bris d'une vitre s'y voyait attribuer un bloc de dégâts des eaux, le rédacteur a écrit la claim
+    qu'on lui désignait — rejetée — et a laissé les deux clauses justes qu'il avait sous les yeux.
 
-    Ce sont des `block_id`, déjà présents dans le message : ni texte de clause, ni jugement.
+    Le code dit ce qu'il sait : les blocs transmis, et les sous-questions posées. L'appariement est
+    une lecture du texte ; on ne la vole pas au modèle sous l'autorité d'une mesure.
     """
     doc = mini_index.corpus.documents["lux-guide"]
     blocs = ["lux-guide:farrivee:3", "lux-guide:fbail_test:3"]
@@ -772,9 +772,8 @@ async def test_chaque_sous_question_porte_les_blocs_decisionnels_que_le_code_lui
                   settings=_settings(), prompt="rediger_sinistre")
 
     (req,) = fake.requests
-    facettes = [json.loads(t) for kind, t in UNTRUSTED.findall(req["messages"][0]["content"])
-                if kind == "facette"]
-    assert facettes == [
-        {"facette": 0, "libelle": "les appareils", "blocs_decisionnels_transmis": [blocs[0]]},
-        {"facette": 1, "libelle": "les denrées", "blocs_decisionnels_transmis": []},
-    ]
+    contenu = req["messages"][0]["content"]
+    facettes = [json.loads(t) for kind, t in UNTRUSTED.findall(contenu) if kind == "facette"]
+    assert facettes == [{"facette": 0, "libelle": "les appareils"},
+                        {"facette": 1, "libelle": "les denrées"}]
+    assert "blocs_decisionnels" not in contenu

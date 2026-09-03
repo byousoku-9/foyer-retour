@@ -243,17 +243,21 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # que quelques dizaines de tokens et referme l'écart entre ce qui est demandé et ce qui est
         # mesuré. C'est du texte du modèle : il est délimité comme le reste (AD-15).
         #
-        # **Correctif du tour 7 (G2) : la sous-question porte aussi ce que le code a mesuré pour
-        # elle.** `retrouver` publie déjà, par rang, les blocs décisionnels confirmés **transmis**
-        # que le classement de cette sous-question a proposés (`FacetteCouverture.block_ids`, la
-        # mesure qui alimente `facettes_retrouvees` et la couverture de *vérifier*). C'est AD-1 dans
-        # sa forme la plus simple — le code mesure, le modèle rédige : au lieu de laisser le
-        # rédacteur redécouvrir quels blocs concernent quelle sous-question, on le lui dit. Ce sont
-        # des `block_id` déjà présents dans le message, jamais du texte de clause ni un jugement.
-        blocs_par_rang = {facette.rang: list(facette.block_ids) for facette in retrieval.facettes}
-        parts += [untrusted("facette", json.dumps(
-            {"facette": rang, "libelle": libelle,
-             "blocs_decisionnels_transmis": blocs_par_rang.get(rang, [])}, ensure_ascii=False))
+        # **Correctif du tour 7b (H1) : la sous-question porte son libellé, et rien de plus.** Le
+        # tour 7 y avait joint les blocs décisionnels que le classement de cette sous-question avait
+        # proposés, au motif qu'AD-1 fait mesurer le code. Mais cette attribution-là n'est pas une
+        # mesure du **sens** : elle est **lexicale**, et elle porte les collisions de l'index. Mesuré
+        # sur trois runs — la sous-question du bris d'une vitre s'y voyait attribuer un bloc de
+        # dégâts des eaux, parce que la normalisation confond le pluriel d'un nom avec un participe
+        # (`collision-vitres-vitres-sous-normalize`). Le rédacteur a obéi : il a écrit une claim sur
+        # ce bloc — rejetée — et laissé de côté les deux clauses justes qu'il avait sous les yeux.
+        #
+        # Dire au modèle « voici les blocs de cette sous-question » revient à lui transmettre une
+        # attribution que le code **ne sait pas faire**, avec l'autorité d'une mesure. Le code sait
+        # quels blocs il a transmis et quelles sous-questions ont été posées ; l'appariement des uns
+        # aux autres appartient à la lecture du texte, donc au modèle. On ne le lui vole pas.
+        parts += [untrusted("facette", json.dumps({"facette": rang, "libelle": libelle},
+                                                  ensure_ascii=False))
                   for rang, libelle in enumerate(parsed.facettes)]
     tail = (f"Langue de rédaction : {LANGUES_SERVIES[parsed.language]} ({parsed.language}). "
             "Les citations restent recopiées mot pour mot dans la langue du bloc source.")
