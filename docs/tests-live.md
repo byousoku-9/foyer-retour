@@ -4290,3 +4290,61 @@ dit pas si le tirage de L1b diffère de celui de L1 : la cause est déférée
 
 **Sept fixtures restent à réenregistrer** (`test_pipeline_live`, les six de `test_langues_live`) :
 mêmes commandes qu'en L1, coût attendu ≈ 2,4 €.
+
+## Story 5.6 (L1c) — l'énoncé de la clause et son rattachement aux faits (4 septembre 2026)
+
+### Rejeux : 2,30 €, sous le majorant de 3 €
+
+Serveur local `127.0.0.1:8878` (`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, clé lue dans `.env`).
+Détail complet, texte servi, claims et conformité :
+`automation/runs/20260903-lisibilite/proto/lecture.md`, section « L1c ».
+
+| cas | coût | ce que le rejeu établit |
+|---|---|---|
+| bougie ×2 | 0,7242 € + 0,1276 € | `p34:12` **retenu aux deux rejeux**, verdict `ne_tranche_pas`, questions « soudain » / « subite » posées au gestionnaire. C'est la stabilité que le gate AXA exige, et c'est ce que L1 et L1b coûtaient |
+| vol | 0,3786 € puis 0,9437 € | premier rejeu : deux exclusions rejetées `ambigue` sur une amorce **jointe par le code** ; après correctif, **six claims, zéro rejet**, la porte forcée rattachée à l'effraction et l'exclusion du vol simple retenue |
+| école | 0,1267 € | deux claims, une par sous-question, zéro rejet |
+
+Le second rejeu du vol est le « second rejeu unique » prévu : il a suivi la lecture de l'audit, qui
+a nommé la cause (`amorce_jointe` sur `p41:2`, dont le texte se relit en `p69:2`).
+
+### Fixtures live : huit réenregistrées, six vertes
+
+Toutes traversaient un prompt touché depuis L1 et étaient invalidées par construction. Une par une,
+avec la clé, chaque résultat lu.
+
+| fixture | issue |
+|---|---|
+| `test_sinistre_live` (cas bougie, 2 tests) | **vert** — la garantie `p34:12` est de nouveau retenue, le verdict reste conservateur, et la question sur la qualité subite/soudaine est posée. C'est le témoin qui comptait, et il ferme l'entrée différée `une-garantie-rejetee-emporte-les-qualites-quelle-exigeait-du-client` |
+| `test_langues_live` `en-arrivee`, `de-arrivee`, `de-adem`, `pt-arrivee`, `pt-ecole` | vertes |
+| `test_langues_live` `en-ecole` | **rouge**, deux enregistrements — `found=False`, toutes les claims rejetées `non_soutenue` |
+| `test_pipeline_live.test_every_displayed_sentence_is_backed_by_a_verified_quote` | **rouge**, trois enregistrements — une seule fiche sourcée, le paragraphe de la fiche « école » rejeté `non_soutenue` |
+
+Les deux rouges ont **la même cause, et elle est antérieure à ce tour** : depuis L1, la réponse du
+guide à une sous-question est un seul paragraphe, jugé d'un bloc sur la réunion des fragments cités.
+Rejeté, il emporte la sous-question entière. Les fixtures conservent les deux régimes sur la même
+fiche et les mêmes blocs — quatre à six claims courtes, toutes retenues ; une claim-paragraphe de
+1 022 à 1 163 caractères, rejetée à chaque fois. La relance a été essayée et **ne répare pas** (le
+second brouillon raccourcit et retombe sur le même rejet). Cause et chemins :
+`un-paragraphe-par-sous-question-tombe-dun-bloc-dans-le-guide`, `target_story: 5.7`.
+
+Les fixtures rouges sont **gardées**, comme la bougie de L1b : elles sont une mesure, et un
+`FixtureMissing` aurait caché le constat.
+
+**Suite hermétique** : `ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run --no-cache pytest -q
+-p no:randomly -m "not evals and not etat_servi"` → **code de sortie 1**, `2 failed, 4141 passed,
+6 skipped`. Les deux rouges sont exactement les deux ci-dessus.
+
+### Dette déclarée (story 5.6, L1c) : les trois gates à relancer
+
+Deux consignes de rédaction, celle du contrôle, une borne de configuration et trois couches de code
+changent : `pipeline_digest` passe de `f4dc6da4…` à `465952f5…`, `prompts_digest` de `4968c7d3…` à
+`9499a37b…`. AD-7 sert donc les trois documents avec l'alerte `gate_perime` tant que le re-gate live
+n'est pas fait. La dette de L1 et L1b est **reconduite** sur le digest que les gates portent encore
+— aucun gate n'a été relancé ici, et `data/.publie` n'a pas été touché. Le certificat Baloise
+(`tests/test_parsing_baloise.py`) épingle les empreintes de l'artefact de gate, pas celles du code
+courant : rien à ré-épingler, et il est vert.
+
+- gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
