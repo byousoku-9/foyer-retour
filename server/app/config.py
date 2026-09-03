@@ -1551,7 +1551,43 @@ class Settings(BaseSettings):
     # bien dans le contrôle, pour qu'une hausse future ne puisse plus passer inaperçue.
     # `max_tokens` ne facture pas : seul le majorant de préflight bouge, des tokens ajoutés au tarif
     # de sortie du tier servi.
-    navigation_rediger_max_tokens: int = Field(3072, ge=1)
+    #
+    # **5 056 depuis le 03/09/2026 (T13), et la mesure qui le décide est un gate, pas un prototype.**
+    # Le gate vertical Baloise `--repeat 3` de 13 h 14 rend 8 exécutions sur 9 : la neuvième
+    # (`b-invite-cigarette`, répétition 3) sort en `llm_parse — réponse tronquée
+    # (stop_reason=max_tokens, max_tokens=3072)` sur ce tour-ci. L'audit du candidat porte les 25
+    # appels `rediger` des gates AXA et Baloise de 12 h 52 – 13 h 14, tous à `medium`, tous sous
+    # 3 072, et il sépare les deux dépenses que ce plafond doit couvrir ensemble :
+    #   — **contrat JSON** (`output_tokens` − `thinking_tokens`), sur les 20 appels qui rendent un
+    #     JSON complet : pire **2 558** tokens (`b-invite-cigarette` rép. 3, réflexion nulle). Les
+    #     ébauches Baloise sont plus longues que les A16 qui ont dérivé 1 920 — six claims au lieu
+    #     de quatre, et des extraits plus longs. 1 920 ne majorait plus rien : il était dépassé de
+    #     33 % par la seule sortie mesurée ;
+    #   — **réflexion**, sur les 22 appels dont le bloc `thinking` s'est refermé : pire **2 103**
+    #     (même cas, rép. 2 — la réflexion est allée au bout, c'est le JSON qui a été coupé). Elle
+    #     n'est plus intermittente comme sur A16 : 12 appels sur 25 en dépensent, de 523 à 2 103.
+    #   — trois appels ont saturé les 3 072 en réflexion **pure**, zéro caractère de JSON : mesures
+    #     **censurées** (« ≥ 3 072 »), elles ne majorent rien. C'est le mécanisme que `[HYPOTHÈSE]`
+    #     ci-dessous annonçait — sur Sonnet 5 la réflexion adaptative partage `max_tokens` avec le
+    #     contrat, et rien d'autre ne la borne.
+    # La règle du palier (majorer le pire mesuré de 25 %, celle de `verifier_thinking_reserve_tokens`)
+    # prescrit donc **3 200** de contrat (2 558 × 1,25) et **2 688** de réserve (2 103 × 1,25), soit
+    # **5 888**.
+    #
+    # **On pose 5 056, et l'écart est une décision, pas un arrondi.** Le témoin
+    # `test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele` compte ce plafond **deux fois**
+    # (l'ébauche, puis la relance atomique d'AD-3) : à 5 888 la queue majorée vaut 308,1 s pour une
+    # `deadline_s` de 290. Et la deadline ne peut pas suivre — AD-11, amendé le 03/09/2026, écrit
+    # nommément l'ordre « patience du client > `--timeout` Cloud Run (**300 s**) > deadline
+    # serveur » : même poussée à son maximum légal (299 s), la deadline ne laisserait que 5 500.
+    # 5 056 est ce que la deadline **inchangée** autorise (5 117), arrondi au multiple de 64 :
+    # 3 200 de contrat — la mesure, majorée, entière — et **1 856** de réserve, soit 832 de moins que
+    # la dérivation. Ce qui manque est nommé pour ce qu'il est : une réflexion de plus de 1 856
+    # tokens tronquera encore ce tour. Deux sorties, toutes deux hors de ce champ et pour Lancelot :
+    # amender AD-11 (`--timeout` > 300, deadline ≈ 310, patience ≈ 345), ou redescendre
+    # `navigation_draft_effort` à `low` et re-mesurer la réflexion de ce tour — le repli que le
+    # champ ci-dessous écrit déjà, et dont `medium` était la première marche.
+    navigation_rediger_max_tokens: int = Field(5056, ge=1)
     # `navigation_draft_effort` : l'effort du **seul** appel qui choisit les clauses citées.
     #
     # **Ce que la mesure dit.** Le tour terminal est le tour qui décide : il a sous les yeux tout ce
@@ -1586,6 +1622,14 @@ class Settings(BaseSettings):
     # matinée (une vingtaine de tours terminaux, 0 à 355 tokens de réflexion, aucune troncature à
     # 3 072). Le levier contre l'omission d'une clause lue est l'inventaire des blocs décisionnels
     # ouverts que le code compose dans le message terminal (T11), pas l'effort.
+    # **T13, 03/09/2026 : `medium` tronque aussi, et le repli écrit ci-dessus a été franchi une
+    # fois.** Le gate Baloise de 13 h 14 rend trois tours terminaux qui saturent 3 072 tokens en
+    # réflexion pure à cet effort — la « vingtaine de tours sans troncature » de la matinée était une
+    # mesure sur AXA, dont les ébauches sont plus courtes. Le plafond a été relevé, pas l'effort
+    # abaissé, parce que la mesure montre d'abord un **contrat JSON** de 2 558 tokens que 1 920 ne
+    # majorait plus (voir `navigation_rediger_max_tokens`) : baisser l'effort n'aurait rien rendu de
+    # cette place-là. La marche suivante reste `low`, et c'est elle qu'il faut prendre si un tour
+    # terminal sature encore 5 056 — le plafond, lui, ne peut plus monter sans la deadline.
     navigation_draft_effort: Literal["low", "medium", "high"] = "medium"
     # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
     # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
