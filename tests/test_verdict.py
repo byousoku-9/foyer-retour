@@ -520,3 +520,37 @@ def test_une_qualite_deja_demandee_comme_fait_nest_pas_redemandee_pour_confirmat
     assert v.missing.faits == [subite]
     assert [q for q in v.ask_client if "confirmer" in q] == []
 
+
+def test_une_exclusion_hors_portee_ne_fonde_aucun_fait_a_etablir() -> None:
+    """Reprise différée `libelles-manquants-verse-les-claims-inapplicables`, raison `hors_portee`.
+
+    Run 3 : le gestionnaire devait établir « rayures, égratignures ou écaillements » au titre d'une
+    exclusion que la table venait d'écarter. Une clause `applicable="non"` n'exige rien de ce
+    dossier — ce qu'elle demandait est sans objet, et le demander rouvre une piste déjà refermée.
+    """
+    garantie = ClaimJugee(claim_id="c1", clauses=[_clause("garantie", block_id="d:p1:1")],
+                          champs=_champs(True))
+    ailleurs = _clause("exclusion", block_id="d:p1:2", portee={EXTENSION}, node_id=EXTENSION, socle=False)
+    hors_portee = ClaimJugee(claim_id="c2", clauses=[ailleurs],
+                             champs=_champs(True, manquant="rayures, égratignures ou écaillements",
+                                            exigees=["défaut de réparation ou d'entretien des châssis"],
+                                            non_etablies=["défaut de réparation ou d'entretien des châssis"]))
+    assert applicabilites_des_claims([garantie, hors_portee])["c2"] == ("non", "hors_portee")
+    v = decider([garantie, hors_portee], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert" and v.missing.faits == []
+    assert [q for q in v.ask_client if "rayures" in q or "châssis" in q] == []
+
+
+def test_une_clause_dont_le_fait_est_connu_et_contraire_ne_fonde_rien_non_plus() -> None:
+    """L'autre chemin vers `non` : le fait exigé est connu et contraire (aucun `fait_manquant`).
+
+    Les qualités que le code a composées pour cette clause (`qualites_non_etablies`) partaient encore
+    dans le paquet manquant, alors que la table venait de la déclarer sans objet pour ce dossier.
+    """
+    contraire = _claim("c2", "exclusion",
+                       _champs(False, exigees=["caractère intentionnel du dommage"],
+                               non_etablies=["caractère intentionnel du dommage"]))
+    assert applicable_de_claim(contraire) == "non"
+    v = decider([_claim("c1", "garantie", _champs(True)), contraire],
+                ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.value == "couvert" and v.missing.faits == [] and v.ask_client == []

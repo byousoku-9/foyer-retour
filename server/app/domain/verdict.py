@@ -289,7 +289,7 @@ def _fusionner_par_qualificatif(libelles: list[str]) -> list[str]:
     return [texte for _racines, texte in retenus]
 
 
-def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
+def _libelles_manquants(claims: list[ClaimJugee], *, etat: dict[str, Applicable], place: int) -> list[str]:
     """Les faits que le dossier ne dit pas, côté clauses : dédupliqués, dans l'ordre, bornés (D8).
 
     Deux sources, du même appel groupé et de la même nature — ce que la clause exige et que les faits
@@ -306,13 +306,22 @@ def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
     `missing.faits` annoncer un fait qu'aucune question de `ask_client` ne demandait, alors que le
     front affiche l'un sous l'autre. Ce qui n'entre pas ne figure nulle part.
 
+    **Une claim tenue pour inapplicable n'exige rien de ce dossier** (reprise différée
+    `libelles-manquants-verse-les-claims-inapplicables`, ouverte au tour 4). Le filtre manquait : le
+    run 3 de la lecture utilisateur demandait au client d'établir « rayures, égratignures ou
+    écaillements » et « défaut de réparation ou d'entretien des châssis » au titre d'une exclusion
+    que la table venait précisément d'écarter (`applicable = "non"`). Peu importe la raison — portée
+    disjointe (`hors_portee`) ou fait connu et contraire —, une clause écartée ne fonde aucun fait à
+    établir : ce qu'elle exigeait est sans objet, et le demander donne au gestionnaire une piste que
+    le verdict a déjà refermée. Le filtre est du code pur, postérieur à la réponse du modèle.
+
     La déduplication, elle, ne peut plus être l'égalité de chaînes : les libellés viennent de deux
     sources et de plusieurs claims, et la même exigence s'y écrit de plusieurs façons
     (`_fusionner_par_qualificatif`).
     """
     libelles: list[str] = []
     for claim in claims:
-        if claim.champs is None:
+        if claim.champs is None or etat.get(claim.claim_id) == "non":
             continue
         libelles += [(claim.champs.fait_manquant or "").strip(),
                      *claim.champs.qualites_non_etablies]
@@ -513,7 +522,7 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # Ce qu'elles laissent de place borne alors les libellés du modèle, si bien que `missing.faits` et
     # `ask_client` disent la même chose.
     paquet = _questions_du_paquet(retenues, connu)
-    manquants = _libelles_manquants(retenues, place=ask_client_max - len(paquet))
+    manquants = _libelles_manquants(retenues, etat=etat, place=ask_client_max - len(paquet))
     missing_final = connu.model_copy(update={"faits": manquants})
     ask = (paquet
            + [f"Fait à établir auprès du client : {libelle}" for libelle in manquants]
