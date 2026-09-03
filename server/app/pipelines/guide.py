@@ -473,7 +473,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
                                     doc_id=doc_id, settings=settings, client=client,
                                     request_budget=budget, prompt="naviguer_guide",
-                                    historique=historique)
+                                    historique=historique, profil=profil)
             try:
                 step_retrouver = await navigation.lire()
             except PipelineError as exc:

@@ -53,6 +53,7 @@ from server.app.domain.document import Block, is_citable
 from server.app.domain.errors import LlmParse, PipelineError
 from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.domain.langue import LANGUES_SERVIES
+from server.app.domain.profil import Profil
 from server.app.domain.question import Faits, ParsedQuestion, Turn
 from server.app.domain.retrieval import BudgetSnapshot, RetrievalResult
 from server.app.domain.trace import CheckResult, StepTrace
@@ -207,8 +208,29 @@ def blocs_du_noeud(corpus: Corpus, doc_id: str, node_id: str) -> list[Block]:
     return [b for b in (doc.block(i) for i in ids) if is_citable(b)]
 
 
+def _role(block: Block) -> str | None:
+    """Le rôle du bloc dans l'enregistrement d'origine (`Block.source_field`), sans son rang.
+
+    C'est une donnée d'**ingestion**, comme `kind`, et elle vaut pour tout document qui en porte
+    une : `titre`, `resume`, `corps`, `aRetenir`, `tableaux` pour une fiche du guide, rien pour un
+    PDF dont l'extraction n'en produit pas. Le rang (`corps[3]`) est retiré — il ne dit rien de plus
+    que l'ordre, déjà donné par la suite des blocs.
+
+    Elle est rendue au modèle parce que, sans elle, deux paragraphes d'une même fiche sont
+    indiscernables : mesuré le 03/09/2026 en prod, la réponse du guide citait le `resume` d'une
+    fiche — une accroche qui annonce sans expliquer — et jamais son `corps`, où vivent le délai,
+    l'adresse et la liste des pièces. Le modèle n'avait pas préféré le résumé : il ne pouvait pas
+    savoir que c'en était un.
+    """
+    champ = block.source_field
+    return champ.split("[", 1)[0] if champ else None
+
+
 def _rendre_blocs(blocs: Iterable[Block]) -> str:
-    return "\n\n".join(f"[{b.block_id}] ({b.kind})\n{b.text}" for b in blocs)
+    def entete(b: Block) -> str:
+        role = _role(b)
+        return f"[{b.block_id}] ({b.kind})" if role is None else f"[{b.block_id}] ({b.kind} · {role})"
+    return "\n\n".join(f"{entete(b)}\n{b.text}" for b in blocs)
 
 
 class Navigation:
@@ -221,13 +243,15 @@ class Navigation:
     def __init__(self, parsed: ParsedQuestion, *, corpus: Corpus, index: Index,
                  dictionnaire: Dictionnaire | None, doc_id: str, settings: Settings,
                  client: LlmClient, request_budget: RequestBudget, prompt: str,
-                 faits: Faits | None = None, historique: Iterable[Turn] = ()) -> None:
+                 faits: Faits | None = None, historique: Iterable[Turn] = (),
+                 profil: Profil | None = None) -> None:
         if doc_id not in corpus.documents:
             raise KeyError(doc_id)
         self.parsed, self.corpus, self.index = parsed, corpus, index
         self.dictionnaire, self.doc_id, self.settings = dictionnaire, doc_id, settings
         self.client, self.request_budget, self.prompt = client, request_budget, prompt
         self.faits, self.historique = faits, list(historique)
+        self.profil = profil
         self.tier = settings.navigation_tier
         # Ce que la lecture a fait entrer, dans l'ordre où le modèle l'a ouvert.
         self.ouverts: dict[str, Block] = {}
@@ -303,6 +327,14 @@ class Navigation:
                 {"node_id": node_id, "titre": titre} for node_id, titre in suggerees]
         if self.faits is not None:
             demande["faits"] = self.faits.model_dump(mode="json", exclude_none=True)
+        if self.profil is not None:
+            # La projection d'AD-11 (`PROFIL_KEYS`), jamais le corps brut : le profil voyage déjà
+            # filtré vers *comprendre*, et le champ n'apparaît que s'il porte une réponse — un
+            # dossier de sinistre n'a pas de profil, son corps de requête ne bouge pas d'un octet.
+            renseigne = {k: v for k, v in self.profil.filtered().items()
+                         if v not in (None, "", [], {})}
+            if renseigne:
+                demande["profil"] = renseigne
         parts = [untrusted("demande", json.dumps(demande, ensure_ascii=False, sort_keys=True))]
         if self.historique:
             parts.insert(0, untrusted("historique", json.dumps(

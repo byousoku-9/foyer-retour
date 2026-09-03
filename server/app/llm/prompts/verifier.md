@@ -9,7 +9,12 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
 
 - `pertinente = true` seulement si les **deux** conditions tiennent : le passage dit bien ce que
   l'affirmation prétend (pas seulement un sujet voisin), et l'affirmation apporte un élément de
-  réponse à l'**objet** de la question. Pour une règle conditionnelle, rapporte fidèlement « si X,
+  réponse à l'**objet** de la question. Une affirmation peut être un **paragraphe** de
+  plusieurs phrases soutenu par **plusieurs** passages : juge-la alors sur la **réunion** de ses
+  passages, jamais passage par passage ni phrase par phrase — une phrase que le premier passage
+  n'établit pas mais que le troisième dit ne rend pas l'affirmation non soutenue. Sa longueur n'est
+  pas un défaut ; ce qui compte est qu'aucune de ses phrases n'avance quoi que ce soit que la
+  réunion de ses passages ne dise pas. Pour une règle conditionnelle, rapporte fidèlement « si X,
   alors Y » : elle reste pertinente quand la question porte sur Y, même si les faits soumis
   n'établissent pas encore X. L'absence de X décide ensuite de l'applicabilité ; elle ne rend pas la
   règle hors objet. Un passage exact mais hors objet ⇒ `false`. Une affirmation juste mais qui ne
@@ -30,24 +35,25 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
   elle ne nomme ni le cas ni la sous-question : c'est la forme normale d'une règle rapportée sans
   être appliquée.
 
-Rends ensuite, pour **chaque phrase** de la réponse rédigée qui t'est soumise (`segment`), un second
-jugement — celui-ci porte sur le **texte affiché**, pas sur l'affirmation :
+Rends ensuite, pour **chaque segment** de la réponse rédigée qui t'est soumis (`segment`) — une
+phrase ou un paragraphe entier —, un second jugement ; celui-ci porte sur le **texte affiché**, pas
+sur l'affirmation :
 
-> cette phrase, telle qu'elle sera lue, avance-t-elle **seulement** ce que les passages joints
-> établissent ?
+> ce segment, tel qu'il sera lu, avance-t-il **seulement** ce que les passages joints établissent ?
 
-- `soutenu = true` seulement si tout ce que la phrase affirme sur le contenu du guide se trouve dans
-  les passages des affirmations qu'elle cite (`claim_ids`). Une phrase qui dit autre chose que
-  l'affirmation qu'elle cite, qui ajoute un chiffre, une durée, une condition ou une exception
-  absente des passages ⇒ `false`.
-- Une phrase `transition` ne cite aucune affirmation : elle est `soutenu = true` **seulement** si
+- `soutenu = true` seulement si tout ce que le segment affirme sur le contenu du guide se trouve dans
+  la **réunion** des passages des affirmations qu'il cite (`claim_ids`). Un segment qui dit autre
+  chose que les affirmations qu'il cite, qui ajoute un chiffre, une durée, une condition ou une
+  exception absente des passages ⇒ `false`. Un paragraphe de plusieurs phrases se juge d'un bloc,
+  sur cette réunion : sa longueur, son ordre et ses articulations ne sont pas en cause.
+- Un segment `transition` ne cite aucune affirmation : elle est `soutenu = true` **seulement** si
   elle se contente d'articuler la réponse (« Par ailleurs, », « En résumé, ») et `false` dès qu'elle
   énonce quoi que ce soit sur le contenu du guide.
-- Une phrase `limite` annonce ce que le guide ne dit pas ; elle n'est jamais affichée dans la réponse
+- Un segment `limite` annonce ce que le guide ne dit pas ; elle n'est jamais affichée dans la réponse
   et sert seulement à déclarer la lacune. Elle est `soutenu = true` si elle se borne à cette
   déclaration, `false` dès qu'elle affirme au passage un fait sur le contenu du guide (un chiffre,
   une condition, une démarche).
-- Dans le doute, réponds `false` : une phrase retirée coûte moins cher qu'une phrase affichée sans
+- Dans le doute, réponds `false` : un segment retiré coûte moins cher qu'un segment affiché sans
   appui.
 - Rends **exactement un** verdict par `segment` reçu, en reprenant l'entier **tel quel** ; n'invente
   aucune position, n'en omets aucune, n'en réponds aucune deux fois.

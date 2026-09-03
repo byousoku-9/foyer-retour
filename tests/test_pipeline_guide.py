@@ -2207,8 +2207,14 @@ async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
     attendu = ((settings.verifier_max_tokens - REFLEXION_MESUREE)
                * sortie_usd / 1_000_000 * settings.usd_eur)
     # Comparé à la précision où le majorant est publié : `estimate_cost` arrondit au centième de
-    # centime, et deux majorants arrondis ne peuvent pas rendre un delta plus fin que leur pas.
-    assert round(retenu - ancien, 4) == round(attendu, 4), (
+    # centime, et deux majorants arrondis ne peuvent pas rendre un delta plus fin que leur pas. La
+    # **différence** de deux valeurs arrondies porte donc jusqu'à un pas d'écart, et l'égalité
+    # stricte tenait par chance : allonger le préfixe de *vérifier* d'un paragraphe (story 5.6, L1)
+    # a déplacé les deux majorants du même côté de leur arrondi, et 0,0283 € est devenu 0,0282 €
+    # sans qu'aucun token de sortie ait changé. La tolérance est ce pas, et pas davantage : un
+    # plafond, un tier ou un tarif qui bouge déplace le delta de plusieurs pas et rougit toujours.
+    PAS = 1e-4
+    assert abs((retenu - ancien) - attendu) <= PAS, (
         f"delta mesuré {retenu - ancien:.4f} € ; attendu {attendu:.4f} €")
 
     # Garde-fou, explicitement pas une preuve du chiffre : aucun préflight de la chaîne ne déborde.
