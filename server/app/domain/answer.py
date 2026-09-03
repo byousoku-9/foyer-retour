@@ -166,11 +166,40 @@ class AnswerSegment(DomainModel):
     claim_ids: list[str] = Field(default_factory=list)
 
 
+# Bornes de la déclaration d'écart. Ce ne sont pas des seuils de `config.py` mais une **forme de
+# contrat**, comme `TOUR_MAX_CHARS` : elles bornent ce qu'un schéma de sortie accepte, pas ce que
+# la chaîne décide. `BLOCS_ECARTES_MAX` majore le nombre de blocs décisionnels qu'une lecture
+# ouvre (21 blocs ouverts au total sur le pire run A16, dont 8 décisionnels) ; le motif est une
+# ligne, pas un raisonnement — c'est la décision qui doit être lisible, pas son plaidoyer.
+BLOCS_ECARTES_MAX = 32
+BLOC_ECARTE_MOTIF_MAX_CHARS = 200
+
+
+class BlocEcarte(DomainModel):
+    """Un bloc décisionnel lu que la rédaction a décidé de ne pas rapporter, et pourquoi.
+
+    AD-1 : le code n'écarte rien. Il **liste** au tour terminal les blocs décisionnels que la
+    lecture a ouverts, et demande une décision par bloc ; ce type est la moitié traçable de cette
+    demande. Écarter un bloc reste une décision du modèle — ce qui change est qu'elle se voit.
+
+    `block_id` n'est pas validé ici : un identifiant inventé est une sortie de modèle comme une
+    autre, et c'est l'étape qui la recoupe avec ce qu'elle a réellement ouvert (AD-15). Le motif
+    n'est jamais affiché à l'utilisateur ni recopié dans une relance : il vit dans la trace.
+    """
+
+    block_id: str
+    motif: str = Field(max_length=BLOC_ECARTE_MOTIF_MAX_CHARS)
+
+
 class AnswerDraft(DomainModel):
     """Sortie structurée de *rédiger*."""
 
     segments: list[AnswerSegment]
     claims: list[Claim]
+    # Facultatif et **jamais** requis : une ébauche qui rapporte tous les blocs décisionnels qu'elle
+    # a lus n'a rien à écarter, et le champ reste vide. Il n'entre dans aucune projection affichée —
+    # ni segment, ni claim, ni source — parce qu'écarter n'est pas répondre.
+    blocs_ecartes: list[BlocEcarte] = Field(default_factory=list, max_length=BLOCS_ECARTES_MAX)
 
     @model_validator(mode="after")
     def _draft_coherence(self) -> AnswerDraft:
@@ -197,6 +226,11 @@ class AnswerDraft(DomainModel):
         segments et des claims, lui, fait partie de l'ébauche : deux ordres différents sont deux
         réponses différentes. Le hash ne sert qu'à comparer deux drafts de la même requête : il n'est
         ni un identifiant stable entre versions, ni une donnée exposée.
+
+        `blocs_ecartes` n'y entre **pas**, et c'est la même règle appliquée : deux ébauches qui
+        disent la même chose et motivent différemment le même écart sont la même réponse. Les
+        compter ferait passer pour « changée » une relance qui n'a rien changé, et rouvrirait la
+        boucle qu'AD-3 ferme.
         """
         def plat(texte: str) -> str:
             return " ".join(texte.split())

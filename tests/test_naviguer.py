@@ -118,6 +118,15 @@ def _ebauche(quotes: list[dict[str, str]] | None = None, thinking: int = 0) -> d
     return message
 
 
+def _ebauche_avec_ecarts(ecartes: list[dict[str, str]]) -> dict[str, Any]:
+    """Une ébauche qui **déclare** ce qu'elle écarte : le schéma facultatif de T11."""
+    draft = json.loads(_ebauche()["content"][0]["text"])
+    draft["blocs_ecartes"] = ecartes
+    message = fake_message(model=TIERS["reason"], text=json.dumps(draft, ensure_ascii=False))
+    message["usage"]["output_tokens_details"] = {"thinking_tokens": 0}
+    return message
+
+
 # --- 1. la boucle d'outils ---------------------------------------------------------------
 
 
@@ -195,6 +204,77 @@ async def test_seul_le_tour_terminal_paie_leffort_releve() -> None:
     assert relance["output_config"]["effort"] == "high"
     # Le plafond, lui, ne bouge pas : `high` achète de la profondeur dans la place déjà dérivée.
     assert terminal["max_tokens"] == _settings().navigation_rediger_max_tokens
+
+
+async def test_le_tour_terminal_porte_linventaire_exact_des_blocs_decisionnels_ouverts() -> None:
+    """Story 5.6, T11 — le code liste ce qu'il a servi ; il n'en retient rien (AD-1).
+
+    Sur les 17 ébauches intégrées du 03/09/2026, l'étage encore variable est l'omission d'une
+    clause **lue** (≈ 3/17). Rien dans le fil ne rappelait au tour terminal la liste de ce qu'il
+    avait ouvert : le texte y est, dispersé dans des résultats d'outils ; l'inventaire, non. Le code
+    le connaît exactement — il l'écrit, avec la règle qui manquait, et s'arrête là.
+
+    Ce que le témoin épingle est précisément la frontière : **tous** les blocs décisionnels ouverts
+    sont listés, et rien d'autre. Un sous-ensemble serait une sélection du code ; un bloc ouvert
+    mais non décisionnel, ou un bloc décisionnel jamais ouvert, seraient l'un et l'autre une
+    invention.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}},
+                      {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+        _fin_de_lecture(), _ebauche()])
+
+    await navigation.lire()
+    await navigation.rediger()
+
+    message = fake.requests[-1]["messages"][-1]["content"]
+    lignes = [ligne for ligne in message.splitlines() if ligne.startswith("- ")]
+    # Les deux garanties ouvertes, et elles seules : `TITRE` est ouvert aussi mais c'est un
+    # `heading`, il ne décide de rien et l'inventaire l'ignore.
+    assert TITRE in navigation.ouverts and REGLE in navigation.ouverts
+    assert [ligne.split()[1] for ligne in lignes] == [REGLE, ITEM]
+    assert f"- {REGLE} (garantie) — Socle : « {TEXTE_REGLE[:60]}" in message
+    assert "Blocs décisionnels que ta lecture a ouverts (2) :" in message
+    # La règle que le code a le droit de dire — celle qui manquait sur les omissions mesurées.
+    assert "une décision par bloc" in message and "n'est jamais redondante" in message
+    # Et rien de plus : le code ne dit pas lequel viser, ni dans quel ordre les traiter.
+    assert ITEM not in message.split("Blocs décisionnels")[0]
+
+
+async def test_une_ebauche_qui_ecarte_un_bloc_lu_le_trace() -> None:
+    """AD-4 — l'omission d'une clause lue se voit dans la trace, ou elle est silencieuse.
+
+    Sans ce check, rien ne distingue « le modèle a jugé ce bloc hors sujet » de « le modèle l'a
+    oublié » : la réponse est cohérente et aucun contrôle ne rougit. Les deux se corrigent
+    différemment. Un identifiant qu'aucune ouverture n'a servi est recoupé ici, sur ce que le code
+    a réellement rendu, et n'est pas republié (AD-15).
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}},
+                      {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+        _fin_de_lecture(),
+        _ebauche_avec_ecarts([{"block_id": ITEM, "motif": "porte sur un tiers, hors des faits"},
+                              {"block_id": TITRE, "motif": "un titre"},
+                              {"block_id": f"{DOC_ID}:invente", "motif": "jamais ouvert"}])])
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert [(e.block_id, e.motif) for e in draft.blocs_ecartes][0] == (
+        ITEM, "porte sur un tiers, hors des faits")
+    (check,) = [c for c in step.checks if c.name == "blocs_decisionnels_ecartes"]
+    assert check.ok is False
+    assert f"1 bloc(s) décisionnel(s) lu(s) écarté(s) par la rédaction ({ITEM}) sur 2 ouvert(s)" \
+        in check.detail
+    # `TITRE` (heading) et l'identifiant inventé sont comptés ensemble comme hors inventaire, et
+    # aucun des deux n'est recopié dans la trace.
+    assert "2 identifiant(s) écarté(s)" in check.detail
+    assert TITRE not in check.detail and "invente" not in check.detail
+    # Une ébauche sans écart ne publie pas le check : c'est un fait, pas une case à cocher.
+    navigation2, _fake2 = _navigation([_fin_de_lecture(), _ebauche()])
+    await navigation2.lire()
+    _draft2, step2 = await navigation2.rediger()
+    assert not [c for c in step2.checks if c.name == "blocs_decisionnels_ecartes"]
 
 
 # --- 2. le budget de lecture -------------------------------------------------------------

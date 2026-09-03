@@ -51,6 +51,7 @@ from server.app.corpus.requetes import part_du_mot_borne, variantes_de_nombre
 from server.app.domain.answer import AnswerDraft
 from server.app.domain.document import Block, is_citable
 from server.app.domain.errors import PipelineError
+from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import Faits, ParsedQuestion, Turn
 from server.app.domain.retrieval import BudgetSnapshot, RetrievalResult
@@ -82,6 +83,22 @@ DEMANDE_TERMINALE = (
     "Tu as fini de lire : ce message ouvre le **tour terminal** et les outils y sont fermés. Rends "
     "maintenant l'ébauche `AnswerDraft` demandée par le préfixe, en JSON et sans appel d'outil, en "
     "ne citant que des blocs rendus par `ouvrir_noeud` dans cette conversation.")
+# La règle que l'inventaire rappelle, et la seule chose que le code ait à dire sur le fond : une
+# clause qui **qualifie** la circonstance déclarée n'est pas un doublon de la clause qui nomme le
+# péril. Mesuré le 03/09/2026 (r3 de la série finale A16) : l'énumération des périls incendie est
+# lue en entier, `p34:12` — « … événement soudain … même lorsqu'il n'y a pas eu embrasement » — est
+# ouvert et transmis, et l'ébauche cite à sa place la définition de l'incendie `p34:7`. Le modèle
+# n'a pas manqué la clause : il l'a tenue pour redondante.
+CONSIGNE_INVENTAIRE = (
+    "Avant de rédiger, prends **une décision par bloc** de cet inventaire : vise-t-il les faits "
+    "déclarés ? Si oui, il te faut une claim qui rapporte sa règle. Si non, déclare-le dans "
+    "`blocs_ecartes` avec un motif d'une ligne. Une clause qui **qualifie** la circonstance "
+    "déclarée — sa soudaineté, son origine, une condition qu'elle pose — n'est jamais redondante "
+    "avec la clause qui nomme le péril ou avec sa définition : ce sont deux clauses, et elles font "
+    "deux claims. N'écarte pas un bloc parce qu'un bloc voisin lui ressemble.")
+# Ce que « premiers mots » veut dire : de quoi reconnaître un bloc dans une liste, pas de quoi le
+# juger sans le relire. Le texte des blocs est déjà dans le fil, in extenso.
+INVENTAIRE_AMORCE_MAX_CHARS = 140
 RAPPEL_TERMINAL = (
     "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
     "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
@@ -454,6 +471,48 @@ class Navigation:
             tokens_used=self.tokens_lus, opens_remaining=0,
             tokens_remaining=max(0, self.settings.navigation_budget_tokens - self.tokens_lus))
 
+    def blocs_decisionnels_ouverts(self) -> list[Block]:
+        """Les blocs `garantie|exclusion|condition|franchise` que **la lecture a ouverts**.
+
+        Le `kind` vient de l'ingestion, relu sur les blocs que le modèle a lui-même ouverts ; ni la
+        question, ni les faits, ni un mot du modèle n'entrent dans ce filtre. L'ordre est celui des
+        ouvertures : c'est la mesure de ce qui a été lu, pas un classement.
+        """
+        return [bloc for bloc in self.ouverts.values() if bloc.kind in KINDS_DECISIONNELS]
+
+    def inventaire_decisionnel(self) -> str | None:
+        """L'inventaire des blocs décisionnels ouverts, composé par le code, pour le tour terminal.
+
+        **Ce n'est pas une sélection (AD-1).** Le code ne retient rien, ne classe rien, n'attribue
+        rien à une sous-question : il liste *tout* ce que le modèle a ouvert et dont l'ingestion dit
+        que c'est une clause qui décide, avec son `kind`, le titre de son nœud et ses premiers mots
+        — de quoi le reconnaître, jamais de quoi le juger. La décision reste entière au modèle, et
+        `CONSIGNE_INVENTAIRE` la lui demande bloc par bloc.
+
+        **Pourquoi elle existe.** Sur les 17 ébauches intégrées du 03/09/2026, l'étage encore
+        variable est l'omission d'une clause **lue** : ≈ 3 sur 17, dont r3 de la série finale A16 où
+        `p34:12` est ouvert, transmis, et remplacé par la définition `p34:7`. Rien dans le fil ne
+        rappelait au tour terminal ce qu'il avait sous les yeux : le texte des blocs y est, dispersé
+        dans des résultats d'outils de plusieurs milliers de tokens, mais leur **liste** n'y est pas.
+        Le code, lui, la connaît exactement. La lui donner ne choisit pas à sa place ; ne pas la lui
+        donner lui fait choisir de mémoire.
+
+        Les premiers mots sont recopiés du corpus, jamais reformulés, et bornés à une ligne : ce
+        n'est pas une citation — seul `ouvrir_noeud` a rendu le bloc citable, et il l'a déjà fait.
+        """
+        blocs = self.blocs_decisionnels_ouverts()
+        if not blocs:
+            return None
+        document = self.corpus.documents[self.doc_id]
+        titres = {n.node_id: n.title for n in document.nodes}
+        lignes = []
+        for bloc in blocs:
+            titre = titres.get(document.node_of(bloc.block_id), "")
+            amorce = " ".join(bloc.text.split())[:INVENTAIRE_AMORCE_MAX_CHARS]
+            lignes.append(f"- {bloc.block_id} ({bloc.kind}) — {titre} : « {amorce}… »")
+        return (f"Blocs décisionnels que ta lecture a ouverts ({len(blocs)}) :\n"
+                + "\n".join(lignes))
+
     async def rediger(self) -> tuple[AnswerDraft, StepTrace]:
         """L'ébauche terminale (AD-3), demandée dans le fil de la navigation."""
         return await self._rediger()
@@ -465,6 +524,14 @@ class Navigation:
         step = StepTrace(name="rediger", tier=self.tier, prompt_cache=True,
                          opened_block_ids=list(self.ouverts))
         demande = [consigne] if consigne is not None else [DEMANDE_TERMINALE]
+        inventaire = self.inventaire_decisionnel()
+        if inventaire is not None:
+            # Composé par le code depuis l'ingestion et le corpus (AD-15) : des `block_id`, des
+            # `kind` et du texte de bloc, jamais un mot de la question ni une sortie de modèle.
+            # Il voyage aussi à la relance : c'est le même tour terminal, et la relance est
+            # précisément le moment où une clause acquise se perd.
+            demande.append(inventaire)
+            demande.append(CONSIGNE_INVENTAIRE)
         demande.append(
             f"Langue de rédaction : {LANGUES_SERVIES[self.parsed.language]} "
             f"({self.parsed.language}). Les citations restent recopiées mot pour mot dans la "
@@ -497,6 +564,7 @@ class Navigation:
         self._messages = [*messages, {"role": "assistant",
                                       "content": resultat.parsed.model_dump_json()}]
         draft = self._projeter(resultat.parsed, step=step)
+        self._publier_les_ecarts(draft, step=step)
         if self.tour_terminal_force:
             step.checks.append(CheckResult(
                 name="tour_terminal_force", ok=False,
@@ -512,6 +580,32 @@ class Navigation:
                    f"{sum(call.thinking for call in step.calls)} tokens"))
         step.ms = int((time.monotonic() - t0) * 1000)
         return draft, step
+
+    def _publier_les_ecarts(self, draft: AnswerDraft, *, step: StepTrace) -> None:
+        """AD-4 : ce que l'ébauche a décidé d'écarter se lit dans la trace, pas nulle part.
+
+        Sans ce check, l'omission d'une clause lue est **silencieuse** : la réponse est cohérente,
+        aucun contrôle ne rougit, et rien ne distingue « le modèle a jugé ce bloc hors sujet » de
+        « le modèle l'a oublié ». Les deux se corrigent différemment. Le check est `ok=False` quand
+        il y a un écart : ce n'est pas un reproche au modèle — écarter un bloc est une décision qui
+        lui appartient — mais un fait que la lecture d'une trace doit rencontrer, comme
+        `lecture_refusee` ou `tours_epuises`.
+
+        Un `block_id` que la lecture n'a pas ouvert est rapporté à part : c'est une sortie de modèle
+        comme une autre, et le recoupement se fait ici, sur ce que le code a réellement servi.
+        """
+        if not draft.blocs_ecartes:
+            return
+        ouverts = {bloc.block_id for bloc in self.blocs_decisionnels_ouverts()}
+        connus = [e.block_id for e in draft.blocs_ecartes if e.block_id in ouverts]
+        inconnus = len(draft.blocs_ecartes) - len(connus)
+        detail = (f"{len(connus)} bloc(s) décisionnel(s) lu(s) écarté(s) par la rédaction "
+                  f"({', '.join(connus) or 'aucun'}) sur {len(ouverts)} ouvert(s) : une décision "
+                  "du modèle, tracée pour qu'une omission ne soit pas silencieuse")
+        if inconnus:
+            detail += (f" ; {inconnus} identifiant(s) écarté(s) ne correspondent à aucun bloc "
+                       "décisionnel ouvert et ne sont pas republiés (AD-15)")
+        step.checks.append(CheckResult(name="blocs_decisionnels_ecartes", ok=False, detail=detail))
 
     async def _appel_terminal(self, messages: list[dict[str, Any]], *, step: StepTrace
                               ) -> tuple[Any, list[dict[str, Any]]]:

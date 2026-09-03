@@ -16,6 +16,7 @@ qui choisissaient ce que la rédaction verrait, et leurs témoins avec elles.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from typing import Any, NamedTuple
 
@@ -43,6 +44,7 @@ from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.trace import StepTrace
 from server.app.domain.verdict import (
+    KINDS_DECISIONNELS,
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
@@ -2398,8 +2400,20 @@ async def test_sous_navigation_la_facette_non_couverte_repart_en_consigne_dans_l
     assert fake.remaining_script == 0
     relance = fake.requests[-2]["messages"][-1]["content"]
     assert "restée(s) sans affirmation affichée" in relance and FACETTE_REGISTRE in relance
-    # Aucun identifiant de bloc n'est soufflé : le code mesure, il ne choisit pas.
-    assert par_facette.bloc("regle_registre") not in relance
+    # Aucun identifiant de bloc n'est **attribué** à la sous-question : le code mesure, il ne
+    # choisit pas. Ce qui repart pour la facette est son libellé seul, et le motif — le seul
+    # fragment que la couverture compose — ne nomme aucun bloc.
+    motif = re.search(r'<untrusted kind="motif">\n(.*?)\n</untrusted>', relance, re.DOTALL)
+    assert motif is not None and par_facette.bloc("regle_registre") not in motif.group(1)
+    # T11 : l'inventaire des blocs décisionnels ouverts, lui, les nomme **tous** — et c'est
+    # l'inverse d'une sélection. Un sous-ensemble serait un choix du code ; l'exhaustif est une
+    # mesure de ce que la lecture a ouvert, que le modèle est seul à trancher bloc par bloc.
+    inventaire = [ligne for ligne in relance.splitlines() if ligne.startswith("- ")]
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    decisionnels = {b for b in retrouver.opened_block_ids
+                    if par_facette.index.corpus.documents[par_facette.identite.doc_id]
+                    .block(b).kind in KINDS_DECISIONNELS}
+    assert decisionnels and {ligne.split()[1] for ligne in inventaire} == decisionnels
     # Un message de plus dans le **même** fil : le préfixe est byte-identique depuis la lecture.
     assert len({r["system"][0]["text"] for r in fake.requests[1:4]}) == 1
     assert fake.requests[-2]["system"][0]["text"] == fake.requests[1]["system"][0]["text"]
