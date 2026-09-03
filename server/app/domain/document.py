@@ -223,6 +223,12 @@ class Document(DomainModel):
     # Les recalculer à chaque claim referait le parcours de `Node.items` pour rien.
     _node_of: dict[str, str] = PrivateAttr(default_factory=dict)
     _scope_of_node: dict[str, ScopeKind] = PrivateAttr(default_factory=dict)
+    # Story 5.6 (L1) : le parent de chaque nœud, déjà parcouru par `_tree_invariants` pour y
+    # interdire les cycles et les doubles rattachements. Le chemin d'un bloc — les titres de ses
+    # nœuds parents — est ce qui situe une citation dans le document quand on la lit hors de sa
+    # page ; le recalculer à chaque citation referait le parcours de `Node.items` pour rien.
+    _parent_of_node: dict[str, str] = PrivateAttr(default_factory=dict)
+    _title_of_node: dict[str, str] = PrivateAttr(default_factory=dict)
 
     def block(self, block_id: str) -> Block:
         return self._by_id[block_id]
@@ -242,6 +248,31 @@ class Document(DomainModel):
         déjà `commun` par le défaut d'AD-2 : il n'y a rien à aller chercher plus haut.
         """
         return self._scope_of_node[node_id]
+
+    def chemin_de_noeud(self, node_id: str) -> list[str]:
+        """Les titres des nœuds parents, **du plus général au nœud lui-même**, racine exclue.
+
+        La racine porte le titre du document (`Document.title`), déjà connu de l'appelant : la
+        répéter en tête de chaque citation n'apprend rien. Un nœud sans titre est sauté — un
+        intertitre anonyme n'ajoute pas de niveau de lecture. Générique : sur un contrat, le chemin
+        est la suite des articles (`3.1.4 Dégâts des eaux`, `3.1.4.1 Etendue de la garantie`) ; sur
+        le guide, c'est la catégorie puis la fiche (`Administratif`, `Les huit premiers jours`).
+        """
+        chemin: list[str] = []
+        courant: str | None = node_id
+        vus: set[str] = set()
+        while courant is not None and courant not in vus:
+            vus.add(courant)
+            titre = self._title_of_node.get(courant, "")
+            if titre and courant != self.doc_id:
+                chemin.append(titre)
+            courant = self._parent_of_node.get(courant)
+        chemin.reverse()
+        return chemin
+
+    def chemin(self, block_id: str) -> list[str]:
+        """Le chemin du nœud auquel le bloc est rattaché (AD-2 : exactement un)."""
+        return self.chemin_de_noeud(self.node_of(block_id))
 
     def scope_nodes(self, block_id: str) -> set[str]:
         """Nœuds couverts par la portée d'un bloc : `scope_node_ids` (et leurs descendants) s'ils sont donnés,
@@ -385,6 +416,8 @@ class Document(DomainModel):
         self._by_id = by_id
         self._node_of = parents
         self._scope_of_node = {n.node_id: n.scope.kind for n in self.nodes}
+        self._parent_of_node = node_parent
+        self._title_of_node = {n.node_id: n.title for n in self.nodes}
         return self
 
     @field_validator("doc_id")

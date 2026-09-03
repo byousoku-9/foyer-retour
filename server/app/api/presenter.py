@@ -15,10 +15,13 @@ d'endroit dans cette liste :
   justement un endroit où paraître.
 
 Le premier jet de la story faisait entrer les rejetées « à offsets conservés » (`non_pertinente`,
-`non_citee`) en s'appuyant sur le champ `status` pour les distinguer. Mais `SourceItem` ne porte
-**pas** de `claim_id` : le front reçoit une liste plate sous la réponse, et rien ne relie une entrée
-au segment qui la cite. Une citation écartée s'y lisait donc comme une source de la réponse — et
-`fiches[]`, qui en dérive, aurait ouvert une fiche dont la réponse ne dit rien.
+`non_citee`) en s'appuyant sur le champ `status` pour les distinguer. Mais rien ne reliait alors une
+entrée au segment qui la cite : le front recevait une liste plate sous la réponse, et une citation
+écartée s'y lisait comme une source de la réponse — `fiches[]`, qui en dérive, aurait ouvert une
+fiche dont la réponse ne dit rien. La story 5.6 (L1) donne à `SourceItem` et à `ClauseSource` le
+`claim_id` qui manquait, pour que le front **regroupe** les citations sous le paragraphe qu'elles
+soutiennent ; l'énumération, elle, ne bouge pas — seules les claims affichées y entrent, et une
+claim écartée n'a toujours nulle part à paraître ici.
 
 Elles ne sont pas perdues pour autant : `answer.rejected_claims` les publie intégralement, avec
 `rejection_kind`, `status` et — quand elles ont été retrouvées — leurs offsets, ce qu'AD-3 demande
@@ -130,7 +133,8 @@ def _relire(document: Document, quote: VerifiedQuote) -> str:
     return bloc.text[quote.text_start:quote.text_end]
 
 
-def _source_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) -> SourceItem:
+def _source_item(quote: VerifiedQuote, statut: str, *, claim_id: str, index: Any,
+                 corpus: Any) -> SourceItem:
     trouve = _noeud(index, corpus, quote.block_id)
     if trouve is None:
         # Une `VerifiedQuote` vient d'un bloc du corpus : ne pas le retrouver signifie que la réponse
@@ -142,12 +146,17 @@ def _source_item(quote: VerifiedQuote, statut: str, *, index: Any, corpus: Any) 
     fiche_id = node.node_id[len(prefixe):] if node.node_id.startswith(prefixe) else None
     lien = node.sources[0].url if node.sources else None
     return SourceItem(block_id=quote.block_id, fiche_id=fiche_id, titre=node.title, url=lien,
-                      quote=texte, status=statut)
+                      quote=texte, status=statut,
+                      # Story 5.6 (L1) : le bloc entier et le chemin viennent du **corpus servi**,
+                      # comme la citation elle-même — jamais du modèle. Le front les affiche autour
+                      # de la citation (le passage en contexte, l'endroit d'où il vient).
+                      texte_bloc=document.block(quote.block_id).text,
+                      chemin=document.chemin_de_noeud(node.node_id), claim_id=claim_id)
 
 
 def sources_de(answer: Answer, index: Any, corpus: Any) -> list[SourceItem]:
     """Les citations de la réponse **affichée**, relues du corpus, dans l'ordre de citation (AD-3/AD-11)."""
-    return [_source_item(quote, STATUT_VERIFIEE, index=index, corpus=corpus)
+    return [_source_item(quote, STATUT_VERIFIEE, claim_id=claim.claim_id, index=index, corpus=corpus)
             for claim in answer.claims  # AD-4 : les seules claims retrouvées, pertinentes et citées
             for quote in claim.quotes]
 
@@ -161,7 +170,7 @@ def fiches_de(sources: list[SourceItem]) -> list[str]:
     return vues
 
 
-def _clause_item(quote: VerifiedQuote, *, index: Any, corpus: Any) -> ClauseSource:
+def _clause_item(quote: VerifiedQuote, *, claim_id: str, index: Any, corpus: Any) -> ClauseSource:
     """La même relecture que `_source_item`, avec ce que la page sinistre doit peindre en plus.
 
     `page`, `bbox` et `kind` sont lus **sur le bloc du corpus**, jamais sur ce que le modèle a rendu
@@ -183,24 +192,29 @@ def _clause_item(quote: VerifiedQuote, *, index: Any, corpus: Any) -> ClauseSour
     bloc = document.block(quote.block_id)
     return ClauseSource(block_id=quote.block_id, page=bloc.page, bbox=bloc.bbox,
                         line_ids=list(quote.line_ids), kind=bloc.kind,
-                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=STATUT_VERIFIEE)
+                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=STATUT_VERIFIEE,
+                        # Story 5.6 (L1) : mêmes champs additifs qu'au guide, lus sur le **bloc du
+                        # corpus** et sur l'arbre du document — la clause dans son article, et sous
+                        # la phrase qui la cite.
+                        texte_bloc=bloc.text, chemin=document.chemin(quote.block_id),
+                        claim_id=claim_id)
 
 
 def clauses_de(answer: Answer, index: Any, corpus: Any) -> list[ClauseSource]:
     """Les clauses de la réponse **affichée**, relues du corpus, dans l'ordre de citation (AD-3/AD-11).
 
     Exactement la même énumération que `sources_de` — `for claim in answer.claims for quote in
-    claim.quotes` —, et c'est **le contrat** : `ClauseSource` ne porte pas de `claim_id` (AD-11 n'en
-    prévoit pas), et la page réapparie les statuts en refaisant cette énumération sur `answer.claims`
-    (D6). Changer l'ordre ici casserait l'appariement côté page ; un test le verrouille des deux
-    côtés.
+    claim.quotes` —, et c'est **le contrat** : la page réapparie les statuts en refaisant cette
+    énumération sur `answer.claims` (D6). Changer l'ordre ici casserait l'appariement côté page ; un
+    test le verrouille des deux côtés. Le `claim_id` ajouté par la story 5.6 (L1) rend l'appariement
+    explicite pour un front qui le veut, il ne remplace pas l'ordre : les deux tiennent ensemble.
 
     Les claims rejetées n'y entrent pas, quel que soit leur `rejection_kind` : `non_retrouvee` et
     `ambigue` n'ont aucune occurrence prouvée et leurs quotes sont restées les chaînes du modèle
     (D7). `answer.rejected_claims` les publie intégralement, et la page les affiche **sans** leur
     citation.
     """
-    return [_clause_item(quote, index=index, corpus=corpus)
+    return [_clause_item(quote, claim_id=claim.claim_id, index=index, corpus=corpus)
             for claim in answer.claims  # AD-4 : retrouvées, pertinentes, et citées par un segment
             for quote in claim.quotes]
 

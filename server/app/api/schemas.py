@@ -111,6 +111,13 @@ class SourceItem(BaseModel):
     url: str | None = None  # lien officiel de la fiche (`Node.sources`), quand il y en a un
     quote: str
     status: str  # "verifiee", ou le `rejection_kind` de la claim écartée
+    # Story 5.6 (L1) — trois champs **additifs**, pour que le front situe la citation sans deviner :
+    # le bloc entier d'où elle est tirée (surlignage en contexte), le chemin des nœuds parents
+    # (`["Administratif", "Les huit premiers jours"]`) et l'affirmation qui la cite, pour regrouper
+    # les citations sous le paragraphe qu'elles soutiennent au lieu d'une liste plate.
+    texte_bloc: str = ""
+    chemin: list[str] = Field(default_factory=list)
+    claim_id: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -366,6 +373,13 @@ class ClauseSource(BaseModel):
     kind_confirmed: bool = False
     quote: str
     status: str  # "verifiee" : `sources[]` ne porte que les citations de la réponse affichée (AD-11)
+    # Story 5.6 (L1), les trois mêmes champs additifs que `SourceItem` — la page sinistre les
+    # consomme pour la même raison : afficher la clause dans son article, et sous la phrase qui la
+    # cite. `chemin` est la suite des titres d'articles (`["3.1.4 Dégâts des eaux", "3.1.4.1 Etendue
+    # de la garantie"]`), `texte_bloc` le bloc entier tel qu'ingéré, `claim_id` l'affirmation.
+    texte_bloc: str = ""
+    chemin: list[str] = Field(default_factory=list)
+    claim_id: str = ""
 
 
 class SinistreResponse(BaseModel):

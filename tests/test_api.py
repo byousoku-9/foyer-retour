@@ -237,7 +237,11 @@ def test_reponse_sourcee_rend_200_avec_le_contrat_ad11(prod: TestClient) -> None
     source = j["sources"][0]
     assert source == {"block_id": f"{DOC_ID}:farrivee:2", "fiche_id": "arrivee",
                       "titre": "Déclarer son arrivée", "url": "https://guichet.public.lu/arrivee",
-                      "quote": extrait, "status": "verifiee"}
+                      "quote": extrait, "status": "verifiee",
+                      # Story 5.6 (L1) : le bloc entier, le chemin des nœuds parents et
+                      # l'affirmation qui cite — tous trois lus du **corpus servi**, jamais du modèle.
+                      "texte_bloc": corpus.documents[DOC_ID].block(f"{DOC_ID}:farrivee:2").text,
+                      "chemin": ["Déclarer son arrivée"], "claim_id": "c1"}
     # AD-3, mot pour mot : le texte affiché comme source est relu depuis `corpus`.
     bloc = corpus.documents[DOC_ID].block(f"{DOC_ID}:farrivee:2")
     quote = claim.quotes[0]
@@ -491,7 +495,9 @@ def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClien
 
     j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
 
-    assert set(j["sources"][0]) == {"block_id", "fiche_id", "titre", "url", "quote", "status"}
+    assert set(j["sources"][0]) == {"block_id", "fiche_id", "titre", "url", "quote", "status",
+                                    # Story 5.6 (L1), additifs : ils ne retirent rien d'AD-11.
+                                    "texte_bloc", "chemin", "claim_id"}
     statut = j["answer"]["claims"][0]["status"]
     assert statut["retrouvee"] is True and statut["pertinente"] is True
     assert statut["edition"] == "git:test"
