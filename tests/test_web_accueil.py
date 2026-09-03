@@ -958,11 +958,13 @@ def test_le_budget_de_la_sonde_est_un_seuil_du_serveur(cas: dict[str, Any]) -> N
     """Convention Seuils : le littéral du front vaut ce que `config.py` publie, et rien d'autre.
 
     Ce n'est pas une marge ajoutée à une deadline — `/sante` n'en a pas —, c'est le temps qu'on
-    accepte d'attendre pour un état de santé ; la valeur choisie est celle que `config.py` réserve
-    déjà au client.
+    accepte d'attendre pour un état de santé. Story 5.6 (T3) : ce budget empruntait
+    `client_abort_margin_s`, qui valait 10 s comme lui ; depuis que cette marge est dictée par le
+    `--timeout` de Cloud Run (150 s), il a son propre nom dans `config.py`. L'amarrage, lui, ne
+    change pas — c'est le seuil du serveur, jamais un littéral choisi ici.
     """
     seuils = Settings(_env_file=None).thresholds()
-    assert cas["bornes"]["sonde_budget_s"] == seuils["client_abort_margin_s"]
+    assert cas["bornes"]["sonde_budget_s"] == seuils["client_probe_timeout_s"]
 
 
 # --- UX-DR9 : le lien « ← retour » de la copie du site --------------------

@@ -45,8 +45,12 @@
   // sont qu'un **repli** pour la première requête si la sonde n'a pas répondu : une borne figée
   // ferait couper par le navigateur une requête à laquelle le serveur aurait répondu, le jour où
   // `deadline_s` monte (revue 1.9).
-  var DEADLINE_S_REPLI = 55;
-  var MARGE_ABANDON_S_REPLI = 10;
+  // Story 5.6 (T3, 03/09/2026) : 165 et 150, les valeurs de `config.py` re-dérivées pour la
+  // navigation par le modèle. Les deux replis avaient dérivé (55 et 10 pour une deadline à 100) —
+  // sans conséquence tant qu'ils ne servent qu'avant la sonde, mais un repli qui ment sur la
+  // patience du serveur est exactement ce que cette page dit ne pas faire.
+  var DEADLINE_S_REPLI = 165;
+  var MARGE_ABANDON_S_REPLI = 150;
   var seuilsServeur = null;
 
   function seuil(nom, repli) {

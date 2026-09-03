@@ -74,7 +74,7 @@ const RAPPORT = {
 };
 
 const SANTE = {
-  thresholds: { client_abort_margin_s: 7 },
+  thresholds: { client_probe_timeout_s: 7 },
   alerts: [{ doc_id: "cg-mini", alerte: "gate_perime", detail: "" }],
 };
 
@@ -123,7 +123,7 @@ async function main() {
   }
   {
     const santeGlobale = {
-      thresholds: { client_abort_margin_s: 7 },
+      thresholds: { client_probe_timeout_s: 7 },
       alerts: [{ doc_id: "*", alerte: "ungated_refuse_en_production", detail: "" }],
     };
     const h = charger("/sinistre/ingestion/cg-mini", (url) => {
@@ -193,7 +193,7 @@ async function main() {
       doc_id: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/cg-mini"),
       doc_id_invalide: h.INGESTION.docIdDepuisChemin("/sinistre/ingestion/a/b"),
       timeout_max: h.INGESTION.timeoutDepuisSante({
-        thresholds: { client_abort_margin_s: Number.MAX_SAFE_INTEGER },
+        thresholds: { client_probe_timeout_s: Number.MAX_SAFE_INTEGER },
       }),
     };
     cas.editions_page = ["juin 2017", "", null].map((edition) =>
@@ -255,7 +255,7 @@ async function main() {
   for (const [nom, sante, statut] of [
     ["sante_echec", {}, 503],
     ["seuil_absent", { thresholds: {} }, 200],
-    ["seuil_invalide", { thresholds: { client_abort_margin_s: 0 } }, 200],
+    ["seuil_invalide", { thresholds: { client_probe_timeout_s: 0 } }, 200],
   ]) {
     const h = charger("/sinistre/ingestion/cg-mini", (url) => {
       if (url.endsWith("/api/v1/sante")) return reponse(sante, statut);

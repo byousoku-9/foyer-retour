@@ -5,15 +5,19 @@
   var API_BASE = (window.location && /^https?:$/.test(window.location.protocol))
     ? window.location.origin : "";
   // Une lecture d'audit ne doit pas rester indéfiniment en ``aria-busy``. La borne vient du même
-  // seuil serveur que les autres lectures du front (`thresholds.client_abort_margin_s`) ; le
+  // seuil serveur que les autres sondes du front (`thresholds.client_probe_timeout_s`) ; le
   // littéral n'est qu'un repli pour la sonde `/sante` elle-même ou si elle est indisponible.
+  //
+  // Story 5.6 (T3) : c'était `client_abort_margin_s` tant qu'elle valait 10 s. Depuis que cette
+  // marge est dictée par le `--timeout` de Cloud Run (150 s), l'emprunt aurait tenu la page en
+  // ``aria-busy`` deux minutes et demie sur trois GET qui répondent en millisecondes.
   var FETCH_TIMEOUT_MS_REPLI = 10000;
   var dernierTimeoutMs = FETCH_TIMEOUT_MS_REPLI;
 
   function timeoutDepuisSante(sante) {
-    var marge = sante && sante.thresholds && sante.thresholds.client_abort_margin_s;
-    return (typeof marge === "number" && isFinite(marge) && marge > 0)
-      ? Math.min(Math.round(marge * 1000), 2147483647) : FETCH_TIMEOUT_MS_REPLI;
+    var budget = sante && sante.thresholds && sante.thresholds.client_probe_timeout_s;
+    return (typeof budget === "number" && isFinite(budget) && budget > 0)
+      ? Math.min(Math.round(budget * 1000), 2147483647) : FETCH_TIMEOUT_MS_REPLI;
   }
 
   function timeoutOption(options) {

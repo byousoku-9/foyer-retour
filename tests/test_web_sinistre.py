@@ -212,8 +212,14 @@ def test_audit_borne_une_requete_sans_fin_et_quitte_letat_charge(
 
 def test_audit_replie_sur_la_marge_par_defaut_si_sante_ne_la_fournit_pas(
         cas_ingestion: dict[str, Any]) -> None:
-    """M2 : sonde en échec, seuil absent ou invalide gardent une borne unique et testée."""
-    attendu = round(Settings.model_fields["client_abort_margin_s"].default * 1000)
+    """M2 : sonde en échec, seuil absent ou invalide gardent une borne unique et testée.
+
+    Story 5.6 (T3) : le seuil lu est `client_probe_timeout_s` et non plus `client_abort_margin_s`.
+    Trois GET qui répondent en millisecondes n'ont jamais eu à emprunter la patience qu'un appel de
+    pipeline mérite — l'emprunt tenait parce que les deux valaient 10 s, et il a cessé de tenir
+    quand la marge d'abandon est devenue une fonction du `--timeout` de Cloud Run (150 s).
+    """
+    attendu = round(Settings.model_fields["client_probe_timeout_s"].default * 1000)
     assert attendu == 10000
     appels = ["/api/v1/sante", "/api/v1/documents", "/api/v1/documents/cg-mini/report"]
     for nom in ("sante_echec", "seuil_absent", "seuil_invalide"):

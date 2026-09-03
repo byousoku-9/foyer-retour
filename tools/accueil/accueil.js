@@ -42,10 +42,15 @@
   //
   // Ce n'est pas une marge ajoutée à une deadline serveur — il n'y a pas de deadline serveur sur
   // `/sante`, tout y est calculé au démarrage. C'est le temps qu'on accepte d'attendre pour un état
-  // de santé, et la valeur choisie est celle que `config.py` réserve déjà au client
-  // (`client_abort_margin_s`) : la page ne peut pas lire un seuil sur la sonde qu'elle est en train
-  // de borner, et en recopier un autre le ferait diverger de `config.py` (convention Seuils). Un
-  // test l'amarre à `Settings().thresholds()["client_abort_margin_s"]`.
+  // de santé, et `config.py` le nomme désormais pour lui-même : `client_probe_timeout_s`. La page
+  // ne peut pas lire un seuil sur la sonde qu'elle est en train de borner, et en recopier un autre
+  // le ferait diverger de `config.py` (convention Seuils). Un test l'amarre à
+  // `Settings().thresholds()["client_probe_timeout_s"]`.
+  //
+  // Story 5.6 (T3) : ce budget empruntait `client_abort_margin_s`, qui valait 10 s comme lui.
+  // L'amendement AD-1 du 03/09/2026 fait dépendre cette marge du `--timeout` de Cloud Run (150 s) ;
+  // l'emprunt aurait laissé le bloc « état du système » vide deux minutes et demie devant un
+  // serveur mort. Deux besoins distincts, deux seuils distincts.
   var SONDE_BUDGET_S = 10;
 
   // Les deux routes que cette page sonde, et rien d'autre. Toutes deux sont calculées au démarrage

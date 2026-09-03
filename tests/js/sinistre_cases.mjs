@@ -51,7 +51,7 @@ const ELEMENTS = [
 ];
 
 /** Une `Response` doublée : juste ce que `sinistre.js` en lit. */
-const SEUILS = { deadline_s: 100.0, client_abort_margin_s: 10.0 };
+const SEUILS = { deadline_s: 165.0, client_abort_margin_s: 150.0 };
 
 /** La sonde `/api/v1/sante` : ce que `sinistre.js` en lit, et rien de plus. */
 function reponseSante(thresholds) {

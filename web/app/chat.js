@@ -20,12 +20,24 @@ window.CHAT = (function () {
   // les retient de la sonde. Ce qui suit n'est qu'un **repli**, pour la premiere requete quand la
   // sonde n'a pas encore repondu.
   var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
-  var DEADLINE_SERVEUR_REPLI = 100;     // config.deadline_s
-  // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne : en dessous, on
-  // couperait une requete a laquelle il aurait repondu ; bien au-dela, l'utilisateur attendrait
-  // pour rien. Ce n'etait pas un seuil du serveur, c'en est un : `config.client_abort_margin_s`,
-  // publie par `/sante`. Ce qui reste ici n'est, comme les deux autres, qu'un **repli**.
-  var MARGE_ABANDON_S_REPLI = 10;       // config.client_abort_margin_s
+  var DEADLINE_SERVEUR_REPLI = 165;     // config.deadline_s
+  // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne. Ce n'etait pas
+  // un seuil du serveur, c'en est un : `config.client_abort_margin_s`, publie par `/sante`. Ce qui
+  // reste ici n'est, comme les deux autres, qu'un **repli**.
+  //
+  // Story 5.6 (T3, 03/09/2026) : elle ne se choisit plus « un peu au-dessus de la deadline », elle
+  // est dictee par l'ordre qu'AD-11 impose depuis l'amendement AD-1 — attente du client **>**
+  // `--timeout` Cloud Run (300 s) **>** deadline serveur (165 s). D'ou 165 + 150 = 315 s. En
+  // dessous, la page couperait avant l'infrastructure et afficherait « assistant indisponible »
+  // pour une requete que Cloud Run a tuee : un repli sans echec reel, ce qu'AD-11 interdit. Ce
+  // n'est pas une attente, c'est le delai au bout duquel on renonce ; une reponse normale arrive
+  // en 20 a 30 s, et un 503 est affiche des qu'il arrive.
+  var MARGE_ABANDON_S_REPLI = 150;      // config.client_abort_margin_s
+  // Le budget d'un petit GET — ici `/sante` — n'est **pas** la marge ci-dessus. Il l'empruntait
+  // tant qu'elles valaient toutes deux 10 s ; depuis que la marge est dictee par le `--timeout` de
+  // Cloud Run (150 s), l'emprunt verrouillerait la saisie deux minutes et demie devant un serveur
+  // mort, puisque la premiere question attend cette sonde. Seuil propre, meme regime de repli.
+  var SONDE_BUDGET_S_REPLI = 10;        // config.client_probe_timeout_s
   // `Turn.texte <= 2000` (server/app/domain/question.py) n'est **pas** dans `thresholds()` : c'est
   // une contrainte de schema, pas un seuil de configuration. Elle reste donc ecrite ici, et un test
   // l'amarre a `Turn.model_fields["texte"]` pour qu'une divergence soit bruyante.
@@ -1899,13 +1911,14 @@ window.CHAT = (function () {
     if (!enLigne()) { apiDisponible = false; return Promise.resolve(false); }
     // La sonde est ce qui **rapporte les seuils** : la premiere question l'attend (voir
     // `reponseApi`). Elle doit donc etre bornee, sinon un `/sante` qui pend verrouillerait la
-    // saisie sans fin. La marge d'abandon du client suffit largement pour un simple etat de sante.
+    // saisie sans fin. Le budget est `config.client_probe_timeout_s` — le temps qu'on accepte
+    // d'attendre pour un etat de sante, jamais la patience accordee a un appel de pipeline.
     var options = { method: "GET" };
     var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
     if (ctrl) options.signal = ctrl.signal;
     var minuteur = ctrl
       ? setTimeout(function () { ctrl.abort(); },
-                   Math.round(seuil("client_abort_margin_s", MARGE_ABANDON_S_REPLI) * 1000))
+                   Math.round(seuil("client_probe_timeout_s", SONDE_BUDGET_S_REPLI) * 1000))
       : null;
     function finir() { if (minuteur !== null) clearTimeout(minuteur); }
     // `finir()` n'est appele qu'au **reglement** de la promesse, jamais a la reception des en-tetes :
@@ -1934,7 +1947,7 @@ window.CHAT = (function () {
       return Promise.reject(erreurChat({ kind: "indisponible", code: "hors_ligne", statut: 0 }));
     }
     // La sonde porte les seuils du serveur (`historique_max_turns`, `deadline_s`,
-    // `client_abort_margin_s`). Sans cette attente, la **premiere** requete partait sur les replis
+    // `client_abort_margin_s`, `client_probe_timeout_s`). Sans cette attente, la **premiere** requete partait sur les replis
     // ecrits ici et ignorait une configuration differente — un serveur regle a 3 tours recevait
     // les 6 du repli, donc un 400. `testerApi()` est memoise : les requetes suivantes ne coutent
     // rien, et son resultat n'ouvre aucun repli (il ne sert qu'a lire les seuils).

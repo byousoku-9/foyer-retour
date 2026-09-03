@@ -192,7 +192,11 @@ def test_aucun_seuil_du_serveur_nest_recopie_en_dur_dans_le_front() -> None:
     chat = (REPO_ROOT / "web" / "app" / "chat.js").read_text("utf-8")
     replis = re.findall(r"var ([A-Z_]+_REPLI) = ([\d.]+);\s*// (config\.\w+)", chat)
     assert {nom for nom, _, _ in replis} == {
-        "HISTORIQUE_MAX_TOURS_REPLI", "DEADLINE_SERVEUR_REPLI", "MARGE_ABANDON_S_REPLI"}, replis
+        "HISTORIQUE_MAX_TOURS_REPLI", "DEADLINE_SERVEUR_REPLI", "MARGE_ABANDON_S_REPLI",
+        # Story 5.6 (T3) : le budget de la sonde `/sante` a cessé d'emprunter la marge d'abandon,
+        # devenue une fonction du `--timeout` de Cloud Run. Quatrième repli, même règle — il cite
+        # son champ de `config.py`, et la boucle ci-dessous compare les deux.
+        "SONDE_BUDGET_S_REPLI"}, replis
     settings = Settings(_env_file=None, anthropic_api_key="")
     for _, valeur, cle in replis:
         attendu = getattr(settings, cle.split(".", 1)[1])
@@ -1557,11 +1561,21 @@ def test_le_retrait_dun_tour_sans_reponse_est_dit_a_lecran(cas: dict[str, Any]) 
 # --- une requête qui pend, une page hors ligne ---------------------------
 
 def test_une_requete_qui_pend_est_abandonnee_et_cest_une_indisponibilite(cas: dict[str, Any]) -> None:
-    """Sans borne, l'attente et le verrou de saisie resteraient indéfiniment."""
+    """Sans borne, l'attente et le verrou de saisie resteraient indéfiniment.
+
+    Story 5.6 (T3) : la borne haute n'est plus un « pas trop au-dessus » écrit ici. L'amendement
+    AD-1 du 03/09/2026 range les trois délais — attente du client **>** `--timeout` Cloud Run **>**
+    deadline serveur — et c'est `client_abort_margin_s` qui porte cet écart, dans `config.py`, seule
+    autorité. Un `+ 30` gardé ici en était une seconde, et il refusait la marge que l'ordre exige.
+    Ce que ce témoin tient est donc : la page coupe **après** le serveur, et exactement là où la
+    configuration le dit. L'ordre vis-à-vis de Cloud Run est tenu par `tests/test_workflows.py`,
+    le seul endroit où les trois fichiers se rencontrent.
+    """
     settings = Settings(_env_file=None, anthropic_api_key="")
     pose = cas["abandon_delai_pose_ms"] / 1000
     assert pose > settings.deadline_s, "couper sous la deadline du serveur perdrait une réponse due"
-    assert pose <= settings.deadline_s + 30, "au-delà, l'utilisateur attend pour rien"
+    assert pose == settings.deadline_s + settings.client_abort_margin_s, (
+        "le délai d'abandon du client est `deadline_s + client_abort_margin_s`, et rien d'autre")
     assert cas["abandon"]["kind"] == "indisponible"
     assert cas["abandon"]["code"] == "timeout_client"
     assert cas["abandon"]["message"]
