@@ -18,6 +18,8 @@ dédupliqué par l'appelant, et il n'entre jamais dans `Answer.texte`.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Literal
 
 from pydantic import Field
@@ -215,6 +217,78 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
     return "oui"
 
 
+# Revue Codex 1.8 (B3, tour 3). Les qualificatifs par lesquels une clause d'assurance **subordonne**
+# son effet à une qualité de l'événement, du bien ou de l'assuré. Lexique volontairement court et
+# fermé : il ne sert pas à comprendre la clause, seulement à savoir que le modèle avait quelque chose
+# à énumérer. Un mot du texte qui commence par l'un d'eux le porte (« soudaine », « subitement »,
+# « intentionnellement »). Ce qui n'y figure pas ne déclenche rien — le contrôle n'ajoute jamais une
+# qualité que le texte de la clause n'écrit pas.
+#
+# Il vit dans le domaine (story 5.6, T8) parce que **deux** appelants l'emploient et doivent
+# l'employer à l'identique : *vérifier*, qui relit le texte de la clause, et le verdict lui-même, qui
+# dédoublonne par ces racines ce qu'il demande au client. Deux copies auraient fini par diverger.
+QUALIFICATIFS: frozenset[str] = frozenset({
+    "soudain", "subit", "brusque", "instantane", "accidentel", "fortuit", "imprevisible", "imprevu",
+    "involontaire", "intentionnel", "immediat", "direct", "permanent", "exceptionnel", "violent",
+    "anormal", "malveillant", "effraction"})
+
+
+def _mots_qualifiants(texte: str) -> dict[str, str]:
+    """Les qualificatifs du lexique employés par un texte : `racine du lexique → mot du texte`.
+
+    Le mot est rendu dans son **orthographe d'origine** (première occurrence) : il finit dans une
+    question posée au client, où « immédiat » se lit mieux que sa forme normalisée.
+
+    Pas de `normalize()` de `corpus` — la couche `domain` n'importe que la stdlib et pydantic
+    (`tests/test_layers.py`) —, mais le repli est le même que celui de `profil._plat` sur les deux
+    règles qui comptent ici : casse et diacritiques. Les racines du lexique sont en ASCII, et
+    `re.findall` isole déjà les mots ; aucune autre règle de la Convention Texte ne les distingue.
+    """
+    trouves: dict[str, str] = {}
+    for mot in re.findall(r"[^\W\d_]+", texte, flags=re.UNICODE):
+        norme = "".join(c for c in unicodedata.normalize("NFD", mot.casefold())
+                        if not unicodedata.combining(c))
+        for racine in QUALIFICATIFS:
+            if norme.startswith(racine):
+                trouves.setdefault(racine, mot)
+    return trouves
+
+
+def _fusionner_par_qualificatif(libelles: list[str]) -> list[str]:
+    """Dédoublonne des libellés de faits par **racine de qualificatif**, en gardant le plus complet.
+
+    Lecture utilisateur des runs A16 (story 5.6, T8). Le run 1 demandait au client « action subite de
+    la chaleur ou contact direct avec le foyer », puis « action subite de la chaleur » ; le run 3
+    « caractère accidentel du bris », puis « caractère « accidentel » exigé par la clause citée ».
+    Deux sources — ce que le modèle a nommé et ce que le code a composé faute qu'il le nomme
+    (`steps.verifier._qualites_de_la_clause`) —, deux claims différentes, et une déduplication qui
+    n'était que l'égalité de chaînes : la même exigence était posée deux à quatre fois de suite, et
+    un gestionnaire lisant cette liste croit avoir quatre choses à établir là où il en a deux.
+
+    La comparaison se fait donc sur ce que le libellé **exige** : les racines du lexique qu'il
+    emploie. Un libellé dont toutes les racines sont déjà portées par un libellé retenu ne dit rien
+    de neuf et disparaît ; celui qui en porte strictement plus absorbe ceux qu'il recouvre — c'est
+    « la formulation la plus complète », mesurée en exigences et non en caractères, sans quoi la
+    phrase composée par le code (la plus longue) chasserait les mots du modèle (les plus précis).
+    Un libellé sans aucune racine n'est comparable à rien : il est gardé, dédoublonné à l'identique.
+    """
+    retenus: list[tuple[frozenset[str], str]] = []
+    for libelle in libelles:
+        texte = libelle.strip()
+        if not texte:
+            continue
+        racines = frozenset(_mots_qualifiants(texte))
+        if not racines:
+            if all(texte != garde for _r, garde in retenus):
+                retenus.append((racines, texte))
+            continue
+        if any(garde and racines <= garde for garde, _t in retenus):
+            continue  # déjà demandé, dans des termes au moins aussi complets
+        retenus = [(garde, t) for garde, t in retenus if not (garde and garde < racines)]
+        retenus.append((racines, texte))
+    return [texte for _racines, texte in retenus]
+
+
 def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
     """Les faits que le dossier ne dit pas, côté clauses : dédupliqués, dans l'ordre, bornés (D8).
 
@@ -231,19 +305,21 @@ def _libelles_manquants(claims: list[ClaimJugee], *, place: int) -> list[str]:
     occupe déjà, jamais `ask_client_max` brut (revue 1.8) : borner sur le total laissait
     `missing.faits` annoncer un fait qu'aucune question de `ask_client` ne demandait, alors que le
     front affiche l'un sous l'autre. Ce qui n'entre pas ne figure nulle part.
+
+    La déduplication, elle, ne peut plus être l'égalité de chaînes : les libellés viennent de deux
+    sources et de plusieurs claims, et la même exigence s'y écrit de plusieurs façons
+    (`_fusionner_par_qualificatif`).
     """
-    out: list[str] = []
+    libelles: list[str] = []
     for claim in claims:
         if claim.champs is None:
             continue
-        for libelle in [(claim.champs.fait_manquant or "").strip(),
-                        *claim.champs.qualites_non_etablies]:
-            if libelle and libelle not in out:
-                out.append(libelle)
-    return out[:max(place, 0)]
+        libelles += [(claim.champs.fait_manquant or "").strip(),
+                     *claim.champs.qualites_non_etablies]
+    return _fusionner_par_qualificatif(libelles)[:max(place, 0)]
 
 
-def _qualites_a_confirmer(claims: list[ClaimJugee]) -> list[str]:
+def _qualites_a_confirmer(claims: list[ClaimJugee], *, deja: list[str]) -> list[str]:
     """Les qualités qu'une clause exige et que le modèle a dites **établies** — à confirmer quand même.
 
     AC de la story : « `ask_client` mentionne les options/CP **et la nature « subite »** ». Le run réel
@@ -255,16 +331,19 @@ def _qualites_a_confirmer(claims: list[ClaimJugee]) -> list[str]:
     qualité de l'événement : elle se confirme auprès du client.
 
     Les qualités **non** établies partent, elles, dans `missing.faits` — ce sont des faits à établir,
-    pas des faits à confirmer, et le paquet manquant les annonce.
+    pas des faits à confirmer, et le paquet manquant les annonce. `deja` porte donc ces faits-là : une
+    qualité qu'une claim tient pour établie et qu'une autre déclare manquante est **une** exigence,
+    et le client la lisait deux fois, sous deux formulations et deux préfixes (story 5.6, T8).
     """
     out: list[str] = []
     for claim in claims:
         if claim.champs is None:
             continue
         for libelle in claim.champs.qualites_exigees:
-            if libelle and libelle not in claim.champs.qualites_non_etablies and libelle not in out:
+            if libelle and libelle not in claim.champs.qualites_non_etablies:
                 out.append(libelle)
-    return out
+    fusion = _fusionner_par_qualificatif([*deja, *out])
+    return [libelle for libelle in fusion if libelle not in deja]
 
 
 def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> list[str]:
@@ -439,7 +518,7 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     ask = (paquet
            + [f"Fait à établir auprès du client : {libelle}" for libelle in manquants]
            + [f"Qualité exigée par une clause citée, à faire confirmer par le client : {libelle}"
-              for libelle in _qualites_a_confirmer(retenues)])[:ask_client_max]
+              for libelle in _qualites_a_confirmer(retenues, deja=manquants)])[:ask_client_max]
     contradiction = any(c.contredit for c in retenues)
     renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
     escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)

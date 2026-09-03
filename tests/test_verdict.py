@@ -471,3 +471,52 @@ def test_les_autres_verdicts_ne_bougent_pas_pour_une_sous_question_sans_clause()
     # Une question à une seule sous-question, couverte : le cas témoin de la bougie ne bouge pas.
     assert decider([_claim("c3", "garantie", _champs())], ask_client_max=ASK_MAX,
                    missing=PAQUET_ETABLI, facettes_sans_reponse=0).value == "couvert"
+
+
+# --- Lecture utilisateur des runs A16 (story 5.6, T8) ---------------------------------------------
+def test_deux_libelles_qui_exigent_la_meme_qualite_ne_sont_demandes_quune_fois() -> None:
+    """Run 1 : quatre « faits à établir » pour deux exigences, dont un mot pour mot inclus dans l'autre.
+
+    Le modèle nomme un fait manquant, puis énumère les qualités non établies dans d'autres termes ;
+    la déduplication n'était que l'égalité de chaînes, et le gestionnaire lisait « action subite de
+    la chaleur ou contact direct avec le foyer » **puis** « action subite de la chaleur ». La
+    comparaison porte désormais sur ce que le libellé exige — les racines du lexique —, et la
+    formulation la plus complète (celle qui porte le plus d'exigences) est celle qui reste.
+    """
+    manquant = "action subite de la chaleur ou contact direct avec le foyer"
+    soudain = "caractère soudain de l'événement"
+    immediat = "contact direct et immédiat avec un foyer ou une substance incandescente"
+    champs = _champs(False, manquant=manquant,
+                     exigees=[soudain, "action subite de la chaleur", immediat],
+                     non_etablies=[soudain, "action subite de la chaleur", immediat])
+    v = decider([_claim("c1", "garantie", champs)], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.missing.faits == [manquant, soudain, immediat]  # « action subite… » seule a disparu
+    assert len([q for q in v.ask_client if "subite" in q]) == 1
+
+
+def test_le_libelle_compose_par_le_code_ne_double_pas_les_mots_du_modele() -> None:
+    """Run 3 : « caractère accidentel du bris », puis « caractère « accidentel » exigé par la clause ».
+
+    Les deux libellés viennent de deux claims et de deux sources — le modèle pour le premier, le code
+    pour le second (`steps.verifier._qualites_de_la_clause`, qui ne dédoublonne que dans **sa** claim).
+    À exigence égale, ce sont les mots du modèle qui restent : ils nomment le fait du dossier, là où la
+    phrase composée ne fait que renvoyer à la clause. La plus complète n'est pas la plus longue.
+    """
+    du_modele = "caractère accidentel du bris"
+    du_code = "caractère « accidentel » exigé par la clause citée"
+    claims = [_claim("c1", "garantie", _champs(False, manquant=du_modele)),
+              _claim("c2", "exclusion", _champs(True, exigees=[du_code], non_etablies=[du_code]))]
+    v = decider(claims, ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.missing.faits == [du_modele]
+    assert [q for q in v.ask_client if du_code in q] == []
+
+
+def test_une_qualite_deja_demandee_comme_fait_nest_pas_redemandee_pour_confirmation() -> None:
+    """Une même exigence, deux claims, deux préfixes : « à établir » suffit, « à confirmer » double."""
+    subite = "caractère subit de l'action de la chaleur"
+    manquante = _claim("c1", "garantie", _champs(False, manquant=subite))
+    etablie = _claim("c2", "condition", _champs(True, exigees=["nature subite du sinistre"]))
+    v = decider([manquante, etablie], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert v.missing.faits == [subite]
+    assert [q for q in v.ask_client if "confirmer" in q] == []
+

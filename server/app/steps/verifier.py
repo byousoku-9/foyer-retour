@@ -83,6 +83,7 @@ from server.app.domain.verdict import (
     ClauseCitee,
     MissingPackage,
     Verdict,
+    _mots_qualifiants,
     applicable_de_claim,
     applicabilites_des_claims,
     decider,
@@ -204,33 +205,6 @@ def _dit_la_qualite(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
         return False
     cites = _mots_significatifs(fait_cite, min_chars=min_chars)
     return all(any(a.startswith(b) or b.startswith(a) for b in cites) for a in mots)
-
-
-# Revue Codex 1.8 (B3, tour 3). Les qualificatifs par lesquels une clause d'assurance **subordonne**
-# son effet à une qualité de l'événement, du bien ou de l'assuré. Lexique volontairement court et
-# fermé : il ne sert pas à comprendre la clause, seulement à savoir que le modèle avait quelque chose
-# à énumérer. Un mot du texte qui commence par l'un d'eux le porte (« soudaine », « subitement »,
-# « intentionnellement »). Ce qui n'y figure pas ne déclenche rien — le contrôle n'ajoute jamais une
-# qualité que le texte de la clause n'écrit pas.
-QUALIFICATIFS: frozenset[str] = frozenset({
-    "soudain", "subit", "brusque", "instantane", "accidentel", "fortuit", "imprevisible", "imprevu",
-    "involontaire", "intentionnel", "immediat", "direct", "permanent", "exceptionnel", "violent",
-    "anormal", "malveillant", "effraction"})
-
-
-def _mots_qualifiants(texte: str) -> dict[str, str]:
-    """Les qualificatifs du lexique employés par un texte : `racine du lexique → mot du texte`.
-
-    Le mot est rendu dans son **orthographe d'origine** (première occurrence) : il finit dans une
-    question posée au client, où « immédiat » se lit mieux que sa forme normalisée.
-    """
-    trouves: dict[str, str] = {}
-    for mot in re.findall(r"[^\W\d_]+", texte, flags=re.UNICODE):
-        norme = normalize(mot)
-        for racine in QUALIFICATIFS:
-            if norme.startswith(racine):
-                trouves.setdefault(racine, mot)
-    return trouves
 
 
 def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
