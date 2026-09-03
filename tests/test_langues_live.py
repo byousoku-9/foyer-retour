@@ -20,8 +20,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
+from server.app.domain.profil import Profil
+from server.app.domain.question import ParsedQuestion
+from server.app.domain.trace import StepTrace
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
+from server.app.llm.prompting import untrusted
+from server.app.pipelines import guide
+from server.app.pipelines.guide import repondre_guide
 from tests.fixtures import LLMRecorder
 from tests.llm_fake import RecordedAnthropic
 
@@ -244,3 +250,89 @@ def test_le_residu_du_controle_est_nomme_et_mesure(index: Index) -> None:
     # Et la porte de sortie est la même pour les deux : dès que le terme est **majoritairement**
     # français, la forme dérivée y passe — jamais parce qu'un seul voisin l'adoube.
     assert _mots_non_traduits(["scolarité des enfants"], _question("pt-ecole"), vocabulaire) == []
+
+
+@pytest.mark.parametrize(("cas", "langue", "question"), CAS, ids=[c[0] for c in CAS])
+async def test_six_reponses_sont_fideles_apres_retraduction(cas: str, langue: str, question: str,
+                                                             index: Index,
+                                                             monkeypatch: pytest.MonkeyPatch,
+                                                             llm_recorder: LLMRecorder) -> None:
+    """L'échantillon de six réponses de l'AC 2.4, **porté sur le chemin servi**.
+
+    Il épinglait `variant="deterministe"` ; la variante est partie avec les passes de code qui
+    choisissaient (story 5.6, T2), et le témoin avec elle — ce qui a fait tomber le scellé du gate
+    (`server/evals/reference/retraductions.yaml` lie chaque cas à ce `test_id`). Il est réécrit ici
+    **sans épingler aucune variante** : `variant=None` laisse le pipeline servir celle que
+    `Settings.retrieval_variant` désigne, c'est-à-dire ce qu'un utilisateur reçoit. Un témoin de
+    fidélité qui nomme sa variante mesure une implémentation ; celui-ci mesure la réponse servie, et
+    il suivra le défaut sans qu'on ait à le rouvrir.
+
+    Les six fixtures sont **à réenregistrer** : le corps de requête de la navigation n'a rien de
+    commun avec celui de la variante retirée, et le rejeu lève `FixtureMissing` tant que la dépense
+    n'a pas été faite (nommées dans la passation T6).
+    """
+    settings = _settings()
+    client = _client(llm_recorder)
+
+    # La sortie **réelle** de *comprendre* est relevée au passage, sans appel supplémentaire : c'est
+    # celle que le pipeline consomme, et l'AC porte sur elle (« `terms[]` en français **avant** le
+    # court-circuit »). Un second appel direct aurait mesuré une autre requête (revue Codex 2.4, I2).
+    vues: list[object] = []
+    reel = guide.comprendre
+
+    async def _relever(*args, **kw):
+        sortie, step = await reel(*args, **kw)
+        vues.append(sortie)
+        return sortie, step
+
+    monkeypatch.setattr(guide, "comprendre", _relever)
+
+    answer, trace = await repondre_guide(
+        question, [], Profil(), corpus=index.corpus, index=index, client=client, settings=settings,
+        request_id=f"live-langue-{cas}", budget=_budget())
+
+    # Ce que le témoin rejoue est la variante **servie**, lue sur la configuration : le scellé peut
+    # dire « ce test rejoue le chemin servi » sans nommer une implémentation.
+    assert trace.variant == settings.retrieval_variant
+
+    (parsed,) = vues
+    assert isinstance(parsed, ParsedQuestion), "la question devait être autonome"
+    assert parsed.terms, "aucun terme cherché : l'AC ne serait pas exercée"
+    # `termes_de_recherche()` et non `terms` seul : c'est ce que la lecture cherche réellement et ce
+    # que l'`AbsenceProof` publie (`terms_searched`), donc `terms[]` **et** `scope.themes[]` — le
+    # prompt exige le français des deux, et un thème non traduit relèverait de la même régression.
+    cherches = parsed.termes_de_recherche()
+    assert _mots_non_traduits(cherches, question, vocabulaire_francais(index)) == [], (
+        f"termes restés dans la langue de la question : {cherches}")
+
+    assert answer.lang == langue and answer.lang_fallback is False
+    assert answer.found is True and answer.claims
+    passages: list[str] = []
+    for claim in answer.claims:
+        for quote in claim.quotes:
+            bloc = index.corpus.documents[index.doc_of(quote.block_id)].block(quote.block_id)
+            assert quote.quote == bloc.text[quote.text_start:quote.text_end]
+            passages.append(quote.quote)
+
+    step = StepTrace(name="controle_retraduction", tier="micro")
+    # `unknown[]` entre dans le contrôle (revue Codex 2.4, I1) : ce sont des **réserves affichées**,
+    # composées soit par le modèle soit par les registres traduits de *restituer*, et leur langue
+    # relève de la même AC que le corps de la réponse. Sans elles, une réserve mal traduite laissait
+    # les six cas verts. Bloc séparé : elles ne sont pas la réponse, et le juge doit pouvoir dire
+    # laquelle s'écarte.
+    contenu = "\n\n".join([
+        untrusted("question", question),
+        untrusted("reponse", answer.texte),
+        untrusted("reserves", "\n".join(answer.unknown) if answer.unknown else "(aucune)"),
+        untrusted("passages_sources", "\n---\n".join(passages)),
+    ])
+    controle = await client.parse(
+        tier="micro", system_prefix=_prefix(), messages=[{"role": "user", "content": contenu}],
+        output_model=JugementRetraduction, budget=_budget(), step=step,
+        max_tokens=settings.comprendre_max_tokens)
+
+    assert controle.parsed.langue_detectee == langue
+    assert controle.parsed.fidele is True, controle.parsed.ecarts
+    assert controle.parsed.ecarts == []
+    cout = trace.total_cost_eur + step.usage.cost_eur
+    print(f"2.4 | {cas} | {langue} | fidèle | {cout:.4f} €")
