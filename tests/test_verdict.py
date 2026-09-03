@@ -425,3 +425,49 @@ def test_the_bougie_case_derives_exactly_as_the_spec_says() -> None:
     assert v.value == "ne_tranche_pas"
     assert v.missing.faits == ["caractère subit de l'action de la chaleur"]
     assert any("caractère subit" in q for q in v.ask_client)
+
+
+# --- Correctif du tour 6 (F3) : `couvert` répond à toute la demande, ou ne tranche pas ----------
+
+
+def test_une_sous_question_sans_clause_empeche_un_couvert() -> None:
+    """`couvert` est le seul verdict qui affirme quelque chose de la **totalité** de la demande.
+
+    Mesuré sur un run réel : une question à deux sous-questions — le bris d'une vitre d'insert et
+    les dommages par la fumée — est ressortie `couvert` sur la **seule** clause des fumées, la
+    sous-question du bris n'ayant reçu aucune clause décisionnelle. La même réponse portait, au même
+    moment, `complete=false` et « il reste 1 sous-question sans réponse » : le verdict disait le
+    contraire du reste de la réponse. Le compte vient de la mesure du code, jamais d'une déclaration.
+    """
+    garantie = _claim("c1", "garantie", _champs())
+    couvert = decider([garantie], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert couvert.value == "couvert"
+
+    partiel = decider([garantie], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI,
+                      facettes_sans_reponse=1)
+    assert partiel.value == "ne_tranche_pas"
+    assert "aucune clause du contrat" in partiel.reason
+    # La question passe devant les autres : c'est elle qui empêche de trancher.
+    assert partiel.ask_client[0].startswith("1 sous-question de votre demande")
+    assert len(partiel.ask_client) <= ASK_MAX
+
+
+def test_les_autres_verdicts_ne_bougent_pas_pour_une_sous_question_sans_clause() -> None:
+    """La borne : seul `couvert` prétend quelque chose de ce qui manque, donc seul lui recule.
+
+    `sous_conditions` et `ne_tranche_pas` disent déjà qu'ils ne tranchent pas tout ; `non_couvert`
+    repose sur une exclusion applicable, que l'absence d'une autre sous-question ne dément pas.
+    """
+    garantie = ClaimJugee(claim_id="c1", clauses=[_clause("garantie", block_id="d:p1:1")],
+                          champs=_champs(True))
+    exclusion = ClaimJugee(claim_id="c2", clauses=[_clause("exclusion", block_id="d:p1:2")],
+                           champs=_champs(True))
+    assert decider([garantie, exclusion], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI,
+                   facettes_sans_reponse=2).value == "non_couvert"
+    hors_socle = _claim("c2", "garantie", _champs(),
+                        clause=_clause("garantie", node_id=EXTENSION, socle=False))
+    assert decider([hors_socle], ask_client_max=ASK_MAX, missing=PAQUET_ETABLI,
+                   facettes_sans_reponse=1).value == "sous_conditions"
+    # Une question à une seule sous-question, couverte : le cas témoin de la bougie ne bouge pas.
+    assert decider([_claim("c3", "garantie", _champs())], ask_client_max=ASK_MAX,
+                   missing=PAQUET_ETABLI, facettes_sans_reponse=0).value == "couvert"
