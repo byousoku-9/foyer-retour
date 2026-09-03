@@ -535,6 +535,15 @@ class Settings(BaseSettings):
     # débordement de ces installations ») sans en tenir deux. Hors borne, le rattachement est
     # **ignoré** — jamais tronqué — et la clause, elle, reste affichée et citée.
     rattachement_max_chars: int = Field(240, ge=1)
+    # Story 5.6 (L1d). Une affirmation peut être un **paragraphe** (L1) : elle est alors découpée en
+    # unités de lecture (`corpus.ebauche.decouper_en_phrases`) et le contrôle rend les rangs de
+    # celles que les passages joints ne soutiennent pas. Cette borne dit combien d'unités une
+    # affirmation peut porter ; au-delà, le reste est **fondu dans la dernière** — jamais retiré.
+    # Elle n'est pas annoncée au prompt, et n'a pas à l'être : les unités sont **numérotées par le
+    # code** dans la charge envoyée, si bien qu'un réglage du seuil ne peut pas désynchroniser ce que
+    # le modèle rend et ce que le code accepte (un rang hors liste ne retire rien). 12 tient le plus
+    # long paragraphe mesuré (1 163 caractères, 8 phrases) avec de la marge.
+    claim_phrases_max: int = Field(12, ge=1)
     # L'appel `reason` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
@@ -1968,6 +1977,7 @@ class Settings(BaseSettings):
             "qualites_exigees_max": self.qualites_exigees_max,
             "qualite_mot_min_chars": self.qualite_mot_min_chars,
             "rattachement_max_chars": self.rattachement_max_chars,
+            "claim_phrases_max": self.claim_phrases_max,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
@@ -2195,7 +2205,8 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "verifier_max_claims", "verifier_sinistre_max_tokens", "verifier_sinistre_json_tokens",
     "verifier_thinking_reserve_tokens", "fait_manquant_max_chars", "ask_client_max",
     "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
-    "qualite_mot_min_chars", "rattachement_max_chars", "historique_max_turns",
+    "qualite_mot_min_chars", "rattachement_max_chars", "claim_phrases_max",
+    "historique_max_turns",
     "relance_sur_non_pertinence",
     "quote_max_chars", "draft_max_segments", "draft_max_claims", "draft_max_definitions",
     "question_min_terms", "question_max_terms", "question_max_facettes", "scope_max_themes",

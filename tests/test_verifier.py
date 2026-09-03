@@ -164,7 +164,8 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
 
 def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
               segments: dict[int, bool] | None = None, nb_segments: int = 8,
-              raisons: dict[str, str | None] | None = None) -> dict:
+              raisons: dict[str, str | None] | None = None,
+              phrases: dict[str, list[int]] | None = None) -> dict:
     """Verdicts groupés + phrases soutenues + couverture des facettes.
 
     `facettes[i]` = les `claim_id` que le contrôle attribue à la facette de rang `i` de la
@@ -178,7 +179,9 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
     soutiens = {i: True for i in range(nb_segments)} | (segments or {})
     return fake_message(text=json.dumps(
         {"verdicts": [{"claim_id": c, "pertinente": p,
-                        "raison": (raisons or {}).get(c)} for c, p in paires],
+                        "raison": (raisons or {}).get(c),
+                        # L1d : les rangs des unités de lecture non soutenues, vides par défaut.
+                        "phrases_non_soutenues": (phrases or {}).get(c, [])} for c, p in paires],
          "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)],
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}),
         model=HAIKU)
@@ -795,12 +798,11 @@ async def test_two_closed_rejection_reasons_use_the_generic_motive(mini: Index) 
     draft = _draft(("c1", "t", [("mini:p1:2", "huit jours pour déclarer votre arrivée")]))
     sortie = _verdicts(("c1", False), ("c1", False),
                        raisons={"c1": "non_soutenue"})
-    sortie["content"][0]["text"] = sortie["content"][0]["text"].replace(
-        '"raison": "non_soutenue"}, {"claim_id": "c1", "pertinente": false, '
-        '"raison": "non_soutenue"}',
-        '"raison": "non_soutenue"}, {"claim_id": "c1", "pertinente": false, '
-        '"raison": "hors_objet"}',
-    )
+    # La seconde entrée seule : le motif générique ne se déclenche que sur **deux raisons
+    # différentes** pour la même affirmation.
+    charge = json.loads(sortie["content"][0]["text"])
+    charge["verdicts"][1]["raison"] = "hors_objet"
+    sortie["content"][0]["text"] = json.dumps(charge)
     v, step, _fake = await _verifier(mini, draft, [sortie])
     motif = v.rejected_claims[0].motif
     assert "citation non pertinente" in motif
@@ -3028,3 +3030,130 @@ async def test_le_guide_ne_connait_pas_la_demande_de_contexte(mini: Index) -> No
     assert not [c.name for c in step.checks if c.name.startswith("demande_")]
     schema = json.dumps(fake.requests[0]["output_config"]["format"])
     assert "demande_contexte" not in schema
+
+
+# --- L1d : une claim-paragraphe se juge phrase par phrase -------------------
+# Depuis L1, la réponse du guide à une sous-question est **un** paragraphe porté par une seule
+# affirmation. Jugé d'un bloc, il tombait entier dès qu'une de ses phrases dépassait les passages
+# cités — et la sous-question tombait avec lui (mesuré le 04/09/2026 sur `g-ecole` et `g-impots`,
+# en français comme en anglais). Ces témoins tiennent la propriété descendue à la phrase.
+
+PARAGRAPHE = ("Vous disposez de huit jours pour déclarer votre arrivée. "
+              "La caution est plafonnée à deux mois de loyer. "
+              "Le dossier coûte quarante-cinq euros. "
+              "Deux mois de loyer sont donc à prévoir.")
+
+
+def _draft_paragraphe(texte: str, quotes: list[tuple[str, str]]) -> AnswerDraft:
+    """Une ébauche dont l'unique segment factuel **est** le paragraphe de la claim.
+
+    C'est la forme mesurée en live : le segment est byte-identique à `Claim.text`, donc *dérivé*
+    (4.2a-bis) — il n'a pas de jugement propre et son affichage suit celui de l'affirmation. Le
+    texte que l'utilisateur lit est donc bien celui qu'on ampute ici.
+    """
+    return AnswerDraft(
+        segments=[{"text": texte, "kind": "factuel", "claim_ids": ["c1"]}],
+        claims=[{"claim_id": "c1", "text": texte,
+                 "quotes": [{"block_id": b, "quote": q} for b, q in quotes]}])
+
+
+async def test_une_phrase_non_soutenue_est_retiree_et_le_reste_du_paragraphe_est_affiche(
+        mini: Index) -> None:
+    """(a) Quatre phrases, une non soutenue ⇒ trois affichées, une retirée, l'affirmation retenue.
+
+    C'est le correctif du tour : avant lui, le rang 2 faisait tomber les quatre, donc la
+    sous-question, donc la réponse.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE, [("mini:p1:2", QUOTE_ARRIVEE),
+                                           ("mini:p1:3", "plafonnée à deux mois de loyer")])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), phrases={"c1": [2]})])
+
+    assert v.found is True
+    (claim,) = v.claims
+    assert claim.status.pertinente is True and len(claim.quotes) == 2  # les citations restent
+    assert "quarante-cinq euros" not in claim.text
+    assert "huit jours" in claim.text and "deux mois de loyer" in claim.text
+    # Le texte **affiché** porte la même amputation : c'est lui que l'utilisateur lit.
+    (segment,) = [s for s in v.segments if s.kind == "factuel"]
+    assert "quarante-cinq euros" not in segment.text
+    assert segment.text == claim.text
+    # Le compte est publié, et il rejoint la lacune que le front rend déjà (« J'ai retiré N phrases »).
+    (check,) = [c for c in step.checks if c.name == "phrases_de_claim_retirees"]
+    assert check.ok is False and "1 phrase(s)" in check.detail
+    assert {lacune.kind: lacune.n for lacune in v.lacunes}["phrases_ecartees"] == 1
+    assert v.complete is False  # une réponse amputée n'est pas une réponse complète
+
+
+async def test_un_paragraphe_dont_aucune_phrase_nest_soutenue_est_rejete_comme_avant(
+        mini: Index) -> None:
+    """(b) Toutes les unités non soutenues ⇒ `non_soutenue`, exactement le comportement d'avant L1d.
+
+    Rien n'est affiché sans appui : l'amputation ne peut pas devenir une porte de sortie pour un
+    paragraphe que rien ne soutient.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, _step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), phrases={"c1": [0, 1, 2, 3]})])
+
+    assert v.claims == [] and v.found is False
+    (rejetee,) = v.rejected_claims
+    assert rejetee.rejection_kind == "non_pertinente"
+    assert rejetee.rejection_reason == "non_soutenue"
+    assert rejetee.text == PARAGRAPHE  # le code ne réécrit jamais le texte qu'il rejette
+
+
+async def test_une_phrase_orpheline_tombe_avec_son_antecedent(mini: Index) -> None:
+    """(c) « Sans cette déclaration… » n'a pas son objet en elle : elle est **jointe** à la
+    précédente (jointure de L1b, réemployée telle quelle) et retirée avec elle.
+
+    Sans cette jointure, retirer la phrase qui porte l'antécédent laisserait à l'écran une phrase
+    dont on ne sait plus de quoi elle parle — le mode d'échec que L1b a corrigé pour les segments.
+    """
+    texte = ("La caution est plafonnée à deux mois de loyer. "
+             "Le dossier coûte quarante-cinq euros. "
+             "Sans cette somme, aucune inscription n'est enregistrée.")
+    draft = _draft_paragraphe(texte, [("mini:p1:3", "plafonnée à deux mois de loyer")])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True), phrases={"c1": [1]})])
+
+    (claim,) = v.claims
+    assert claim.text == "La caution est plafonnée à deux mois de loyer."
+    assert "quarante-cinq" not in claim.text and "Sans cette somme" not in claim.text
+    # Une seule unité retirée : les deux phrases n'en font qu'une, et le compte le dit.
+    (check,) = [c for c in step.checks if c.name == "phrases_de_claim_retirees"]
+    assert "1 phrase(s)" in check.detail
+    assert {lacune.kind: lacune.n for lacune in v.lacunes}["phrases_ecartees"] == 1
+
+
+async def test_une_affirmation_dune_seule_phrase_ne_recoit_aucun_decoupage_et_ne_change_pas(
+        mini: Index) -> None:
+    """(e) Rejeu des fixtures existantes : rien ne change pour une claim d'une seule phrase.
+
+    Aucune clé `phrases` dans sa charge — donc le même octet envoyé qu'avant L1d —, et un rang
+    rendu malgré tout ne retire rien : le code n'a rien numéroté, il n'a rien à situer.
+    """
+    draft = _draft_simple()
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), phrases={"c1": [0]})])
+
+    charges = [json.loads(bloc) for bloc in re.findall(
+        r'<untrusted kind="claim">\n(.*?)\n</untrusted>',
+        fake.requests[0]["messages"][0]["content"], flags=re.S)]
+    assert charges and all("phrases" not in charge for charge in charges)
+    (claim,) = v.claims
+    assert claim.text == "Le délai est de huit jours." and v.complete is True
+    assert [c for c in step.checks if c.name == "phrases_de_claim_retirees"] == []
+
+
+async def test_le_nombre_dunites_par_affirmation_est_borne_par_config(mini: Index) -> None:
+    """La borne vit dans `config.py` et **fond** le surplus dans la dernière unité — jamais ne le
+    retire : une borne qui supprimerait du texte affiché serait un mode d'échec de plus."""
+    draft = _draft_paragraphe(PARAGRAPHE, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), phrases={"c1": [1]})],
+                                     settings=_settings(claim_phrases_max=2))
+
+    (charge,) = [json.loads(bloc) for bloc in re.findall(
+        r'<untrusted kind="claim">\n(.*?)\n</untrusted>',
+        fake.requests[0]["messages"][0]["content"], flags=re.S)]
+    assert [p["rang"] for p in charge["phrases"]] == [0, 1]
+    assert "quarante-cinq euros" in charge["phrases"][1]["texte"]  # fondu, jamais perdu
+    (claim,) = v.claims
+    assert claim.text == "Vous disposez de huit jours pour déclarer votre arrivée."

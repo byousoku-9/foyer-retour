@@ -54,6 +54,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from server.app.config import Settings
 from server.app.corpus.dictionary import forme
+from server.app.corpus.ebauche import decouper_en_phrases
 from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
     DEMANDE_KINDS,
@@ -109,6 +110,12 @@ class VerdictPertinence(BaseModel):
     claim_id: str
     pertinente: bool
     raison: Literal["non_soutenue", "hors_objet", "conclusion_ajoutee"] | None = None
+    # Story 5.6 (L1d) : les **rangs** des unités de lecture de l'affirmation que la réunion des
+    # passages joints ne soutient pas. Vide quand tout est soutenu, et vide aussi pour une
+    # affirmation d'une seule phrase — le code ne lui en envoie alors aucune, et son verdict global
+    # décide seul, exactement comme avant. Des entiers de **notre** numérotation, pas des chaînes du
+    # modèle : un rang hors de la liste envoyée ne retire rien.
+    phrases_non_soutenues: list[int] = []
     # Sentinelle interne (revue 4.2a, B2) : `SkipJsonSchema` la retire du schéma envoyé au modèle —
     # le vocabulaire des raisons reste fermé côté fournisseur, et rien ne peut la renseigner de
     # l'extérieur (le validateur ci-dessous l'écrase quoi qu'il arrive).
@@ -1146,13 +1153,22 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # quelque chose et que ce quelque chose n'a pas été relu.
     demande: DemandeContexte | None = None
     demande_refusee = False
+    # Story 5.6 (L1d). Le découpage d'une affirmation-paragraphe en unités de lecture, calculé une
+    # fois, ici : il sert à la charge envoyée au contrôle **et** à l'amputation qui en découle, et
+    # deux découpages ne pourraient que diverger. Une affirmation d'une seule unité n'entre pas dans
+    # la table — rien n'est envoyé, rien n'est retiré, et son chemin reste celui d'avant.
+    phrases_de_claim = {claim.claim_id: decouper_en_phrases(claim.text,
+                                                            place=settings.claim_phrases_max)
+                        for claim, _, _ in evaluees}
+    phrases_retirees: dict[str, set[int]] = {}
     if evaluees:
         try:
             (verdicts, raisons, couverture, soutiens, applicabilites, demande,
-             demande_refusee) = await _pertinence(
+             demande_refusee, phrases_retirees) = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
-                clauses=clauses_par_claim, fournis=fournis, contexte=contexte)
+                clauses=clauses_par_claim, fournis=fournis, contexte=contexte,
+                phrases_de_claim=phrases_de_claim)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
@@ -1185,6 +1201,57 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                    "clause dans `text` plutôt que dans `rattachement` : la clause est alors jugée "
                    "sur un lien qu'aucune citation ne peut établir"))
 
+    # --- L1d : la phrase, et non le paragraphe, est l'unité du jugement -------------------
+    # Depuis L1 une affirmation peut être un **paragraphe**. Jugé d'un bloc, il tombait entier dès
+    # qu'une seule de ses phrases dépassait les passages cités — et la sous-question qu'il portait
+    # tombait avec lui (mesuré le 04/09/2026 sur `g-ecole` et `g-impots`, en français comme en
+    # anglais : « il reste 1 sous-question sans réponse » à la place de la réponse). C'est la même
+    # propriété que celle des segments, descendue à l'endroit où elle manquait : le code retire les
+    # phrases non soutenues et **garde les autres**, sans jamais rien réécrire.
+    #
+    # Le texte affiché est celui des segments, pas celui des claims : une affirmation amputée dont
+    # un segment **dérivé** (byte-identique, 4.2a-bis) porte l'octet à l'écran est donc amputée des
+    # deux côtés, sur le même découpage et les mêmes rangs. Si ce découpage ne retrouve pas le même
+    # nombre d'unités dans le texte affiché, aucun rang n'est mappable : l'affirmation est alors
+    # rejetée entière, ce qui est exactement le comportement d'avant L1d — jamais un affichage non
+    # soutenu.
+    textes_amputes: dict[str, str] = {}
+    segments_amputes: dict[int, str] = {}
+    claims_amputees = 0
+    phrases_de_claim_retirees = 0
+    for claim, _quotes, _edition in evaluees:
+        unites = phrases_de_claim.get(claim.claim_id, [])
+        retires = phrases_retirees.get(claim.claim_id, set())
+        if len(unites) <= 1 or not retires:
+            continue
+        portes = {i: decouper_en_phrases(draft.segments[i].text, place=settings.claim_phrases_max)
+                  for i, ids in derives.items() if claim.claim_id in ids}
+        gardees = [u for r, u in enumerate(unites) if r not in retires]
+        if not gardees or any(len(d) != len(unites) for d in portes.values()):
+            if verdicts.get(claim.claim_id) is not False:
+                verdicts[claim.claim_id] = False
+                raisons[claim.claim_id] = "non_soutenue"
+            continue
+        if verdicts.get(claim.claim_id) is not True:
+            continue  # déjà écartée par le jugement global : il n'y a rien à amputer
+        textes_amputes[claim.claim_id] = " ".join(gardees)
+        for i, decoupe in portes.items():
+            segments_amputes[i] = " ".join(u for r, u in enumerate(decoupe) if r not in retires)
+        claims_amputees += 1
+        phrases_de_claim_retirees += len(retires)
+    if phrases_de_claim_retirees:
+        step.checks.append(CheckResult(
+            name="phrases_de_claim_retirees", ok=False,
+            detail=f"{phrases_de_claim_retirees} phrase(s) de {claims_amputees} affirmation(s) "
+                   "retenue(s) avancent plus que les passages joints : retirées du texte affiché, "
+                   "l'affirmation et ses citations restent"))
+    # Le texte réellement affichable : les segments du draft, ceux d'une affirmation amputée portant
+    # la même amputation. C'est cette liste, et non `draft.segments`, que la suite juge et publie.
+    segments_affichables = [
+        s if i not in segments_amputes else
+        AnswerSegment(text=segments_amputes[i], kind=s.kind, claim_ids=list(s.claim_ids))
+        for i, s in enumerate(draft.segments)]
+
     claims: list[VerifiedClaim] = []
     jugees: dict[str, ClaimJugee] = {}  # mode sinistre : ce que la table AD-6 lira des claims retenues
     manquants = 0
@@ -1213,7 +1280,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         for q in quotes:
             line_ids += [lid for lid in q.line_ids if lid not in line_ids]
         if pertinente is True:
-            claims.append(VerifiedClaim(claim_id=claim.claim_id, text=claim.text, quotes=quotes,
+            claims.append(VerifiedClaim(claim_id=claim.claim_id,
+                                        text=textes_amputes.get(claim.claim_id, claim.text),
+                                        quotes=quotes,
                                         facette=claim.facette, rattachement=claim.rattachement,
                                         status=status, line_ids=line_ids))
             continue
@@ -1278,8 +1347,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # règle mécanique (« qu'aucune phrase ne me soit montrée sans un passage du guide qui la
     # soutient ») : chaque phrase envoyée au contrôle groupé doit en revenir `soutenu=true`. Une
     # phrase sans verdict n'est pas devinée — elle n'est pas affichée (même règle que `pertinente`).
-    survivants = list(draft.segments)
-    ecartes = 0
+    survivants = list(segments_affichables)
+    ecartes = phrases_de_claim_retirees
     if evaluees:  # sans appel groupé, aucun verdict n'a pu être rendu : rien n'est jugé, ni retiré
         soumis = {i for i, _ in a_juger}
         # Story 4.2a-bis : l'affichage d'un segment dérivé suit la seule décision de pertinence de
@@ -1305,7 +1374,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 return bool(derives[i] & retenues)
             return i in soumis and soutiens.get(i) is True
 
-        survivants = [s for i, s in enumerate(draft.segments)
+        survivants = [s for i, s in enumerate(segments_affichables)
                       if not s.text.strip() or _affiche(i)]
         # Un dérivé masqué ampute la réponse voulue : il compte dans `ecartes` (lacune
         # `phrases_ecartees`), mais sous un check distinct — le détail de `segments_non_soutenus`
@@ -1314,14 +1383,14 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         # dont **aucune** claim n'était citable n'était pas affichable avant la dérivation non
         # plus — le compter créerait une lacune que son jumeau paraphrasé n'a jamais créée, et sa
         # claim rejetée alimente déjà la relance.
-        derives_masques = sum(1 for i, s in enumerate(draft.segments)
+        derives_masques = sum(1 for i, s in enumerate(segments_affichables)
                               if s.text.strip() and i in derives and not (derives[i] & retenues)
                               and (set(s.claim_ids) & citables))
-        non_soutenus = sum(1 for i, s in enumerate(draft.segments)
+        non_soutenus = sum(1 for i, s in enumerate(segments_affichables)
                            if s.text.strip() and i not in derives
                            and not (i in soumis and soutiens.get(i) is True)
                            and (s.kind != "factuel" or (set(s.claim_ids) & citables)))
-        ecartes = non_soutenus + derives_masques
+        ecartes = non_soutenus + derives_masques + phrases_de_claim_retirees
         if non_soutenus:
             step.checks.append(CheckResult(
                 name="segments_non_soutenus", ok=False,
@@ -1605,8 +1674,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       clauses: dict[str, list[ClauseCitee]] | None = None,
                       fournis: set[str] | None = None,
                       contexte: list[tuple[int, AnswerSegment]] | None = None,
+                      phrases_de_claim: dict[str, list[str]] | None = None,
                       ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
-                                 dict[str, ChampsApplicabilite], DemandeContexte | None, bool]:
+                                 dict[str, ChampsApplicabilite], DemandeContexte | None, bool,
+                                 dict[str, set[int]]]:
     """L'unique appel `reason` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
     Tout sort du **même** appel (AD-9 amendé : « un seul appel groupé, qui rend pertinence, phrases
@@ -1620,6 +1691,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     """
     sinistre = faits is not None
     clauses = clauses or {}
+    phrases_de_claim = phrases_de_claim or {}
     prefix = load_prompt("commun") + "\n\n" + load_prompt("verifier")
     if sinistre:
         # `render_prompt` et non `load_prompt` : la borne du libellé est un seuil de `config.py`, et un
@@ -1652,6 +1724,15 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             citations.append({"block_id": q.block_id, "passage": block.text_norm[q.start:q.end]})
         charge: dict[str, Any] = {"claim_id": claim.claim_id, "affirmation": claim.text,
                                   "citations": citations}
+        # L1d : une affirmation-paragraphe voyage **aussi** découpée en unités de lecture numérotées,
+        # pour que le contrôle puisse dire *lesquelles* les passages ne soutiennent pas. Le texte
+        # entier reste sous `affirmation` — c'est lui qui porte le jugement global, et son octet ne
+        # bouge pas. Une affirmation d'une seule unité n'en reçoit aucune : sa charge est
+        # byte-identique à celle d'avant, et rien ne change pour elle.
+        unites = phrases_de_claim.get(claim.claim_id, [])
+        if len(unites) > 1:
+            charge["phrases"] = [{"rang": rang, "texte": texte}
+                                 for rang, texte in enumerate(unites)]
         # L1c : le **rattachement aux faits**, transmis à part de l'affirmation parce qu'il ne se
         # juge pas contre les citations. Fondu dans `affirmation`, il faisait tomber la clause avec
         # lui dès qu'il dépassait la citation d'un mot (cas bougie, 04/09/2026) ; envoyé sous sa
@@ -1733,9 +1814,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     attendus = {claim.claim_id for claim, _, _ in evaluees}
     verdicts: dict[str, bool] = {}
     raisons: dict[str, str] = {}
+    # L1d : les unités de lecture que le contrôle déclare non soutenues, par affirmation. Mêmes
+    # garde-fous que partout ailleurs — un identifiant inventé ne décide de rien, un rang que nous
+    # n'avons pas envoyé ne retire rien, et deux réponses pour la même affirmation ne s'arbitrent pas
+    # par l'ordre d'arrivée : leur **réunion** est retenue, parce que retirer plus est le côté
+    # prudent (« dans le doute, réponds false »).
+    phrases_retirees: dict[str, set[int]] = {}
     for v in result.parsed.verdicts:
         if v.claim_id not in attendus:  # un identifiant inventé ne décide de rien
             continue
+        unites = phrases_de_claim.get(v.claim_id, [])
+        if len(unites) > 1:
+            phrases_retirees.setdefault(v.claim_id, set()).update(
+                rang for rang in v.phrases_non_soutenues if 0 <= rang < len(unites))
         if v.claim_id in verdicts and verdicts[v.claim_id] != v.pertinente:
             # Le prompt interdit de répondre deux fois pour un même identifiant, et dit « dans le
             # doute, réponds false ». Une contradiction est un doute : elle écarte la claim, elle ne
@@ -2083,7 +2174,8 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     demande, demande_refusee = _demande_de_contexte(
         result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
         qualites_rendues=qualites_rendues, applicabilites=applicabilites, step=step)
-    return verdicts, raisons, couverture, soutiens, applicabilites, demande, demande_refusee
+    return (verdicts, raisons, couverture, soutiens, applicabilites, demande, demande_refusee,
+            phrases_retirees)
 
 
 def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis: set[str],

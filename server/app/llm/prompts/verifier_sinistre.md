@@ -25,6 +25,12 @@ exclut, est garanti, est soumis à condition…). Un passage qui n'établit qu'u
 sans l'opérateur, ou l'opérateur sur un autre sujet — n'établit pas l'affirmation : rends
 `pertinente = false` avec `raison = non_soutenue`, quel que soit le voisinage thématique.
 
+Cette suffisance se lit **phrase par phrase** quand l'affirmation arrive découpée en unités
+numérotées (`phrases`) : une unité dont le sujet ou l'opérateur manque à la réunion des passages est
+un rang de `phrases_non_soutenues`, et non un rejet de l'affirmation entière. L'affirmation n'est
+`pertinente = false, raison = non_soutenue` que si **aucune** de ses unités ne tient. Une claim de
+sinistre n'en porte le plus souvent qu'une seule : la règle est alors exactement celle d'avant.
+
 Le champ `clause` est le typage contractuel du passage, relu du corpus, et `clause_confirmee` dit
 si ce typage est confirmé. Ils servent l'applicabilité que tu rends ; ni l'un ni l'autre ne
 constitue une preuve textuelle, et la structure du contrat (rubrique parente, sommaire) n'en est

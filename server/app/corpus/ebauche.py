@@ -12,6 +12,7 @@ déjà le texte des blocs — et les deux bornes de `config.py` leur arrivent en
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -368,3 +369,46 @@ def joindre_segments_orphelins(draft: AnswerDraft) -> tuple[AnswerDraft, int]:
     if not jointures:
         return draft, 0
     return draft.model_copy(update={"segments": segments}), jointures
+
+
+# La frontière de phrase : une ponctuation terminale, de l'espace, puis une ouverture de phrase —
+# une majuscule, éventuellement précédée d'un guillemet ou d'une parenthèse. Exiger la majuscule est
+# ce qui évite de couper « 3.5 % », « e.g. » ou « art. 12 » ; les quatre langues servies ouvrent
+# toutes leurs phrases par une capitale, et l'allemand capitalise ses noms **au milieu** d'une
+# phrase, jamais après un point (le contre-exemple n'existe donc pas).
+_FIN_DE_PHRASE = re.compile(r'(?<=[.!?…])\s+(?=[«"“‘\'(\[]*[A-ZÀ-ÖØ-Þ])')
+
+
+def decouper_en_phrases(texte: str, *, place: int) -> list[str]:
+    """Le texte découpé en **unités de lecture** : des phrases, dont les orphelines sont jointes.
+
+    Story 5.6 (L1d). Depuis L1, une affirmation peut être un **paragraphe** : le contrôle la jugeait
+    alors d'un bloc, et une seule phrase qui dépassait les passages cités faisait tomber le
+    paragraphe entier — donc la sous-question qu'il portait, et donc la réponse (mesuré le
+    04/09/2026 sur `g-ecole` et `g-impots`, en français comme en anglais). La propriété exigée est
+    plus fine que le bloc : *chaque phrase affichée* est soutenue. C'est donc la phrase qui est
+    l'unité, ici comme elle l'est déjà pour les segments.
+
+    La coupe est celle de L1b, réemployée telle quelle : une phrase qui s'ouvre sur une anaphore
+    (`_ouverture_anaphorique`) n'a pas son antécédent en elle-même — elle est **jointe** à la
+    précédente, et les deux vivent ou tombent ensemble. Sans cela, retirer une phrase pourrait
+    laisser « Sans cette déclaration, … » sans son objet, ce qui est précisément ce que la jointure
+    des segments empêche déjà à l'affichage. Un seul découpage, une seule règle d'antécédent.
+
+    `place` borne le nombre d'unités : au-delà, le reste est **fondu dans la dernière** — jamais
+    retiré. Une borne qui supprimerait du texte affiché serait un mode d'échec de plus ; une borne
+    qui rend l'unité plus grosse ne fait que retrouver le comportement d'avant, qui jugeait tout
+    d'un bloc.
+    """
+    brutes = [p for p in _FIN_DE_PHRASE.split(texte.strip()) if p.strip()]
+    if not brutes:
+        return []
+    phrases: list[str] = []
+    for brute in brutes:
+        if phrases and _ouverture_anaphorique(brute):
+            phrases[-1] = f"{phrases[-1].rstrip()} {brute.lstrip()}"
+            continue
+        phrases.append(brute.strip())
+    if place >= 1 and len(phrases) > place:
+        phrases = [*phrases[: place - 1], " ".join(phrases[place - 1:])]
+    return phrases

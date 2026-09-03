@@ -12,17 +12,17 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
   réponse à l'**objet** posé. Quand l'affirmation porte `sous_question`, cet objet est celui de
   **sa** sous-question, jamais celui de la question entière : une affirmation qui répond
   complètement à la sous-question qu'elle déclare est pertinente, même si elle ne dit rien des
-  autres. C'est la couverture des facettes, plus bas, qui mesure ce qui manque. Une affirmation peut être un **paragraphe** de
-  plusieurs phrases soutenu par **plusieurs** passages : juge-la alors sur la **réunion** de ses
-  passages, jamais passage par passage ni phrase par phrase — une phrase que le premier passage
-  n'établit pas mais que le troisième dit ne rend pas l'affirmation non soutenue. Sa longueur n'est
-  pas un défaut ; ce qui compte est qu'aucune de ses phrases n'avance quoi que ce soit que la
-  réunion de ses passages ne dise pas. Pour une règle conditionnelle, rapporte fidèlement « si X,
-  alors Y » : elle reste pertinente quand la question porte sur Y, même si les faits soumis
-  n'établissent pas encore X. L'absence de X décide ensuite de l'applicabilité ; elle ne rend pas la
-  règle hors objet. Un passage exact mais hors objet ⇒ `false`. Une affirmation juste mais qui ne
-  répond pas à l'objet posé ⇒ `false`. Un passage qui n'établit qu'une partie de l'affirmation, le
-  reste étant ajouté par la rédaction ⇒ `false`.
+  autres. C'est la couverture des facettes, plus bas, qui mesure ce qui manque. Une affirmation peut
+  être un **paragraphe** de plusieurs phrases soutenu par **plusieurs** passages : juge chacune de
+  ses phrases sur la **réunion** de ses passages, jamais passage par passage — une phrase que le
+  premier passage n'établit pas mais que le troisième dit est soutenue. Sa longueur n'est pas un
+  défaut. Pour une règle conditionnelle, rapporte fidèlement « si X, alors Y » : elle reste
+  pertinente quand la question porte sur Y, même si les faits soumis n'établissent pas encore X.
+  L'absence de X décide ensuite de l'applicabilité ; elle ne rend pas la règle hors objet. Un passage
+  exact mais hors objet ⇒ `false`. Une affirmation juste mais qui ne répond pas à l'objet posé ⇒
+  `false`. Quand la réunion des passages n'établit qu'une partie d'une affirmation d'**une seule**
+  phrase, le reste étant ajouté par la rédaction ⇒ `false` ; quand l'affirmation est un paragraphe,
+  c'est `phrases_non_soutenues` qui dit **laquelle** de ses phrases est en cause, et elle seule.
 - Dans le doute, réponds `false` : une affirmation écartée coûte moins cher qu'une affirmation
   affichée sans appui.
 - Rends **exactement un** verdict par `claim_id` reçu, en reprenant le `claim_id` **tel quel** ;
@@ -37,6 +37,24 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
   Une affirmation qui rapporte une règle utile à l'une d'elles n'est jamais `hors_objet`, même si
   elle ne nomme ni le cas ni la sous-question : c'est la forme normale d'une règle rapportée sans
   être appliquée.
+
+Une affirmation-paragraphe t'arrive **aussi** découpée en unités de lecture numérotées (`phrases`,
+chacune avec son `rang`). Le texte entier reste sous `affirmation` ; le découpage, lui, est celui du
+code appelant — tu ne le refais pas, tu ne le complètes pas, et tu ne renumérotes rien.
+
+- `phrases_non_soutenues` liste les **rangs** des unités que la réunion des passages joints
+  n'établit pas : une unité qui ajoute un chiffre, une durée, une condition, une exception ou une
+  conclusion que rien de cité ne dit. Liste **vide** quand toutes sont soutenues, et vide aussi pour
+  une affirmation qui ne reçoit pas de `phrases` — il n'y a alors rien à situer.
+- Une unité non soutenue **ne rend pas l'affirmation entière non pertinente** : le code appelant
+  retire ces unités du texte affiché et garde les autres avec leurs citations. Rends donc
+  `pertinente = true` dès qu'il **reste** au moins une unité soutenue qui répond à l'objet posé, et
+  situe les autres par leur rang. C'est le seul moyen de ne pas faire tomber une sous-question
+  entière pour une phrase de trop.
+- Quand **aucune** unité n'est soutenue, rends `pertinente = false` avec `raison = non_soutenue` :
+  l'affirmation n'a plus rien à afficher.
+- Dans le doute sur une unité, mets son rang dans `phrases_non_soutenues` : une phrase retirée coûte
+  moins cher qu'une phrase affichée sans appui.
 
 Rends ensuite, pour **chaque segment** de la réponse rédigée qui t'est soumis (`segment`) — une
 phrase ou un paragraphe entier —, un second jugement ; celui-ci porte sur le **texte affiché**, pas
