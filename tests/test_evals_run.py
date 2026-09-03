@@ -1460,10 +1460,15 @@ def test_le_budget_dun_cas_est_le_reste_du_plafond_de_run() -> None:
     """AD-9 : « en évals, [le plafond par requête] est remplacé par un plafond par run »."""
     corpus, index = _corpus()
     bonne = (_reponse([_claim(_citation(index, f"{GUIDE}:ffiche:1", "LuxTrust"))]), _trace())
+    # Le plafond de run est **dérivé** du plafond par requête, jamais un littéral : la propriété
+    # que ce témoin tient est que le second ne borne pas les cas, et un nombre écrit ici cesserait
+    # de la prouver dès que le plafond par requête le dépasse (mesuré le 03/09/2026, T7 : il est
+    # passé à 1,30 € et « 1,0 € » n'était plus au-dessus de rien).
+    plafond_du_run = round(_settings().max_cost_eur_per_request + 1.0, 2)
     ctx = _armer(_contexte([bonne, bonne], cout=0.30))
-    _executer(ctx, [_cas(id="a"), _cas(id="b")], max_cost=1.0)
+    _executer(ctx, [_cas(id="a"), _cas(id="b")], max_cost=plafond_du_run)
     budgets = [a["kw"]["budget"].max_cost_eur for a in ctx._guide.appels]  # type: ignore[attr-defined]
-    assert budgets == [1.0, 0.7]
+    assert budgets == [plafond_du_run, round(plafond_du_run - 0.30, 2)]
     # …et surtout : pas le plafond **par requête**, qui aurait fait échouer un cas à 0,30 €.
     assert budgets[0] > _settings().max_cost_eur_per_request
 
@@ -1907,9 +1912,13 @@ def test_commande_matrice_sans_sorties_traverse_chaque_cellule_et_ecrit_les_cano
         data_dir=data,
         cibles=(Path("docs/evals/baselines.json"), Path("docs/evals/baselines.md")),
     )
+    # `--max-cost` couvre le majorant de la campagne — `cellules × max_cost_eur_per_request`
+    # (`llm/pricing.estimate_run_majorant`) —, et il est donc **dérivé** : un littéral faisait
+    # refuser la matrice avant sa première cellule dès que le plafond par requête montait (T7).
+    plafond_du_run = round(len(variants) * _settings().max_cost_eur_per_request + 0.5, 2)
     code = runner.main([
         "--suite", "guide", "--compare", ",".join(variants),
-        "--tiers", "reason", "--max-cost", "1.0",
+        "--tiers", "reason", "--max-cost", str(plafond_du_run),
         "--cases-dir", str(cases), "--data-dir", str(data),
     ])
 
