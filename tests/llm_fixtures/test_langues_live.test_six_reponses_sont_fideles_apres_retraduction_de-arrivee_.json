@@ -425,6 +425,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:8471fb9649964b71": {
+    "certificate": {
+      "messages_sha256": "674e1749b1a4d56b8184bb94fa1f3ddc4059d7451ef5bca5f436a44d631ebb2b",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:8471fb9649964b71",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg91Rg3HjfzTB1fiytFy",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 689,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:870097e6c6107318": {
     "request": "claude-haiku-4-5-20251001:870097e6c6107318",
     "response": {
@@ -796,6 +835,47 @@
       }
     }
   },
+  "claude-sonnet-5:0b4c420dfe6c097b": {
+    "certificate": {
+      "messages_sha256": "04fae40f17998b9899671280baa26411c8f62aa0f72d33723a0f2aea2ae13c12",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "9fc271f124c5c7abecc70aa1bd8353c1e5adbf79002158407391033c68fb075c",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0b4c420dfe6c097b",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg8zj8ziNk343CsosJXn",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5841,
+        "inference_geo": "global",
+        "input_tokens": 406,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:13a64e93684a1683": {
     "request": "claude-sonnet-5:13a64e93684a1683",
     "response": {
@@ -877,6 +957,48 @@
       }
     }
   },
+  "claude-sonnet-5:19b679f1c4a61c81": {
+    "certificate": {
+      "messages_sha256": "6385276b7b7f33fb338023b9ae8b30be5201eb47d0e68fde3d3a998651ab8c3d",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "9fc271f124c5c7abecc70aa1bd8353c1e5adbf79002158407391033c68fb075c",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:19b679f1c4a61c81",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Sie müssen Ihre Ankunft innerhalb von acht Tagen nach dem Einzug bei der Gemeinde anmelden.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Diese Anmeldung ist wichtig, weil sie den Wohnsitznachweis und die Matrikelnummer erzeugt, die für alle weiteren Schritte notwendig sind.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Frist zur Anmeldung bei der Gemeinde beträgt acht Tage nach dem Einzug.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Die Anmeldung erzeugt den Wohnsitznachweis und die Matrikelnummer, die für die weiteren Schritte unerlässlich sind.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg8zr1jobTqpznb4TeeS",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6738,
+        "inference_geo": "global",
+        "input_tokens": 573,
+        "output_tokens": 420,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:28d97d0f454b219e": {
     "request": "claude-sonnet-5:28d97d0f454b219e",
     "response": {
@@ -906,6 +1028,59 @@
         "output_tokens": 602,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:3477f65c72f6a934": {
+    "certificate": {
+      "messages_sha256": "6aa8f2fedc88030dc0f809a77646280f3aa8c8fcb61ad5fd5f54626934a64c8b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "9fc271f124c5c7abecc70aa1bd8353c1e5adbf79002158407391033c68fb075c",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:3477f65c72f6a934",
+    "response": {
+      "content": [
+        {
+          "signature": "EqsCCpABCBEYAipA3RIIeyw9zbyidTX3fGSQjnVPQtoOMfDlGfIdkW5ViHqy5HCNItqqmszrmZOWPeoHruKujtUDqRW3yBVABrBBxzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAerM5NQGEgwHKjBUlgRgMhpBe/AaDL63JLfARy+LJEuPRCIw9WUp9uCw9KZgIXiD6EkC7pBY2gXyRkrM5ZxclRZd6q1cMceV482q1aKkyeHKjRQjKkgUW/PYfvy/4Nrev08V14pZZ9cRKmxeDI2m/AfceBQ9Q+EeY95amvQCPNcooRSgeSGXh5noUaXWO31yZjj9jIUQYXDrGijwoT0YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01UGZgHS9qfJum8KMV1n4Zmx",
+          "input": {
+            "node_id": "lux-guide:q12"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Ceg8zZhDXw4cGHJAQbGBC",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5841,
+        "inference_geo": "global",
+        "input_tokens": 184,
+        "output_tokens": 84,
+        "output_tokens_details": {
+          "thinking_tokens": 21
         },
         "service_tier": "standard"
       }
@@ -959,11 +1134,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour se déclarer à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Wie viele Tage habe ich, um meine Ankunft bei der Gemeinde anzumelden?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai de déclaration à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefckkgssLsRMGEPKjc5p",
+      "id": "msg_011Ceg8zEw6mSKSYTTPYg3Ff",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -979,7 +1154,49 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 101,
-        "output_tokens": 147,
+        "output_tokens": 145,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:58d2f30f86fa76c9": {
+    "certificate": {
+      "messages_sha256": "3707d426355e2bc6241d403b16b9f6b81704ad11a5a0a9084fe9f6bb316414dc",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "a63586a4840fbe37e7a273e054538d2dba26ae36e676f9903644420472da4f1c",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:58d2f30f86fa76c9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg91BaE3iAbBJw9ej81B",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4049,
+        "inference_geo": "global",
+        "input_tokens": 617,
+        "output_tokens": 129,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
