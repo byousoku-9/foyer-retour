@@ -376,7 +376,16 @@
     $("#fiche-detail").hidden = true;
   }
 
-  function montrerFiche(id, sansHash) {
+  /**
+   * Ouvre une fiche, et — story 5.6 (L2) — la fait defiler jusqu'a `passage`, surligne.
+   *
+   * « Ouvrir : <fiche> » ouvrait la fiche en haut : le lecteur devait retrouver lui-meme la phrase
+   * qu'on venait de lui citer dans un article de deux mille signes. `chat.js` sait ou elle est
+   * (`trouverPassage`, sur une carte normalisee : apostrophes, guillemets, espaces). Le corpus
+   * servi et `kb.js` peuvent diverger : quand la phrase ne s'y retrouve pas, la fiche s'ouvre en
+   * haut, sans erreur et sans surlignage invente.
+   */
+  function montrerFiche(id, sansHash, passage) {
     var f = window.KB.fiches.filter(function (x) { return x.id === id; })[0];
     if (!f) { rendreFiches(); return; }
     if (!sansHash && window.location.hash !== "#fiche/" + id) {
@@ -409,13 +418,28 @@
     corps.appendChild(texte);
     d.appendChild(corps);
 
-    var chapo = el("p", "chapo", f.resume);
-    texte.appendChild(chapo);
+    var cible = null;
+
+    /** Un paragraphe, avec le passage cite surligne — au plus une fois dans la fiche. */
+    function paragraphe(classe, contenu) {
+      var brut = String(contenu);
+      var bornes = (passage && !cible) ? window.CHAT.trouverPassage(brut, passage) : null;
+      if (!bornes) return el("p", classe, brut);
+      var p = el("p", classe);
+      p.appendChild(document.createTextNode(brut.slice(0, bornes.debut)));
+      var marque = el("mark", "passage-cite", brut.slice(bornes.debut, bornes.fin));
+      p.appendChild(marque);
+      p.appendChild(document.createTextNode(brut.slice(bornes.fin)));
+      cible = marque;
+      return p;
+    }
+
+    texte.appendChild(paragraphe("chapo", f.resume));
 
     // Un element de corps est soit un paragraphe, soit { h: "Sous-titre" }
     (f.corps || []).forEach(function (p) {
       if (p && typeof p === "object" && p.h) { texte.appendChild(el("h2", null, p.h)); return; }
-      texte.appendChild(el("p", null, String(p)));
+      texte.appendChild(paragraphe(null, p));
     });
 
     (f.tableaux || []).forEach(function (t) {
@@ -473,7 +497,12 @@
 
     $("#fiches-liste").hidden = true;
     d.hidden = false;
-    window.scrollTo(0, 0);
+    // Le passage cite, s'il a ete retrouve ; sinon le haut de la fiche, comme avant.
+    if (cible && typeof cible.scrollIntoView === "function") {
+      cible.scrollIntoView({ block: "center" });
+    } else {
+      window.scrollTo(0, 0);
+    }
   }
 
   // Une seule regle de recherche pour tout le site :
@@ -1175,7 +1204,11 @@
 
   function executer(action) {
     if (!action) return;
-    if (action.nom === "ouvrir_fiche") { ouvrir("fiches"); montrerFiche(action.fiche_id); return; }
+    if (action.nom === "ouvrir_fiche") {
+      ouvrir("fiches");
+      montrerFiche(action.fiche_id, false, action.passage);
+      return;
+    }
     if (action.nom === "poser") { envoyer(action.question); return; }
     if (action.nom === "comparateur") { ouvrir("comparateur"); passerAuComparateur(action.question); return; }
     if (action.nom === "recherche_simple") { repliExplicite(action.question); }
@@ -1211,6 +1244,53 @@
     }
     (vue.enfants || []).forEach(function (enfant) { e.appendChild(materialiser(enfant, grp)); });
     return e;
+  }
+
+  /**
+   * Remplace des bulles deja peintes par une nouvelle vue, en place (story 5.6, L2).
+   *
+   * Sert quand la **structure** change — le serveur annonce un autre nombre d'etapes. Le cas
+   * courant, lui, passe par `ecrireAttente()` : rien n'est remplace, seuls des textes changent.
+   */
+  function remplacer(noeuds, vue) {
+    return noeuds.map(function (m) {
+      var parent = m.parentElement;
+      if (!parent) return m;
+      var neuf = materialiser(vue, ++chipsGroupe);
+      parent.replaceChild(neuf, m);
+      return neuf;
+    });
+  }
+
+  /**
+   * Ecrit dans une barre d'attente deja peinte ce que `chat.js` a decide, sans rien recomposer.
+   *
+   * Repeindre la bulle chaque seconde etait deux fautes en une : le journal porte `aria-live`, donc
+   * un lecteur d'ecran aurait relu la barre et son chronometre a chaque seconde pendant une minute,
+   * et un noeud remplace perd le focus qu'il portait. Rend `false` quand la structure a change —
+   * l'appelant repeint alors.
+   */
+  function ecrireAttente(noeuds, etat) {
+    var premier = noeuds[0];
+    if (!premier) return false;
+    var maj = window.CHAT.majAttente(etat, premier.querySelectorAll(".prog-etape").length);
+    if (!maj) return false;
+    noeuds.forEach(function (m) {
+      m.querySelectorAll(".prog-etape").forEach(function (n, i) {
+        var ligne = maj.etapes[i];
+        if (!ligne) return;
+        n.className = ligne.cls;
+        var libelle = n.querySelector(".prog-libelle");
+        if (libelle) libelle.textContent = ligne.libelle;
+        var mot = n.querySelector(".prog-etat");
+        if (mot) mot.textContent = ligne.etat;
+      });
+      var horloge = m.querySelector(".prog-chrono");
+      if (horloge) horloge.textContent = maj.chrono;
+      var note = m.querySelector(".attente-txt");
+      if (note) note.textContent = maj.note;
+    });
+    return true;
   }
 
   // La bulle est assemblee **hors du DOM** puis ajoutee d'un bloc : une region `aria-live`
@@ -1330,19 +1410,54 @@
     // L'historique vit en memoire de page, et nulle part ailleurs (AD-15).
     historique.push({ role: "user", content: q });
 
-    var attente = peindre(window.CHAT.vueAttente());
+    // Story 5.6 (L2) : l'attente **bouge**. La bulle est repeinte chaque seconde — chronometre,
+    // etape en cours — et suit le flux de progression quand le serveur en sert un. `chat.js`
+    // compose la vue ; ici on ne fait que la rafraichir et arreter le minuteur sur les deux issues.
+    var debut = Date.now();
+    var duServeur = null;
+    // `verrouillerSaisie(true)` **avant** la premiere peinture : c'est lui qui pose `aria-busy` sur
+    // les journaux, et une region `aria-live` qui recoit la barre avant d'etre marquee occupee la
+    // ferait annoncer, puis relire a chaque mise a jour.
     verrouillerSaisie(true);
+    var attente = peindre(window.CHAT.vueAttente(window.CHAT.etatAttente(debut, debut, null)));
+    function rafraichir() {
+      var etat = window.CHAT.etatAttente(debut, Date.now(), duServeur);
+      if (ecrireAttente(attente, etat)) return;
+      attente = remplacer(attente, window.CHAT.vueAttente(etat));
+    }
+    var tic = (typeof setInterval === "function") ? setInterval(rafraichir, 1000) : null;
+    function finirAttente() {
+      if (tic !== null && typeof clearInterval === "function") clearInterval(tic);
+      tic = null;
+      attente.forEach(function (m) { m.remove(); });
+    }
+    function surEtape(evt) {
+      var e = evt || {};
+      if (typeof e.rang !== "number" || !isFinite(e.rang) || e.rang < 0) return;
+      duServeur = { rang: Math.floor(e.rang), libelles: (duServeur || {}).libelles || null };
+      if (typeof e.total === "number" && e.total > 0 && typeof e.libelle === "string" && e.libelle) {
+        var total = Math.floor(e.total);
+        var libelles = (duServeur.libelles && duServeur.libelles.length === total)
+          ? duServeur.libelles.slice()
+          : window.CHAT.ETAPES.map(function (x) { return x.libelle; }).slice(0, total);
+        while (libelles.length < total) libelles.push("Étape " + (libelles.length + 1));
+        if (duServeur.rang < total) libelles[duServeur.rang] = e.libelle;
+        duServeur.libelles = libelles;
+      }
+      rafraichir();
+    }
+
     var mien = ++generation;
 
     // Pas de `Promise.all` avec un delai : le seul temps d'attente est celui du travail reel.
-    window.CHAT.repondre(q, profil, historique).then(function (r) {
-      if (mien !== generation) return;  // conversation reinitialisee : cette reponse n'a plus de fil
-      attente.forEach(function (m) { m.remove(); });
+    window.CHAT.repondre(q, profil, historique, surEtape).then(function (r) {
+      if (mien !== generation) { finirAttente(); return; }  // fil reinitialise : plus de reponse
+      finirAttente();
       verrouillerSaisie(false, saisie);
       afficherReponse(q, r);
     }, function (e) {
-      if (mien !== generation) return;
-      attente.forEach(function (m) { m.remove(); });
+      if (mien !== generation) { finirAttente(); return; }
+      finirAttente();
       verrouillerSaisie(false, saisie);
       afficherErreur(q, e);
     });
@@ -3676,7 +3791,11 @@
     // du serveur (`server/app/domain/profil.py`) sur la table de cas `tests/data/profil_cas.json`.
     // Les deux ne peuvent pas etre factorisees — le site n'appelle pas le serveur pour filtrer son
     // parcours — mais rien n'obligeait a les laisser diverger sans qu'aucun test ne le voie.
-    etapeConcerne: etapeConcerne
+    etapeConcerne: etapeConcerne,
+    // Story 5.6 (L2) : « Ouvrir : <fiche> » fait defiler jusqu'a la phrase citee, surlignee.
+    // Expose pour que le harnais l'exerce sans le reste de la page (les onglets, la carte, la
+    // frise) : ce qu'on verifie ici est le corps de la fiche, pas la navigation.
+    montrerFiche: montrerFiche
   };
   if (window.__UI_SANS_DEMARRAGE) return;
 

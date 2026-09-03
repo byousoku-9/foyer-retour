@@ -86,6 +86,16 @@ class Noeud {
     return n;
   }
 
+  /** `Node.replaceChild` : l'attente se rafraichit **en place**, sans remonter dans le journal. */
+  replaceChild(neuf, ancien) {
+    const i = this.childNodes.indexOf(ancien);
+    if (i === -1) throw new Error("replaceChild : le noeud remplacé n'est pas un enfant");
+    ancien.parentElement = null;
+    neuf.parentElement = this;
+    this.childNodes[i] = neuf;
+    return ancien;
+  }
+
   remove() {
     const p = this.parentElement;
     if (!p) return;
@@ -124,6 +134,10 @@ class Noeud {
   }
 
   focus() { this.ownerDocument.actif = this; }
+
+  // `HTMLElement.click()` : le seul moyen, sans navigateur, qu'un gestionnaire posé sur un parent
+  // déclenche celui d'un bouton qu'il a trouvé (la carte de clause de la page sinistre le fait).
+  click() { this.declencher("click", { target: this }); }
 
   /** Tous les descendants, en ordre document. */
   descendants() {

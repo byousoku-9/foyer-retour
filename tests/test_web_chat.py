@@ -168,7 +168,11 @@ def test_la_premiere_requete_part_deja_sur_les_seuils_du_serveur(cas: dict[str, 
     **première** question utilisait les replis écrits dans `chat.js` et ignorait une configuration
     différente : un serveur réglé à 3 tours recevait les 6 du repli, donc un 400."""
     vu = cas["premiere_requete"]
-    assert vu["urls"] == ["/sante", "/chat"], "la sonde d'abord, la question ensuite"
+    # Story 5.6 (L2) : la question tente d'abord le flux de progression. Le serveur ne sert pas
+    # encore cette route (404), et la page bascule sur la route classique — une seule fois, et sans
+    # que le 404 n'ait rien coûté.
+    assert vu["urls"] == ["/sante", "/chat/progression", "/chat"], (
+        "la sonde d'abord, le flux ensuite, la route classique en repli")
     assert vu["bornes"]["historique_max_tours"] == 2
     assert vu["historique_envoye"] == 2, "l'historique est borné par la valeur du serveur"
 
@@ -1001,6 +1005,13 @@ def test_les_codes_traduits_sont_ceux_de_lenum_dad16(code: str) -> None:
 # un 4xx », « le coût en pied », « la clarification comme une question ».
 
 def test_chaque_segment_factuel_est_suivi_de_ses_citations(cas: dict[str, Any]) -> None:
+    """Story 5.6 (L2) : les citations sont **groupées par fiche**, en puces courtes.
+
+    La réponse se lisait « une phrase, une citation, une phrase, une citation » : le paragraphe
+    n'existait plus, et la même fiche revenait sous chaque phrase. Une puce par fiche, avec le
+    nombre de passages ; la citation elle-même est rendue là où elle vit, dans la fiche, quand on
+    l'ouvre — et le passage voyage dans l'action pour que la fiche s'y positionne.
+    """
     vue = cas["vue_nominale"]
     assert vue["ordre_des_blocs"] == ["seg seg-factuel", "seg seg-factuel", "pied", "pourquoi",
                                      "chips"]
@@ -1008,16 +1019,20 @@ def test_chaque_segment_factuel_est_suivi_de_ses_citations(cas: dict[str, Any]) 
     assert [s["texte"] for s in segments] == [
         "Vous avez huit jours pour déclarer votre arrivée, au Biergercenter de votre commune.",
         "Cette déclaration produit le certificat de résidence."]
-    assert [[c["quote"] for c in s["citations"]] for s in segments] == [
-        ["« huit jours pour déclarer votre arrivée »",
-         "« au bureau de la population, souvent appelé Biergercenter »"],
-        ["« le certificat de résidence »"]]
-    # Chaque citation porte sa fiche, son lien officiel et son statut avec la réserve d'AD-4.
+    assert [[c["libelle"] for c in s["citations"]] for s in segments] == [
+        ["Les huit premiers jours · 2 passages"],
+        ["Les huit premiers jours · 1 passage"]]
+    assert [[c["passage"] for c in s["citations"]] for s in segments] == [
+        ["huit jours pour déclarer votre arrivée"], ["le certificat de résidence"]]
+    # Chaque puce ouvre sa fiche, et le statut d'AD-4 reste dit sous les puces.
     for segment in segments:
         for citation in segment["citations"]:
-            assert citation["fiche"] == "Les huit premiers jours"
-            assert citation["lien"] == "https://guichet.public.lu/arrivee"
-            assert citation["statut"].endswith("édition git:a8e8593 — actualité non vérifiée")
+            assert citation["fiche"] == "arrivee" and citation["cliquable"]
+        assert segment["statuts"] == [
+            "retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée"]
+    # `https://guichet.public.lu/arrivee` n'a qu'un segment parlant : c'est une rubrique, pas la
+    # page dont on parle. Aucun lien n'est affiché, et rien ne le remplace.
+    assert all(c["lien"] is None for s in segments for c in s["citations"])
     assert vue["citations_plates"] == [] and vue["degrade"] is None
 
 
@@ -1159,9 +1174,10 @@ def test_un_appariement_abandonne_degrade_visiblement_sans_rien_retirer(cas: dic
     assert vue["segments"] == []                     # plus de rattachement phrase par phrase
     assert vue["degrade"] and "je n'ai pas pu rattacher" in vue["degrade"]
     plates = vue["citations_plates"]
-    assert len(plates) == 3                          # aucune citation perdue
-    for citation in plates:
-        assert citation["statut"].endswith("actualité non vérifiée")
+    # Groupées par fiche : une seule puce, mais **trois** passages comptés — aucun n'est perdu.
+    assert [c["libelle"] for c in plates] == ["Les huit premiers jours · 3 passages"]
+    assert vue["statuts_plats"] and all(
+        t.endswith("actualité non vérifiée") for t in vue["statuts_plats"])
 
 
 def test_les_citations_ne_disparaissent_pas_quand_answer_segments_est_vide(cas: dict[str, Any]) -> None:
@@ -1169,7 +1185,9 @@ def test_les_citations_ne_disparaissent_pas_quand_answer_segments_est_vide(cas: 
     lui, l'appariement doit porter sur ceux qu'on peint — sinon les citations tombent des deux côtés."""
     vue = cas["vue_segments_premier_niveau"]
     assert len(vue["segments"]) == 2
-    assert sum(len(s["citations"]) for s in vue["segments"]) == 3
+    # Deux puces (une par segment), trois passages comptés : le groupement ne perd rien.
+    assert [c["libelle"] for s in vue["segments"] for c in s["citations"]] == [
+        "Les huit premiers jours · 2 passages", "Les huit premiers jours · 1 passage"]
     assert vue["citations_plates"] == []
 
 
@@ -1178,18 +1196,19 @@ def test_une_fiche_que_le_site_ne_connait_pas_nest_pas_cliquable(cas: dict[str, 
     liste complète des fiches, sans explication."""
     vue = cas["vue_fiche_inconnue"]
     citations = [c for s in vue["segments"] for c in s["citations"]]
-    assert citations and all(c["fiche"] is None for c in citations)
-    assert all(c["fiche_texte"] == "Les huit premiers jours" for c in citations)
+    assert citations and all(not c["cliquable"] and c["tag"] == "span" for c in citations)
+    # Le titre reste dit — c'est ce qu'on sait de la source —, il n'est simplement pas cliquable.
+    assert all(c["libelle"].startswith("Les huit premiers jours · ") for c in citations)
     assert _actions(vue, "ouvrir_fiche") == []
 
 
 def test_une_edition_vide_garde_la_reserve_dactualite(cas: dict[str, Any]) -> None:
     """AD-4 : « jamais comme statut vert ». `Document.edition` n'a pas de `min_length`."""
-    citations = [c for s in cas["vue_sans_edition"]["segments"] for c in s["citations"]]
-    assert citations
-    for citation in citations:
-        assert citation["statut"] == ("retrouvée · pertinente · "
-                                      "édition non précisée — actualité non vérifiée")
+    segments = cas["vue_sans_edition"]["segments"]
+    assert [c for s in segments for c in s["citations"]]
+    for segment in segments:
+        assert segment["statuts"] == ["retrouvée · pertinente · "
+                                      "édition non précisée — actualité non vérifiée"]
 
 
 def test_la_puce_du_comparateur_reapparait_avec_la_question(cas: dict[str, Any]) -> None:
@@ -1201,8 +1220,9 @@ def test_la_puce_du_comparateur_reapparait_avec_la_question(cas: dict[str, Any])
 
 def test_letat_de_chargement_est_un_texte_pas_seulement_une_animation(cas: dict[str, Any]) -> None:
     vue = cas["vue_attente"]
-    assert vue["ordre_des_blocs"] == ["attente-txt", "points"]
-    assert vue["attente"].startswith("Je cherche dans le guide")
+    # Story 5.6 (L2) : trois étapes nommées et un pied qui porte le chronomètre et la durée.
+    assert vue["ordre_des_blocs"] == ["prog", "prog-pied"]
+    assert "environ 45 secondes" in vue["attente"]
     assert vue["actions"] == []
 
 
@@ -1634,7 +1654,7 @@ def test_larbre_decrit_devient_du_dom_dans_les_deux_journaux(dom: dict[str, Any]
     textes = {j["texte"] for j in r["journaux"]}
     assert len(textes) == 1, "les deux journaux ne montrent pas la même chose"
     texte = textes.pop()
-    for morceau in ("Vous avez huit jours.", "Passage cité", "Les huit premiers jours",
+    for morceau in ("Vous avez huit jours.", "Les huit premiers jours · 1 passage",
                     "retrouvée · pertinente · édition git:a8e8593 — actualité non vérifiée",
                     "sûr", "cette réponse a coûté 0,0278 €"):
         assert morceau in texte, morceau
@@ -1644,12 +1664,14 @@ def test_le_texte_du_serveur_arrive_litteralement(dom: dict[str, Any]) -> None:
     """AD-15 : `textContent`, jamais `innerHTML`. Le DOM minimal **lève** sur toute pose d'`innerHTML`
     non vide : arriver jusqu'ici avec une citation qui porte du balisage le démontre, au lieu de le
     déduire d'une lecture du source."""
-    assert dom["reponse"]["citation"] == "« <script>alert(1)</script> huit jours »"
+    # Story 5.6 (L2) : la citation ne s'affiche plus sous chaque phrase — c'est la puce de la
+    # fiche qui la porte, et son libellé vient du serveur comme la citation le faisait.
+    assert dom["reponse"]["puce"] == "<script>alert(1)</script> Les huit premiers jours · 1 passage"
 
 
 def test_le_lien_officiel_dune_citation_est_pose_sans_fuite(dom: dict[str, Any]) -> None:
     lien = dom["reponse"]["lien"]
-    assert lien["href"] == "https://guichet.public.lu/arrivee"
+    assert lien["href"] == "https://guichet.public.lu/fr/citoyens/citoyennete.html"
     assert lien["target"] == "_blank" and "noopener" in lien["rel"]
 
 
@@ -1910,7 +1932,9 @@ def test_lattente_verrouille_les_deux_saisies_et_annonce_les_deux_journaux(
     assert dom["attente"]["pendant"]["busy"] == ["true", "true"]
     assert dom["attente"]["apres"]["desactives"] == [False, False, False, False]
     assert dom["attente"]["apres"]["busy"] == [None, None]
-    assert "Je cherche dans le guide" in dom["attente"]["texte"]
+    # Story 5.6 (L2) : l'attente nomme les trois étapes et porte un chronomètre.
+    for morceau in ("Je lis les fiches", "en cours", "0:0"):
+        assert morceau in dom["attente"]["texte"], morceau
 
 
 def test_peindre_nlaisse_rien_de_la_conversation_dans_le_navigateur(dom: dict[str, Any]) -> None:
@@ -2208,8 +2232,10 @@ def test_le_delai_artificiel_et_la_frappe_mot_a_mot_ont_disparu() -> None:
     ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
     assert "function taper(" not in ui
     assert "500 + Math.random() * 600" not in ui
-    # L'attente est décrite par `chat.js` (`vueAttente`) et seulement matérialisée ici.
-    assert "window.CHAT.vueAttente()" in ui and "verrouillerSaisie(true)" in ui
+    # L'attente est décrite par `chat.js` (`vueAttente`) et seulement matérialisée ici — story 5.6
+    # (L2) : elle prend l'état de la barre, que `chat.js` compose aussi (`etatAttente`).
+    assert "window.CHAT.vueAttente(window.CHAT.etatAttente(" in ui
+    assert "verrouillerSaisie(true)" in ui
 
 
 # --- le cache du navigateur ----------------------------------------------
@@ -2274,7 +2300,8 @@ def test_une_requete_en_vol_ne_survit_pas_a_la_reinitialisation() -> None:
     ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
     envoi = _corps(ui, "function envoyer(texteForce) {")
     assert "var mien = ++generation;" in envoi
-    assert envoi.count("if (mien !== generation) return;") == 2  # succès **et** erreur
+    # Story 5.6 (L2) : la garde arrête aussi le minuteur de l'attente avant de rendre la main.
+    assert envoi.count("if (mien !== generation) { finirAttente(); return; }") == 2
     assert "generation++;" in ui
 
 
@@ -2396,3 +2423,156 @@ def test_un_corps_de_lecture_partielle_mal_forme_nest_pas_peint(cas: dict[str, A
     assert vu["a_repondu"] is False
     assert (vu["kind"], vu["code"]) == ("requete", "reponse_illisible")
     assert vu["lectures_du_moteur_lexical"] == 0
+
+# =========================================================================
+# Story 5.6 (L2) — la source précise, le passage cité, la progression.
+# =========================================================================
+
+
+@pytest.mark.parametrize(("url", "attendu"), [
+    ("https://guichet.public.lu/fr/citoyens/citoyennete.html", True),
+    ("https://guichet.public.lu/fr/citoyens/impots-taxes/impot-revenu.html", True),
+    ("https://ccss.public.lu/fr/affiliation/salaries.html", True),
+    ("https://luxembourg.public.lu/fr/vivre.html", False),
+    ("https://ccss.public.lu/fr.html", False),
+    ("https://cns.public.lu/fr.html", False),
+    ("https://guichet.public.lu/", False),
+    ("https://guichet.public.lu/fr/index.html", False),
+    ("javascript:alert(1)", False),
+    ("", False),
+])
+def test_une_source_nest_officielle_que_si_elle_mene_a_la_page(
+        cas: dict[str, Any], url: str, attendu: bool) -> None:
+    """AC : « règle mécanique, pas de liste ».
+
+    Sur guichet.lu ou luxembourg.public.lu, l'adresse d'accueil d'une rubrique répond à toute autre
+    question que celle qu'on vient de poser : promettre « la source officielle » et livrer une page
+    d'accueil générique est une promesse contredite en silence. Le chemin doit porter au moins deux
+    segments qui disent quelque chose — un code de langue et un nom de page d'accueil n'en disent
+    rien, ils sont vrais de toutes les pages du domaine.
+    """
+    vu = {v["url"]: v for v in cas["sources_precises"]}[url]
+    assert (vu["precise"] is not None) is attendu, (url, vu["segments"])
+    if attendu:
+        assert vu["precise"] == url
+
+
+def test_une_source_generique_est_omise_et_rien_ne_la_remplace(cas: dict[str, Any]) -> None:
+    """Omis veut dire **omis** : substituer une autre adresse rendrait la même promesse avec une
+    autre page."""
+    vu = cas["liens_de_source"]
+    assert vu["generique"] == []
+    assert vu["precise"] and all(
+        lien["texte"] == "source officielle"
+        and lien["href"] == "https://guichet.public.lu/fr/citoyens/citoyennete.html"
+        for lien in vu["precise"])
+
+
+def test_le_passage_cite_est_retrouve_dans_le_corps_de_la_fiche(cas: dict[str, Any]) -> None:
+    """AD-3 : la quote est ré-extraite du corpus — mais le corpus servi porte des apostrophes
+    typographiques et des retours à la ligne que la citation n'a pas forcément."""
+    vu = cas["passage"]
+    assert vu["bornes"] == {"debut": 37, "fin": 86}
+    # Les bornes sont celles du texte **original** : apostrophe typographique et retour à la ligne
+    # sont conservés tels quels dans le surlignage.
+    assert vu["extrait"] == "que l’on vous redemandera partout :\nle certificat"
+    assert vu["casse"] is True, "une divergence de casse ne doit pas faire perdre le passage"
+    assert vu["introuvable"] is None
+    assert vu["vide"] is None
+
+
+def test_ouvrir_une_fiche_defile_jusqua_la_phrase_citee(dom: dict[str, Any]) -> None:
+    """AC : « ouvre la fiche **et** fait défiler jusqu'à la première phrase citée, surlignée »."""
+    vu = dom["fiche_passage"]
+    assert vu["marques"] == 1, "une seule marque : la première occurrence, pas toutes"
+    # Le surlignage garde la casse d'origine de la fiche, pas celle de la citation.
+    assert vu["texte_marque"] == "Vous disposez de huit jours pour déclarer votre arrivée"
+    assert vu["defile"] == {"block": "center"}
+    # Le paragraphe est rendu **entier** : la marque vit dedans, elle ne le remplace pas.
+    assert vu["paragraphe"].startswith("La première démarche après l'emménagement")
+    assert vu["paragraphe"].endswith("reste de votre installation.")
+
+
+def test_un_passage_introuvable_ouvre_la_fiche_en_haut_sans_erreur(dom: dict[str, Any]) -> None:
+    """Le corpus servi et `kb.js` peuvent diverger : aucun surlignage n'est inventé, et la fiche
+    s'ouvre quand même."""
+    vu = dom["fiche_passage_introuvable"]
+    assert vu["marques"] == 0 and vu["rendue"] is True and vu["cachee"] is False
+    assert dom["fiche_sans_passage"] == {"marques": 0, "rendue": True}
+
+
+def test_le_flux_de_progression_annonce_ses_etapes_et_rend_la_reponse(
+        cas: dict[str, Any]) -> None:
+    vu = cas["progression_flux"]
+    assert vu["urls"] == ["/sante", "/chat/progression"], "un seul appel, aucun repli"
+    assert [e["libelle"] for e in vu["etapes"]] == ["Je lis les fiches", "J'écris"]
+    assert vu["texte"].startswith("Vous avez huit jours")
+
+
+def test_une_route_de_progression_absente_bascule_puis_nest_plus_sondee(
+        cas: dict[str, Any]) -> None:
+    """404 : la route n'existe pas, rien n'a tourné, rien n'a coûté — l'appel classique qui suit est
+    le premier et le seul. Le 404 vaut ensuite pour la session : la sonder à chaque question
+    ajouterait un aller-retour par question."""
+    assert cas["progression_absente"]["urls"] == ["/sante", "/chat/progression", "/chat", "/chat"]
+
+
+def test_un_flux_coupe_apres_le_resultat_ne_renvoie_jamais_la_question(
+        cas: dict[str, Any]) -> None:
+    """**La** garde contre le double appel payant : le serveur a déjà fait, et facturé, le travail."""
+    vu = cas["progression_coupee_apres_resultat"]
+    assert vu["urls"] == ["/sante", "/chat/progression"]
+    assert vu["texte"].startswith("Vous avez huit jours")
+
+
+def test_un_503_sur_le_flux_reste_une_indisponibilite_sans_seconde_requete(
+        cas: dict[str, Any]) -> None:
+    """AD-16 : un serveur qui refuse n'est pas un serveur absent. Le repli local reste un clic
+    explicite de l'utilisateur, jamais une seconde requête payée en silence."""
+    vu = cas["progression_503"]
+    assert vu["urls"] == ["/sante", "/chat/progression"]
+    assert vu["kind"] == "indisponible" and vu["code"] == "llm_unavailable"
+
+
+def test_lattente_du_guide_nomme_ses_etapes_et_dit_ce_quelle_estime(
+        cas: dict[str, Any]) -> None:
+    """AC : « jamais d'écran figé sans mouvement », et une barre qui avance toute seule ne doit pas
+    se faire passer pour une mesure."""
+    vu = cas["attente_progression"]
+    assert vu["etapes_nommees"] == ["Je lis les fiches", "J'écris", "Je vérifie"]
+    assert [e["etat"] for e in vu["depart"]["etapes"]] == ["en cours", "à venir", "à venir"]
+    assert vu["depart"]["chrono"] == "0:00"
+    assert [e["etat"] for e in vu["estime"]["etapes"]] == ["terminé", "en cours", "à venir"]
+    assert vu["estime"]["chrono"] == "0:25"
+    assert "estimé sur le temps écoulé" in vu["estime"]["note"]
+    # Le serveur annonce : la barre suit ses libellés et ne parle plus d'estimation.
+    assert [e["libelle"] for e in vu["serveur"]["etapes"]] == ["A", "B", "C"]
+    assert "estimé" not in vu["serveur"]["note"]
+    # La dernière étape reste « en cours » indéfiniment : une barre qui atteint la fin avant la
+    # réponse ment sur ce qui se passe.
+    assert vu["rangs"] == [0, 0, 1, 1, 2, 2]
+    assert vu["duree_annoncee"] == 45
+
+
+def test_lattente_du_guide_se_rafraichit_en_place(dom: dict[str, Any]) -> None:
+    """Les journaux portent `aria-live`.
+
+    Repeindre la bulle chaque seconde aurait fait relire la barre et son chronomètre à chaque
+    seconde pendant une minute, et un nœud remplacé perd le focus qu'il portait. `chat.js` décide
+    ce qu'il faut écrire, `ui.js` l'écrit — rien n'est recomposé, rien n'est remplacé.
+    """
+    vu = dom["attente_en_place"]
+    assert vu["repere"] == "1" and vu["bulles"] == 1
+    decide = vu["decide"]
+    assert [e["etat"] for e in decide["etapes"]] == ["terminé", "en cours", "à venir"]
+    assert [e["libelle"] for e in decide["etapes"]] == ["Je lis les fiches", "J'écris",
+                                                        "Je vérifie"]
+    assert decide["chrono"] == "0:26"
+    # Un autre nombre d'étapes annoncé par le serveur : la structure a changé, il faut repeindre.
+    assert vu["structure_changee"] is None
+
+
+def test_aria_busy_est_pose_avant_la_premiere_peinture_de_lattente() -> None:
+    ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
+    envoi = _corps(ui, "function envoyer(texteForce) {")
+    assert envoi.index("verrouillerSaisie(true);") < envoi.index("window.CHAT.vueAttente(")

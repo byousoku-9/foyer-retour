@@ -21,12 +21,16 @@ const PAGE = "https://foyer-retour.example/guide/#assistant";
 
 /** Charge `kb.js` puis `chat.js` dans un contexte neuf, avec un `fetch` qui rend toujours `corps`. */
 function chargerChat(corps) {
-  const reponse = (url) => Promise.resolve({
-    ok: true,
-    status: 200,
-    headers: { get: () => null },
-    json: () => Promise.resolve(String(url).endsWith("/sante") ? { ok: true } : corps),
-  });
+  const reponse = (url) => Promise.resolve(
+    // Story 5.6 (L2) : la route de progression n'existe pas encore côté serveur. Le double rend
+    // donc ce que le service rend — un 404 —, et `chat.js` bascule sur la route classique.
+    String(url).endsWith("/progression")
+      ? { ok: false, status: 404, headers: { get: () => null },
+          json: () => Promise.resolve({ error: { code: "not_found" } }),
+          text: () => Promise.resolve("") }
+      : { ok: true, status: 200, headers: { get: () => null },
+          json: () => Promise.resolve(String(url).endsWith("/sante") ? { ok: true } : corps),
+          text: () => Promise.resolve(JSON.stringify(corps)) });
   const journal = new console.Console(process.stderr, process.stderr);
   const window = { location: new URL(PAGE), fetch: reponse };
   const bac = { window, fetch: reponse, console: journal, URL, setTimeout, clearTimeout,

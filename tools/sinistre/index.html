@@ -17,6 +17,27 @@
     color-scheme: light dark;
     --bord: color-mix(in srgb, currentColor 20%, transparent);
     --doux: color-mix(in srgb, currentColor 6%, transparent);
+    /* Story 5.6 (L2) — la sobriété du site, une seule couleur d'accent, et des couleurs de verdict
+       **distinctes** de cet accent : un « couvert » ne doit pas se confondre avec un lien. Aucune
+       police n'est chargée : la pile système du site suffit, et une requête vers un fournisseur de
+       polices est exactement la requête tierce qu'AD-12 interdit. Le serif est celui du système. */
+    --accent: #0e6b66;
+    --accent-doux: color-mix(in srgb, #0e6b66 12%, transparent);
+    --vert: #15803d;
+    --ambre: #8a5300;
+    --rouge: #a8102f;
+    --gris: #4b5563;
+    --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #4fc4bb;
+      --accent-doux: color-mix(in srgb, #4fc4bb 16%, transparent);
+      --vert: #5ccb90;
+      --ambre: #e7b165;
+      --rouge: #f4738f;
+      --gris: #a6aebc;
+    }
   }
   * { box-sizing: border-box; }
   body {
@@ -47,6 +68,16 @@
     border: 1px solid currentColor; border-radius: 8px; padding: 10px 18px; cursor: pointer;
   }
   button[disabled], input[disabled], select[disabled], textarea[disabled] { opacity: .5; cursor: not-allowed; }
+  /* Story 5.6 (L2) — la carte de saisie doit se lire au premier regard : un seul bouton d'action,
+     et il est celui-là. Les autres boutons de la page (ouvrir une page du PDF, déplier un
+     paragraphe, répondre à une question) restent en contour, comme avant. */
+  #formulaire { padding: 22px 24px 26px; }
+  #formulaire h2 { font-size: 20px; margin-bottom: 4px; }
+  #analyser {
+    background: var(--accent); color: Canvas; border-color: var(--accent);
+    font-weight: 600; padding: 11px 22px;
+  }
+  #analyser[disabled] { background: transparent; color: inherit; border-color: var(--bord); }
   #contrats-message { font-size: 14px; margin: 8px 0 0; }
   #contrat-source { font-size: 13px; opacity: .75; }
   .audit-liste { list-style: none; padding: 0; display: grid; gap: 10px; }
@@ -55,22 +86,6 @@
   .audit-meta, .audit-raison { display: block; font-size: 13px; opacity: .75; }
   .audit-lien { display: inline-block; margin-top: 3px; font-size: 14px; }
   .audit-erreur, .audit-vide { margin: 0; opacity: .75; }
-  .verdict-tete { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 10px; }
-  .badge {
-    border: 1px solid currentColor; border-radius: 999px; padding: 4px 14px;
-    font-weight: 600; font-size: 15px;
-  }
-  .verdict-couvert { color: #15803d; }
-  .verdict-non_couvert { color: #be123c; }
-  .verdict-sous_conditions { color: #a16207; }
-  .verdict-ne_tranche_pas, .verdict-inconnu { opacity: .8; }
-  @media (prefers-color-scheme: dark) {
-    .verdict-couvert { color: #4ade80; }
-    .verdict-non_couvert { color: #fda4af; }
-    .verdict-sous_conditions { color: #fcd34d; }
-  }
-  .portee { font-size: 13px; opacity: .75; }
-  .verdict-raison { margin: 0 0 20px; font-size: 17px; }
   section { margin: 22px 0 0; }
   .fc-ligne { display: grid; grid-template-columns: 160px 1fr; gap: 8px; padding: 3px 0; }
   .fc-cle { opacity: .7; font-size: 14px; }
@@ -102,15 +117,8 @@
   .conv-fait-val { overflow-wrap: anywhere; }
   .conv-tour { margin: 4px 0; }
   .conv-repondre, .conv-envoyer-libre, .conv-resoudre, .conv-copier { min-height: 34px; }
-  .affirmation { margin: 0 0 16px; }
-  .aff-txt { margin: 0 0 6px; }
-  .clause { border-left: 3px solid var(--bord); padding: 2px 0 2px 14px; margin: 0 0 12px; }
-  .cl-q { margin: 0; font-style: italic; }
   .mot-decisif { font-weight: 700; background: #fde68a; color: #422006; padding: 0 .08em; }
   @media (prefers-color-scheme: dark) { .mot-decisif { background: #854d0e; color: #fef3c7; } }
-  .cl-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; opacity: .75; margin-top: 4px; }
-  .cl-kind { text-transform: uppercase; letter-spacing: .04em; }
-  .cl-doute { font-style: italic; }
   .cl-ouvrir { margin-top: 8px; padding: 6px 10px; font-size: 13px; }
   dialog.lecteur-pdf {
     width: min(94vw, 900px); max-height: 94vh; padding: 18px; color: inherit;
@@ -191,6 +199,134 @@
   .err-titre { display: block; margin-bottom: 6px; }
   .err-ref { font-size: 13px; opacity: .7; }
   p.pied { font-size: 13px; opacity: .7; border-top: 1px solid var(--bord); padding-top: 16px; margin-top: 40px; }
+
+  /* ==========================================================================
+     Story 5.6 (L2) — les quatre blocs.
+     Rien n'est replié au-dessus de la réponse ; chaque bloc porte son numéro et son intitulé en
+     petites capitales, la réponse est en serif, les clauses sont des cartes à bord gauche coloré.
+     Tout tient en une colonne sur mobile : la seule grille de la page est celle du formulaire.
+     ========================================================================== */
+  .bloc {
+    margin: 0; padding: 20px 0 22px; border-top: 1px solid var(--bord);
+  }
+  .bloc:first-child { border-top: 0; padding-top: 6px; }
+  .bloc-titre {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 14px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .07em; opacity: .75;
+  }
+  .bloc-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 999px;
+    border: 1px solid var(--accent); color: var(--accent);
+    font-size: 11px; font-weight: 700; letter-spacing: 0;
+  }
+  .bloc-nom { flex: 1 1 auto; min-width: 0; }
+
+  /* Bloc 1 — la réponse. */
+  .reponse-phrase {
+    margin: 0 0 10px; font-family: var(--serif); font-size: 19px; line-height: 1.45;
+    max-width: 62ch;
+  }
+  .reponse-suite { margin: 0 0 10px; max-width: 66ch; opacity: .9; }
+  .inconnu-ligne { margin: 12px 0 0; font-size: 13px; opacity: .78; max-width: 66ch; }
+  .inconnu-tete {
+    display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    opacity: .65; margin: 12px 0 4px;
+  }
+  .inconnu-liste { font-size: 13px; opacity: .82; }
+
+  /* Bloc 2 — les clauses. */
+  .appui {
+    margin: 0 0 12px; padding: 12px 14px;
+    border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
+    background: var(--doux); cursor: pointer;
+  }
+  /* Une clause que la table a jugée non applicable : même information, moins d'emphase. */
+  .appui-ecarte { border-left-color: var(--bord); opacity: .8; }
+  .appui-tete {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+    font-size: 12px; margin-bottom: 6px;
+  }
+  .appui-chemin { font-weight: 600; color: var(--accent); }
+  .appui-ecarte .appui-chemin { color: inherit; opacity: .8; }
+  .appui-page { opacity: .7; white-space: nowrap; }
+  .appui-kind { text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+  .appui-doute { font-style: italic; opacity: .8; }
+  .appui-texte {
+    margin: 0; font-family: var(--serif); font-size: 15px; line-height: 1.5;
+  }
+  .appui-mark { background: var(--accent-doux); color: inherit; padding: 0 .08em; }
+  .appui-plus {
+    margin: 8px 0 0; padding: 4px 10px; font-size: 12px;
+  }
+  .appui-entier { margin-top: 4px; }
+  .appui-clair { margin: 8px 0 0; font-size: 13.5px; opacity: .85; }
+  .appui-statut, .appui-note { margin: 6px 0 0; font-size: 12px; opacity: .7; }
+  .appui-aide { margin: 4px 0 0; font-size: 12px; opacity: .65; }
+  .appui .cl-ouvrir { margin-top: 8px; }
+
+  /* Bloc 1 — le verdict en pastille. Les quatre teintes sont sémantiques et distinctes de
+     l'accent : un « couvert » vert, un « sous conditions » ambre, un « exclu » rouge, un
+     « je ne peux pas trancher » gris. Le mot est écrit : la couleur ne le porte pas seule. */
+  .verdict-tete { margin: 14px 0 0; }
+  .badge {
+    display: inline-block; border: 1px solid currentColor; border-radius: 999px;
+    padding: 5px 14px; font-weight: 600; font-size: 14px;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+  .verdict-couvert { color: var(--vert); }
+  .verdict-non_couvert { color: var(--rouge); }
+  .verdict-sous_conditions { color: var(--ambre); }
+  .verdict-ne_tranche_pas, .verdict-inconnu { color: var(--gris); }
+  .portee { display: block; margin-top: 8px; font-size: 12px; opacity: .7; }
+  .verdict-raison { margin: 8px 0 0; font-size: 13px; opacity: .8; max-width: 66ch; }
+
+  /* Bloc 3 — les manques, en courte liste. */
+  .pieces-ligne { margin: 12px 0 0; font-size: 12.5px; opacity: .68; }
+  .bloc-manques .conv-questions { margin-top: 0; }
+  .bloc-manques h3 { margin-bottom: 6px; }
+
+  /* Bloc 4 — les garde-fous. */
+  .gf { margin: 0 0 4px; font-size: 13px; opacity: .85; }
+  .gf::before { display: inline-block; width: 20px; font-weight: 700; }
+  .gf-ok::before { content: "\2713"; color: var(--vert); }
+  .gf-retire::before { content: "\2715"; color: var(--rouge); }
+  .gf-regle::before { content: "\2696"; opacity: .6; }
+  .bloc-gardefous .details-preuves { margin-top: 14px; }
+  .details-preuves.dossier { margin-top: 22px; }
+
+  /* L'attente : les trois étapes, l'étape en cours animée, un chronomètre discret. */
+  .attente { border: 1px solid var(--bord); }
+  .prog { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .prog-etape { display: flex; align-items: center; gap: 10px; font-size: 14px; opacity: .55; }
+  .prog-puce {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--bord); flex: 0 0 auto;
+  }
+  .prog-libelle { flex: 1 1 auto; min-width: 0; }
+  .prog-etat { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .8; }
+  .prog-faite { opacity: .8; }
+  .prog-faite .prog-puce { background: var(--vert); }
+  .prog-encours { opacity: 1; font-weight: 600; }
+  .prog-encours .prog-puce {
+    background: var(--accent); animation: pulsation 1.4s ease-in-out infinite;
+  }
+  @keyframes pulsation {
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-doux); }
+    50% { box-shadow: 0 0 0 6px var(--accent-doux); }
+  }
+  /* Une animation qui pulse est exactement ce que ce réglage demande de taire : l'étape reste
+     marquée par sa couleur et par le mot « en cours », qui n'ont jamais bougé. */
+  @media (prefers-reduced-motion: reduce) {
+    .prog-encours .prog-puce { animation: none; }
+  }
+  .prog-pied {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-top: 14px;
+    font-size: 12.5px; opacity: .7;
+  }
+  .prog-chrono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .prog-pied .attente-note { flex: 1 1 24ch; min-width: 0; }
+
   @media (max-width: 560px) {
     body { padding: 20px 12px 48px; }
     .duo { grid-template-columns: 1fr; }
@@ -277,6 +413,6 @@
   <a href="/">← retour</a>
 </p>
 
-<script src="sinistre.js?v=4"></script>
+<script src="sinistre.js?v=5"></script>
 </body>
 </html>

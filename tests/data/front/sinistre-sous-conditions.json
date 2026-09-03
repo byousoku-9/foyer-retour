@@ -1,0 +1,233 @@
+{
+  "answer": {
+    "found": true,
+    "complete": false,
+    "lang": "fr",
+    "lang_fallback": false,
+    "texte": "Le contrat peut couvrir ce dégât, mais seulement si l'extension correspondante a été souscrite. La garantie de base vise l'action subite de la chaleur sur le mobilier, et elle s'applique ici. En revanche, pour les extensions, le même dégât au bâtiment est exclu en l'absence d'embrasement, et je n'ai pas vos conditions particulières pour savoir laquelle vous avez.",
+    "segments": [
+      {
+        "text": "Le contrat peut couvrir ce dégât, mais seulement si l'extension correspondante a été souscrite. La garantie de base vise l'action subite de la chaleur sur le mobilier, et elle s'applique ici. En revanche, pour les extensions, le même dégât au bâtiment est exclu en l'absence d'embrasement, et je n'ai pas vos conditions particulières pour savoir laquelle vous avez.",
+        "kind": "factuel",
+        "claim_ids": [
+          "cl1",
+          "cl2"
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "claim_id": "cl1",
+        "text": "La garantie de base vise l'action subite de la chaleur sur le mobilier.",
+        "quotes": [
+          {
+            "block_id": "axa:p34:1",
+            "quote": "par un événement soudain, résultant de l'action subite de la chaleur"
+          }
+        ],
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "edition": "juin 2017"
+        }
+      },
+      {
+        "claim_id": "cl2",
+        "text": "Pour les extensions, le même dégât au bâtiment est exclu sans embrasement.",
+        "quotes": [
+          {
+            "block_id": "axa:p46:1",
+            "quote": "sont exclus en l'absence d'embrasement ou de commencement d'incendie"
+          }
+        ],
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "non",
+          "edition": "juin 2017",
+          "applicable_reason": "hors_portee"
+        }
+      }
+    ],
+    "rejected_claims": [
+      {
+        "claim_id": "cl3",
+        "text": "Le contrat prévoit une franchise de 150 euros.",
+        "quotes": [
+          {
+            "block_id": "axa:p99:9",
+            "quote": "franchise de 150 EUR"
+          }
+        ],
+        "status": {
+          "retrouvee": false,
+          "pertinente": null,
+          "applicable": null,
+          "edition": "juin 2017"
+        },
+        "rejection_kind": "non_retrouvee",
+        "motif": "citation introuvable"
+      }
+    ],
+    "reason": null,
+    "lecture_partielle": null,
+    "clarification": null,
+    "unknown": [
+      "Les conditions particulières n'ont pas été lues : je ne sais pas quelle extension a été souscrite."
+    ],
+    "verdict": {
+      "value": "sous_conditions",
+      "reason": "Une clause conditionne la garantie à une souscription non établie (au regard des conditions générales seules)",
+      "missing": {
+        "conditions_particulieres": true,
+        "options_souscrites": true,
+        "avenants": true,
+        "date_effet": true,
+        "faits": [
+          "l'extension souscrite au titre du bâtiment"
+        ]
+      },
+      "ask_client": [
+        "Vos conditions particulières mentionnent-elles une extension aux points 3.1.8.3 à 3.1.8.6 ?"
+      ],
+      "escalate": [
+        "Faire confirmer par un gestionnaire l'étendue exacte de l'extension."
+      ]
+    },
+    "faits_compris": {
+      "themes": [
+        "habitation",
+        "incendie"
+      ],
+      "bien": "parquet du salon",
+      "evenement": "brûlure sans embrasement",
+      "lieu": "domicile assuré",
+      "cause": "braise tombée du poêle",
+      "moment": "2026-08-28"
+    }
+  },
+  "sources": [
+    {
+      "block_id": "axa:p34:1",
+      "page": 34,
+      "bbox": null,
+      "line_ids": [
+        "p34:1:l1"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
+      "status": "verifiee",
+      "quote": "par un événement soudain, résultant de l'action subite de la chaleur",
+      "texte_bloc": "3.1.1.1.6 Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.",
+      "chemin": [
+        "3.1.1 Incendie et périls assimilés",
+        "3.1.1.1 Étendue de la garantie",
+        "3.1.1.1.6 Dégâts au mobilier"
+      ],
+      "claim_id": "cl1"
+    },
+    {
+      "block_id": "axa:p46:1",
+      "page": 46,
+      "bbox": null,
+      "line_ids": [
+        "p46:1:l2"
+      ],
+      "kind": "exclusion",
+      "kind_confirmed": false,
+      "status": "verifiee",
+      "quote": "sont exclus en l'absence d'embrasement ou de commencement d'incendie",
+      "texte_bloc": "Pour les extensions mentionnées aux points 3.1.8.3, 3.1.8.4, 3.1.8.5 et 3.1.8.6, les dégâts occasionnés au bâtiment par un événement soudain, résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, sont exclus en l'absence d'embrasement ou de commencement d'incendie.",
+      "chemin": [
+        "3.1.8 Extensions de garantie",
+        "Exclusions propres aux extensions"
+      ],
+      "claim_id": "cl2"
+    }
+  ],
+  "via": "api/v1",
+  "trace": {
+    "request_id": "fige-9344",
+    "pipeline": "sinistre",
+    "variant": "deterministe",
+    "total_cost_eur": 0.0518,
+    "retries": 0,
+    "truncations": 0,
+    "thresholds": {
+      "deadline_s": 290.0,
+      "max_opens": 8
+    },
+    "gate": {
+      "profile": "vertical",
+      "cases": 2,
+      "countersigned": true,
+      "alerts": []
+    },
+    "blocs": [
+      {
+        "block_id": "axa:p34:1",
+        "doc_id": "axa",
+        "node_id": "axa:n34",
+        "fiche_id": null,
+        "titre": "3.1.1.1.6 Dégâts au mobilier"
+      },
+      {
+        "block_id": "axa:p46:1",
+        "doc_id": "axa",
+        "node_id": "axa:n46",
+        "fiche_id": null,
+        "titre": "Exclusions propres aux extensions"
+      }
+    ],
+    "steps": [
+      {
+        "name": "comprendre",
+        "tier": "micro",
+        "ms": 1400,
+        "checks": []
+      },
+      {
+        "name": "retrouver",
+        "tier": "reason",
+        "ms": 9200,
+        "opened_block_ids": [
+          "axa:p34:1",
+          "axa:p46:1"
+        ],
+        "discarded_block_ids": [],
+        "checks": []
+      },
+      {
+        "name": "rediger",
+        "tier": "reason",
+        "ms": 14100,
+        "checks": []
+      },
+      {
+        "name": "verifier",
+        "tier": "micro",
+        "ms": 5300,
+        "checks": [
+          {
+            "name": "citations",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      },
+      {
+        "name": "restituer",
+        "tier": null,
+        "ms": 2,
+        "checks": [
+          {
+            "name": "segments_retires",
+            "ok": false,
+            "detail": "1 segment(s) factuel(s) sans claim survivante retiré(s)"
+          }
+        ]
+      }
+    ]
+  }
+}

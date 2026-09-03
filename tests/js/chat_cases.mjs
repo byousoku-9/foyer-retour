@@ -23,7 +23,8 @@ const RACINE = path.resolve(ICI, "..", "..");
 // ---------- le bac à sable ----------
 
 /** Une `Response` doublée : juste ce que `chat.js` en lit (`ok`, `status`, `headers.get`, `json`). */
-function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = false } = {}) {
+function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = false,
+                      sse = null } = {}) {
   const bas = {};
   for (const [k, v] of Object.entries(entetes)) bas[k.toLowerCase()] = String(v);
   return {
@@ -33,6 +34,46 @@ function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = 
     json: () => (corpsIllisible
       ? Promise.reject(new Error("corps non JSON"))
       : Promise.resolve(corps)),
+    // Story 5.6 (L2) : `chat.js` lit un corps SSE d'un bloc quand il ne peut pas le lire au fil de
+    // l'eau. `sse` porte alors le texte brut du flux ; sinon `text()` rend le corps JSON sérialisé,
+    // ce que fait un vrai navigateur.
+    text: () => Promise.resolve(sse === null ? JSON.stringify(corps) : sse),
+  };
+}
+
+/** Un flux SSE doublé : la suite d'événements, telle que le serveur l'écrirait. */
+function fluxSSE(evenements) {
+  return evenements.map(({ type, data }) =>
+    `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+}
+
+/**
+ * Une `Response` doublée qui porte un **flux** lisible au fil de l'eau.
+ *
+ * Le corps est découpé en deux morceaux pour que le découpeur SSE soit exercé sur un événement
+ * coupé en deux — c'est le cas que le réseau produit et qu'un corps rendu d'un bloc ne teste pas.
+ * `coupeApres` fait échouer la lecture **après** le dernier morceau : le résultat est déjà arrivé,
+ * et la page ne doit alors rien renvoyer.
+ */
+function reponseSSE(texte, { coupeApres = false } = {}) {
+  const encodeur = new TextEncoder();
+  const milieu = Math.floor(texte.length / 2);
+  const morceaux = [encodeur.encode(texte.slice(0, milieu)), encodeur.encode(texte.slice(milieu))];
+  let i = 0;
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    json: () => Promise.reject(new Error("un flux SSE n'est pas du JSON")),
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (i < morceaux.length) return Promise.resolve({ value: morceaux[i++], done: false });
+          if (coupeApres) return Promise.reject(new Error("flux coupé"));
+          return Promise.resolve({ value: undefined, done: true });
+        },
+      }),
+    },
   };
 }
 
@@ -41,10 +82,15 @@ function reponseHttp({ status = 200, corps = {}, entetes = {}, corpsIllisible = 
  * @param {string} href      l'URL de la page servie (donne `window.location.origin`)
  * @param {Function} repondre  le double de `fetch` : (url, options) → Response doublée
  */
-function chargerChat(href, repondre, { minuteurs = null } = {}) {
+function chargerChat(href, repondre, { minuteurs = null, progression = false } = {}) {
   const appels = [];
   const fetchDouble = (url, options) => {
     appels.push({ url, options: options || {} });
+    // Story 5.6 (L2) : la route de progression n'existe pas encore côté serveur. Le défaut du
+    // harnais est donc **404**, l'état réel du service — les cas qui l'exercent l'annoncent.
+    if (!progression && String(url).endsWith("/progression")) {
+      return Promise.resolve(reponseHttp({ status: 404, corps: { error: { code: "not_found" } } }));
+    }
     // `fetch` **rejette** sur une panne réseau, il ne lève pas : un double qui lèverait
     // synchroniquement testerait un chemin que le navigateur n'emprunte jamais.
     try {
@@ -65,6 +111,9 @@ function chargerChat(href, repondre, { minuteurs = null } = {}) {
     setTimeout: minuteurs ? minuteurs.setTimeout : setTimeout,
     clearTimeout: minuteurs ? minuteurs.clearTimeout : clearTimeout,
     AbortController,
+    // Story 5.6 (L2) : le flux de progression arrive en octets. Le bac à sable est un realm neuf,
+    // il n'hérite d'aucun global de Node.
+    TextDecoder, TextEncoder,
   };
   bac.globalThis = bac;
   vm.createContext(bac);
@@ -297,20 +346,28 @@ function resumerVue(vue) {
     segments: parClasse(vue, "seg").map((seg) => ({
       factuel: (seg.cls || "").split(" ").indexOf("seg-factuel") !== -1,
       texte: texteDe(seg, "seg-txt"),
-      citations: parClasse(seg, "cite").map((c) => ({
-        quote: texteDe(c, "cite-q"),
-        fiche: texteDe(c, "cite-fiche"),
-        fiche_texte: texteDe(c, "cite-fiche-txt"),
-        lien: (parClasse(c, "cite-lien")[0] || {}).href || null,
-        statut: texteDe(c, "cite-statut"),
+      // Story 5.6 (L2) : les citations sont groupées par fiche, en puces. Le relevé garde la
+      // distinction bouton / texte simple (une fiche que `kb.js` ne connaît pas n'est pas
+      // cliquable) et le passage transporté par l'action, qui fait défiler la fiche.
+      citations: parClasse(seg, "cite-puce").map((c) => ({
+        tag: c.tag,
+        libelle: c.texte,
+        cliquable: !!c.action,
+        fiche: c.action ? c.action.fiche_id : null,
+        passage: c.action ? c.action.passage : null,
+        lien: c.href || null,
       })),
+      statuts: parClasse(seg, "cite-statut").map((n) => n.texte),
     })),
     degrade: texteDe(vue, "degrade"),
     citations_plates: parClasse(vue, "cites")
       .filter((box) => !parClasse(vue, "seg").some((seg) => noeuds(seg).indexOf(box) !== -1))
-      .flatMap((box) => parClasse(box, "cite").map((c) => ({
-        quote: texteDe(c, "cite-q"), statut: texteDe(c, "cite-statut"),
+      .flatMap((box) => parClasse(box, "cite-puce").map((c) => ({
+        libelle: c.texte, fiche: c.action ? c.action.fiche_id : null, lien: c.href || null,
       }))),
+    statuts_plats: parClasse(vue, "cites")
+      .filter((box) => !parClasse(vue, "seg").some((seg) => noeuds(seg).indexOf(box) !== -1))
+      .flatMap((box) => parClasse(box, "cite-statut").map((n) => n.texte)),
     preuve: texteDe(vue, "preuve"),
     inconnus: parClasse(vue, "inconnu").flatMap(
       (b) => noeuds(b).filter((n) => n.tag === "li").map((n) => n.texte)),
@@ -1795,6 +1852,158 @@ async function main() {
       local: c2.libelleMode("local", c2.validation()),
       indisponible: c2.libelleMode("indisponible", c2.validation()),
       avant_sonde: c2.libelleMode(null, c2.validation()),
+    };
+  }
+
+
+  // ==========================================================================
+  // Story 5.6 (L2) — la source précise, le passage cité, la progression.
+  // ==========================================================================
+
+  // --- « source officielle » : une règle mécanique, pas une liste de sites --
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: {} }));
+    const urls = [
+      // Deux segments parlants : la page dont on parle.
+      "https://guichet.public.lu/fr/citoyens/citoyennete.html",
+      "https://guichet.public.lu/fr/citoyens/impots-taxes/impot-revenu.html",
+      "https://ccss.public.lu/fr/affiliation/salaries.html",
+      // Un seul segment parlant, ou aucun : une rubrique, une page d'accueil.
+      "https://luxembourg.public.lu/fr/vivre.html",
+      "https://ccss.public.lu/fr.html",
+      "https://cns.public.lu/fr.html",
+      "https://guichet.public.lu/",
+      "https://guichet.public.lu/fr/index.html",
+      // Ni http(s), ni URL : rien n'est affiché, et rien ne lève.
+      "javascript:alert(1)",
+      "",
+    ];
+    cas.sources_precises = urls.map((u) => ({
+      url: u, precise: CHAT.urlPrecise(u), segments: CHAT.segmentsParlants(u),
+    }));
+
+    // Et ce que la vue en fait : une puce « source officielle » ou rien du tout. Rien ne remplace
+    // une adresse omise — surtout pas une autre adresse.
+    const avecPrecise = reponseSourcee();
+    avecPrecise.sources.forEach((s) => { s.url = "https://guichet.public.lu/fr/citoyens/citoyennete.html"; });
+    const avecGenerique = reponseSourcee();
+    avecGenerique.sources.forEach((s) => { s.url = "https://luxembourg.public.lu/fr/vivre.html"; });
+    const liens = (r) => noeuds(CHAT.vueReponse(r, QUESTION))
+      .filter((n) => (n.cls || "").split(" ").indexOf("cite-lien") !== -1)
+      .map((n) => ({ texte: n.texte, href: n.href }));
+    cas.liens_de_source = { precise: liens(avecPrecise), generique: liens(avecGenerique) };
+  }
+
+  // --- retrouver un passage dans le corps d'une fiche ---------------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: {} }));
+    const corps = "Elle produit en effet deux documents que l’on vous redemandera partout :\n" +
+      "le certificat de résidence et, pour les ressortissants de l’Union.";
+    cas.passage = {
+      // Apostrophes typographiques côté fiche, droites côté citation ; espaces et retours à la
+      // ligne normalisés. Les bornes rendues sont celles du texte **original**.
+      bornes: CHAT.trouverPassage(corps, "que l'on vous redemandera partout : le certificat"),
+      extrait: (() => {
+        const b = CHAT.trouverPassage(corps, "que l'on vous redemandera partout : le certificat");
+        return b ? corps.slice(b.debut, b.fin) : null;
+      })(),
+      // La casse ne bloque pas : le corpus servi et `kb.js` peuvent diverger sur une majuscule.
+      casse: CHAT.trouverPassage(corps, "ELLE PRODUIT EN EFFET") !== null,
+      introuvable: CHAT.trouverPassage(corps, "une phrase absente de ce corps"),
+      vide: CHAT.trouverPassage(corps, "  "),
+    };
+  }
+
+  // --- la progression du guide : un seul appel facturé par question --------
+  {
+    // 1. Le flux nominal.
+    const nominal = chargerChat(PAGE, (url) => {
+      if (String(url).endsWith("/sante")) return reponseHttp({ corps: { ok: true } });
+      if (String(url).endsWith("/progression")) {
+        return reponseSSE(fluxSSE([
+          { type: "etape", data: { nom: "retrouver", rang: 0, total: 3, ms_ecoule: 10, libelle: "Je lis les fiches" } },
+          { type: "etape", data: { nom: "rediger", rang: 1, total: 3, ms_ecoule: 8000, libelle: "J'écris" } },
+          { type: "resultat", data: reponseSourcee() },
+        ]));
+      }
+      return reponseHttp({ corps: reponseSourcee() });
+    }, { progression: true });
+    const etapes = [];
+    const r1 = await nominal.CHAT.repondre(QUESTION, {}, [], (e) => etapes.push(e));
+    cas.progression_flux = {
+      urls: nominal.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      etapes,
+      texte: r1.texte,
+    };
+
+    // 2. Route absente : bascule une fois, puis plus aucune sonde.
+    const absente = chargerChat(PAGE, (url) => {
+      if (String(url).endsWith("/sante")) return reponseHttp({ corps: { ok: true } });
+      if (String(url).endsWith("/progression")) {
+        return reponseHttp({ status: 404, corps: { error: { code: "not_found" } } });
+      }
+      return reponseHttp({ corps: reponseSourcee() });
+    }, { progression: true });
+    await absente.CHAT.repondre(QUESTION, {}, [], () => {});
+    await absente.CHAT.repondre(QUESTION, {}, [], () => {});
+    cas.progression_absente = {
+      urls: absente.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+    };
+
+    // 3. Le flux se coupe **après** le résultat : rien n'est renvoyé.
+    const apres = chargerChat(PAGE, (url) => {
+      if (String(url).endsWith("/sante")) return reponseHttp({ corps: { ok: true } });
+      if (String(url).endsWith("/progression")) {
+        return reponseSSE(fluxSSE([{ type: "resultat", data: reponseSourcee() }]),
+                          { coupeApres: true });
+      }
+      return reponseHttp({ corps: reponseSourcee() });
+    }, { progression: true });
+    const r3 = await apres.CHAT.repondre(QUESTION, {}, [], () => {});
+    cas.progression_coupee_apres_resultat = {
+      urls: apres.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      texte: r3.texte,
+    };
+
+    // 4. Un 503 sur le flux reste une indisponibilité : le bandeau, et le bouton de repli explicite
+    //    d'AD-16 — jamais une seconde requête payée en silence.
+    const indispo = chargerChat(PAGE, (url) => {
+      if (String(url).endsWith("/sante")) return reponseHttp({ corps: { ok: true } });
+      if (String(url).endsWith("/progression")) {
+        return reponseHttp({ status: 503, corps: { error: { code: "llm_unavailable" } } });
+      }
+      return reponseHttp({ corps: reponseSourcee() });
+    }, { progression: true });
+    let erreur = null;
+    try { await indispo.CHAT.repondre(QUESTION, {}, [], () => {}); } catch (e) { erreur = e; }
+    cas.progression_503 = {
+      urls: indispo.appels.map((a) => String(a.url).replace(ORIGINE, "")),
+      kind: erreur && erreur.kind, code: erreur && erreur.code,
+    };
+  }
+
+  // --- l'état de la barre d'attente ---------------------------------------
+  {
+    const { CHAT } = chargerChat(PAGE, () => reponseHttp({ corps: {} }));
+    const releve = (etat) => {
+      const vue = CHAT.vueAttente(etat);
+      return {
+        etapes: parClasse(vue, "prog-etape").map((n) => ({
+          cls: n.cls,
+          libelle: (parClasse(n, "prog-libelle")[0] || {}).texte,
+          etat: (parClasse(n, "prog-etat")[0] || {}).texte,
+        })),
+        chrono: texteDe(vue, "prog-chrono"),
+        note: texteDe(vue, "attente-txt"),
+      };
+    };
+    cas.attente_progression = {
+      depart: releve(CHAT.etatAttente(1000, 1000, null)),
+      estime: releve(CHAT.etatAttente(1000, 26000, null)),
+      serveur: releve(CHAT.etatAttente(1000, 26000, { rang: 2, libelles: ["A", "B", "C"] })),
+      rangs: [0, 11999, 12001, 29999, 30001, 600000].map((ms) => CHAT.rangEstime(ms)),
+      etapes_nommees: CHAT.ETAPES.map((e) => e.libelle),
+      duree_annoncee: CHAT.DUREE_ANNONCEE_S,
     };
   }
 

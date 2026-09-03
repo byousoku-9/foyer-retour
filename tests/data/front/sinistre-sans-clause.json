@@ -1,0 +1,142 @@
+{
+  "answer": {
+    "found": false,
+    "complete": false,
+    "lang": "fr",
+    "lang_fallback": false,
+    "texte": "Aucune garantie des conditions générales ne vise les souillures ou les dégradations causées par un animal du foyer sur vos propres biens.",
+    "segments": [
+      {
+        "text": "Aucune garantie des conditions générales ne vise les souillures ou les dégradations causées par un animal du foyer sur vos propres biens.",
+        "kind": "limite",
+        "claim_ids": []
+      }
+    ],
+    "claims": [],
+    "rejected_claims": [
+      {
+        "claim_id": "cl1",
+        "text": "La responsabilité civile couvre les dégâts causés par votre animal.",
+        "quotes": [
+          {
+            "block_id": "axa:p67:5",
+            "quote": "du fait des animaux domestiques lui appartenant"
+          }
+        ],
+        "status": {
+          "retrouvee": true,
+          "pertinente": false,
+          "applicable": null,
+          "edition": "juin 2017"
+        },
+        "rejection_kind": "non_pertinente",
+        "motif": "vise les dommages causés à autrui, pas aux biens de l'assuré"
+      }
+    ],
+    "reason": {
+      "kind": "zero_hit",
+      "terms_searched": [
+        "souillure",
+        "déjection",
+        "animal domestique",
+        "canapé"
+      ],
+      "variants_count": 12,
+      "blocks_scanned": 1457,
+      "documents": [
+        "axa-lu-optihome-2017"
+      ]
+    },
+    "lecture_partielle": null,
+    "clarification": null,
+    "unknown": [
+      "Les options et extensions souscrites n'ont pas été lues : l'une d'elles pourrait viser ce cas."
+    ],
+    "verdict": {
+      "value": "ne_tranche_pas",
+      "reason": "Aucune règle de la table ne tranche : aucune clause retenue (au regard des conditions générales seules)",
+      "missing": {
+        "conditions_particulieres": true,
+        "options_souscrites": true,
+        "avenants": true,
+        "date_effet": true,
+        "faits": []
+      },
+      "ask_client": [
+        "Vos conditions particulières mentionnent-elles une option « Confort » ou « Sérénité + » ?"
+      ],
+      "escalate": []
+    },
+    "faits_compris": {
+      "themes": [
+        "habitation"
+      ],
+      "bien": "canapé du salon",
+      "evenement": "souillure et odeur",
+      "lieu": "domicile assuré",
+      "cause": "déjection du chat du foyer",
+      "moment": "2026-09-01"
+    }
+  },
+  "sources": [],
+  "via": "api/v1",
+  "trace": {
+    "request_id": "fige-3016",
+    "pipeline": "sinistre",
+    "variant": "deterministe",
+    "total_cost_eur": 0.0287,
+    "retries": 0,
+    "truncations": 0,
+    "thresholds": {
+      "deadline_s": 290.0,
+      "max_opens": 8
+    },
+    "gate": {
+      "profile": "vertical",
+      "cases": 2,
+      "countersigned": true,
+      "alerts": []
+    },
+    "blocs": [],
+    "steps": [
+      {
+        "name": "comprendre",
+        "tier": "micro",
+        "ms": 1400,
+        "checks": []
+      },
+      {
+        "name": "retrouver",
+        "tier": "reason",
+        "ms": 9200,
+        "opened_block_ids": [],
+        "discarded_block_ids": [],
+        "checks": []
+      },
+      {
+        "name": "rediger",
+        "tier": "reason",
+        "ms": 14100,
+        "checks": []
+      },
+      {
+        "name": "verifier",
+        "tier": "micro",
+        "ms": 5300,
+        "checks": [
+          {
+            "name": "citations",
+            "ok": true,
+            "detail": ""
+          }
+        ]
+      },
+      {
+        "name": "restituer",
+        "tier": null,
+        "ms": 2,
+        "checks": []
+      }
+    ]
+  }
+}
