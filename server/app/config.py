@@ -2086,6 +2086,133 @@ class Settings(BaseSettings):
             "response_cache_max_bytes": self.response_cache_max_bytes,
         }
 
+    def gate_thresholds(self) -> dict[str, float | int]:
+        """Les seuils que le **contexte de gate** porte : le sous-ensemble « pipeline » (AD-7).
+
+        `thresholds()` reste publié en entier — la transparence n'est pas négociée ici. Ce que ce
+        sous-ensemble change, c'est la question que le loader pose : « le pipeline qui sert est-il
+        celui que la campagne a mesuré ? », et non « le poste de mesure était-il configuré comme la
+        production ? ». Le classement est écrit juste sous cette classe, avec ce qu'il a coûté de ne
+        pas l'avoir.
+        """
+        return {nom: valeur for nom, valeur in self.thresholds().items() if nom in SEUILS_DE_GATE}
+
+
+# --- Ce qu'un gate compare, et ce qu'il ne compare pas ------------------------------------------
+#
+# `thresholds()` publie **tout** : `/api/v1/sante` et `Trace.thresholds` restent le journal complet
+# des seuils actifs, et c'est par là qu'une réponse se relit. Le gate (AD-7) ne pose pas cette
+# question-là : il demande si l'image qui sert est celle que la campagne a mesurée. Deux seuils
+# publiés peuvent différer entre la mesure et le service sans qu'aucune claim, aucun verdict, aucune
+# citation ne bouge — et les comparer tous à un coût mesuré. Le deploiement du 03/09/2026 (comme
+# ceux du 31/08) a été refusé par le smoke avec `gate_perime` sur les **trois** documents alors que
+# le job « verifier » était vert : trois interrupteurs d'exploitation diffèrent *par construction*
+# entre le poste qui mesure un gate et l'image de production — `llm_audit_exact` (1 en dev, 0 en
+# prod), `prefix_keepalive_enabled` (posé à `true` par `deploy.yml`, et nulle part ailleurs, parce
+# que c'est là qu'est décidé `--min-instances=1`), `live_budget_eur` (14 sous le plafond d'une
+# campagne, 20 par défaut). Aucun gate mesuré localement ne pouvait donc être frais en production :
+# l'alerte ne disait plus « le code a bougé », elle disait « le gate n'a pas été mesuré en
+# production » — ce qui est vrai de tous les gates, et n'apprend donc rien.
+#
+# **La règle de classement, et elle seule** : *un seuil entre dans le contexte de gate s'il peut
+# changer une claim, un verdict ou une citation.* Le reste est un **interrupteur d'exploitation** —
+# l'audit, les budgets de campagne, les caches, les quotas et la limitation de débit, la tuyauterie
+# des lots Batch, les délais côté client, la concurrence de rendu, la télémétrie : il décide de ce
+# que le service dépense, garde, ou refuse de prendre, jamais de ce que le pipeline répond. Dans le
+# doute, un seuil est un seuil de gate : une sévérité de trop se paie d'une relance, une sévérité de
+# moins sert sous le label d'un gate vert une réponse qu'un autre pipeline a produite. C'est pour
+# cette raison que `max_cost_eur_per_request` (il tronque une réponse), `count_tokens_timeout_s` (il
+# bascule sur l'estimation) et les plafonds de coût d'ingestion restent des seuils de gate, quand
+# `cost_alert_eur` (il écrit une ligne de log) et `request_max_bytes` (il refuse un corps avant tout
+# pipeline) n'en sont pas.
+#
+# `ALLOW_UNGATED` et `ENV` ne figurent dans aucune des deux listes : ce ne sont pas des seuils, ils
+# ne sont pas publiés par `thresholds()`, et AD-7 les traite par la dérogation — pas par la
+# fraîcheur.
+#
+# Les deux listes sont **exhaustives et disjointes** : `tests/test_config.py` refuse qu'une clé de
+# `thresholds()` manque à l'appel ou figure dans les deux. Un seuil neuf ne se publie donc pas sans
+# être classé — l'oubli qui a produit ce correctif est le seul mode de défaillance que la règle
+# écrite ne rattrape pas toute seule.
+SEUILS_DEXPLOITATION: frozenset[str] = frozenset({
+    # Audit des appels : ce que le disque garde d'un appel, pas ce que l'appel rend.
+    "llm_audit_exact", "llm_audit_max_bytes", "llm_audit_retention_files",
+    # Budgets de campagne et alerte de coût : ils bornent une facture ou écrivent une ligne.
+    "live_budget_eur", "evals_max_cost_eur", "cost_alert_eur",
+    # Caches : ils décident d'où vient une réponse identique, jamais de son contenu.
+    "prefix_keepalive_enabled", "prefix_keepalive_s", "prefix_keepalive_max_prefixes",
+    "prefix_keepalive_max_cost_eur_per_day", "response_cache_enabled", "response_cache_ttl_s",
+    "response_cache_max_entries", "response_cache_max_bytes",
+    # Quotas, limitation de débit et taille de corps : ils refusent une requête, ou la font
+    # attendre ; celle qui passe est traitée par le même pipeline.
+    "rate_limit_per_minute", "rate_limit_per_day", "rate_limit_max_clients", "retry_after_s",
+    "request_max_bytes", "conversation_rate_limit_per_minute", "conversation_rate_limit_per_day",
+    # Délais et marges côté client, télémétrie : l'appelant et l'observateur, pas le pipeline.
+    "client_abort_margin_s", "client_probe_timeout_s", "cloud_trace_max_chars",
+    # Rendu PDF : la file et le cache d'images. Le `dpi` et le nombre de pixels, eux, changent
+    # l'image qu'une citation montre — ils sont de l'autre côté.
+    "pdf_render_concurrency", "pdf_render_cache_pages", "pdf_render_queue_timeout_s",
+    # Tuyauterie d'ingestion : scrutation des lots Batch, reprises, concurrence, récupération des
+    # sources. Ce qu'elles produisent est couvert par `ingest_fingerprint`, pas par ces délais.
+    "fetch_timeout_s", "metadata_timeout_s", "dictionary_batch_poll_s", "dictionary_batch_timeout_s",
+    "type_clauses_batch_poll_s", "type_clauses_batch_timeout_s", "type_clauses_standard_concurrency",
+    "type_clauses_standard_max_retries", "type_clauses_standard_retry_base_s",
+})
+
+SEUILS_DE_GATE: frozenset[str] = frozenset({
+    "deadline_s", "llm_timeout_s", "llm_output_tokens_per_s_min", "llm_latence_marge_s",
+    "raison_publiable_max_chars", "quote_min_chars", "quote_min_ratio", "max_opens",
+    "navigation_max_llm_turns", "navigation_budget_tokens", "navigation_search_limit",
+    "navigation_draft_max_claims", "navigation_draft_max_segments",
+    "navigation_rediger_max_tokens", "navigation_draft_effort_high", "navigation_tier_reason",
+    "variante_nombre_max_part", "node_window", "search_limit", "limite_liee_max",
+    "limite_liee_proximite_min", "pdf_highlight_max_lines", "pdf_highlight_max_blocks",
+    "pdf_render_dpi", "pdf_render_max_pixels", "max_llm_attempts",
+    "retrouver_outils_max_tokens", "retrieval_max_blocks", "retrieval_max_tokens",
+    "max_cost_eur_per_request", "baseline_tiers", "comprendre_tier_reason",
+    "rediger_tier_reason", "verifier_tier_reason", "retrouver_outils_tier_reason",
+    "retrieval_prompt_cache", "llm_max_output_tokens", "llm_retry_margin_s",
+    "comprendre_max_tokens", "rediger_max_tokens", "verifier_max_tokens",
+    "verifier_max_claims", "verifier_sinistre_max_tokens", "verifier_sinistre_json_tokens",
+    "verifier_thinking_reserve_tokens", "fait_manquant_max_chars", "ask_client_max",
+    "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
+    "qualite_mot_min_chars", "historique_max_turns", "relance_sur_non_pertinence",
+    "quote_max_chars", "draft_max_segments", "draft_max_claims", "draft_max_definitions",
+    "question_min_terms", "question_max_terms", "question_max_facettes", "scope_max_themes",
+    "libelle_max_chars", "liste_max_items", "estimate_chars_per_token",
+    "estimate_tokenizer_factor", "count_tokens_timeout_s", "summary_max_tags",
+    "summary_resume_max_chars", "summary_max_level", "summary_page_max_chars",
+    "summary_slice_max_chars", "summary_apercu_max_chars", "excerpt_max_chars",
+    "coverage_threshold", "kind_confidence_min", "mixed_page_image_density", "ocr_dpi",
+    "quality_min_words", "foreign_signal_min", "french_signal_ratio_min",
+    "gibberish_ratio_max", "residual_header_min_pages_ratio", "toc_page_number_baseline_pt",
+    "toc_column_tolerance_pt", "toc_indent_tolerance_pt", "toc_line_gap_ratio",
+    "toc_title_prefix_min_chars", "column_gutter_min_pt", "column_min_lines",
+    "column_min_span_ratio", "column_row_pairing_max_ratio", "column_min_fill_ratio",
+    "structure_max_depth", "structure_max_nodes", "structure_max_children",
+    "structure_max_blocks_per_leaf", "structure_min_coverage", "etiquette_max_chars",
+    "structure_max_input_chars", "structure_max_output_tokens",
+    "structure_output_tokens_per_line", "structure_thinking_reserve_tokens",
+    "structure_max_refinements", "structure_max_cost_eur", "dictionary_term_max_chars",
+    "dictionary_term_max_words", "dictionary_max_variants_per_term",
+    "dictionary_max_terms_per_fiche", "dictionary_question_max_chars",
+    "dictionary_max_questions_per_fiche", "dictionary_max_intent_triggers",
+    "dictionary_flat_max_blocks_per_request", "dictionary_flat_max_input_chars",
+    "dictionary_flat_max_terms_per_block", "dictionary_flat_max_output_tokens",
+    "dictionary_max_output_tokens", "dictionary_max_cost_eur", "dictionary_tier_reason",
+    "type_clauses_max_blocks_per_request", "type_clauses_max_input_chars",
+    "type_clauses_max_requests_per_batch", "type_clauses_max_output_tokens",
+    "type_clauses_max_cost_eur", "type_clauses_arbitration_confidence_min",
+    "type_clauses_confidence_tolerance", "type_clauses_max_article_refs",
+    "type_clauses_max_scope_articles", "type_clauses_max_relations",
+    "type_clauses_ref_expansion_max_blocks", "type_clauses_definition_max_chars",
+    "type_clauses_definition_max_words", "perimetre_max_chars", "header_band_pt",
+    "footer_band_pt", "header_min_pages_ratio", "para_gap_ratio", "article_number_max_x",
+    "title_min_size_pt", "header_caps_max_size_pt", "baseline_tolerance_pt",
+    "number_gap_tolerance_pt", "list_indent_pt", "dedent_tolerance_pt",
+    "dedent_starter_max_lines",
+})
+
 
 @lru_cache
 def get_settings() -> Settings:

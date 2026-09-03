@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from server.app.config import RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, Settings
+from server.app.config import (RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, SEUILS_DE_GATE,
+                               SEUILS_DEXPLOITATION, Settings)
 from server.app.domain.trace import Trace
 
 THRESHOLD_VARS = [k.upper() for k in Settings.model_fields] + ["ENV", "ALLOW_UNGATED"]
@@ -182,6 +183,38 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     # `guide_doc_id` et `sinistre_doc_id` sont des slugs, pas des seuils : ils n'ont rien à faire dans
     # `Trace.thresholds` (typé `dict[str, float | int]` — les y mettre ferait échouer la sérialisation).
     assert "guide_doc_id" not in t.thresholds and "sinistre_doc_id" not in t.thresholds
+
+
+def test_chaque_seuil_publie_est_classe_seuil_de_gate_ou_interrupteur() -> None:
+    """Story 5.6 (T20) : un seuil publié est **classé**, sinon ce test rougit.
+
+    La règle de classement vit dans `config.py` : un seuil entre dans le contexte de gate s'il peut
+    changer une claim, un verdict ou une citation ; le reste est un interrupteur d'exploitation. Une
+    règle écrite ne se tient pas toute seule — c'est précisément un seuil publié sans être pensé
+    comme l'un ou l'autre (`prefix_keepalive_enabled`, arrivé en T5) qui a fait refuser trois
+    déploiements avec `gate_perime` sur les trois documents. Le témoin refuse donc l'oubli lui-même :
+    ni clé non classée, ni clé dans les deux listes, ni entrée fantôme que `thresholds()` ne publie
+    plus.
+    """
+    reglages = Settings(_env_file=None)
+    publies = set(reglages.thresholds())
+    assert not (publies - (SEUILS_DE_GATE | SEUILS_DEXPLOITATION)), (
+        "seuil(s) publié(s) sans classement : les ranger dans `SEUILS_DE_GATE` (il peut changer une "
+        "claim, un verdict ou une citation) ou dans `SEUILS_DEXPLOITATION` (il décide de ce que le "
+        f"service dépense, garde ou refuse) — {sorted(publies - (SEUILS_DE_GATE | SEUILS_DEXPLOITATION))}")
+    assert not (SEUILS_DE_GATE & SEUILS_DEXPLOITATION), sorted(SEUILS_DE_GATE & SEUILS_DEXPLOITATION)
+    assert not ((SEUILS_DE_GATE | SEUILS_DEXPLOITATION) - publies), (
+        "classement d'un seuil que `thresholds()` ne publie plus : "
+        f"{sorted((SEUILS_DE_GATE | SEUILS_DEXPLOITATION) - publies)}")
+    # Le sous-ensemble est une **projection** de `thresholds()` : mêmes valeurs, jamais recalculées.
+    assert reglages.gate_thresholds() == {
+        nom: valeur for nom, valeur in reglages.thresholds().items() if nom in SEUILS_DE_GATE}
+    # Les trois interrupteurs qui diffèrent par construction entre la mesure et la production.
+    assert {"llm_audit_exact", "prefix_keepalive_enabled",
+            "live_budget_eur"} <= SEUILS_DEXPLOITATION
+    # Et quelques seuils dont personne ne doit pouvoir dire qu'ils ne changent pas une réponse.
+    assert {"deadline_s", "navigation_draft_max_claims", "verifier_max_claims", "quote_max_chars",
+            "rediger_tier_reason", "retrieval_max_blocks"} <= SEUILS_DE_GATE
 
 
 def test_allow_ungated_est_ferme_en_production_et_libre_en_dev() -> None:
