@@ -367,7 +367,8 @@ def applicabilites_des_claims(
 
 def decider(claims: list[ClaimJugee], *, ask_client_max: int,
             missing: MissingPackage | None = None,
-            resolutions: dict[str, tuple[Applicable | None, ApplicableReason | None]] | None = None) -> Verdict:
+            resolutions: dict[str, tuple[Applicable | None, ApplicableReason | None]] | None = None,
+            facettes_sans_reponse: int = 0) -> Verdict:
     """Découpage (b) d'AD-6 : la table exclusive, dans l'ordre, sur les claims **affichées** (D4).
 
     (0)   contradiction non résolue entre deux claims retenues, ou renvoi non résolu sur une claim
@@ -381,8 +382,19 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
           le « dépend d'une option / CP inconnue » d'AD-6 vu depuis la **clause**, qu'une garantie
           `oui` ne peut pas exprimer (une garantie qui dépend d'une option est `humain` par
           construction, règle (6) de `applicable_de_claim`) ;
-    (3)   garantie du socle `oui`, aucune claim retenue `humain` ⇒ `couvert` ;
+    (3)   garantie du socle `oui`, aucune claim retenue `humain`, **et chaque sous-question posée
+          portée par une affirmation retenue** ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
+
+    **`facettes_sans_reponse` (correctif du tour 6, F3).** `couvert` est le seul verdict qui affirme
+    quelque chose de la totalité de la demande : « une garantie du socle s'applique et aucune clause
+    citée ne reste ouverte ». Il ne peut donc pas se prononcer quand une sous-question posée n'a
+    reçu aucune clause. Mesuré sur un run réel : une question à deux sous-questions — le bris d'une
+    vitre et les dommages par la fumée — est ressortie `couvert` sur la **seule** clause des fumées,
+    la sous-question du bris n'ayant aucune clause décisionnelle ; la réponse portait au même
+    moment `complete=false` et « il reste 1 sous-question sans réponse ». Le compte vient de
+    `Verification.facettes_couvertes`, c'est-à-dire de la mesure du code, jamais d'une déclaration.
+    `sous_conditions` et `ne_tranche_pas` ne bougent pas : ils ne prétendent rien de ce qui manque.
 
     **`missing` accompagne le verdict ; il ne le décide pas (revue Codex 1.8, B1, tour 2).** Le tour 1
     avait lu « la garantie dépend d'une option / extension / **condition particulière inconnue** »
@@ -432,9 +444,12 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
     escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)
 
-    def verdict(value: VerdictValue, reason: str) -> Verdict:
+    def verdict(value: VerdictValue, reason: str,
+                *, questions: list[str] | None = None) -> Verdict:
         return Verdict(value=value, reason=f"{reason} ({PORTEE})",
-                       missing=missing_final.model_copy(deep=True), ask_client=ask, escalate=escalate)
+                       missing=missing_final.model_copy(deep=True),
+                       ask_client=([*questions, *ask][:ask_client_max] if questions else ask),
+                       escalate=escalate)
 
     # (0) — ni une contradiction ni un renvoi ouvert ne se tranchent par du code.
     if contradiction:
@@ -493,9 +508,23 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # établie que sur un fragment des faits relu mot pour mot (B3, tour 2).
     for garantie in garanties:
         if etat[garantie.claim_id] == "oui" and all(clause.socle for clause in garantie.clauses):
-            if not any(etat[c.claim_id] == "humain" for c in retenues):
-                return verdict("couvert", "Une garantie du socle commun s'applique et aucune clause "
-                                          "citée ne reste ouverte")
+            if any(etat[c.claim_id] == "humain" for c in retenues):
+                continue
+            if facettes_sans_reponse > 0:
+                # F3 : la règle (3) affirme quelque chose de **toute** la demande. Une sous-question
+                # sans clause n'est pas une nuance à côté du verdict, c'est une part de la question
+                # sur laquelle le contrat n'a rien dit — et la question passe devant les autres,
+                # puisque c'est elle qui empêche de trancher.
+                pluriel = "s" if facettes_sans_reponse > 1 else ""
+                return verdict(
+                    "ne_tranche_pas",
+                    f"Une garantie du socle commun s'applique, mais {facettes_sans_reponse} "
+                    f"sous-question{pluriel} de la demande n'a reçu aucune clause du contrat",
+                    questions=[f"{facettes_sans_reponse} sous-question{pluriel} de votre demande "
+                               f"n'a reçu aucune clause des conditions générales : précisez-la ou "
+                               f"indiquez les pièces qui la concernent."])
+            return verdict("couvert", "Une garantie du socle commun s'applique et aucune clause "
+                                      "citée ne reste ouverte")
 
     # (4) — reste de la table : aucune règle n'a tranché.
     return verdict("ne_tranche_pas", "Aucune règle de la table ne tranche sur les clauses retrouvées")

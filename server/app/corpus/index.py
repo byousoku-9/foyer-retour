@@ -397,6 +397,60 @@ class Index:
         return next((candidate for candidate in reversed(self._nodes[parent_id][1])
                      if self._by_block[candidate].block.kind != "heading"), None)
 
+    def _tete_denumeration(self, node_id: str) -> str | None:
+        """Le bloc qui **ouvre** l'énumération portée par ce nœud, ou `None` si ce n'en est pas une.
+
+        Une énumération, structurellement : un nœud dont le dernier bloc citable propre n'est pas un
+        titre — c'est l'amorce, « La Compagnie assure les biens désignés, contre les périls
+        suivants : » — et dont **tous** les enfants sont des feuilles à un seul bloc citable, les
+        items. Exiger *tous* les enfants et non *un* est ce qui distingue une énumération d'une
+        section qui mêle des sous-parties : deviner sur une section reviendrait à transmettre un
+        article entier chaque fois qu'une de ses feuilles est demandée.
+        """
+        enfants = self._node_children.get(node_id) or []
+        if not enfants:
+            return None
+        for enfant in enfants:
+            if self._node_children.get(enfant) or len(self._nodes[enfant][1]) != 1:
+                return None
+        directs = self._nodes[node_id][1]
+        amorce = next((b for b in reversed(directs)
+                       if self._by_block[b].block.kind != "heading"), None)
+        return amorce
+
+    def enumeration_de(self, block_id: str) -> list[str] | None:
+        """`[amorce, *items]` quand ce bloc appartient à une énumération, sinon `None`.
+
+        Correctif du tour 6 (F1). **Les items d'une même énumération se lisent ensemble.** C9 avait
+        déjà établi qu'un item ne se cite pas sans la phrase qui l'ouvre ; la réciproque manquait, et
+        elle est de la même nature. Mesuré sur trois runs : le navigateur a ouvert « Étendue de la
+        garantie » incendie (`a3.1.1.1`) et n'a reçu que son titre et son amorce — les **six périls**
+        sont des nœuds enfants, donc hors de la fenêtre —, si bien que « même lorsqu'il n'y a pas eu
+        embrasement, ni commencement d'incendie », qui est la réponse au cas, n'a jamais été
+        transmise. Les périls d'une même garantie se qualifient les uns les autres : lus séparément,
+        chacun ment par omission.
+
+        Le bloc demandé peut être l'amorce (le navigateur ouvre la garantie) ou l'un des items (il
+        ouvre un péril, ou une réservation en désigne un) : les deux rendent la même unité, dans
+        l'ordre de lecture. Aucune borne de taille ici — c'est de la structure ; le budget est
+        l'affaire de *retrouver*, qui borne par `enumeration_max_tokens`.
+        """
+        entry = self._by_block[block_id]
+        parent_id: str | None = None
+        if self._tete_denumeration(entry.node_id) == block_id:
+            parent_id = entry.node_id
+        elif self.amorce_de_lenumeration(block_id) is not None:
+            candidat = self._node_parents.get(entry.node_id)
+            if candidat is not None and self._tete_denumeration(candidat) is not None:
+                parent_id = candidat
+        if parent_id is None:
+            return None
+        amorce = self._tete_denumeration(parent_id)
+        if amorce is None:
+            return None
+        return [amorce, *(self._nodes[enfant][1][0]
+                          for enfant in self._node_children[parent_id])]
+
     def part_des_blocs(self, mot: str, *, doc_id: str) -> float:
         """Quelle **part des blocs** du document porte ce mot **normalisé** : 0 s'il n'y est pas.
 

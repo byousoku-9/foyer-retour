@@ -3285,3 +3285,42 @@ async def test_une_attribution_sur_une_sous_question_pourvue_nest_jamais_contred
     assert not [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
     assert not [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
     assert len(answer.claims) == 2
+
+
+# --- Correctif du tour 6 (F3) : un `couvert` répond à toute la demande --------------------------
+
+
+async def test_un_couvert_ne_se_prononce_pas_quand_une_sous_question_na_aucune_clause(
+        index: Index) -> None:
+    """La forme exacte d'un run réel : deux sous-questions, une seule clause, verdict `couvert`.
+
+    La question posait le bris d'une vitre **et** les dommages par la fumée ; la réponse servie n'a
+    porté qu'une affirmation, sur la garantie du socle, et le verdict est sorti `couvert` — alors que
+    la même réponse portait `complete=false` et « il reste 1 sous-question sans réponse ». Le verdict
+    disait le contraire du reste de la réponse. `couvert` est le seul qui affirme quelque chose de la
+    **totalité** de la demande : il recule, les autres ne bougent pas.
+    """
+    answer, trace, fake = await _run(index, [
+        _comprendre(facettes=["couverture du sinistre", "bris de la vitre de l'insert"]),
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
+
+    assert fake.remaining_script == 0
+    assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
+    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
+    assert "aucune clause du contrat" in answer.verdict.reason
+    assert answer.verdict.ask_client[0].startswith("1 sous-question de votre demande")
+    # La mesure qui l'a décidé est celle du code, et elle est dite dans la trace.
+    step = next(s for s in trace.steps if s.name == "verifier")
+    assert any(c.name == "facettes_non_couvertes" for c in step.checks)
+    # Et la réponse reste cohérente avec elle-même : incomplète, et le disant.
+    assert answer.complete is False
+
+
+async def test_une_seule_sous_question_couverte_rend_toujours_un_couvert(index: Index) -> None:
+    """La borne, et c'est le cas témoin de la bougie : une question à une sous-question ne bouge pas."""
+    answer, _trace, fake = await _run(index, [
+        _comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
+
+    assert fake.remaining_script == 0
+    assert answer.verdict is not None and answer.verdict.value == "couvert"
+    assert not [q for q in answer.verdict.ask_client if "sous-question" in q]

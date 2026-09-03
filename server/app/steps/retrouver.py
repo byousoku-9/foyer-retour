@@ -263,8 +263,52 @@ def _dependances_directes(block_id: str, *, block: Any, index: Index, terms: lis
     return out
 
 
+def _cout_des_blocs(block_ids: Iterable[str], *, block: Callable[[str], Block],
+                    settings: Settings) -> int:
+    """Le coût en tokens d'un ensemble de blocs, dans la représentation exacte de l'admission."""
+    return sum(estimate_tokens(f"{b}\n{block(b).text}", settings)
+               for b in dict.fromkeys(block_ids))
+
+
+def _enumeration_lisible(block_id: str, *, index: Index, block: Callable[[str], Block],
+                         settings: Settings) -> list[str] | None:
+    """L'énumération à laquelle ce bloc appartient, **si elle tient sous sa borne**.
+
+    Correctif du tour 6 (F1). `Index.enumeration_de` dit la structure ; la borne est ici, parce
+    qu'elle est une affaire de budget de lecture et non de document. Au-delà de
+    `enumeration_max_tokens`, l'unité redevient l'amorce et l'item demandé — le comportement d'avant
+    ce correctif, qui reste juste : ce qui serait faux est de transmettre un article entier pour une
+    feuille.
+    """
+    membres = index.enumeration_de(block_id)
+    if membres is None:
+        return None
+    if _cout_des_blocs(membres, block=block, settings=settings) > settings.enumeration_max_tokens:
+        return None
+    return membres
+
+
+def _membres_denumeration(window_ids: list[str], *, focus: str | None, index: Index,
+                          block: Callable[[str], Block], settings: Settings) -> list[str]:
+    """Les blocs d'une énumération à joindre à une fenêtre, ou rien (F1).
+
+    Deux entrées, une seule unité : le navigateur ouvre le nœud de l'amorce (les items sont ses
+    nœuds enfants, donc absents de sa fenêtre), ou il vise directement l'un des items. Une
+    énumération qui dépasse `enumeration_max_tokens` n'en est plus une pour la lecture : rien n'est
+    joint, et la fenêtre reste ce qu'elle était.
+    """
+    depart = focus if focus is not None else next(
+        (b for b in window_ids if index.enumeration_de(b) is not None), None)
+    if depart is None:
+        return []
+    membres = _enumeration_lisible(depart, index=index, block=block, settings=settings)
+    return membres or []
+
+
 def _unite_primaire(block_id: str, *, kind: str, index: Index,
-                     dependances: Iterable[str]) -> list[str] | None:
+                     dependances: Iterable[str],
+                     block: Callable[[str], Block] | None = None,
+                     settings: Settings | None = None) -> list[str] | None:
     """Unité atomique commune : primaire structurel, puis dépendances directes.
 
     `Index.unite_de_renvoi` est l'autorité structurelle : un titre emporte son premier corps
@@ -285,8 +329,15 @@ def _unite_primaire(block_id: str, *, kind: str, index: Index,
     structure = index.unite_de_renvoi(block_id)
     if kind == "heading" and structure == [block_id]:
         return None
+    # F1 : quand le bloc appartient à une énumération qui tient sous sa borne, **l'unité est
+    # l'énumération entière** — amorce et items —, parce que ses items se qualifient les uns les
+    # autres. À défaut (borne dépassée, ou pas une énumération), C9 s'applique seul : l'item
+    # emporte la phrase qui l'ouvre, rien de plus.
+    enumeration = (_enumeration_lisible(block_id, index=index, block=block, settings=settings)
+                   if kind != "heading" and block is not None and settings is not None else None)
     amorce = index.amorce_de_lenumeration(block_id) if kind != "heading" else None
-    return list(dict.fromkeys((*( [amorce] if amorce else [] ), *structure, *dependances)))
+    tete = enumeration if enumeration is not None else ([amorce] if amorce else [])
+    return list(dict.fromkeys((*tete, *structure, *dependances)))
 
 
 def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve: bool) -> list[str]:
@@ -595,7 +646,7 @@ def _unite_reservable(block_id: str, *, block: Callable[[str], Block], index: In
             proximity_min=settings.limite_liee_proximite_min,
             related_cache=related_cache, search_related=True)
         return _unite_primaire(block_id, kind=block(block_id).kind, index=index,
-                               dependances=dependances)
+                               dependances=dependances, block=block, settings=settings)
     except KeyError:
         return None
 
@@ -816,8 +867,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         `cout_unite` ne compte que ce qui reste à admettre — c'est ce qu'il faut avant l'admission,
         et exactement ce qu'il ne faut pas après (il rendrait zéro).
         """
-        return sum(estimate_tokens(f"{b}\n{block(b).text}", settings)
-                   for b in dict.fromkeys(block_ids))
+        return _cout_des_blocs(block_ids, block=block, settings=settings)
 
     def cout_unite(unit: Iterable[str]) -> tuple[int, int]:
         """Ce qu'une unité coûterait **en plus** : blocs et tokens, doublons déjà lus déduits."""
@@ -897,7 +947,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         return {"error": "appel refusé : arguments invalides ou ressource hors du document courant"}, True
 
     def execute(name: str, args: object, *, mechanism: bool = False,
-                prioritize_focus: bool = False) -> tuple[dict[str, Any], bool]:
+                prioritize_focus: bool = False,
+                unite_seule: bool = False) -> tuple[dict[str, Any], bool]:
         nonlocal opens, truncated, valid_window_attempted
         if not isinstance(args, dict):
             return invalid()
@@ -1026,6 +1077,16 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             admitted_before_window = set(admitted_set)
             promoted_dependency = False
             window_blocks = list(window.blocks)
+            # **F1 : ouvrir l'amorce d'une énumération, c'est l'ouvrir tout entière.** Les items
+            # sont des nœuds *enfants*, donc hors de la fenêtre du nœud : le navigateur qui ouvrait
+            # « Étendue de la garantie » ne recevait que son titre et « contre les périls
+            # suivants : », et repartait convaincu d'avoir lu la garantie. Une seule ouverture, un
+            # seul `open` compté : c'est la même fenêtre, rendue complète.
+            membres = _membres_denumeration(
+                [item.block_id for item in window_blocks], focus=focus, index=index,
+                block=block, settings=settings)
+            deja = {item.block_id for item in window_blocks}
+            window_blocks.extend(block(b) for b in membres if b not in deja)
             context_role_by_block.update({
                 item.block_uid: item.role for item in window.context_units
                 if item.role != "target"
@@ -1077,6 +1138,26 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 *sorted(ordre[len(tete):],
                         key=lambda block_id: 0 if _decisionnel_confirme(block_id) else 1),
             ]
+            if unite_seule and focus is not None:
+                # **F2 : honorer une réservation, c'est lire son unité, pas le nœud qui la porte.**
+                # La réservation garde la place d'une unité — mesuré 99 tokens — et l'honoration
+                # ouvrait la fenêtre entière du nœud : 829 à 1 889 tokens admis par run, dont sept
+                # blocs de dégâts des eaux pour un bloc réservé hors sujet, pendant que 13 à 15
+                # candidats du navigateur restaient non lus faute de budget. L'unité, elle, entre
+                # atomiquement par `admit()` — amorce et items compris (C9, F1) —, les frères que
+                # la **recherche du navigateur** a proposés restent admissibles (eux, quelqu'un les a
+                # demandés) et le **titre** de la section aussi : il coûte quelques tokens et situe la
+                # clause. Ce qui est retiré est le corps du voisinage, que personne n'a demandé et
+                # que la fenêtre apportait par le seul fait d'exister.
+                garde = [block_id for block_id in admission_ids
+                         if block_id == focus or block_id in relevant_candidates
+                         or block(block_id).kind == "heading"]
+                if len(garde) < len(admission_ids):
+                    # Le nœud a été ouvert et n'est pas lu en entier : la lecture est bornée et se
+                    # dit, exactement comme la fenêtre le déclare déjà dans sa charge utile
+                    # (`truncated` y vaut « un bloc de la fenêtre n'a pas été admis »).
+                    truncated = True
+                admission_ids = garde
             for primary_id in admission_ids:
                 item = window_block_by_id[primary_id]
                 # Une définition applicable éclaire le bloc primaire au même titre que son renvoi :
@@ -1090,7 +1171,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     search_related=item.block_id == focus or item.block_id in relevant_candidates,
                 )
                 unit = (_unite_primaire(
-                    item.block_id, kind=item.kind, index=index, dependances=dependencies)
+                    item.block_id, kind=item.kind, index=index, dependances=dependencies,
+                    block=block, settings=settings)
                     if item.block_id == focus else [item.block_id, *dependencies])
                 if unit is None:
                     truncated = True
@@ -1207,7 +1289,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             return
         for block_id, node_id in reserved_candidates:
             if block_id not in admitted_set and block_id not in focused_windows_attempted:
-                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id})
+                execute("ouvrir_noeud", {"node_id": node_id, "focus_block_id": block_id},
+                        unite_seule=True)
 
     def mappings_par_rang() -> list[tuple[int, dict[str, list[str]] | list[str]]]:
         """Les requêtes de facette, avec leur rang, dans l'état **effectif** du dictionnaire.
@@ -1317,7 +1400,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                             or item.block_id in relevant_candidates),
                     )
                     unit = (_unite_primaire(
-                        item.block_id, kind=item.kind, index=index, dependances=dependencies)
+                        item.block_id, kind=item.kind, index=index, dependances=dependencies,
+                        block=block, settings=settings)
                         if item.block_id == candidat_id
                         else [item.block_id, *dependencies])
                     if unit is not None:
@@ -1638,7 +1722,7 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 _payload, is_error = execute(
                     "ouvrir_noeud",
                     {"node_id": candidat.node_uid, "focus_block_id": candidat.clause_uid},
-                    prioritize_focus=True)
+                    prioritize_focus=True, unite_seule=True)
                 # C5 : même mesure que pour la réserve — la fenêtre ouverte, pas l'unité visée.
                 entres = [b for b in admitted_set - avant]
                 if entres:
@@ -2485,7 +2569,8 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 related_cache=related_cache, search_related=block_id in candidats,
             )
             unite = (_unite_primaire(
-                block_id, kind=bloc(block_id).kind, index=index, dependances=directes)
+                block_id, kind=bloc(block_id).kind, index=index, dependances=directes,
+                block=bloc, settings=settings)
                 if block_id in focus_ids else [block_id, *directes])
             if unite is None:
                 tronque = True
@@ -2963,7 +3048,7 @@ def couvrir_facettes(parsed: ParsedQuestion, *, retrieval: RetrievalResult, corp
                 proximity_min=settings.limite_liee_proximite_min,
                 related_cache=related_cache, search_related=True)
             unite = _unite_primaire(candidat, kind=bloc(candidat).kind, index=index,
-                                    dependances=dependances)
+                                    dependances=dependances, block=bloc, settings=settings)
             if unite is None:  # pragma: no cover — un kind décisionnel n'est jamais un titre seul
                 ecartes.append(candidat)
                 tronque = True

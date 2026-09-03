@@ -2228,11 +2228,19 @@ async def test_le_focus_heading_prime_localement_sans_changer_lordre_rendu() -> 
     assert deterministe_serre.blocs == outils_serre.blocs
     assert deterministe_serre.truncated == outils_serre.truncated is True
 
+    # **Correctif du tour 6 (F2), et c'est ici que les deux variantes cessent de coïncider — pour
+    # une raison qui n'est pas la variante.** Le déterministe ouvre `n2` parce que ce nœud porte des
+    # hits : il lit sa fenêtre, `d:p2:1` (« Contexte voisin contingent. ») compris. Le navigateur, lui,
+    # n'a jamais ouvert `n2` ; la fenêtre n'existe que pour **honorer une réservation**, et honorer
+    # une réservation, c'est lire son unité — plus ce que la recherche a proposé, plus le titre —,
+    # pas le voisinage. Mesuré sur trois runs réels : la réservation gardait 99 tokens et
+    # l'honoration en admettait 829 à 1 889, dont sept blocs de dégâts des eaux pour un bloc réservé
+    # hors sujet, pendant que 13 à 15 candidats du navigateur restaient non lus faute de budget.
     deterministe_large, outils_large = await executer(4)
-    attendu_large = ["d:p1:1", "d:p2:1", "d:p2:2", "d:p2:3"]
-    assert deterministe_large.opened_block_ids == outils_large.opened_block_ids == attendu_large
-    assert deterministe_large.blocs == outils_large.blocs
-    assert deterministe_large.truncated == outils_large.truncated is False
+    assert deterministe_large.opened_block_ids == ["d:p1:1", "d:p2:1", "d:p2:2", "d:p2:3"]
+    assert outils_large.opened_block_ids == ["d:p1:1", "d:p2:2", "d:p2:3"]
+    # Le nœud reste ouvert sans être lu en entier : la lecture est bornée, et les deux le disent.
+    assert deterministe_large.truncated is False and outils_large.truncated is True
 
 
 async def test_une_reservation_primaire_ordinaire_reste_seule() -> None:
@@ -5123,7 +5131,10 @@ def test_lunite_dun_item_denumeration_emporte_la_phrase_qui_louvre() -> None:
     unite = retrouver._unite_reservable(
         f"{doc_id}:p34:11", block=document.block, index=index, terms=["fumées et suies"],
         doc_id=doc_id, cohorte=[], budget=_budget(), settings=_s(), related_cache={})
-    assert unite == [f"{doc_id}:p34:6", f"{doc_id}:p34:11"]
+    # Correctif du tour 6 (F1) : l'unité est **l'énumération entière**, parce que ses items se
+    # qualifient les uns les autres — « même lorsqu'il n'y a pas eu embrasement » du sixième péril
+    # dit quelque chose des cinq autres. L'amorce reste en tête, et c'est toujours C9.
+    assert unite == [f"{doc_id}:p34:{n}" for n in (6, 7, 8, 9, 10, 11, 12)]
     # `p39:9` vit dans un nœud à trois blocs citables : ce n'est pas un item, aucune amorce ne
     # s'ajoute — ses dépendances directes, elles, restent ce qu'elles étaient.
     assert index.amorce_de_lenumeration(f"{doc_id}:p39:9") is None
@@ -5203,3 +5214,111 @@ async def test_une_reservation_dans_un_noeud_singleton_publie_autant_quelle_gard
     ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
                           for f in result.facettes if f.rang == 0]
     assert gardes > 0 and admis == gardes
+
+
+# --- Correctif du tour 6 (F1) : une énumération est une unité de lecture ------------------------
+
+
+def _corpus_a_enumeration(*, items: int = 3, taille: int = 1) -> Corpus:
+    """Une garantie qui énumère ses périls : amorce dans le nœud, items dans les nœuds enfants."""
+    titre = Block(block_id="d:p1:1", kind="heading", loc="p1", seq=1, text="Étendue de la garantie")
+    amorce = Block(block_id="d:p1:2", kind="garantie", kind_source="manual", loc="p1", seq=2,
+                   text="La Compagnie assure les biens désignés, contre les périls suivants :")
+    blocs = [Block(block_id=f"d:p2:{i}", kind="garantie", kind_source="manual", loc="p2", seq=i,
+                   text=f"Le péril numéro {i} " + "détaillé " * taille)
+             for i in range(1, items + 1)]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="garantie")]),
+             Node(node_id="garantie", items=[BlockRef(block_id=titre.block_id),
+                                             BlockRef(block_id=amorce.block_id),
+                                             *(NodeRef(node_id=f"peril{i}")
+                                               for i in range(1, items + 1))]),
+             *(Node(node_id=f"peril{i}", items=[BlockRef(block_id=f"d:p2:{i}")])
+               for i in range(1, items + 1))]
+    return Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e", nodes=nodes,
+        blocks=[titre, amorce, *blocs])}, summaries={"d": "root > garantie"})
+
+
+async def test_ouvrir_lamorce_dune_enumeration_transmet_ses_items() -> None:
+    """F1 — le navigateur ouvrait la garantie et n'en recevait que le titre et l'amorce.
+
+    Les items sont des nœuds **enfants** : ils sont hors de la fenêtre du nœud. Mesuré sur un run
+    réel : le navigateur a ouvert « Étendue de la garantie » incendie, a reçu « La Compagnie assure
+    les biens désignés, contre les périls suivants : », et est reparti convaincu d'avoir lu la
+    garantie — sans les six périls, dont celui qui répond au cas (« même lorsqu'il n'y a pas eu
+    embrasement, ni commencement d'incendie »). Une seule ouverture, un seul `open` compté.
+    """
+    corpus = _corpus_a_enumeration()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["périls"]),
+                      _tool("ouvrir_noeud", "t2", node_id="garantie")),
+    ], corpus=corpus, parsed=_parsed(["périls"]),
+        budget=_budget(max_opens=1, node_window=3, search_limit=20, max_blocks=9, max_tokens=6000))
+
+    assert set(result.opened_block_ids) >= {"d:p1:2", "d:p2:1", "d:p2:2", "d:p2:3"}
+
+
+async def test_une_enumeration_hors_borne_reste_lamorce_et_son_item() -> None:
+    """La borne : au-delà d'`enumeration_max_tokens`, l'unité redevient celle de C9.
+
+    Ce qui serait faux est de transmettre un article entier parce qu'une de ses feuilles est
+    demandée. Le seuil vit dans `config.py` et se mesure sur les documents servis.
+    """
+    corpus = _corpus_a_enumeration(items=6, taille=400)
+    index = Index(corpus)
+    bloc = corpus.documents["d"].block
+    assert index.enumeration_de("d:p2:1") is not None  # la structure, elle, reste une énumération
+    assert retrouver._enumeration_lisible(
+        "d:p2:1", index=index, block=bloc, settings=_s()) is None
+    assert retrouver._unite_primaire(
+        "d:p2:1", kind="garantie", index=index, dependances=[], block=bloc,
+        settings=_s()) == ["d:p1:2", "d:p2:1"]
+
+
+def test_une_section_qui_porte_des_sous_parties_nest_pas_une_enumeration() -> None:
+    """La borne structurelle : deviner sur une section transmettrait un article pour une feuille."""
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    # `a3.1.5.1` porte trois blocs citables : ses voisins font de lui une section, pas un item.
+    assert index.enumeration_de(f"{doc_id}:p39:9") is None
+    # Et l'énumération des périls incendie l'est, depuis n'importe lequel de ses membres.
+    attendue = [f"{doc_id}:p34:{n}" for n in (6, 7, 8, 9, 10, 11, 12)]
+    assert index.enumeration_de(f"{doc_id}:p34:6") == attendue
+    assert index.enumeration_de(f"{doc_id}:p34:12") == attendue
+
+
+# --- Correctif du tour 6 (F2) : une réservation s'honore par son unité --------------------------
+
+
+async def test_honorer_une_reservation_nouvre_pas_la_fenetre_du_noeud_entier() -> None:
+    """F2 — 829 à 1 889 tokens par run partaient dans le voisinage d'un bloc réservé hors sujet.
+
+    La réservation garde la place d'**une unité** — mesuré 99 tokens — et l'honoration ouvrait la
+    fenêtre entière de son nœud. Le compteur du tour 5 le publiait déjà : « 99 token(s) gardé(s)
+    pour 1 326 admis ». Ce qui entre désormais est l'unité, ce que la recherche du navigateur a
+    proposé, et le titre de la section ; le corps du voisinage, que personne n'a demandé, reste
+    dehors — et la lecture bornée se dit.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    voisins = [Block(block_id=f"d:p1:{i}", loc="p1", seq=i,
+                     text=f"Disposition de contexte numéro {i}, sans rapport avec la question.")
+               for i in range(2, 7)]
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les fumées assurées sont prises en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle, *voisins]), ("autre", [autre]))
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés", "fumées assurées"]),
+                      _tool("ouvrir_noeud", "t2", node_id="autre", focus_block_id="d:p2:1")),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés", "fumées assurées"],
+                       facettes=["vitrages assurés", "fumées assurées"]),
+        budget=_budget(max_opens=3, node_window=6, search_limit=20, max_blocks=8, max_tokens=6000),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert "d:p1:1" in result.opened_block_ids
+    assert not [b for b in result.opened_block_ids if b.startswith("d:p1:") and b != "d:p1:1"]
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    assert gardes > 0 and admis == gardes
+    assert result.truncated is True

@@ -966,9 +966,16 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             "applicable": resolutions.get(claim.claim_id, (None, None))[0],
             "applicable_reason": resolutions.get(claim.claim_id, (None, None))[1],
         })}, deep=True) for claim in claims]
+        # F3 : la table a besoin de la **mesure** de couverture par sous-question, pas d'une
+        # déclaration — et elle en a besoin avant de trancher, pas après. Le calcul est celui, à la
+        # ligne près, qui alimente `Verification.facettes_couvertes` plus bas ; il est donc fait une
+        # fois, ici, et relu là-bas.
+        facettes_couvertes = _facettes_couvertes(
+            couverture, affichees={c.claim_id for c in claims}, retrieval=retrieval)
         verdict = decider(
             affichables, ask_client_max=settings.ask_client_max, missing=dossier,
             resolutions=resolutions,
+            facettes_sans_reponse=max(0, len(parsed.facettes) - len(facettes_couvertes)),
         )
         # `ok=True` quelle que soit la valeur : AD-6 fait de `ne_tranche_pas` « un résultat rare et
         # gagné, pas un repli par défaut » (AD-3 le redit). Le marquer en échec ferait passer pour un
@@ -1010,9 +1017,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # vide ne dit rien de l'attribution ; seul le vide est une mesure, et il ne fait que refuser
     # d'être effacé. C'est AD-1 appliqué au contrôleur comme il l'est déjà au navigateur.
     sans_candidat = {facette.rang for facette in retrieval.facettes if not facette.candidats}
-    facettes_couvertes = sorted(rang for rang, ids in couverture.items()
-                                if rang not in sans_candidat
-                                and any(cid in affichees for cid in ids))
+    if not sinistre:
+        facettes_couvertes = _facettes_couvertes(
+            couverture, affichees=affichees, retrieval=retrieval)
     if evaluees and sans_candidat & set(couverture):
         rangs = sorted(sans_candidat & {rang for rang, ids in couverture.items()
                                         if any(cid in affichees for cid in ids)})
@@ -1087,6 +1094,21 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         detail=f"{len(claims)} affirmation(s) retenue(s), {len(rejetees)} rejetée(s) sur {len(draft.claims)}"))
     step.ms = int((time.monotonic() - t0) * 1000)
     return verification, step
+
+
+def _facettes_couvertes(couverture: dict[int, list[str]], *, affichees: set[str],
+                        retrieval: RetrievalResult) -> list[int]:
+    """Les sous-questions qu'une affirmation **affichée** couvre réellement, mesure du code.
+
+    Extrait du corps de `verifier` au tour 6 (F3) pour que la table d'AD-6 le lise **avant** de
+    trancher : `couvert` ne peut pas se prononcer sur une demande dont une part n'a reçu aucune
+    clause. La règle et l'asymétrie qu'elle porte n'ont pas changé d'un caractère — un classement
+    vide (C4) refuse d'être effacé par une déclaration, un classement non vide ne contredit jamais
+    une attribution du modèle.
+    """
+    sans_candidat = {facette.rang for facette in retrieval.facettes if not facette.candidats}
+    return sorted(rang for rang, ids in couverture.items()
+                  if rang not in sans_candidat and any(cid in affichees for cid in ids))
 
 
 def _lacunes(*, retrieval: RetrievalResult, parsed: ParsedQuestion, facettes_couvertes: list[int],
