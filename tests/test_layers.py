@@ -22,7 +22,14 @@ ALLOWED: dict[str, set[str]] = {
     "llm": {"domain", "config"},
     "steps": {"domain", "corpus", "llm", "config"},
     "pipelines": {"steps", "domain", "config", "digests"},
-    "api": {"pipelines", "corpus", "domain", "config", "digests", "llm"},
+    "api": {"pipelines", "corpus", "domain", "config", "digests", "llm", "cache"},
+    # Story 5.6 (T5) : la couche `cache` est un **service de la couche HTTP**. Elle ne voit ni les
+    # étapes, ni les pipelines, ni le corpus, ni le SDK : le client de modèle lui arrive en paramètre
+    # annoté `Any`, exactement comme aux pipelines. Elle est délibérément **hors** de
+    # `digests.PIPELINE_LAYERS` — son code ne doit pas entrer dans l'empreinte qui identifie l'image
+    # mesurée, sans quoi corriger une éviction invaliderait tous les gates et toutes les namespaces
+    # d'évals. Sa propre version entre dans la clé, par `CACHE_SCHEMA_VERSION`.
+    "cache": {"domain", "config"},
     "config": set(),
     "digests": set(),
 }
@@ -41,6 +48,9 @@ EXTERNAL_ALLOWED: dict[str, set[str]] = {
     "api": {"fastapi", "starlette", "pydantic", "pymupdf"},
     "config": {"pydantic", "pydantic_settings"},
     "digests": {"pydantic"},
+    # `pydantic` seulement : le cache relit un `Answer` et une `Trace` du domaine, et une entrée hors
+    # schéma doit être un miss, pas une exception — donc `ValidationError` est attrapée ici.
+    "cache": {"pydantic"},
 }
 
 

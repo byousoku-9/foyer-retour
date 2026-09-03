@@ -947,4 +947,57 @@ vitrées`, `dégât des eaux → fuite d'eau` (Baloise) ; `bris de vitrages → 
 garantie incendie` (AXA). Sur le guide, la seule perte notable est `assurance`, qui est exactement
 l'exemple de catégorie que I1 citait — et le terme reste cherché.
 
+## Story 5.6 (T5) — deux caches pour la facture, et ce qu'ils n'ont pas le droit de faire
+
+La navigation par le modèle (amendement AD-1 du 03/09/2026) multiplie les tours, donc les écritures
+de cache de préfixe. Les deux chiffres mesurés sur le prototype : une première requête après
+expiration du préfixe paie **≈ 0,28 €** d'écriture, une requête à chaud **≈ 0,015 €** de lecture.
+Sur un service qui reçoit quelques requêtes par jour — c'est-à-dire exactement une démonstration —,
+presque toutes les requêtes sont la première après expiration. Lancelot a tranché le 03/09 : deux
+caches, l'un chez le fournisseur, l'autre ici.
+
+**1. Maintien au chaud du préfixe.** Une tâche de fond réveillée toutes les 3 000 s (50 min) relit
+chaque préfixe **déjà servi depuis le démarrage** avec le plus petit appel qui existe — même modèle,
+même bloc système, mêmes outils, même schéma de sortie, un message d'un caractère, `max_tokens = 1`.
+L'intervalle est dérivé, pas choisi : le préfixe vit une heure (`MODEL_CAPS[...]["cache_ttl"]`), et
+3 000 s laissent 600 s de marge ; un intervalle supérieur ou égal au TTL est refusé au démarrage,
+parce qu'il paierait l'écriture qu'il prétend éviter. Trois bornes : rien n'est jamais chauffé « au
+cas où » ; un plafond de **1,00 € par jour** (un préfixe tenu en continu coûte ≈ 0,43 €/jour) arrête
+le maintien au lieu de laisser la facture suivre le nombre de préfixes ; et le maintien n'existe que
+sous `--min-instances=1`, drapeau que `deploy.yml` décide seul et à côté duquel il pose
+`PREFIX_KEEPALIVE_ENABLED` — un test refuse que l'un existe sans l'autre. Un préfixe dont le modèle
+déclare cinq minutes de cache (`ingest`, `micro`) n'est **pas** maintenu : le relire toutes les
+cinquante minutes écrirait un nouveau préfixe à chaque tour. `/sante` publie le nombre de maintiens,
+les ignorés, les échecs et le coût cumulé.
+
+**2. Cache interne de réponses, clé exacte.** La même question, mot pour mot, sur le même document,
+la même image d'ingestion, le même code, les mêmes prompts et les mêmes seuils, rend la réponse déjà
+payée. La seule liberté que la clé s'accorde est la **forme** de la saisie : espaces, casse,
+ponctuation finale. Rien d'autre — les accents distinguent, la ponctuation interne distingue, l'ordre
+distingue, et **une faute de frappe est une requête payée**. C'est la limite volontaire : un cache
+sémantique choisirait, à la place du modèle, quelle question l'utilisateur a posée, c'est-à-dire
+exactement la classe de décision que l'amendement AD-1 vient de retirer du code.
+
+Ce que la clé porte : question normalisée, historique, profil, faits (mot pour mot), `doc_id`,
+langue, variante, `source_hash`, `ingest_fingerprint`, `overlay_hash`, empreinte du dictionnaire,
+`pipeline_digest`, `prompts_digest` et les seuils publiés. Une seule de ces composantes qui bouge, et
+la clé change : aucun chemin ne sert une réponse produite par une autre image. Une réponse re-servie
+porte `via: cache`, la trace d'origine et son `total_cost_eur` d'origine — celui de la requête qui a
+payé —, tandis que la requête qui la reçoit coûte zéro dans le journal.
+
+**Ce que le cache ne dispense pas de refaire :** la projection relit chaque citation **dans le corpus
+servi**, sur un hit comme sur un miss. Une réponse conservée dont une citation n'est plus confirmée
+est un échec terminal (AD-3), jamais une réponse ancienne servie en silence. Et un document en
+quarantaine ou dont le gate est rouge (`sans_gate`, `gate_perime`, `source_absente`,
+`bloquant_statique`) n'est ni lu ni **écrit** : sans cette seconde moitié, la levée d'une quarantaine
+aurait ressuscité le stock constitué pendant qu'elle durait.
+
+**Limites assumées.** Le magasin est local à l'instance (`.cache/reponses/`, ignoré par git) : deux
+instances ne se le partagent pas, et le service tourne de toute façon en `--max-instances=1`. Il est
+borné à 200 entrées et 32 Mio — le disque de Cloud Run est en RAM — et évince les plus anciennes ; le
+TTL de sept jours est presque toujours dominé par les empreintes, qui périment plus vite. Enfin, les
+deux caches ne sont **armés que si la clé fournisseur est présente** : un service qui ne peut rien
+payer n'a rien à économiser, et toute exécution hors ligne — la suite hermétique comprise — ne laisse
+aucun état sur disque qu'elle n'a pas demandé.
+
 </details>

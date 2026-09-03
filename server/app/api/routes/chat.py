@@ -29,7 +29,8 @@ import re
 from fastapi import APIRouter, Depends, Request
 
 from server.app.api.presenter import champs_de_journal, fiches_de, sources_de
-from server.app.api.schemas import VIA, ChatRequest, ChatResponse
+from server.app.api.schemas import VIA, VIA_CACHE, ChatRequest, ChatResponse
+from server.app.cache import EntreeDeCache, composantes_de_cle
 from server.app.corpus.text import normalize
 from server.app.domain.errors import PipelineError
 
@@ -66,6 +67,29 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
     etat = request.app.state.foyer  # le limiteur a déjà tranché (dépendance `verifier_quota`)
     demande.borner(etat.settings)
 
+    variant = demande.variant or etat.settings.retrieval_variant
+    # Story 5.6 (T5) — le cache de réponses, **avant** le budget et avant tout appel. La clé est
+    # exacte : la question normalisée sur sa seule forme (espaces, casse, ponctuation finale) et
+    # tout le reste mot pour mot. L'historique et le profil entrent dans la clé comme les faits du
+    # sinistre : ce sont des données de la requête, et deux dialogues différents ne donnent pas la
+    # même réponse. `composantes_de_cle` rend `None` — donc aucun cache, ni lu ni écrit — dès que le
+    # document servi est en quarantaine ou porte une alerte de gate.
+    cache = etat.cache_reponses
+    cle = None
+    if cache is not None:
+        composantes = composantes_de_cle(
+            etat=etat, route="chat", doc_id=etat.settings.guide_doc_id,
+            question=demande.question, lang=demande.lang, variant=variant,
+            entree={"historique": [t.model_dump(mode="json") for t in demande.historique],
+                    "profil": demande.profil.model_dump(mode="json")
+                    if demande.profil is not None else None},
+            dictionnaire=etat.dictionnaire)
+        if composantes is not None:
+            cle = cache.cle(composantes)
+            if (entree := cache.lire(cle)) is not None:
+                return _projeter(request, demande, etat, entree.answer, entree.trace,
+                                 via=VIA_CACHE, cout_de_la_requete=0.0)
+
     budget = etat.client.new_budget()  # AD-9 : deadline monotone armée ici, à l'entrée de la route
     answer, trace = await etat.pipeline(
         demande.question, demande.historique, demande.profil,
@@ -77,14 +101,36 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         # (table des couches) et ne peut donc pas le charger lui-même. Toujours un objet, jamais
         # `None` : un dictionnaire absent est un `Dictionnaire` inerte, qui n'arme rien.
         dictionnaire=etat.dictionnaire,
-        variant=demande.variant or etat.settings.retrieval_variant)
+        variant=variant)
 
+    reponse = _projeter(request, demande, etat, answer, trace, via=VIA,
+                        cout_de_la_requete=trace.total_cost_eur)
+    # Écrit **après** la projection, donc après que `sources_de` a confirmé chaque citation dans le
+    # corpus servi : on ne conserve jamais une réponse qui n'aurait pas pu être servie.
+    if cache is not None and cle is not None:
+        cache.ecrire(cle, EntreeDeCache(answer=answer, trace=trace,
+                                        decision_claims=list(answer._decision_claims)))
+    return reponse
+
+
+def _projeter(request: Request, demande: ChatRequest, etat, answer, trace, *,  # type: ignore[no-untyped-def]
+              via: str, cout_de_la_requete: float) -> ChatResponse:
+    """La projection d'AD-11 et la ligne de log d'AD-10, partagées par le chemin payé et le cache.
+
+    `via` et `cout_de_la_requete` sont les deux **seules** choses qui distinguent les deux chemins :
+    la trace publiée est celle de la requête qui a payé — son `request_id`, son `total_cost_eur` —,
+    tandis que la ligne de journal de *cette* requête-ci porte ce qu'elle a réellement coûté, c'est-
+    à-dire zéro sur un hit. Sans cette distinction, une réponse re-servie aurait recompté sa facture
+    à chaque fois, et l'analytique d'AD-10 aurait mesuré une dépense qui n'a pas eu lieu.
+    """
     try:
         sources = sources_de(answer, etat.index, etat.corpus)
     except PipelineError as exc:
         # AD-3/AD-16 (revue Codex 1.6, B1 tour 2) : une citation que le corpus servi ne confirme pas
         # est un échec terminal, pas une réponse amputée de ses sources. La trace de la requête suit
         # l'erreur — AD-10 : le coût déjà engagé reste mesurable même quand rien n'est servi.
+        # Le cache passe par ici aussi : une réponse conservée dont une citation n'est plus dans le
+        # corpus servi est un échec terminal, jamais une réponse ancienne servie en silence.
         exc.trace = trace
         raise
     # AD-10 : la ligne de log ne porte que des champs — jamais la question, jamais `terms_searched`,
@@ -95,8 +141,10 @@ async def chat(request: Request, demande: ChatRequest) -> ChatResponse:
         # Story 4.2f : la cause de l'issue, nommée par `presenter.champs_de_journal` — une seule
         # règle pour les deux routes, qui écrivent le même champ.
         **champs_de_journal(answer),
-        cost_eur=trace.total_cost_eur)
+        # AD-10 : la liste `CHAMPS_DE_LOG` est **close** — `via` n'y entre pas, et un hit se lit
+        # dans `cost_eur=0.0` ici et dans les compteurs de `/sante`, pas dans un champ de plus.
+        cost_eur=cout_de_la_requete)
     return ChatResponse(texte=answer.texte, segments=answer.segments, sources=sources,
                         fiches=fiches_de(sources), unknown=answer.unknown,
-                        comparateur=comparateur_de(demande.question), answer=answer, via=VIA,
+                        comparateur=comparateur_de(demande.question), answer=answer, via=via,
                         trace=trace)

@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 
 from server.app.api.limiter import RateLimiter
 from server.app.api.schemas import Alerte, DOC_ID_MAX, DOC_ID_PATTERN
-from server.app.config import RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, Settings
+from server.app.config import RAISON_PUBLIABLE_MAX_DEFAULT, REPO_ROOT, Settings, cle_absente
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
 from server.app.domain.dictionary import DICTIONARY_FILE
 from server.app.corpus.index import Index
@@ -37,6 +37,11 @@ from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.evals import EtatPublication, PublicationEvals
 from server.app.domain.ingest import Check, GateContext, Report
 from server.app.api.page_renderer import PageRenderer, VerifiedSource
+from server.app.cache import (
+    CacheDeReponses,
+    MaintienDesPrefixes,
+    RegistreDesPrefixes,
+)
 from server.app.llm.audit import AuditSink, JsonlAuditSink, ProjectionAuditSink
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -49,6 +54,9 @@ from server.app.pipelines.sinistre import run as executer_sinistre
 LOG = logging.getLogger("foyer.etat")
 
 DATA_DIR = REPO_ROOT / "data"
+# Le magasin du cache de réponses (story 5.6, T5). Sous `.cache/`, comme le cache d'évals, et ignoré
+# par git pour la même raison : ce sont des octets produits par une exécution, jamais du contenu servi.
+CACHE_REPONSES_DIR = REPO_ROOT / ".cache" / "reponses"
 
 
 def _conversation_secret(settings: Settings) -> bytes:
@@ -329,6 +337,12 @@ class EtatApp:
     # normal (aucun run publié dans cette image), jamais une erreur : la route le rend tel quel.
     publication_evals: EtatPublication = field(
         default_factory=lambda: EtatPublication(publie=False, raison="absent"))
+    # Story 5.6 (T5) — les deux caches de la facture, `None` quand ils ne sont pas armés (pas de clé
+    # fournisseur, ou réglage éteint). `None` et non un objet inerte : ici, « il n'y a pas de cache »
+    # est une propriété que `/sante` publie, et un objet inerte l'aurait rendue indistinguable d'un
+    # cache qui ne sert jamais.
+    cache_reponses: CacheDeReponses | None = None
+    maintien_prefixes: MaintienDesPrefixes | None = None
 
     @property
     def documents_servis(self) -> list[str]:
@@ -842,6 +856,40 @@ def _audit_sink(settings: Settings) -> AuditSink:
         return ProjectionAuditSink()
 
 
+def _caches(settings: Settings, client: LlmClient
+             ) -> tuple[CacheDeReponses | None, MaintienDesPrefixes | None]:
+    """Arme les deux caches de la story 5.6, ou aucun. La clé fournisseur est la condition commune.
+
+    **Sans clé, rien n'est armé** — ni le cache de réponses, ni le maintien. C'est la règle que
+    `/sante` applique déjà à `ok` : un service qui ne peut appeler personne ne peut rien économiser.
+    Elle a un second effet, voulu : toute exécution hors ligne — la suite hermétique, un `uvicorn` de
+    lecture, un script de démonstration sans clé — ne laisse aucun état sur disque qu'elle n'a pas
+    demandé, et deux requêtes identiques y restent deux requêtes.
+
+    Le maintien exige en plus son propre réglage, faux par défaut : il n'a de sens que sous
+    `--min-instances=1`, drapeau que `deploy.yml` décide seul et à côté duquel il pose la variable.
+    """
+    if cle_absente(settings) or not settings.anthropic_api_key.strip():
+        return None, None
+    cache = (CacheDeReponses(CACHE_REPONSES_DIR,
+                             ttl_s=settings.response_cache_ttl_s,
+                             max_entries=settings.response_cache_max_entries,
+                             max_bytes=settings.response_cache_max_bytes)
+             if settings.response_cache_enabled else None)
+    if not settings.prefix_keepalive_enabled:
+        return cache, None
+    registre = RegistreDesPrefixes(settings.prefix_keepalive_max_prefixes)
+    client.prefix_registry = registre
+    maintien = MaintienDesPrefixes(
+        client=client, registre=registre,
+        intervalle_s=settings.prefix_keepalive_s,
+        max_cout_eur_par_jour=settings.prefix_keepalive_max_cost_eur_per_day,
+        # Un maintien est un appel comme un autre du point de vue du fournisseur : il emprunte le
+        # même délai d'appel qu'AD-16 borne, jamais un délai qui lui serait propre.
+        timeout_s=settings.llm_timeout_s)
+    return cache, maintien
+
+
 def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> EtatApp:
     """Charge tout ce qui est constant pour la vie du process (AD-7, AD-9, reprise 1.6)."""
     data_dir = DATA_DIR if data_dir is None else data_dir
@@ -900,6 +948,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
     # celui qui vient de déployer. Une seule couture journalise l'état complet ; composer les
     # alertes HTTP reste pur et ne duplique plus la ligne.
     _journaliser_dictionnaire(dictionnaire)
+    client = LlmClient(settings, audit_sink=_audit_sink(settings))
+    cache_reponses, maintien = _caches(settings, client)
     return EtatApp(
         settings=settings, corpus=corpus,
         # Convention Seuils : les trois budgets de projection de l'index viennent de la
@@ -912,7 +962,8 @@ def construire_etat(settings: Settings, *, data_dir: Path | None = None) -> Etat
         # et trois enquêtes ont dû déduire ce qu'un fichier aurait dit. Hors production, l'audit
         # exact est écrit sur disque, en 0600, taille et rétention bornées — conservé, jamais
         # publié, la distinction même qu'AD-15 fait.
-        client=LlmClient(settings, audit_sink=_audit_sink(settings)),
+        client=client,
+        cache_reponses=cache_reponses, maintien_prefixes=maintien,
         limiter=RateLimiter(settings),
         followup_limiter=RateLimiter(
             settings, per_minute="conversation_rate_limit_per_minute",
