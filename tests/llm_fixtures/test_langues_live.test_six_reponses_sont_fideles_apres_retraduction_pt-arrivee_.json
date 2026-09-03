@@ -439,6 +439,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:6f7096b3baa8b528": {
+    "certificate": {
+      "messages_sha256": "d1bbc1469ce07c4d4788c05f9ae374f38de549d1a16957f763c6ca4de96a94e7",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:6f7096b3baa8b528",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegLbQSrExjVpKvMF8jzJ",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 736,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:709ddee0a82fe276": {
     "request": "claude-haiku-4-5-20251001:709ddee0a82fe276",
     "response": {
@@ -944,6 +983,48 @@
       }
     }
   },
+  "claude-sonnet-5:08d182b929ca4f59": {
+    "certificate": {
+      "messages_sha256": "18cd6d082d579d590a199a4ce0fe0d6e4d226a240dce2f44d1100ef3b7abb385",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "2f28271fd5bf4b86d998499552511a5bea03a0e4a45574eeb768e2e576f4038a",
+      "system_sha256": "9fc271f124c5c7abecc70aa1bd8353c1e5adbf79002158407391033c68fb075c",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:08d182b929ca4f59",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"O prazo é de oito dias após a mudança para o novo alojamento.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"O prazo conta a partir da mudança efetiva, não da assinatura do contrato de arrendamento.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É recomendável marcar a consulta online com antecedência, mesmo antes de ter as chaves.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Prazo de oito dias para declarar a chegada à comuna.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:3\",\"quote\":\"Vous disposez de huit jours pour déclarer votre arrivée au bureau de la population, souvent appelé Biergercenter.\"}]},{\"claim_id\":\"c2\",\"text\":\"O prazo conta a partir do emménagement, não da signature du bail.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:10\",\"quote\":\"Huit jours après l'emménagement, pas après la signature du bail.\"}]},{\"claim_id\":\"c3\",\"text\":\"Recomenda-se reservar a consulta online antes mesmo de ter as chaves, pois os créneaux podem esgotar rapidamente.\",\"quotes\":[{\"block_id\":\"lux-guide:farrivee:9\",\"quote\":\"En période de rentrée, les créneaux partent vite, ce qui peut suffire à faire dépasser le délai de huit jours. Réservez avant même d'avoir les clés.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegLaKYtpggj813EqaAwe",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7380,
+        "inference_geo": "global",
+        "input_tokens": 1636,
+        "output_tokens": 546,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:238daf99192ca201": {
     "certificate": {
       "messages_sha256": "385af1bd18286cc30d0c82079c9a00ba7fad0806ba35855f540588ba6016634a",
@@ -957,12 +1038,17 @@
     "response": {
       "content": [
         {
+          "signature": "EokDCpABCBEYAipAQf3SvPtuuDZJpl6HMMYa6/x+dh+Cwdq2cMqqsiN9EV32du28LhWmQsScQkcSDawBHrMGR4Eh1Wtz7jmxUOVZujIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAfuT5dQGEgxv9Xd9OKaqjuObRqcaDE0B+RUrnwoavaJOpCIwiwiWYCTScf8+2zxwIfQJ2eSKNcMO+0hjO0XEcW0D3ACENGOezYj8ZEdxSnq2FyYoKqUBHsvBD4g1zNuiQd1Tm8DI4fR9l+mLAds8BBVrijUimqRCvdA8V9Z0I/VpYvepSmgArEXeu6dP+k9tfyDpqE5QjzsnT5JYqWyy/1olvoSLHTcSOxevD+fWAnUgYks/u0A40Dqw9fU4gZyOLY/izPV82e8buCp3Ted5cSHJTnPhYDYoBYGokPBK5UjHYMOXznv/a3pAYKWfmOgzVrOEQhMK4vHvIqDcGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "parsed_output": null,
           "text": "{\"intent\":\"question\",\"question_resolue\":\"Quanto tempo tenho para declarar a minha chegada à comuna?\",\"clarification\":null,\"language\":\"pt\",\"terms\":[\"déclaration d'arrivée\",\"commune\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour déclarer l'arrivée à la commune\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CegDU4tMgGjAZMdG2k9YP",
+      "id": "msg_011CegLZhm6dxziWTKtztosK",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -978,9 +1064,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 90,
-        "output_tokens": 142,
+        "output_tokens": 201,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 57
         },
         "service_tier": "standard"
       }
@@ -1209,22 +1295,34 @@
     "response": {
       "content": [
         {
+          "signature": "Eo8CCpABCBEYAipA+b7PgYZLd8ZuWGg5N1UQFHhR2GXj4P0STPeOJteFxNe/OMTngCXK2CnVA/n1d4BuFGsPKxxHa3fP3GqmkgURUjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAf+T5dQGEgyNwFRib/GTIqwmFhMaDK8mR0VYy+2E7Vi6QyIwepYRA624CK4YB9l6cexi2PXvR4EX6oIuwEEPsVgBUFmr7eBkr25KV+M98N2rGEYIKizEjykSDEC4WEuWKnBPquPaatlL9D7E0rHfBH0eHS4WzgWvqc5tB3V0ys2SWhgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_0157whqN9XL8BeBnNi37ktTp",
+          "id": "toolu_01SSTngafunJNqZ2oAczPsH5",
           "input": {
-            "termes": [
-              "déclaration d'arrivée",
-              "commune",
-              "délai"
-            ]
+            "node_id": "lux-guide:q12"
           },
-          "name": "chercher",
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01Q5KoX9K16gpAG3BatydDi6",
+          "input": {
+            "node_id": "lux-guide:farrivee"
+          },
+          "name": "ouvrir_noeud",
           "type": "tool_use"
         }
       ],
-      "id": "msg_011CegDUTFWme2Xgbv66wspT",
+      "id": "msg_011CegLa2AP8vpzkMGys35v5",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1240,9 +1338,9 @@
         "cache_read_input_tokens": 5841,
         "inference_geo": "global",
         "input_tokens": 180,
-        "output_tokens": 68,
+        "output_tokens": 139,
         "output_tokens_details": {
-          "thinking_tokens": 0
+          "thinking_tokens": 15
         },
         "service_tier": "standard"
       }
@@ -1700,6 +1798,47 @@
       }
     }
   },
+  "claude-sonnet-5:aa1c464e371f0f47": {
+    "certificate": {
+      "messages_sha256": "dcde13475363057976e6be046d0611ffd348f6fd73fb6aa6d1af59783e52ad2b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "9fc271f124c5c7abecc70aa1bd8353c1e5adbf79002158407391033c68fb075c",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:aa1c464e371f0f47",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegLaCAPatUPPbM6WW753",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5841,
+        "inference_geo": "global",
+        "input_tokens": 1468,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:b89452374f0e9a88": {
     "request": "claude-sonnet-5:b89452374f0e9a88",
     "response": {
@@ -1985,6 +2124,53 @@
         "output_tokens": 546,
         "output_tokens_details": {
           "thinking_tokens": 31
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:e72429c2dbc818d4": {
+    "certificate": {
+      "messages_sha256": "2d5fc861f6fa7d0bdcdc93da39233730d885d4993566bd57f269e088af8edf13",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "a63586a4840fbe37e7a273e054538d2dba26ae36e676f9903644420472da4f1c",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:e72429c2dbc818d4",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\"]}],\"segments\":[{\"segment\":0,\"soutenu\":false},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CegLaoKF74igTdCz9eHAk",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 4049,
+        "inference_geo": "global",
+        "input_tokens": 795,
+        "output_tokens": 632,
+        "output_tokens_details": {
+          "thinking_tokens": 464
         },
         "service_tier": "standard"
       }
