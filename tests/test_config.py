@@ -65,7 +65,11 @@ def test_defaults_match_spine_hypotheses() -> None:
     # Repli du 03/09 12:11 : `high` a saturé 3 072 tokens de réflexion sans JSON (503) ; `medium`
     # est l'effort mesuré sans troncature sur la matinée. T13 : `medium` tronque aussi sur les
     # ébauches Baloise, et c'est le plafond qui a été relevé — la marche suivante reste `low`.
-    assert s.navigation_draft_effort == "medium"
+    # T14 : elle a été prise. `medium` a tronqué **aussi** sur le plafond relevé (gate Baloise
+    # 13 h 43, `b-bougie-canape` rép. 3) ; `low` est le seul effort dont aucune mesure ne rend une
+    # troncature, et le levier contre l'omission d'une clause lue est l'inventaire des blocs
+    # décisionnels du message terminal (T11), pas l'effort de ce tour.
+    assert s.navigation_draft_effort == "low"
     assert s.draft_max_claims == 6 and s.draft_max_segments == 9
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (

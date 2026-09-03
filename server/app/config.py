@@ -1587,6 +1587,9 @@ class Settings(BaseSettings):
     # amender AD-11 (`--timeout` > 300, deadline ≈ 310, patience ≈ 345), ou redescendre
     # `navigation_draft_effort` à `low` et re-mesurer la réflexion de ce tour — le repli que le
     # champ ci-dessous écrit déjà, et dont `medium` était la première marche.
+    # **T14, 03/09/2026 : la seconde sortie a été prise** — le champ ci-dessous vaut `low`, et le
+    # tour terminal que sa sortie tronque quand même est redemandé une fois sans réflexion
+    # (`steps/naviguer.py::_appel_terminal`). La première, elle, reste ouverte et pour Lancelot.
     navigation_rediger_max_tokens: int = Field(5056, ge=1)
     # `navigation_draft_effort` : l'effort du **seul** appel qui choisit les clauses citées.
     #
@@ -1630,7 +1633,28 @@ class Settings(BaseSettings):
     # majorait plus (voir `navigation_rediger_max_tokens`) : baisser l'effort n'aurait rien rendu de
     # cette place-là. La marche suivante reste `low`, et c'est elle qu'il faut prendre si un tour
     # terminal sature encore 5 056 — le plafond, lui, ne peut plus monter sans la deadline.
-    navigation_draft_effort: Literal["low", "medium", "high"] = "medium"
+    #
+    # **T14, 03/09/2026 : c'est `low`, et la marche a été prise parce que 5 056 a été saturé.** Le
+    # gate Baloise de 13 h 43, sur le plafond relevé de T13, rend `b-bougie-canape` rép. 3 en
+    # `llm_parse : réponse tronquée` au tour terminal, à `medium`. La chaîne de replis est donc
+    # entièrement mesurée, et dans un seul sens :
+    #   — `high` (12 h 11) : 3 072 saturés en réflexion pure, aucun JSON ;
+    #   — `medium` (13 h 14 à 3 072, 13 h 43 à 5 056) : tronqué aux deux plafonds ;
+    #   — `low` : le seul effort dont aucune mesure ne rend une troncature. C'est aussi celui que
+    #     *vérifier* sert depuis T10, sur un appel dont la réflexion est mesurée (1 732 à 2 175
+    #     tokens pour un contrat de 1 024) et qui n'a plus tronqué depuis.
+    # Le plafond, lui, ne peut plus monter sans la deadline (T13), et il n'y a plus de marche en
+    # dessous : si `low` tronque encore, ce qui reste est la reprise sans réflexion du tour terminal
+    # (T14, `steps/naviguer.py::_appel_terminal`), puis l'amendement d'AD-11.
+    #
+    # **Ce que baisser l'effort ne rend pas, et pourquoi c'est tenable.** L'effort avait été relevé
+    # (T11) contre l'omission d'une clause **lue** — le tour terminal est le seul appel qui arrête
+    # quelles clauses sont citées. Ce n'est plus lui qui porte ce levier : depuis T11 le code compose
+    # l'**inventaire des blocs décisionnels ouverts** dans le message terminal, avec la règle qui
+    # manquait (`CONSIGNE_INVENTAIRE`, `steps/naviguer.py`), et exige une décision par bloc —
+    # `blocs_ecartes` la trace quand elle est négative. Un inventaire exact dans le prompt ne dépend
+    # d'aucun effort ; la réflexion qu'il remplace, elle, coûtait la sortie entière.
+    navigation_draft_effort: Literal["low", "medium", "high"] = "low"
     # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
     # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
     # une première requête après expiration du préfixe paie ≈ 0,28 € d'écriture de cache, contre
