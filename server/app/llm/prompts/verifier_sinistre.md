@@ -72,6 +72,12 @@ ce dommage à la catégorie contractuelle et même si une autre facette reste sa
 couverture des facettes mesure séparément ce qui manque ; elle ne rend pas hors objet la règle utile
 à une seule facette.
 
+Contrôle enfin cette cohérence avant de rendre le JSON. Renseigner pour une affirmation un
+`fait_manquant`, ou une seule `qualite_exigee`, c'est avoir déjà jugé que sa clause vise ce cas : son
+verdict ne peut alors pas être `hors_objet`. De même, une affirmation que tu ranges dans une facette
+y répond : elle ne peut pas être `hors_objet`. Une affirmation dont la clause ne vise pas ce cas rend
+les deux listes vides et `fait_manquant = null` — c'est la seule forme compatible avec ce motif.
+
 - `claim_id` : reprends **tel quel** l'identifiant de l'affirmation. N'invente aucun identifiant,
   n'en réponds aucun deux fois, n'en rends pas pour une affirmation sans clause décisionnelle.
 
