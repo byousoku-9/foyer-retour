@@ -260,6 +260,20 @@
     return Object.prototype.hasOwnProperty.call(KINDS, k) ? KINDS[k] : k || "type inconnu";
   }
 
+  /**
+   * La classe de rôle d'une clause (story 5.6, L2b) : c'est elle qui donne au bord gauche de la
+   * carte et à son étiquette la couleur de ce que la clause **fait** — une garantie n'a pas la même
+   * portée qu'une exclusion, et l'écran doit le dire avant qu'on ait lu le paragraphe.
+   *
+   * Seuls les `kind` de la table d'AD-2 en reçoivent une : un kind hors table garde le fond
+   * d'accent par défaut, et son libellé se dit tel quel. Inventer une couleur pour un rôle qu'on ne
+   * connaît pas serait ranger la clause dans la case la plus proche.
+   */
+  function classeRole(kind) {
+    var k = String(kind || "");
+    return Object.prototype.hasOwnProperty.call(KINDS, k) ? " appui-role-" + k : "";
+  }
+
   // D7 : les clauses **non retrouvées** s'affichent avec le motif du rejet, jamais avec leur
   // citation — les quotes d'une claim `non_retrouvee`/`ambigue` sont restées les chaînes du modèle.
   var REJETS = {
@@ -853,6 +867,10 @@
       ]);
     });
     return noeud("div", "carte attente", null, [
+      // La carte d'attente occupe **la place de la réponse** : c'est le même conteneur, et elle
+      // le dit. Une barre posée au-dessus du formulaire aurait fait attendre à un endroit et
+      // apparaître la réponse à un autre.
+      noeud("h3", "attente-titre", "La réponse s'écrit ici"),
       noeud("ol", "prog", null, etapes),
       noeud("div", "prog-pied", null, [
         noeud("span", "prog-chrono", chrono(e.msEcoule || 0)),
@@ -1438,18 +1456,26 @@
   // dossier conversationnel (« Dossier »), les affirmations écartées, la trace. Rien n'a disparu ;
   // ce qui décide est passé devant ce qui documente.
 
-  /** Le titre d'un bloc : son numéro, puis son intitulé. */
-  function titreBloc(numero, texte) {
+  /**
+   * Le titre d'un bloc : son pictogramme, puis son intitulé.
+   *
+   * Story 5.6 (L2b) — le numéro dans sa pastille disait le rang du bloc, pas sa nature : quatre
+   * chiffres alignés sont une table des matières, pas des repères. Le pictogramme est porté par la
+   * **feuille** (un masque SVG par classe de bloc, `--icone`), jamais par le script : un `<svg>`
+   * composé ici obligerait `materialiser` à connaître un second espace de noms, et `className` n'est
+   * pas assignable sur un élément SVG. Il est purement décoratif — l'intitulé est écrit à côté.
+   */
+  function titreBloc(texte) {
     return noeud("h3", "bloc-titre", null, [
-      noeud("span", "bloc-num", String(numero), null, { "aria-hidden": "true" }),
+      noeud("span", "bloc-icone", null, null, { "aria-hidden": "true" }),
       noeud("span", "bloc-nom", texte)
     ]);
   }
 
-  function bloc(cls, numero, titre, enfants) {
+  function bloc(cls, titre, enfants) {
     var utiles = enfants.filter(Boolean);
     if (!utiles.length) return null;
-    return noeud("section", "bloc " + cls, null, [titreBloc(numero, titre)].concat(utiles));
+    return noeud("section", "bloc " + cls, null, [titreBloc(titre)].concat(utiles));
   }
 
   // --- bloc 1 : la réponse -------------------------------------------------
@@ -1470,20 +1496,36 @@
       suite.map(function (p) { return noeud("p", "reponse-suite", p); }));
   }
 
-  function blocReponse(reponse, sansClause) {
+  /**
+   * Story 5.6 (L2b) — trois lignes grises se suivaient sous la pastille et disaient la même chose
+   * que la phrase au-dessus d'elles. Deux d'entre elles s'en vont d'ici :
+   *
+   *   - la **portée** (« conditions générales seules, pas un avis d'expert ») était répétée deux
+   *     fois sur l'écran, ici et dans les garde-fous. Elle ne vit plus que là-bas, une fois ;
+   *   - la **raison de la table** est une reformulation de la règle que la pastille nomme déjà :
+   *     elle dit *par quelle règle* le verdict est tombé, jamais un fait sur le sinistre. Dès qu'il
+   *     y a une première phrase, cette phrase porte déjà la conclusion en français — la raison
+   *     n'ajoute alors rien à l'écran et se replie dans « Comment cette réponse a été obtenue ».
+   *
+   * Ce n'est pas une suppression : sans première phrase, il n'y a plus rien pour dire pourquoi, et
+   * la raison **reste** sous la pastille. Et si la trace ne se peint pas — un corps sans `trace` —,
+   * il n'y a nulle part où la replier : elle reste ici aussi. Elle ne disparaît jamais des deux.
+   */
+  function blocReponse(reponse, sansClause, replier) {
     var a = (reponse || {}).answer || {};
     var verdict = a.verdict || null;
     var v = libelleVerdict(verdict && verdict.value, sansClause);
-    var enfants = reponseVue(a.texte);
+    var corps = reponseVue(a.texte);
+    var phrase = corps.length ? corps[0] : null;
+    var badge = noeud("span", "badge verdict-" + v.cle, v.texte);
+    // La pastille se lit **à côté** de la première phrase : le verdict et la phrase qui l'énonce
+    // sont une seule information, et les séparer par trois paragraphes en faisait deux.
+    var enfants = [noeud("div", "reponse-tete", null, phrase ? [phrase, badge] : [badge])]
+      .concat(corps.slice(1));
 
-    enfants.push(noeud("div", "verdict-tete", null, [
-      noeud("span", "badge verdict-" + v.cle, v.texte),
-      noeud("span", "portee", PORTEE)
-    ]));
-    // La raison composée par le serveur reste sous la pastille, en petit : c'est elle qui dit
-    // **pourquoi** la table AD-6 a conclu ainsi, et la retirer ferait du verdict une opinion.
-    if (verdict && String(verdict.reason || "").trim()) {
-      enfants.push(noeud("p", "verdict-raison", String(verdict.reason)));
+    var raison = verdict ? String(verdict.reason || "").trim() : "";
+    if (raison && !(phrase && replier && replier(raison))) {
+      enfants.push(noeud("p", "verdict-raison", raison));
     }
 
     // « Ce que je ne sais pas » : une ligne sous la réponse. Le tour moteur le rend en une phrase ;
@@ -1497,7 +1539,7 @@
         liste("inconnu-liste", inconnus)
       ]));
     }
-    return { vue: bloc("bloc-reponse", 1, "La réponse", enfants), inconnus: inconnus.length };
+    return { vue: bloc("bloc-reponse", "La réponse", enfants), inconnus: inconnus.length };
   }
 
   // --- bloc 2 : sur quoi je m'appuie --------------------------------------
@@ -1654,7 +1696,8 @@
       enfants.push(noeud("button", "cl-ouvrir", "Voir la page " + src.page + " dans le PDF",
                          null, attrs));
     }
-    return noeud("div", "appui" + (appuiEcarte(entree) ? " appui-ecarte" : ""), null, enfants);
+    return noeud("div", "appui" + classeRole(src.kind) +
+                 (appuiEcarte(entree) ? " appui-ecarte" : ""), null, enfants);
   }
 
   function blocAppuis(reponse, appuis, contexte) {
@@ -1683,7 +1726,7 @@
     }
     corps.push(noeud("p", "appui-aide",
                      "Cliquer une clause ouvre la page du contrat, passage surligné."));
-    return bloc("bloc-appuis", 2, "Sur quoi je m'appuie", corps);
+    return bloc("bloc-appuis", "Sur quoi je m'appuie", corps);
   }
 
   // --- bloc 3 : ce qu'il me manque ----------------------------------------
@@ -1733,7 +1776,7 @@
     if (absentes.length) {
       enfants.push(noeud("p", "pieces-ligne", "Pièces non lues : " + absentes.join(", ") + "."));
     }
-    return bloc("bloc-manques", 3, "Ce qu'il me manque pour aller plus loin", enfants);
+    return bloc("bloc-manques", "Ce qu'il me manque pour aller plus loin", enfants);
   }
 
   // --- bloc 4 : garde-fous -------------------------------------------------
@@ -1763,6 +1806,15 @@
     return n;
   }
 
+  /**
+   * Bloc 4 — les garde-fous, et **tout** ce qui documente la réponse.
+   *
+   * Story 5.6 (L2b) : la pastille d'état (« partiel », « inconnu ») et le panneau « Comment cette
+   * réponse a été obtenue » flottaient après les quatre blocs, séparés d'eux par un filet — deux
+   * objets orphelins en bas d'écran, dont rien ne disait à quoi ils se rapportaient. Ils sont ici,
+   * dans le bloc qui parle déjà de ce que la vérification a établi. `contexte.trace` est la vue de
+   * la trace, construite avant ce bloc parce que la raison du verdict s'y replie.
+   */
   function blocGardeFous(reponse, contexte) {
     var r = reponse || {};
     var a = r.answer || {};
@@ -1780,9 +1832,12 @@
         (retirees ? (retirees > 1 ? " : aucun passage ne les soutenait"
                                   : " : aucun passage ne la soutenait") : "")));
 
-    enfants.push(noeud("p", "gf gf-regle",
-      "Verdict calculé par des règles fixes, pas par le modèle · conditions générales seules · " +
-      "pas un avis d'expert"));
+    // La portée ne se dit qu'**ici**, une fois. Elle était écrite deux fois sur le même écran —
+    // sous la pastille et dans cette ligne, en deux formulations différentes de la même réserve :
+    // « trois formulations d'une même promesse font trois promesses » (AD-15). Le libellé retenu
+    // est celui du domaine (`PORTEE`), pas une paraphrase.
+    enfants.push(noeud("p", "gf gf-regle", "Verdict calculé par des règles fixes, pas par le modèle",
+                       [noeud("span", "portee", PORTEE)]));
 
     // M15 : la preuve chiffrée d'une absence, et son pendant sous lecture bornée (story 4.2f).
     var preuve = preuveAbsence(a.reason);
@@ -1819,7 +1874,10 @@
         }))
       ]));
     }
-    return bloc("bloc-gardefous", 4, "Garde-fous", enfants);
+    // Le panneau de la trace ferme le bloc : ce qui documente vient après ce qui décide, mais il
+    // reste **dans** le bloc qui l'introduit.
+    if ((contexte || {}).trace) enfants.push(contexte.trace);
+    return bloc("bloc-gardefous", "Garde-fous", enfants);
   }
 
   // --- le dossier, après les quatre blocs ---------------------------------
@@ -1855,22 +1913,37 @@
       }, []);
 
     var appuis = appuisDe(r);
+    // La trace est construite **avant** le bloc 1 : c'est elle qui accueille la raison du verdict
+    // quand la première phrase la rend inutile à l'écran, et sans elle il n'y a nulle part où la
+    // replier — le bloc 1 la garde alors. `replierRaison` rend `true` seulement si la raison a
+    // réellement été rangée quelque part.
+    var trace = traceVue(r.trace);
+    function replierRaison(raison) {
+      if (!trace) return false;
+      var rubrique = rubriqueTrace("Ce qui a décidé le verdict", [ligneTrace(raison)]);
+      if (!rubrique) return false;
+      // Juste après le `<summary>` : c'est la première chose qu'on cherche en ouvrant le panneau.
+      trace.enfants.splice(1, 0, rubrique);
+      return true;
+    }
+
     // « Pas de clause qui s'applique » se dit quand **aucune affirmation n'a été retenue**, pas
     // quand la liste des clauses est vide : une claim retenue reste une claim retenue.
-    var reponseEtInconnus = blocReponse(r, tableau(a.claims).length === 0);
+    var reponseEtInconnus = blocReponse(r, tableau(a.claims).length === 0, replierRaison);
     enfants.push(reponseEtInconnus.vue);
     var appuisVue = blocAppuis(r, appuis, contexteClauses);
     if (appuisVue) enfants.push(appuisVue);
     var manques = blocManques(r);
     if (manques) enfants.push(manques);
-    var gardeFous = blocGardeFous(r, { inconnus: reponseEtInconnus.inconnus });
+    var gardeFous = blocGardeFous(r, { inconnus: reponseEtInconnus.inconnus, trace: trace });
     if (gardeFous) enfants.push(gardeFous);
+    // Un corps sans garde-fous n'existe pas en pratique (la ligne des citations relues est
+    // toujours composée) ; si le bloc 4 venait à manquer, la trace ne serait pour autant pas
+    // perdue — elle reprend sa place au niveau du résultat.
+    else if (trace) enfants.push(trace);
 
     var dossier = dossierVue(r);
     if (dossier) enfants.push(dossier);
-
-    var trace = traceVue(r.trace);
-    if (trace) enfants.push(trace);
 
     return noeud("div", "carte resultat", null, enfants.filter(Boolean));
   }
@@ -3154,6 +3227,11 @@
               source_url: source && source.url
             };
             function afficher(valide) {
+              // Story 5.6 (L2b) : une réponse est à l'écran. En desktop, la carte de saisie se
+              // compacte (la feuille s'en charge) pour que la réponse commence plus haut, sans
+              // jamais quitter l'écran : on peut relancer une autre description sans remonter.
+              // C'est une classe sur `<body>` et rien d'autre — aucun style calculé ici.
+              if (document.body) document.body.classList.add("a-repondu");
               var resultat = peindre(vueVerdict(valide, contexte));
               brancherLecteur(resultat);
               brancherAppuis(resultat);

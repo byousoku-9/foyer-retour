@@ -15,57 +15,88 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bord: color-mix(in srgb, currentColor 20%, transparent);
-    --doux: color-mix(in srgb, currentColor 6%, transparent);
     /* Story 5.6 (L2) — la sobriété du site, une seule couleur d'accent, et des couleurs de verdict
        **distinctes** de cet accent : un « couvert » ne doit pas se confondre avec un lien. Aucune
        police n'est chargée : la pile système du site suffit, et une requête vers un fournisseur de
-       polices est exactement la requête tierce qu'AD-12 interdit. Le serif est celui du système. */
-    --accent: #0e6b66;
-    --accent-doux: color-mix(in srgb, #0e6b66 12%, transparent);
-    --vert: #15803d;
-    --ambre: #8a5300;
-    --rouge: #a8102f;
-    --gris: #4b5563;
+       polices est exactement la requête tierce qu'AD-12 interdit. Le serif est celui du système.
+
+       Story 5.6 (L2b) — la page n'avait aucune surface : un fond `Canvas`, des cartes
+       transparentes, et des gris obtenus par `opacity`. Un texte à `opacity: .7` n'a plus le
+       contraste de sa couleur, et une page sans plan de fond n'a rien à regarder. La palette est
+       désormais celle de la maquette validée (`maquette-avant-apres.html`) : trois plans — le
+       papier, le panneau, le panneau creux —, une encre à trois niveaux, et les quatre couleurs de
+       verdict avec leur fond doux. Chaque paire texte/fond y tient AA. */
+    --paper: #f5f6f8; --panel: #ffffff; --panel-2: #edf0f3;
+    --ink: #1f2633; --ink-2: #4b5563; --muted: #667085;
+    --line: #d5dae1;
+    --accent: #0e6b66; --accent-ink: #0a524e; --accent-doux: #e3f0ee;
+    --citation: #f0f4f3;
+    --vert: #2f7a4d; --vert-doux: #e4f1e8;
+    --ambre: #a8690f; --ambre-doux: #f7eedd;
+    --rouge: #b03a2e; --rouge-doux: #f6e3e0;
+    --gris: #5b6470; --gris-doux: #e8eaee;
     --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    /* Les deux noms hérités : tout le reste de la feuille les emploie déjà. */
+    --bord: var(--line);
+    --doux: var(--panel-2);
+    /* La largeur de lecture. La page peut être large ; une ligne de texte, non. */
+    --lecture: 72ch;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --accent: #4fc4bb;
-      --accent-doux: color-mix(in srgb, #4fc4bb 16%, transparent);
-      --vert: #5ccb90;
-      --ambre: #e7b165;
-      --rouge: #f4738f;
-      --gris: #a6aebc;
+      --paper: #141821; --panel: #1c2230; --panel-2: #232b3b;
+      --ink: #e6e9ef; --ink-2: #c3c9d4; --muted: #8b94a5;
+      --line: #333c4d;
+      --accent: #3fb3aa; --accent-ink: #7fd3cc; --accent-doux: #1b3a38;
+      --citation: #1e2a2a;
+      --vert: #6cc58f; --vert-doux: #1d3327;
+      --ambre: #e0a94a; --ambre-doux: #3a2d14;
+      --rouge: #e07a6e; --rouge-doux: #3e1f1b;
+      --gris: #a6aebc; --gris-doux: #2a3140;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 40px 20px 72px;
     font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    max-width: 820px; margin-inline: auto;
+    max-width: 960px; margin-inline: auto;
+    background: var(--paper); color: var(--ink);
   }
   a { color: inherit; }
-  h1 { font-size: 26px; margin: 0 0 4px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -.01em; }
   h2 { font-size: 19px; margin: 0 0 12px; }
-  h3 { font-size: 15px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-  p.sous { margin: 0 0 28px; opacity: .75; }
-  .carte { border: 1px solid var(--bord); border-radius: 12px; padding: 18px 20px; margin: 0 0 20px; }
+  h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  p.sous { margin: 0 0 22px; color: var(--ink-2); max-width: var(--lecture); }
+  .carte {
+    border: 1px solid var(--bord); border-radius: 12px; padding: 18px 20px; margin: 0 0 24px;
+    background: var(--panel);
+  }
+  /* Story 5.6 (L2b) — l'avertissement tenait tout le haut de page : sept lignes avant le premier
+     champ. Il tient maintenant en **une** ligne, et son texte intégral — l'obligation
+     d'information d'AD-15, mot pour mot — vit sous « Détails », dans la même carte. Rien n'a été
+     retranché : le texte long est déplacé, pas résumé. */
   .avert {
-    border: 1px solid var(--bord); border-radius: 12px; padding: 12px 16px; margin: 0 0 20px;
-    background: var(--doux); font-size: 14px;
+    border: 1px solid var(--bord); border-radius: 10px; padding: 9px 14px; margin: 0 0 18px;
+    background: var(--panel-2); font-size: 13.5px; color: var(--ink-2);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px;
   }
   .avert b { display: block; margin-bottom: 4px; }
-  label { display: block; font-size: 14px; opacity: .8; margin: 14px 0 4px; }
+  .avert-ligne { margin: 0; flex: 1 1 40ch; min-width: 0; }
+  .avert-details { flex: 0 0 auto; }
+  /* Déplié, il prend la largeur : son texte est un paragraphe, pas une colonne étroite. */
+  .avert-details[open] { flex: 1 1 100%; }
+  .avert-details > summary { cursor: pointer; color: var(--accent-ink); }
+  .avert-details > *:not(summary) { margin-top: 8px; }
+  label { display: block; font-size: 13.5px; color: var(--muted); margin: 14px 0 4px; }
   input, select, textarea {
-    width: 100%; font: inherit; color: inherit; background: transparent;
-    border: 1px solid var(--bord); border-radius: 8px; padding: 8px 10px;
+    width: 100%; font: inherit; color: inherit; background: var(--paper);
+    border: 1px solid var(--bord); border-radius: 8px; padding: 9px 11px;
   }
   textarea { min-height: 120px; resize: vertical; }
   .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   button {
-    font: inherit; color: inherit; background: transparent; margin-top: 20px;
-    border: 1px solid currentColor; border-radius: 8px; padding: 10px 18px; cursor: pointer;
+    font: inherit; color: inherit; background: var(--panel); margin-top: 20px;
+    border: 1px solid var(--bord); border-radius: 8px; padding: 10px 18px; cursor: pointer;
   }
   button[disabled], input[disabled], select[disabled], textarea[disabled] { opacity: .5; cursor: not-allowed; }
   /* Story 5.6 (L2) — la carte de saisie doit se lire au premier regard : un seul bouton d'action,
@@ -74,27 +105,44 @@
   #formulaire { padding: 22px 24px 26px; }
   #formulaire h2 { font-size: 20px; margin-bottom: 4px; }
   #analyser {
-    background: var(--accent); color: Canvas; border-color: var(--accent);
-    font-weight: 600; padding: 11px 22px;
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    font-weight: 600; padding: 12px 24px; font-size: 16px;
   }
-  #analyser[disabled] { background: transparent; color: inherit; border-color: var(--bord); }
+  @media (prefers-color-scheme: dark) { #analyser { color: #0d1a19; } }
+  #analyser[disabled] { background: var(--panel); color: inherit; border-color: var(--bord); }
   #contrats-message { font-size: 14px; margin: 8px 0 0; }
-  #contrat-source { font-size: 13px; opacity: .75; }
+  #contrat-source { font-size: 13px; color: var(--muted); }
+  /* Story 5.6 (L2b) — en desktop, la carte de saisie reste visible au-dessus de la réponse, mais
+     elle cesse d'occuper un écran : la description se réduit à trois lignes une fois une réponse
+     rendue, et se rouvre dès qu'on y revient (clic, tabulation) — ou en tirant sa poignée. Sous
+     1000 px, aucune réduction : l'écran est déjà en une colonne et la réponse est plus bas. */
+  @media (min-width: 1000px) {
+    body.a-repondu #formulaire textarea { min-height: 4.6em; }
+    body.a-repondu #formulaire:focus-within textarea { min-height: 120px; }
+  }
   .audit-liste { list-style: none; padding: 0; display: grid; gap: 10px; }
   .audit-entree { border-left: 3px solid var(--bord); padding-left: 12px; }
   .audit-titre { font-weight: 600; }
-  .audit-meta, .audit-raison { display: block; font-size: 13px; opacity: .75; }
+  .audit-meta, .audit-raison { display: block; font-size: 13px; color: var(--muted); }
   .audit-lien { display: inline-block; margin-top: 3px; font-size: 14px; }
-  .audit-erreur, .audit-vide { margin: 0; opacity: .75; }
+  .audit-erreur, .audit-vide { margin: 0; color: var(--muted); }
+  /* Story 5.6 (L2b) — la liste des contrats servis et leurs rapports d'ingestion occupaient le
+     milieu de la carte de saisie, entre le sélecteur et la description. C'est un rapport d'audit :
+     il documente, il ne décide pas. Il passe donc **sous** le résultat, replié. Le sélecteur de
+     contrat, lui, reste dans la carte : c'est lui qui décide. */
+  details.audits { margin: 4px 0 24px; }
+  details.audits > summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
+  details.audits > summary::marker { color: var(--muted); }
+  details.audits[open] > summary { margin-bottom: 12px; }
   section { margin: 22px 0 0; }
   .fc-ligne { display: grid; grid-template-columns: 160px 1fr; gap: 8px; padding: 3px 0; }
-  .fc-cle { opacity: .7; font-size: 14px; }
-  .fc-note, .rejetees-note, .attente-note, .err-note { font-size: 13px; opacity: .7; }
-  .conversation { margin-top: 16px; padding: 14px; border: 1px solid var(--bord); border-radius: 10px; }
+  .fc-cle { color: var(--muted); font-size: 14px; }
+  .fc-note, .rejetees-note, .attente-note, .err-note { font-size: 13px; color: var(--muted); }
+  .conversation { margin-top: 16px; padding: 14px; border: 1px solid var(--bord); border-radius: 10px; background: var(--panel-2); }
   .conv-faits-liste { list-style: none; padding: 0; display: grid; gap: 8px; }
   .conv-fait { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 8px 0;
     border-bottom: 1px solid var(--bord); }
-  .conv-source { grid-column: 1; font-size: 12px; opacity: .7; }
+  .conv-source { grid-column: 1; font-size: 12px; color: var(--muted); }
   .conv-remplace { opacity: .6; text-decoration: line-through; }
   .conv-corriger { grid-column: 2; grid-row: 1 / span 2; margin: 0; padding: 5px 8px; font-size: 12px; }
   .conv-question, .conv-conflit { border-left: 3px solid var(--bord); padding-left: 12px; margin: 10px 0; }
@@ -102,7 +150,7 @@
   .conv-liste-questions { display: grid; gap: 6px; }
   .conv-selection-question { margin: 0; padding: 8px 10px; text-align: left; }
   .conv-selection-question[aria-pressed="true"] { outline: 2px solid var(--accent); }
-  .conv-provenance-exigence { font-size: 12px; opacity: .72; }
+  .conv-provenance-exigence { font-size: 12px; color: var(--muted); }
   .conv-reponse-commune { border-left: 3px solid var(--bord); padding-left: 12px; margin-top: 10px; }
   .conv-reponses, .conv-choix, .conv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .conv-reponses button, .conv-choix button, .conv-actions button { margin: 0; padding: 6px 10px; }
@@ -110,7 +158,7 @@
   .conv-conflits { border: 1px solid #a16207; border-radius: 8px; padding: 10px; }
   .conv-historique { margin-top: 14px; }
   .conv-actions { margin-top: 14px; }
-  .conv-statut { font-size: 13px; opacity: .8; }
+  .conv-statut { font-size: 13px; color: var(--ink-2); }
   .details-preuves { margin-top: 18px; }
   .details-preuves > summary { cursor: pointer; font-weight: 600; }
   .conv-faits, .conv-questions { margin-top: 10px; }
@@ -122,7 +170,7 @@
   .cl-ouvrir { margin-top: 8px; padding: 6px 10px; font-size: 13px; }
   dialog.lecteur-pdf {
     width: min(94vw, 900px); max-height: 94vh; padding: 18px; color: inherit;
-    background: Canvas; border: 1px solid var(--bord); border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--bord); border-radius: 12px;
   }
   dialog.lecteur-pdf::backdrop { background: rgb(0 0 0 / .55); }
   .lecteur-tete { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
@@ -133,72 +181,66 @@
     display: block; max-width: 100%; max-height: 68vh; margin: 8px auto;
     border: 1px solid var(--bord); background: white;
   }
-  .lecteur-sans-surlignage { margin: 6px 0; font-size: 13px; opacity: .75; }
+  .lecteur-sans-surlignage { margin: 6px 0; font-size: 13px; color: var(--muted); }
   .lecteur-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
   .lecteur-actions button { margin-top: 0; padding: 6px 10px; }
   .lecteur-source { margin-left: auto; font-size: 13px; }
   .rejetee { margin: 0 0 10px; }
   .rej-txt { margin: 0; }
-  .rej-motif { margin: 0; font-size: 13px; opacity: .7; }
-  .rej-kind { margin: 0; font-size: 12px; opacity: .55; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .rej-motif { margin: 0; font-size: 13px; color: var(--muted); }
+  .rej-kind { margin: 0; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   ul { margin: 0; padding-left: 20px; }
   li { margin: 2px 0; }
-  .degrade { font-size: 14px; opacity: .8; }
+  .degrade { font-size: 14px; color: var(--ink-2); }
   /* Story 2.5 — la preuve chiffrée d'une absence, et le cadre des trois états. La page reste
      autonome (D8) : rien n'est emprunté à `web/app/styles.css`, mais les classes portent les mêmes
      noms, et `tests/test_web_sinistre.py` amarre celles que le script pose à celles qui sont
      stylées ici. Chaque couleur a sa variante sombre : la dette de contraste du rouge en dur
      (`#be123c` sans variante, 2,88:1 sur fond sombre) ne doit pas rouvrir par une autre porte. */
-  .preuve { margin: 12px 0 0; font-size: 13px; opacity: .75; }
+  .preuve { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
   /* Le chiffre d'une lecture bornée, au même ton discret que la preuve chiffrée d'un refus. */
-  .lecture-partielle { margin: 12px 0 0; font-size: 13px; opacity: .75; }
+  .lecture-partielle { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
   /* Portée `#resultat` : la page a déjà un `p.pied` (le rappel de portée, en bas de page), et une
-     règle nue ferait de lui une barre d'état. Le pied **d'une réponse** vit dans le résultat. */
+     règle nue ferait de lui une barre d'état. Le pied **d'une réponse** vit dans le résultat.
+     Story 5.6 (L2b) : plus de filet ni d'écart au-dessus de lui — la pastille d'état flottait après
+     les quatre blocs comme un badge orphelin. C'est une ligne des garde-fous, comme les autres. */
   #resultat .pied {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-    margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--bord); font-size: 13px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    margin-top: 10px; font-size: 13px;
   }
   .etat {
-    border: 1px solid currentColor; border-radius: 999px; padding: 2px 10px;
+    border-radius: 4px; padding: 2px 9px;
     text-transform: uppercase; letter-spacing: .05em; font-size: 11px; font-weight: 700;
+    color: var(--etat-ink, var(--gris)); background: var(--etat-fond, var(--gris-doux));
   }
-  .etat-sur { color: #15803d; }
-  .etat-partiel { color: #8a5300; }
+  .etat-sur { --etat-ink: var(--vert); --etat-fond: var(--vert-doux); }
+  .etat-partiel { --etat-ink: var(--ambre); --etat-fond: var(--ambre-doux); }
   /* Story 4.2f : même teinte que « partiel » — c'est une réserve, pas un échec. */
-  .etat-lecture-partielle { color: #8a5300; }
-  .etat-inconnu { color: inherit; opacity: .8; }
-  .etat-phrase { flex: 1 1 22ch; min-width: 0; opacity: .75; }
-  @media (prefers-color-scheme: dark) {
-    .etat-sur { color: #5ccb90; }
-    .etat-partiel { color: #e7b165; }
-    .etat-lecture-partielle { color: #e7b165; }
-  }
-  details.trace { margin-top: 24px; border-top: 1px solid var(--bord); padding-top: 12px; font-size: 13px; }
-  details.trace summary { cursor: pointer; opacity: .75; }
-  details.trace ul { margin-top: 8px; opacity: .75; }
+  .etat-lecture-partielle { --etat-ink: var(--ambre); --etat-fond: var(--ambre-doux); }
+  .etat-inconnu { --etat-ink: var(--gris); --etat-fond: var(--gris-doux); }
+  .etat-phrase { flex: 1 1 22ch; min-width: 0; color: var(--muted); }
+  details.trace { margin-top: 16px; font-size: 13px; }
+  details.trace summary { cursor: pointer; color: var(--ink-2); }
+  details.trace ul { margin-top: 8px; color: var(--muted); }
   /* Le panneau enrichi : des rubriques, pas une liste plate. Mêmes noms de classes que le guide. */
   .pq-bloc { margin-top: 12px; }
   .pq-titre {
-    display: block; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; opacity: .6;
-    margin-bottom: 4px;
+    display: block; text-transform: uppercase; letter-spacing: .05em; font-size: 11px;
+    color: var(--muted); margin-bottom: 4px;
   }
   .pq-liste { margin: 0; padding-left: 18px; }
-  .pq-ligne { margin: 3px 0; opacity: .85; overflow-wrap: anywhere; }
+  .pq-ligne { margin: 3px 0; color: var(--ink-2); overflow-wrap: anywhere; }
   /* Les pictogrammes sont décoratifs (`aria-hidden`) : l'état est écrit à côté, en toutes lettres.
      Leur couleur ne fait que le répéter — elle ne porte aucune information à elle seule. */
-  .pq-ok { color: #15803d; margin-right: 6px; font-weight: 700; }
-  .pq-ko { color: #a8102f; margin-right: 6px; font-weight: 700; }
-  @media (prefers-color-scheme: dark) {
-    .pq-ok { color: #5ccb90; }
-    .pq-ko { color: #f4738f; }
-  }
+  .pq-ok { color: var(--vert); margin-right: 6px; font-weight: 700; }
+  .pq-ko { color: var(--rouge); margin-right: 6px; font-weight: 700; }
   details.pq-seuils { margin-top: 12px; }
-  details.pq-seuils summary { cursor: pointer; opacity: .75; }
+  details.pq-seuils summary { cursor: pointer; color: var(--ink-2); }
   .erreur { border-color: #be123c; }
   @media (prefers-color-scheme: dark) { .erreur { border-color: #fda4af; } }
   .err-titre { display: block; margin-bottom: 6px; }
-  .err-ref { font-size: 13px; opacity: .7; }
-  p.pied { font-size: 13px; opacity: .7; border-top: 1px solid var(--bord); padding-top: 16px; margin-top: 40px; }
+  .err-ref { font-size: 13px; color: var(--muted); }
+  p.pied { font-size: 13px; color: var(--muted); border-top: 1px solid var(--bord); padding-top: 16px; margin-top: 40px; max-width: var(--lecture); }
 
   /* ==========================================================================
      Story 5.6 (L2) — les quatre blocs.
@@ -207,107 +249,150 @@
      Tout tient en une colonne sur mobile : la seule grille de la page est celle du formulaire.
      ========================================================================== */
   .bloc {
-    margin: 0; padding: 20px 0 22px; border-top: 1px solid var(--bord);
+    margin: 0; padding: 30px 0 32px; border-top: 1px solid var(--bord);
   }
-  .bloc:first-child { border-top: 0; padding-top: 6px; }
+  .bloc:first-child { border-top: 0; padding-top: 4px; }
+  .bloc:last-child { padding-bottom: 6px; }
   .bloc-titre {
     display: flex; align-items: center; gap: 10px;
-    margin: 0 0 14px; font-size: 12px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .07em; opacity: .75;
-  }
-  .bloc-num {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; border-radius: 999px;
-    border: 1px solid var(--accent); color: var(--accent);
-    font-size: 11px; font-weight: 700; letter-spacing: 0;
+    margin: 0 0 16px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
   }
   .bloc-nom { flex: 1 1 auto; min-width: 0; }
-
-  /* Bloc 1 — la réponse. */
-  .reponse-phrase {
-    margin: 0 0 10px; font-family: var(--serif); font-size: 19px; line-height: 1.45;
-    max-width: 62ch;
+  /* Story 5.6 (L2b) — le numéro de bloc devient un pictogramme : une bulle de réponse, un
+     document, un point d'interrogation, un bouclier. Les quatre SVG sont **inline** dans cette
+     feuille (aucune requête, aucune police d'icônes, AD-12) et servis en masque, pour que le trait
+     prenne la couleur d'accent du thème courant plutôt qu'une couleur figée. Décoratif : le nom du
+     bloc est écrit à côté, et le pictogramme n'ajoute ni ne remplace aucune information. */
+  .bloc-icone {
+    flex: 0 0 auto; width: 19px; height: 19px; background: var(--accent);
+    -webkit-mask: var(--icone) center / contain no-repeat;
+    mask: var(--icone) center / contain no-repeat;
   }
-  .reponse-suite { margin: 0 0 10px; max-width: 66ch; opacity: .9; }
-  .inconnu-ligne { margin: 12px 0 0; font-size: 13px; opacity: .78; max-width: 66ch; }
+  .bloc-reponse { --icone: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'><path d='M4 5h16v11H10l-6 4z'/><path d='M8 9.5h8M8 12.5h5'/></svg>"); }
+  .bloc-appuis { --icone: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'><path d='M6 3h8l4 4v14H6z'/><path d='M14 3v4h4'/><path d='M9 12h6M9 15.5h6'/></svg>"); }
+  .bloc-manques { --icone: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><circle cx='12' cy='12' r='9'/><path d='M9.4 9.2a2.7 2.7 0 1 1 3.3 2.7v1.4'/><path d='M12.7 16.6h.01'/></svg>"); }
+  .bloc-gardefous { --icone: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'><path d='M12 3l7 3v5.5c0 4.2-3 7.4-7 8.5-4-1.1-7-4.3-7-8.5V6z'/><path d='M9 12l2.2 2.2L15.5 10'/></svg>"); }
+
+  /* Bloc 1 — la réponse. Une carte à fond d'accent très dilué, un liseré en tête : c'est le seul
+     bloc que l'œil doit trouver sans chercher. */
+  .bloc.bloc-reponse {
+    background: color-mix(in srgb, var(--accent-doux) 55%, var(--panel));
+    border-top: 3px solid var(--accent); border-radius: 10px;
+    margin: -2px 0 8px; padding: 22px 22px 24px;
+  }
+  .reponse-tete {
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 18px; margin: 0 0 12px;
+  }
+  .reponse-phrase {
+    margin: 0; flex: 1 1 34ch; min-width: 0;
+    font-family: var(--serif); font-size: 21px; line-height: 1.4; max-width: var(--lecture);
+  }
+  .reponse-suite { margin: 0 0 10px; max-width: var(--lecture); color: var(--ink-2); }
+  .inconnu-ligne { margin: 14px 0 0; font-size: 13.5px; color: var(--muted); max-width: var(--lecture); }
   .inconnu-tete {
     display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-    opacity: .65; margin: 12px 0 4px;
+    color: var(--muted); margin: 14px 0 4px;
   }
-  .inconnu-liste { font-size: 13px; opacity: .82; }
+  .inconnu-liste { font-size: 13.5px; color: var(--muted); }
 
-  /* Bloc 2 — les clauses. */
+  /* Bloc 2 — les clauses. Le bord gauche dit le rôle de la clause, et l'étiquette le nomme :
+     garantie = accent, exclusion = rouge, condition et franchise = ambre, définition = gris. Un
+     `kind` hors table n'a pas de couleur inventée — il retombe sur l'accent et se dit tel quel. */
   .appui {
-    margin: 0 0 12px; padding: 12px 14px;
-    border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
-    background: var(--doux); cursor: pointer;
+    margin: 0 0 14px; padding: 14px 16px;
+    border-left: 3px solid var(--role, var(--accent)); border-radius: 0 8px 8px 0;
+    background: var(--citation); cursor: pointer;
   }
+  .appui-role-garantie { --role: var(--accent); }
+  .appui-role-exclusion { --role: var(--rouge); }
+  .appui-role-condition, .appui-role-franchise { --role: var(--ambre); }
+  .appui-role-definition { --role: var(--gris); }
   /* Une clause que la table a jugée non applicable : même information, moins d'emphase. */
-  .appui-ecarte { border-left-color: var(--bord); opacity: .8; }
+  .appui-ecarte { --role: var(--line); opacity: .9; }
+  /* Le rôle d'une clause écartée reste lisible : sa **couleur** est retirée, pas son nom. */
+  .appui-ecarte .appui-kind { color: var(--muted); }
   .appui-tete {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
-    font-size: 12px; margin-bottom: 6px;
+    font-size: 12px; margin-bottom: 8px;
   }
-  .appui-chemin { font-weight: 600; color: var(--accent); }
-  .appui-ecarte .appui-chemin { color: inherit; opacity: .8; }
-  .appui-page { opacity: .7; white-space: nowrap; }
-  .appui-kind { text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-  .appui-doute { font-style: italic; opacity: .8; }
+  .appui-chemin { font-weight: 600; color: var(--accent-ink); }
+  .appui-ecarte .appui-chemin { color: var(--ink-2); }
+  .appui-page { color: var(--muted); white-space: nowrap; }
+  .appui-kind {
+    text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; font-weight: 600;
+    color: var(--role, var(--accent)); border: 1px solid currentColor; border-radius: 999px;
+    padding: 1px 8px;
+  }
+  .appui-doute { font-style: italic; color: var(--muted); }
   .appui-texte {
-    margin: 0; font-family: var(--serif); font-size: 15px; line-height: 1.5;
+    margin: 0; font-family: var(--serif); font-size: 15.5px; line-height: 1.55;
+    max-width: var(--lecture);
   }
-  .appui-mark { background: var(--accent-doux); color: inherit; padding: 0 .08em; }
+  .appui-mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; padding: 0 .08em; }
   .appui-plus {
     margin: 8px 0 0; padding: 4px 10px; font-size: 12px;
   }
   .appui-entier { margin-top: 4px; }
-  .appui-clair { margin: 8px 0 0; font-size: 13.5px; opacity: .85; }
-  .appui-statut, .appui-note { margin: 6px 0 0; font-size: 12px; opacity: .7; }
-  .appui-aide { margin: 4px 0 0; font-size: 12px; opacity: .65; }
-  .appui .cl-ouvrir { margin-top: 8px; }
+  .appui-clair { margin: 10px 0 0; font-size: 13.5px; color: var(--ink-2); max-width: var(--lecture); }
+  .appui-statut, .appui-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+  .appui-aide { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .appui .cl-ouvrir { margin-top: 10px; }
 
   /* Bloc 1 — le verdict en pastille. Les quatre teintes sont sémantiques et distinctes de
      l'accent : un « couvert » vert, un « sous conditions » ambre, un « exclu » rouge, un
      « je ne peux pas trancher » gris. Le mot est écrit : la couleur ne le porte pas seule. */
-  .verdict-tete { margin: 14px 0 0; }
+  /* Story 5.6 (L2b) — la pastille se lit **à côté** de la première phrase, sur la même ligne en
+     desktop : le verdict et la phrase qui le dit sont une seule information. La mention de portée
+     ne la suit plus — elle vit une fois, dans les garde-fous. */
   .badge {
-    display: inline-block; border: 1px solid currentColor; border-radius: 999px;
-    padding: 5px 14px; font-weight: 600; font-size: 14px;
-    background: color-mix(in srgb, currentColor 10%, transparent);
+    display: inline-flex; align-items: center; gap: 8px; border-radius: 6px;
+    padding: 6px 12px; font-weight: 600; font-size: 14px; white-space: nowrap;
+    color: var(--verdict-ink, var(--gris)); background: var(--verdict-fond, var(--gris-doux));
   }
-  .verdict-couvert { color: var(--vert); }
-  .verdict-non_couvert { color: var(--rouge); }
-  .verdict-sous_conditions { color: var(--ambre); }
-  .verdict-ne_tranche_pas, .verdict-inconnu { color: var(--gris); }
-  .portee { display: block; margin-top: 8px; font-size: 12px; opacity: .7; }
-  .verdict-raison { margin: 8px 0 0; font-size: 13px; opacity: .8; max-width: 66ch; }
+  .badge::before {
+    content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor;
+    flex: 0 0 auto;
+  }
+  .reponse-tete .badge { flex: 0 0 auto; margin-top: 4px; }
+  .verdict-couvert { --verdict-ink: var(--vert); --verdict-fond: var(--vert-doux); }
+  .verdict-non_couvert { --verdict-ink: var(--rouge); --verdict-fond: var(--rouge-doux); }
+  .verdict-sous_conditions { --verdict-ink: var(--ambre); --verdict-fond: var(--ambre-doux); }
+  .verdict-ne_tranche_pas, .verdict-inconnu { --verdict-ink: var(--gris); --verdict-fond: var(--gris-doux); }
+  .portee { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+  .verdict-raison { margin: 10px 0 0; font-size: 13.5px; color: var(--ink-2); max-width: var(--lecture); }
 
   /* Bloc 3 — les manques, en courte liste. */
-  .pieces-ligne { margin: 12px 0 0; font-size: 12.5px; opacity: .68; }
+  .pieces-ligne { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); }
   .bloc-manques .conv-questions { margin-top: 0; }
   .bloc-manques h3 { margin-bottom: 6px; }
 
   /* Bloc 4 — les garde-fous. */
-  .gf { margin: 0 0 4px; font-size: 13px; opacity: .85; }
+  .gf { margin: 0 0 6px; font-size: 13.5px; color: var(--ink-2); }
   .gf::before { display: inline-block; width: 20px; font-weight: 700; }
   .gf-ok::before { content: "\2713"; color: var(--vert); }
   .gf-retire::before { content: "\2715"; color: var(--rouge); }
-  .gf-regle::before { content: "\2696"; opacity: .6; }
-  .bloc-gardefous .details-preuves { margin-top: 14px; }
-  .details-preuves.dossier { margin-top: 22px; }
+  .gf-regle::before { content: "\2696"; color: var(--muted); }
+  /* La portée s'aligne sous la phrase de la règle, pas sous son pictogramme. */
+  .gf-regle .portee { margin-left: 20px; }
+  .bloc-gardefous .details-preuves, .bloc-gardefous details.trace { margin-top: 16px; }
+  .details-preuves.dossier { margin-top: 4px; }
 
-  /* L'attente : les trois étapes, l'étape en cours animée, un chronomètre discret. */
+  /* L'attente : les trois étapes, l'étape en cours animée, un chronomètre discret. Elle est peinte
+     dans `#resultat`, c'est-à-dire **dans la carte où la réponse va s'écrire** — jamais au-dessus
+     du formulaire : ce qu'on attend et ce qui arrive occupent la même place à l'écran. */
   .attente { border: 1px solid var(--bord); }
-  .prog { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .prog-etape { display: flex; align-items: center; gap: 10px; font-size: 14px; opacity: .55; }
+  .attente-titre { margin: 0 0 14px; }
+  .prog { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .prog-etape { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
   .prog-puce {
-    width: 10px; height: 10px; border-radius: 50%; background: var(--bord); flex: 0 0 auto;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: 0 0 auto;
   }
   .prog-libelle { flex: 1 1 auto; min-width: 0; }
-  .prog-etat { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .8; }
-  .prog-faite { opacity: .8; }
+  .prog-etat { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .prog-faite { color: var(--ink-2); }
   .prog-faite .prog-puce { background: var(--vert); }
-  .prog-encours { opacity: 1; font-weight: 600; }
+  .prog-encours { color: var(--ink); font-weight: 600; }
   .prog-encours .prog-puce {
     background: var(--accent); animation: pulsation 1.4s ease-in-out infinite;
   }
@@ -321,8 +406,8 @@
     .prog-encours .prog-puce { animation: none; }
   }
   .prog-pied {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-top: 14px;
-    font-size: 12.5px; opacity: .7;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-top: 16px;
+    font-size: 12.5px; color: var(--muted);
   }
   .prog-chrono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .prog-pied .attente-note { flex: 1 1 24ch; min-width: 0; }
@@ -332,6 +417,18 @@
     .duo { grid-template-columns: 1fr; }
     .fc-ligne, .conv-fait { grid-template-columns: 1fr; }
     .conv-corriger { grid-column: 1; grid-row: auto; justify-self: start; }
+    /* Story 5.6 (L2b) — une seule colonne, et rien qui déborde. Le chemin d'une clause est le seul
+       texte qui puisse être plus long que l'écran : il passe à la ligne plutôt que d'élargir la
+       page, et sa flèche « › » sert de point de coupure. */
+    h1 { font-size: 24px; }
+    .carte { padding: 16px 15px; border-radius: 10px; }
+    .bloc.bloc-reponse { padding: 18px 15px 20px; }
+    .bloc { padding: 24px 0 26px; }
+    .reponse-phrase { font-size: 19px; }
+    .appui { padding: 12px 13px; }
+    .appui-chemin { overflow-wrap: anywhere; }
+    .appui-texte, .appui-clair, .reponse-suite, .rej-txt { overflow-wrap: anywhere; }
+    .reponse-tete { gap: 10px; }
   }
 </style>
 </head>
@@ -344,10 +441,17 @@
      confidentialité dit ce que la politique du fournisseur dit réellement — durée, exceptions, lien
      et date de lecture. Toute formulation plus généreuse que celle du tiers qui exécute la requête
      est interdite : c'est la « promesse contredite en silence » que cet AD prévient. -->
+<!-- Story 5.6 (L2b) : une ligne, et le texte intégral sous « Détails ». Aucune phrase n'a été
+     retirée — l'obligation d'information est **la même**, elle occupe simplement un repli au lieu
+     de sept lignes au-dessus du premier champ. -->
 <div class="avert" id="avertissement">
-  <b>Démonstrateur public : ne saisissez aucune donnée réelle ou nominative de sinistre.</b>
-  Votre description est envoyée au serveur de ce site, puis au fournisseur du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression des entrées et des sorties de l'API sous 30 jours, avec des exceptions — un service à rétention plus longue que vous contrôlez, un accord de rétention différent conclu avec lui, l'application de sa politique d'usage, une obligation légale — et le contenu que ses systèmes de sécurité signalent est conservé jusqu'à deux ans. Rien n'est enregistré ici : ni par le serveur de ce site, ni dans ce navigateur.
-  <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data" target="_blank" rel="noopener noreferrer">Politique de conservation d'Anthropic</a>
+  <p class="avert-ligne">Démonstrateur public : ne saisissez aucune donnée réelle. Vos textes sont envoyés à Anthropic, rien n'est conservé ici.</p>
+  <details class="avert-details">
+    <summary>Détails</summary>
+    <b>Démonstrateur public : ne saisissez aucune donnée réelle ou nominative de sinistre.</b>
+    Votre description est envoyée au serveur de ce site, puis au fournisseur du modèle (Anthropic) : sa politique publique, lue le 25/08/2026, prévoit la suppression des entrées et des sorties de l'API sous 30 jours, avec des exceptions — un service à rétention plus longue que vous contrôlez, un accord de rétention différent conclu avec lui, l'application de sa politique d'usage, une obligation légale — et le contenu que ses systèmes de sécurité signalent est conservé jusqu'à deux ans. Rien n'est enregistré ici : ni par le serveur de ce site, ni dans ce navigateur.
+    <a href="https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data" target="_blank" rel="noopener noreferrer">Politique de conservation d'Anthropic</a>
+  </details>
 </div>
 
 <noscript>
@@ -374,13 +478,6 @@
   <p id="contrats-message" hidden></p>
   <p id="contrat-source"></p>
 
-  <section aria-labelledby="audits-titre">
-    <h3 id="audits-titre">Contrats et rapports d'ingestion</h3>
-    <div id="documents-audit" aria-live="polite">
-      <p>Chargement de la liste…</p>
-    </div>
-  </section>
-
   <label for="description">Description des faits</label>
   <textarea id="description" maxlength="2000" required
             placeholder="Ce qui s'est passé, sur quel bien, où, quand, et ce qui a été endommagé."></textarea>
@@ -389,6 +486,17 @@
 </form>
 
 <div id="resultat" aria-live="polite" aria-busy="false"></div>
+
+<!-- Story 5.6 (L2b) : l'audit d'ingestion documente, il ne décide pas. Il vit donc **sous** le
+     résultat, replié — et non plus au milieu de la carte de saisie, entre le contrat et la
+     description. Rien n'est retiré : `#documents-audit` est le même nœud, au même `id`, rempli par
+     le même code. -->
+<details class="audits">
+  <summary id="audits-titre">Contrats servis et rapports d'ingestion</summary>
+  <div id="documents-audit" aria-live="polite">
+    <p>Chargement de la liste…</p>
+  </div>
+</details>
 
 <!-- Story 3.4 : lecteur paresseux. Aucun `src` n'est posé sur l'image avant le clic d'une clause ;
      le service ne redistribue jamais le PDF brut, seulement la page PNG demandée. Le dialogue natif
@@ -413,6 +521,6 @@
   <a href="/">← retour</a>
 </p>
 
-<script src="sinistre.js?v=5"></script>
+<script src="sinistre.js?v=6"></script>
 </body>
 </html>
