@@ -119,10 +119,10 @@ datée, pas l'état courant** : **le gate et le verdict courants sont en cours d
 corpus réingérés et gates à rejouer derrière. **L'état servi se lit sur `GET /api/v1/sante`**,
 jamais ici.
 
-**Ce que Sonnet coûte** *(02/09/2026)*. Un sinistre nominal facture ≈ 0,19 €, ≈ 0,21 € avec
-relance ; le plafond par requête passe à 0,75 € (0,42 € à froid après la réingestion d'AXA à 751
-nœuds, dont le sommaire entier vit dans le préfixe cacheable ; 0,09 € à chaud). Prochain gisement :
-borner ce sommaire, décision de spine (AD-9). Mesures : `docs/tests-live.md`.
+**Ce que Sonnet coûte** *(03/09/2026)*. Un sinistre nominal facture ≈ 0,199 € à préfixe chaud,
+≈ 0,67 € à froid ; le plafond par requête passe à 1,30 €. L'écart tient au préfixe : depuis que le
+modèle navigue, c'est le **premier tour** qui écrit le sommaire complet dans le cache, au tarif
+d'écriture. Prochain gisement, inchangé : borner ce sommaire (AD-9). Mesures : `docs/tests-live.md`.
 
 ## Limites honnêtes
 

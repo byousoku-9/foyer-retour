@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 import pytest
 
@@ -37,6 +38,7 @@ from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.errors import BudgetExceeded
 from server.app.domain.question import Faits
+from server.app.domain.trace import StepTrace
 from server.app.domain.verdict import (
     KINDS_DECISIONNELS,
     ChampsApplicabilite,
@@ -44,8 +46,10 @@ from server.app.domain.verdict import (
     ClauseCitee,
     decider,
 )
+from server.app.llm.audit import MemoryAuditSink
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
+from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
 from server.app.steps.verifier import _mots_qualifiants
 from tests.fixtures import LLMRecorder
@@ -137,18 +141,60 @@ def _budget() -> RequestBudget:
                          max_cost_eur=s.max_cost_eur_per_request)
 
 
-def _demarrages_de_rediger(fournisseur: FakeAnthropic, settings: Settings) -> int:
-    """Combien de fois *rédiger* a démarré, d'après les requêtes réellement envoyées.
+class Preflight(NamedTuple):
+    """Un majorant calculé avant l'envoi, rattaché à l'**étape** qui a demandé l'appel."""
+
+    etape: str
+    engage: float
+    majorant: float
+    model: str
+    tokens: int
+
+
+def _suivre_l_etape(monkeypatch: pytest.MonkeyPatch) -> Callable[[], str]:
+    """Rend un lecteur qui dit quelle **étape** émet l'appel en cours, préflight compris.
+
+    Un préflight se mesure *avant* l'envoi : ni la trace, ni le journal d'audit, ni les requêtes du
+    faux fournisseur ne peuvent encore le nommer. `LlmClient.parse` et `LlmClient.tool_turn`, eux,
+    reçoivent le `StepTrace` de l'étape appelante : c'est le seul endroit où « l'appel de rédaction »
+    se désigne sans compter les requêtes ni reconnaître un plafond — deux repères que l'amendement
+    AD-1 du 03/09/2026 a rendus faux. La chaîne n'émet jamais deux appels de front : une seule étape
+    est donc courante à la fois.
+    """
+    courante = [""]
+
+    def poser(nom: str) -> None:
+        methode = getattr(LlmClient, nom)
+
+        async def relayer(self: LlmClient, *, step: StepTrace, **kwargs):
+            precedente, courante[0] = courante[0], step.name
+            try:
+                return await methode(self, step=step, **kwargs)
+            finally:
+                courante[0] = precedente
+
+        monkeypatch.setattr(LlmClient, nom, relayer)
+
+    for nom_de_methode in ("parse", "tool_turn"):
+        poser(nom_de_methode)
+    return lambda: courante[0]
+
+
+def _demarrages_de_rediger(audit: MemoryAuditSink) -> int:
+    """Combien de fois *rédiger* a démarré, d'après les appels réellement envoyés.
 
     Le nombre est rendu tel quel, jamais comparé à 1 par le helper : la relance d'AD-3 est un chemin
     normal, et c'est à l'appelant de dire s'il attend « au moins un » démarrage ou « aucun ».
 
-    `rediger_max_tokens` est l'unique plafond de rédaction des deux pipelines et de toutes leurs
-    variantes (`steps/rediger.py`) : c'est donc lui, et non un rang dans la liste ni un identifiant
-    de modèle partagé par plusieurs étapes, qui identifie l'appel dont l'AC parle.
+    Ce qui identifie l'appel dont l'AC parle est son **étape**. Le journal d'audit exact ne porte
+    qu'un événement par appel parti sur le fil, avec le nom de l'étape que le client recopie du
+    `StepTrace` de l'appelant (`ExactLlmAuditEvent.step`) : un appel refusé au préflight n'y entre
+    pas, ce qui est exactement la propriété que ce helper doit rendre. Le plafond de sortie, lui, ne
+    désigne plus rien depuis l'amendement AD-1 du 03/09/2026 : l'ébauche servie est le tour terminal
+    de la navigation, et son plafond (`navigation_rediger_max_tokens`) est aussi celui de
+    *vérifier* — quand `rediger_max_tokens`, lui, n'est plus envoyé par aucun appel de cette chaîne.
     """
-    return sum(1 for request in fournisseur.requests
-               if request["max_tokens"] == settings.rediger_max_tokens)
+    return sum(1 for event in audit.events if event.step == "rediger")
 
 
 async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
@@ -223,33 +269,38 @@ async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
 
     original = client_module.estimate_cost
     budget = _budget()
-    preflights: list[tuple[float, float, str, int]] = []
+    etape = _suivre_l_etape(monkeypatch)
+    preflights: list[Preflight] = []
 
     def relever(*args, **kwargs):
         estimate = original(*args, **kwargs)
         max_tokens = int(args[3] if len(args) > 3 else kwargs["max_tokens"])
-        preflights.append((budget.cost_eur, estimate, str(args[0]), max_tokens))
+        preflights.append(Preflight(etape(), budget.cost_eur, estimate, str(args[0]), max_tokens))
         return estimate
 
     monkeypatch.setattr(client_module, "estimate_cost", relever)
     fournisseur = FakeAnthropic(script())
-    client = LlmClient(settings, anthropic_client=fournisseur)
+    audit = MemoryAuditSink()
+    client = LlmClient(settings, anthropic_client=fournisseur, audit_sink=audit)
     answer, trace = await sinistre.run(
         DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
         settings=settings, request_id="preflight-navigation-reel", budget=budget)
 
-    # La propriété visée n'est ni un rang dans la liste des requêtes ni un identifiant de modèle
-    # (deux étapes peuvent partager le même tier, et un rang bouge dès qu'un tour de navigation est
-    # ajouté) : c'est le **démarrage de *rédiger***, et ce qui le désigne sans ambiguïté est son
-    # plafond de sortie, unique dans la chaîne du sinistre.
-    redactions = [p for p in preflights if p[3] == settings.rediger_max_tokens]
+    # La propriété visée n'est ni un rang dans la liste des requêtes, ni un identifiant de modèle,
+    # ni une valeur de plafond (deux étapes peuvent partager le même tier, un rang bouge dès qu'un
+    # tour de navigation est ajouté, et `navigation_rediger_max_tokens` vaut désormais
+    # `verifier_max_tokens`) : c'est le **démarrage de *rédiger***, que seule l'étape désigne.
+    redactions = [p for p in preflights if p.etape == "rediger"]
     # **Au moins un** démarrage, et c'est le premier que l'AC décrit : la relance d'AD-3 est un
     # chemin normal, pas un incident, et exiger `== 1` ferait rougir ce test sur une chaîne
     # parfaitement conforme qui relance *rédiger* (c'est la correction déjà faite plus bas sur les
     # étapes de la trace, restée à faire ici).
     assert redactions, "*rédiger* n'a jamais démarré sur le chemin nominal"
-    engage, majorant, model, _tokens = redactions[0]
-    assert model == modele_attendu("rediger", settings)
+    _etape, engage, majorant, model, _tokens = redactions[0]
+    # L'étage servi est celui de l'étape qui **rend** l'ébauche sur le chemin servi : depuis
+    # l'amendement AD-1 du 03/09/2026, c'est le tour terminal de la conversation de navigation, donc
+    # `navigation_tier` et non `rediger_tier`. Lu sur `Settings`, jamais recopié (AD-16).
+    assert model == TIERS[settings.navigation_tier]
     # Ce que le coût engagé doit valoir n'est **pas** un littéral en euros : une constante de coût
     # est le même défaut qu'un littéral de tier, déplacé du modèle vers l'euro — elle n'est vraie que
     # pour l'affectation d'étages du jour. La propriété est que ce coût est celui des étapes qui ont
@@ -259,11 +310,13 @@ async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
     assert [pas.name for pas in avant_rediger] == ["comprendre", "retrouver"]
     assert engage == pytest.approx(sum(pas.usage.cost_eur for pas in avant_rediger), abs=1e-4)
     assert engage + majorant <= settings.max_cost_eur_per_request
-    assert _demarrages_de_rediger(fournisseur, settings) >= 1
+    assert _demarrages_de_rediger(audit) >= 1
     assert answer.verdict is not None
 
     fournisseur_bloque = FakeAnthropic(script())
-    client_bloque = LlmClient(settings, anthropic_client=fournisseur_bloque)
+    audit_bloque = MemoryAuditSink()
+    client_bloque = LlmClient(settings, anthropic_client=fournisseur_bloque,
+                              audit_sink=audit_bloque)
     plafond_trop_bas = round(engage + majorant - 0.0001, 4)
     budget = RequestBudget(
         deadline_s=settings.deadline_s,
@@ -280,7 +333,10 @@ async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
     # tier, que la navigation partage avec elle. `navigation_max_llm_turns` borne les tours ; le
     # modèle peut clore sa lecture avant, donc le compte est un **majorant**, pas une égalité.
     assert 2 <= len(fournisseur_bloque.requests) <= 1 + settings.navigation_max_llm_turns
-    assert _demarrages_de_rediger(fournisseur_bloque, settings) == 0
+    # Le zéro ci-dessous doit être un zéro **mesuré**, pas un relevé muet : le journal d'audit porte
+    # exactement un événement par requête partie chez le fournisseur.
+    assert len(audit_bloque.events) == len(fournisseur_bloque.requests)
+    assert _demarrages_de_rediger(audit_bloque) == 0
 
 
 async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(

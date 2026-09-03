@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 import pytest
 
@@ -35,6 +35,7 @@ from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
 from server.app.domain.question import Turn
 from server.app.domain.trace import StepTrace
+from server.app.llm.audit import MemoryAuditSink
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -157,13 +158,30 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}))
 
 
+def _plafond_envoye_par(audit: MemoryAuditSink, etape: str) -> int:
+    """Le plafond de sortie que l'**étape** nommée a réellement envoyé au fournisseur.
+
+    Le journal d'audit exact est le seul relevé qui porte, pour chaque appel émis, le nom de l'étape
+    (`ExactLlmAuditEvent.step`, que le client recopie du `StepTrace` de l'appelant) **et** le corps
+    parti sur le fil. Depuis l'amendement AD-1 du 03/09/2026, ni le rang dans `fake.requests` ni la
+    valeur du plafond ne désignent plus une étape : l'ébauche servie est le tour terminal de la
+    conversation de navigation, un tour de lecture de plus décale tous les rangs, et
+    `navigation_rediger_max_tokens` vaut exactement `verifier_max_tokens`.
+    """
+    plafonds = {int(event.request["max_tokens"]) for event in audit.events if event.step == etape}
+    assert len(plafonds) == 1, (f"étape {etape!r} : {len(plafonds)} plafond(s) relevé(s) "
+                                f"{sorted(plafonds)} sur les étapes {[e.step for e in audit.events]}")
+    return plafonds.pop()
+
+
 async def _run(index: Index, script: list, *, historique: list[Turn] | None = None,
                settings: Settings | None = None, budget: RequestBudget | None = None,
                question: str = "Quel délai pour déclarer mon arrivée ?", lang: str | None = None,
-               dictionnaire: Any = None, variant: str | None = "navigation"):
+               dictionnaire: Any = None, variant: str | None = "navigation",
+               audit: MemoryAuditSink | None = None):
     settings = settings or _settings()
     fake = FakeAnthropic(script)
-    client = LlmClient(settings, anthropic_client=fake)
+    client = LlmClient(settings, anthropic_client=fake, audit_sink=audit)
     answer, trace = await repondre_guide(question, historique or [], Profil(), corpus=index.corpus,
                                          index=index, client=client, settings=settings,
                                          request_id="req-test", lang=lang, budget=budget or _budget(),
@@ -240,9 +258,10 @@ AUTRE_ECOLE = ("c2", "L'inscription se fait avant le 1er septembre.",
 
 # --- nominal -----------------------------------------------------------------
 async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index: Index) -> None:
+    audit = MemoryAuditSink()
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2),
                                              _rediger(BONNE, BONNE_2, transition=True),
-                                             _verdicts(("c1", True), ("c2", True))])
+                                             _verdicts(("c1", True), ("c2", True))], audit=audit)
     assert fake.remaining_script == 0 and len(fake.requests) == 5  # cinq appels reason — pas un de plus
     assert answer.found is True and answer.reason is None
     assert answer.texte == "Segment c1. Segment c2. En résumé."
@@ -260,7 +279,11 @@ async def test_a_sourced_answer_runs_the_five_steps_and_carries_its_trace(index:
     # ne remplit **pas**. Le profil du guide n'est pas « ce qu'on a compris d'un sinistre », et une
     # question du guide n'a pas de verdict à porter (AD-4).
     assert answer.faits_compris is None and answer.verdict is None
-    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    # L'ébauche est bornée par le plafond de sortie de l'étape qui la **produit sur le chemin
+    # servi** : depuis l'amendement AD-1 du 03/09/2026, c'est le tour terminal de la navigation
+    # (`steps/naviguer.py`), donc `navigation_rediger_max_tokens` — `steps/rediger.py` et son
+    # `rediger_max_tokens` ne servent plus que la variante `full_context`.
+    assert _plafond_envoye_par(audit, "rediger") == _settings().navigation_rediger_max_tokens
     # AD-10 : `intent` est le seul champ de la ligne de log que l'API ne peut pas lire sur l'`Answer` —
     # il n'existe que dans la trace, et seul le pipeline le produit.
     assert trace.intent == "question"
@@ -864,11 +887,18 @@ async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Inde
 
 
 async def test_a_max_tokens_draft_is_retried_under_the_output_cap(index: Index) -> None:
-    """M4 : la troncature de *rédiger* est éprouvée sous le plafond de sortie du chemin servi."""
+    """M4 : la troncature de *rédiger* est éprouvée sous le plafond de sortie du chemin servi.
+
+    Le plafond abaissé est celui de l'étape qui **produit** l'ébauche servie — le tour terminal de
+    la navigation (`navigation_rediger_max_tokens`) depuis l'amendement AD-1 du 03/09/2026, et non
+    `rediger_max_tokens`, que plus aucun appel de ce chemin n'envoie. Le motif se lit sur le réglage
+    lui-même : un littéral y recopierait la valeur du jour au lieu du plafond réellement envoyé.
+    """
     tronquee = _rediger(BONNE)
     tronquee["stop_reason"] = "max_tokens"
-    settings = _settings(rediger_max_tokens=19)
-    with pytest.raises(LlmParse, match=r"tronquée.*max_tokens=19"):
+    settings = _settings(navigation_rediger_max_tokens=19)
+    with pytest.raises(LlmParse,
+                       match=rf"tronquée.*max_tokens={settings.navigation_rediger_max_tokens}"):
         await _run(index, [_comprendre(), *_lecture(F1, F2), tronquee, tronquee],
                    settings=settings)
 
@@ -1995,8 +2025,48 @@ async def test_sans_alerte_le_refus_hors_perimetre_reste_actif(index: Index) -> 
 
 
 # --- le plafond de sortie de *vérifier* tient sous le budget par requête ------
+class Preflight(NamedTuple):
+    """Un majorant calculé avant l'envoi, rattaché à l'**étape** qui a demandé l'appel."""
+
+    etape: str
+    engage: float
+    majorant: float
+    tokens: int
+
+
+def _suivre_l_etape(monkeypatch: pytest.MonkeyPatch) -> Callable[[], str]:
+    """Rend un lecteur qui dit quelle **étape** émet l'appel en cours, préflight compris.
+
+    Un préflight se mesure *avant* l'envoi : ni la trace, ni le journal d'audit, ni les requêtes du
+    faux fournisseur ne peuvent encore le nommer. `LlmClient.parse` et `LlmClient.tool_turn`, eux,
+    reçoivent le `StepTrace` de l'étape appelante : c'est le seul endroit où « l'appel de rédaction »
+    ou « celui de *vérifier* » se désigne sans compter les requêtes ni reconnaître un plafond — deux
+    repères que l'amendement AD-1 du 03/09/2026 a rendus faux (l'ébauche servie est le tour terminal
+    de la navigation, et `navigation_rediger_max_tokens` vaut exactement `verifier_max_tokens`).
+
+    La chaîne n'émet jamais deux appels de front : une seule étape est donc courante à la fois.
+    """
+    courante = [""]
+
+    def poser(nom: str) -> None:
+        methode = getattr(LlmClient, nom)
+
+        async def relayer(self: LlmClient, *, step: StepTrace, **kwargs: Any) -> Any:
+            precedente, courante[0] = courante[0], step.name
+            try:
+                return await methode(self, step=step, **kwargs)
+            finally:
+                courante[0] = precedente
+
+        monkeypatch.setattr(LlmClient, nom, relayer)
+
+    for nom_de_methode in ("parse", "tool_turn"):
+        poser(nom_de_methode)
+    return lambda: courante[0]
+
+
 async def _preflights_de_la_chaine(index: Index, settings: Settings,
-                                   monkeypatch: pytest.MonkeyPatch) -> list[tuple[float, float, int]]:
+                                   monkeypatch: pytest.MonkeyPatch) -> list[Preflight]:
     """La chaîne guide entière, scriptée, avec le majorant relevé **à chaque** préflight.
 
     Le budget est celui de la production (`max_cost_eur_per_request`), et non le plafond confortable
@@ -2008,12 +2078,13 @@ async def _preflights_de_la_chaine(index: Index, settings: Settings,
     budget = RequestBudget(deadline_s=settings.deadline_s, max_attempts=settings.max_llm_attempts,
                            max_cost_eur=settings.max_cost_eur_per_request)
     original = client_module.estimate_cost
-    releves: list[tuple[float, float, int]] = []
+    etape = _suivre_l_etape(monkeypatch)
+    releves: list[Preflight] = []
 
     def relever(*args: Any, **kwargs: Any) -> float:
         estimate = original(*args, **kwargs)
         max_tokens = int(args[3] if len(args) > 3 else kwargs["max_tokens"])
-        releves.append((budget.cost_eur, estimate, max_tokens))
+        releves.append(Preflight(etape(), budget.cost_eur, estimate, max_tokens))
         return estimate
 
     monkeypatch.setattr(client_module, "estimate_cost", relever)
@@ -2098,9 +2169,14 @@ async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
     settings = _settings()
 
     async def majorant_de_verifier(plafond: int) -> float:
+        # Le préflight de *vérifier* se désigne par son **étape**, jamais par la valeur de son
+        # plafond : depuis l'amendement AD-1 du 03/09/2026, `navigation_rediger_max_tokens` (3 072)
+        # et `verifier_max_tokens` (3 072) sont égaux, et sélectionner par `tokens == plafond`
+        # ramassait aussi le tour terminal de la navigation — un appel plus cher, qui gonflait le
+        # delta mesuré de 0,0283 € à 0,0316 €.
         reglages = _settings(verifier_max_tokens=plafond)
         preflights = await _preflights_de_la_chaine(index, reglages, monkeypatch)
-        return max(majorant for _engage, majorant, tokens in preflights if tokens == plafond)
+        return max(p.majorant for p in preflights if p.etape == "verifier")
 
     ancien = await majorant_de_verifier(REFLEXION_MESUREE)
     retenu = await majorant_de_verifier(settings.verifier_max_tokens)
@@ -2115,7 +2191,6 @@ async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
 
     # Garde-fou, explicitement pas une preuve du chiffre : aucun préflight de la chaîne ne déborde.
     preflights = await _preflights_de_la_chaine(index, settings, monkeypatch)
-    assert settings.verifier_max_tokens in {tokens for _e, _m, tokens in preflights}
-    assert [(e, m, t) for e, m, t in preflights
-            if e + m > settings.max_cost_eur_per_request] == []
+    assert {p.tokens for p in preflights if p.etape == "verifier"} == {settings.verifier_max_tokens}
+    assert [p for p in preflights if p.engage + p.majorant > settings.max_cost_eur_per_request] == []
 

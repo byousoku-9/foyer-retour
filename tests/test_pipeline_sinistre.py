@@ -49,6 +49,7 @@ from server.app.domain.verdict import (
     MissingPackage,
     decider,
 )
+from server.app.llm.audit import MemoryAuditSink
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
@@ -299,12 +300,26 @@ def _lecture_vide() -> list[dict]:
 BUDGET_DE_LECTURE_BORNEE = 400
 
 
+def _appels_de(audit: MemoryAuditSink, etape: str) -> list[dict[str, Any]]:
+    """Les corps de requête que l'**étape** nommée a réellement envoyés, dans l'ordre.
+
+    Le journal d'audit exact est le seul relevé qui porte, pour chaque appel émis, le nom de l'étape
+    (`ExactLlmAuditEvent.step`, que le client recopie du `StepTrace` de l'appelant) **et** le corps
+    parti sur le fil. Depuis l'amendement AD-1 du 03/09/2026, ni le rang dans `fake.requests` ni la
+    valeur du plafond de sortie ne désignent plus une étape : l'ébauche servie est le tour terminal
+    de la conversation de navigation, un tour de lecture de plus décale tous les rangs, et
+    `navigation_rediger_max_tokens` vaut exactement `verifier_max_tokens`.
+    """
+    return [event.request for event in audit.events if event.step == etape]
+
+
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
                variant: object = SANS_VARIANTE, dossier: MissingPackage | None = None,
                lang: str | None = None, question: str = QUESTION,
                lecture: object = LECTURE_STANDARD,
-               dictionnaire: Dictionnaire | None = None):
+               dictionnaire: Dictionnaire | None = None,
+               audit: MemoryAuditSink | None = None):
     """Scripte une requête sinistre de bout en bout sur le **chemin servi**.
 
     Le préambule de lecture est inséré juste après *comprendre*, à l'endroit exact où le pipeline
@@ -317,7 +332,7 @@ async def _run(index: Index, script: list, *, settings: Settings | None = None,
     # Un script vide n'atteint aucun appel (borne d'entrée refusée) : rien à insérer.
     complet = [script[0], *tours, *script[1:]] if script else list(script)
     fake = FakeAnthropic(complet)
-    client = LlmClient(settings, anthropic_client=fake)
+    client = LlmClient(settings, anthropic_client=fake, audit_sink=audit)
     variante = {} if variant is SANS_VARIANTE else {"variant": variant}
     answer, trace = await sinistre.run(doc_id, question, faits, corpus=index.corpus, index=index,
                                        client=client, settings=settings, request_id="req-sinistre",
@@ -357,16 +372,22 @@ async def test_une_langue_forcee_non_servie_est_refusee_avant_tout_appel(index: 
 async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
         index: Index, gate_du_mini_contrat) -> None:
     """AC : cinq étapes, `pipeline="sinistre"`, un seul appel `reason` dans *vérifier*, verdict complet."""
+    audit = MemoryAuditSink()
     answer, trace, fake = await _run(index, [
         _comprendre(),
         _rediger(GAR, DEF, EXC_EXT),
         _verifier(("c1", True, False, False, False, "caractère subit de l'action de la chaleur"),
                   ("c2", True, False, False, False, None),
-                  ("c3", True, False, False, False, None))])
+                  ("c3", True, False, False, False, None))], audit=audit)
     # Cinq appels : *comprendre*, les deux tours de lecture de la navigation, l'ébauche rendue
     # dans le même fil, puis l'unique appel de *vérifier*.
     assert fake.remaining_script == 0 and len(fake.requests) == 5
-    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    # L'ébauche est bornée par le plafond de sortie de l'étape qui la **produit sur le chemin
+    # servi** : depuis l'amendement AD-1 du 03/09/2026, c'est le tour terminal de la navigation
+    # (`steps/naviguer.py`), donc `navigation_rediger_max_tokens` — `rediger_max_tokens` ne borne
+    # plus que la variante `full_context` du guide.
+    assert [request["max_tokens"] for request in _appels_de(audit, "rediger")] == [
+        _settings().navigation_rediger_max_tokens]
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
     assert trace.pipeline == "sinistre" and trace.variant == "navigation"
     assert len(next(s for s in trace.steps if s.name == "verifier").calls) == 1
@@ -796,6 +817,7 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
     )
     settings = _settings(draft_max_claims=2, verifier_max_claims=2)
 
+    audit = MemoryAuditSink()
     answer, trace, fake = await _run(index, [
         _comprendre(),
         _rediger(appliquee, DEF),
@@ -806,11 +828,14 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
         _rediger(neutre),
         _verifier(("c1", True, True, False, False, None, [SUBITE], []),
                   ("c2", True, False, False, False, None)),
-    ], settings=settings)
+    ], settings=settings, audit=audit)
 
     assert fake.remaining_script == 0
-    redactions = [request for request in fake.requests
-                  if request["max_tokens"] == settings.rediger_max_tokens]
+    # Les deux ébauches se comptent par leur **étape**, jamais par leur plafond de sortie : sur le
+    # chemin servi, elles sont rendues par le tour terminal de la navigation, dont le plafond
+    # (`navigation_rediger_max_tokens`) est celui de *vérifier* — la sélection par
+    # `rediger_max_tokens` ne désignait plus aucun appel de la chaîne.
+    redactions = _appels_de(audit, "rediger")
     assert len(redactions) == 2
     # La première ébauche est demandée dans le fil de la lecture, sur les seuls blocs ouverts : le
     # plan composé par le code a disparu avec la variante `deterministe` (story 5.6, T2), et c'est
@@ -2685,22 +2710,39 @@ async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Inde
     Mesuré sur A16 : la garde s'ouvrait à 43,3 s restantes (`llm_retry_margin_s = 5`) pour un cycle
     qui en demande 74,8 au débit minoré. Les deux appels sont partis, le second a expiré sans écrire
     un token, et il a emporté la marge de la remise — 43,3 s et 0,052 € pour rien, puis un 503.
+
+    **Et le cycle est celui de l'appel que la relance fait vraiment (T7, 03/09/2026).** La garde
+    lisait `rediger_max_tokens`, le plafond d'une étape qui ne rédige plus sur le chemin servi :
+    depuis l'amendement AD-1, la relance est un message de plus dans la conversation de navigation,
+    plafonné à `navigation_rediger_max_tokens`. Elle exigeait donc 1 024 tokens de moins que ce que
+    le cycle écrit — douze secondes au débit minoré — et rouvrait, d'exactement cette largeur, la
+    porte qu'elle avait été écrite pour fermer. La seconde moitié du témoin est cette largeur-là :
+    une deadline prise **entre** l'ancienne marge et la nouvelle doit refuser, pas lancer.
     """
     settings = _settings()
-    cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
-             + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
+    verifier_s = settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens)
+    cycle = settings.duree_majoree_pour(settings.navigation_rediger_max_tokens) + verifier_s
+    # Ce que la garde exigeait quand elle lisait le plafond de l'étape qui ne rédige plus.
+    cycle_sous_estime = settings.duree_majoree_pour(settings.rediger_max_tokens) + verifier_s
+    assert cycle_sous_estime < cycle, (
+        "la sous-estimation a disparu : ce témoin n'a plus de bande à éprouver")
+
+    async def relance_refusee(deadline_s: float):
+        budget = RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.30)
+        answer, trace, fake = await _run(
+            index, [_comprendre(), _rediger(GAR, MAUVAISE),
+                    _verifier(("c1", True, True, False, False, None))], budget=budget)
+        assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
+        assert answer.found is True and answer.complete is False
+        verifier = next(s for s in trace.steps if s.name == "verifier")
+        (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
+        assert "temps insuffisant pour la relance" in abandon.detail
+
     # De quoi écrire chaque appel de la chaîne, jamais le cycle entier.
-    budget = RequestBudget(deadline_s=cycle - 5, max_attempts=8, max_cost_eur=0.30)
-
-    answer, trace, fake = await _run(
-        index, [_comprendre(), _rediger(GAR, MAUVAISE),
-                _verifier(("c1", True, True, False, False, None))], budget=budget)
-
-    assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
-    assert answer.found is True and answer.complete is False
-    verifier = next(s for s in trace.steps if s.name == "verifier")
-    (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
-    assert "temps insuffisant pour la relance" in abandon.detail
+    await relance_refusee(cycle - 5)
+    # Et la bande que la sous-estimation laissait passer : assez pour l'ancien calcul, pas pour le
+    # cycle réel. Sans le correctif, les deux appels partaient ici.
+    await relance_refusee((cycle_sous_estime + cycle) / 2)
 
 
 # --- Correctif du tour 4 (C3) : la base décisionnelle s'apprécie par sous-question -------------

@@ -63,10 +63,10 @@ def test_defaults_match_spine_hypotheses() -> None:
         "reason", "reason", "reason")
     assert s.rediger_max_tokens == 2048
     assert "outils_rediger_max_tokens" not in Settings.model_fields
-    assert s.max_cost_eur_per_request == 0.75 and s.cost_alert_eur == 0.25
+    assert s.max_cost_eur_per_request == 1.30 and s.cost_alert_eur == 1.00
     # story 1.10 : AD-9 remplace le plafond **par requête** par un plafond **par run** en évals ;
     # CLAUDE.md exige « la clé **et un plafond** ». `--max-cost` ne fait que surcharger celui-ci.
-    assert s.evals_max_cost_eur == 12.0
+    assert s.evals_max_cost_eur == 20.0 and s.live_budget_eur == 20.0
     assert s.rate_limit_per_minute == 10 and s.rate_limit_per_day == 100
     assert s.coverage_threshold == 0.8 and s.kind_confidence_min == 0.7
     assert s.mixed_page_image_density == 0.2 and s.ocr_dpi == 300
@@ -133,7 +133,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     t = Trace(request_id="r", pipeline="guide", thresholds=s.thresholds())
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
-    assert t.thresholds["max_cost_eur_per_request"] == 0.75
+    assert t.thresholds["max_cost_eur_per_request"] == 1.30
     assert {"max_opens", "node_window", "search_limit", "max_llm_attempts",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
@@ -819,3 +819,69 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # bien écrit qu'on a le temps de l'écrire.
     assert s.duree_majoree_pour(s.navigation_rediger_max_tokens) <= s.llm_timeout_s
     assert s.llm_timeout_s < s.deadline_s and s.llm_retry_margin_s < s.deadline_s
+
+
+def test_le_plafond_de_cout_couvre_le_chemin_froid_de_la_navigation() -> None:
+    """Story 5.6, T7 — le plafond par requête doit couvrir le chemin servi **à cache froid**.
+
+    Le garde-fou de coût compare `budget.cost_eur + estimate_cost(...)` **avant** chaque envoi
+    (`llm/client.py`) et lève `BudgetExceeded`, qui est terminal. Un plafond sous le pire chemin
+    nominal ne borne donc pas une dérive : il rend un 503 de configuration atteignable sur une
+    question nominale, ce qu'AD-16 interdit. C'est ce qui s'est produit le 03/09/2026 à 10 h 05, au
+    ré-enregistrement de la fixture du cas bougie : `0,5557 € déjà engagés + 0,1979 € estimés >
+    0,7500 €`, sur une chaîne parfaitement conforme dont le seul tort était d'avoir le cache froid.
+
+    Le pire chemin est **le même** que celui de `deadline_s` — c'est le même AD-1 qui le rend
+    légitime, et deux dérivations qui divergeraient sur ce qu'est « nominal » finiraient par se
+    contredire. Les bornes de tokens, elles, sont celles que **l'estimateur** voit sur la chaîne
+    sinistre scriptée (préfixes réels, `estimate_chars_per_token` / `estimate_tokenizer_factor`), et
+    non les tokens réels du fournisseur : c'est l'estimation qui décide du refus, pas la facture.
+
+    L'engagé réel avant un appel est majoré par la somme des majorants qui le précèdent. La valeur
+    que le plafond doit couvrir est donc la somme des douze, dans le régime que le fournisseur sert
+    réellement — préfixe écrit une fois, relu ensuite (`RequestBudget.prefix_seen`). Le régime où
+    aucun préfixe n'est jamais relu reste le mur, et le témoin exige que le plafond reste dessous :
+    sans quoi le garde-fou cesserait de mordre sur une requête réellement anormale.
+    """
+    from server.app.config import Settings
+    from server.app.llm.models import TIERS
+    from server.app.llm.pricing import PRICES
+
+    # Bornes **de l'estimateur**, relevées le 03/09/2026 sur la chaîne sinistre scriptée.
+    PREFIXE = {"comprendre": 5_355, "navigation": 55_983, "terminal": 56_843, "verifier": 19_539}
+    MESSAGES = {"comprendre": 361, "navigation": 8_414, "terminal": 8_672, "verifier": 779}
+    TOURS_CIBLE_AD1 = 8  # la même cible que la dérivation de `deadline_s`
+
+    s = Settings(_env_file=None, anthropic_api_key="")
+    p = PRICES[TIERS["reason"]]
+    eur = s.usd_eur / 1_000_000
+
+    def majorant(cle: str, sortie: int, *, froid: bool) -> float:
+        taux = p["cache_write_1h"] if froid else p["cache_read"]
+        return (PREFIXE[cle] * taux + MESSAGES[cle] * p["input"] + sortie * p["output"]) * eur
+
+    def chemin(*, jamais_relu: bool) -> float:
+        """La somme des douze majorants du pire chemin nominal d'AD-1."""
+        total = majorant("comprendre", s.comprendre_max_tokens, froid=True)
+        for tour in range(TOURS_CIBLE_AD1 - 1):
+            total += majorant("navigation", s.retrouver_outils_max_tokens,
+                              froid=jamais_relu or tour == 0)
+        verifier = s.verifier_sinistre_json_tokens + s.verifier_thinking_reserve_tokens
+        total += majorant("terminal", s.navigation_rediger_max_tokens, froid=jamais_relu)
+        total += majorant("verifier", verifier, froid=True)
+        # relance atomique d'AD-3 : le tour terminal et *vérifier* une seconde fois
+        total += majorant("terminal", s.navigation_rediger_max_tokens, froid=jamais_relu)
+        total += majorant("verifier", verifier, froid=jamais_relu)
+        return total
+
+    pire_nominal = chemin(jamais_relu=False)
+    mur = chemin(jamais_relu=True)
+    assert s.navigation_max_llm_turns <= TOURS_CIBLE_AD1, (
+        "le plafond de coût a été dérivé pour la cible d'AD-1 : re-dérive-le avant de la franchir")
+    assert s.max_cost_eur_per_request >= pire_nominal, (
+        f"plafond {s.max_cost_eur_per_request} € sous le pire chemin nominal à cache froid "
+        f"({pire_nominal:.4f} €) : un `BudgetExceeded` terminal reste atteignable sur une question "
+        "nominale")
+    assert s.max_cost_eur_per_request < mur, (
+        f"plafond {s.max_cost_eur_per_request} € au-dessus du régime où aucun préfixe n'est relu "
+        f"({mur:.4f} €) : le garde-fou ne mord plus sur rien")

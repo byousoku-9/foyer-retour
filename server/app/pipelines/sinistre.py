@@ -865,7 +865,13 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                 # avec ce qu'il va écrire. Mesuré sur A16 : la porte s'ouvrait à 43,3 s restantes
                 # pour un cycle qui en demande 74,8 ; les deux appels sont partis, le second a
                 # expiré sans écrire un token, et il a emporté la marge de la remise.
-                duree_du_cycle = (settings.duree_majoree_pour(settings.rediger_max_tokens)
+                # T7 : le plafond lu est celui de l'appel que la relance va **réellement** faire.
+                # Depuis l'amendement AD-1, elle est un message de plus dans la conversation de
+                # navigation (`navigation.relancer`, plafonnée à `navigation_rediger_max_tokens`) et
+                # non un appel de `steps/rediger.py`. Lire `rediger_max_tokens` minorait la marge
+                # exigée de 1 024 tokens — douze secondes au débit minoré —, c'est-à-dire rouvrait
+                # exactement la porte que ce contrôle a été écrit pour fermer.
+                duree_du_cycle = (settings.duree_majoree_pour(settings.navigation_rediger_max_tokens)
                                   + settings.duree_majoree_pour(settings.verifier_sinistre_max_tokens))
                 if budget.remaining() <= duree_du_cycle:
                     raise Timeout(f"temps insuffisant pour la relance : {duree_du_cycle:.1f} s "

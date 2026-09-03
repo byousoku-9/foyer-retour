@@ -113,18 +113,22 @@ def test_le_plafond_dappels_laisse_sa_place_au_retry_de_la_sequence_la_plus_long
 def test_lalerte_de_cout_ne_se_leve_plus_sur_une_chaine_ordinaire() -> None:
     """`cout_eleve` est de l'observabilité (AD-10) : il doit désigner l'anormal, pas tout le monde.
 
-    Bornes mesurées le 02/09/2026 sur la chaîne sinistre servie (usages enregistrés rejoués au tarif
-    du tier servi) : 0,0548 € engagés avant *rédiger*, 0,2295 € pour la séquence la plus longue.
-    À 0,05 € l'alerte se levait donc au troisième appel de **toutes** les requêtes. Elle doit se
-    situer au-dessus de ce qu'une chaîne enregistrée a jamais coûté, et sous le plafond qui refuse.
+    **Re-mesuré le 03/09/2026 (T7), sur le chemin froid.** Les bornes du 02/09 (0,0548 € avant
+    *rédiger*, 0,2295 € pour la séquence la plus longue) datent d'une chaîne dont la lecture était
+    faite par du code. Depuis l'amendement AD-1, le premier tour de navigation écrit le sommaire
+    complet dans le préfixe cacheable : le run réel du cas bougie a engagé **0,5557 €** avant
+    *vérifier*, et l'appel qui suivait était majoré à 0,1979 € — la chaîne froide coûte donc au plus
+    0,7536 €, et 0,9279 € quand la relance d'AD-3 s'y ajoute (ses deux appels, préfixes chauds, sont
+    majorés à 0,1743 €). À 0,25 € l'alerte se lèverait au premier tour de **toute** requête froide.
+    Elle doit se situer au-dessus de ce qu'une chaîne mesurée a jamais coûté, et sous le plafond.
     """
     from server.app.config import Settings
 
     settings = Settings(_env_file=None, anthropic_api_key="")
-    ENGAGE_AVANT_REDIGER = 0.0548  # mesuré : *comprendre* + les deux tours de navigation
-    CHAINE_LA_PLUS_LONGUE = 0.2295  # mesuré : les huit appels, sorties enregistrées
-    assert settings.cost_alert_eur > CHAINE_LA_PLUS_LONGUE > ENGAGE_AVANT_REDIGER, (
-        f"cost_alert_eur {settings.cost_alert_eur} € se lève sur une chaîne ordinaire")
+    ENGAGE_AVANT_VERIFIER = 0.5557    # mesuré le 03/09 à 10 h 05, cas bougie, cache froid
+    CHAINE_FROIDE_COMPLETE = 0.9279   # + le majorant de *vérifier* (0,1979) et la relance (0,1743)
+    assert settings.cost_alert_eur > CHAINE_FROIDE_COMPLETE > ENGAGE_AVANT_VERIFIER, (
+        f"cost_alert_eur {settings.cost_alert_eur} € se lève sur une chaîne ordinaire à cache froid")
     assert settings.cost_alert_eur < settings.max_cost_eur_per_request, (
         "une alerte qui ne précède pas le refus n'annonce rien")
 
