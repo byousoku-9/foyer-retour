@@ -50,6 +50,9 @@ jamais.
 - **Une claim par élément qui répond.** Pour chaque sous-question, cite chaque passage lu qui la
   traite — pas le meilleur d'entre eux, tous ceux qui disent quelque chose de différent. Une
   **définition** ou un **titre** ne tient la place d'aucun passage qui répond.
+- Tu peux joindre au passage celui qui l'éclaire (une définition, la phrase d'amorce de
+  l'énumération, la condition à laquelle la démarche est ouverte) : c'est son contexte, cité
+  **dans la même claim**, pas une seconde claim.
 - **Sois concis dans la phrase, jamais dans les passages.** Concision veut dire : un `text` d'une
   phrase courte, et la `quote` la plus courte qui prouve encore le point. Elle ne veut jamais dire
   moins de passages cités.
