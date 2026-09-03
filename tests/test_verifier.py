@@ -344,7 +344,7 @@ async def test_a_missing_verdict_is_never_guessed(mini: Index) -> None:
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None
     assert rejet.rejection_kind == "non_pertinente" and "non rendue" in rejet.motif
     assert [c.name for c in step.checks if not c.ok] == [
-        "parse_retry", "pertinence_incomplete", "citations"]
+        "parse_retry", "pertinence_incomplete", "claims_par_facette", "citations"]
 
 
 async def test_a_partial_verdicts_list_is_replayed_before_any_claim_is_dropped(mini: Index) -> None:
@@ -924,6 +924,82 @@ async def test_a_sentence_without_a_verdict_is_never_guessed(mini: Index) -> Non
     assert v.segments == [] and v.claims == [] and v.found is False
     assert [c.rejection_kind for c in v.rejected_claims] == ["non_citee"]
     assert [c.name for c in step.checks if c.name == "segments_non_soutenus"]
+
+
+# --- story 5.6 (L1b) : une claim par sous-question, jugée sur sa sous-question ---------------------
+
+async def test_la_sous_question_declaree_par_la_claim_est_soumise_au_controle(mini: Index) -> None:
+    """L'affirmation dit à quelle sous-question elle répond ; le contrôle juge son objet là-dessus.
+
+    Mesuré sur G1 le 03/09/2026 : la pertinence se jugeait contre « l'objet de la question » entière
+    — une question à deux sous-questions dont chaque claim n'en traite qu'une par construction.
+    Le rang est recoupé ici avec ce qui a été envoyé : un rang hors des facettes ne désigne rien.
+    """
+    draft = AnswerDraft(
+        segments=[{"text": "Segment c1.", "kind": "factuel", "claim_ids": ["c1"]},
+                  {"text": "Segment c2.", "kind": "factuel", "claim_ids": ["c2"]}],
+        claims=[{"claim_id": "c1", "text": "Le délai est de huit jours.", "facette": 1,
+                 "quotes": [{"block_id": "mini:p1:2", "quote": QUOTE_HUIT_JOURS}]},
+                {"claim_id": "c2", "text": "Le délai est de huit jours, bis.", "facette": 7,
+                 "quotes": [{"block_id": "mini:p1:2", "quote": QUOTE_HUIT_JOURS}]}])
+    _v, step, fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), ("c2", True), facettes=[["c1"], ["c2"]])],
+        nb_facettes=2)
+    charges = [json.loads(t) for kind, t in
+               UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"]) if kind == "claim"]
+    assert charges[0]["sous_question"] == {"facette": 1, "libelle": "facette 2"}
+    assert "sous_question" not in charges[1]  # rang 7 : aucune facette envoyée ne le porte
+    (check,) = [c for c in step.checks if c.name == "claims_par_facette"]
+    assert check.ok is False and "1 sous-question(s) sur 2" in check.detail
+
+
+async def test_une_sous_question_sans_affirmation_retenue_entre_dans_le_motif_de_relance(
+        mini: Index) -> None:
+    """L'enjeu du rejet, que le motif ligne à ligne ne disait pas.
+
+    G1 : la seule claim de la première sous-question a été rejetée, la relance a corrigé la citation
+    sans savoir qu'elle jouait la sous-question entière, et la réponse est sortie sans elle. Le
+    motif le dit maintenant — par le **rang**, jamais par le libellé reçu (AD-10).
+    """
+    draft = AnswerDraft(
+        segments=[{"text": "Segment c1.", "kind": "factuel", "claim_ids": ["c1"]},
+                  {"text": "Segment c2.", "kind": "factuel", "claim_ids": ["c2"]}],
+        claims=[{"claim_id": "c1", "text": "Le délai est de huit jours.", "facette": 0,
+                 "quotes": [{"block_id": "mini:p1:2", "quote": QUOTE_HUIT_JOURS}]},
+                {"claim_id": "c2", "text": "Le délai est de huit jours, bis.", "facette": 1,
+                 "quotes": [{"block_id": "mini:p1:2", "quote": QUOTE_HUIT_JOURS}]}])
+    v, _step, _fake = await _verifier(
+        mini, draft,
+        [_verdicts(("c1", False), ("c2", True), facettes=[[], ["c2"]],
+                   raisons={"c1": "non_soutenue"})],
+        nb_facettes=2)
+    assert v.motif is not None and "sous-question n° 0" in v.motif
+    assert "sous-question n° 1" not in v.motif  # celle-là a bien reçu sa réponse
+    assert "facette 1" not in v.motif  # le libellé reçu ne rejoint jamais nos phrases
+
+
+async def test_une_limite_qui_cite_une_affirmation_atteint_ce_que_je_ne_sais_pas(
+        mini: Index) -> None:
+    """La ligne « côté France » de G1, perdue le 03/09/2026 parce qu'elle disait un fait au passage.
+
+    Le modèle avait écrit exactement ce qu'il fallait — « les fiches ne traitent que les démarches
+    luxembourgeoises, au-delà de l'obligation générale de déclarer son arrivée » —, le contrôle l'a
+    jugée non soutenue (elle affirmait au passage un fait sur le contenu du guide, sans citer), et
+    le code l'a retirée : la personne a lu « il reste 1 sous-question sans réponse », sans savoir
+    laquelle. Une limite peut désormais citer l'affirmation qui porte ce qu'elle dit au passage.
+    """
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("Les fiches ne traitent que les démarches luxembourgeoises, au-delà du délai de huit "
+         "jours pour déclarer son arrivée.", "limite", ["c1"]),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    juges = [json.loads(t) for kind, t in
+             UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"]) if kind == "segment"]
+    assert [j["claim_ids"] for j in juges] == [["c1"]]  # la limite est jugée sur ce qu'elle cite
+    assert v.unknown == ["Les fiches ne traitent que les démarches luxembourgeoises, au-delà du "
+                         "délai de huit jours pour déclarer son arrivée."]
+    assert [s.kind for s in v.segments] == ["factuel"]  # elle ne rejoint jamais le texte affiché
 
 
 # --- story 4.2a-bis : un segment byte-identique à sa claim est dérivé, jamais rejugé ---------------
@@ -2222,6 +2298,93 @@ async def test_un_qualificatif_ecrit_par_la_clause_ne_se_qualifie_jamais_par_les
     assert [c for c in step.checks if c.name == "fait_cite_hors_sujet" and not c.ok]
     assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
     assert v.verdict is not None and SUBITE in v.verdict.missing.faits
+
+
+async def test_un_fait_manquant_que_la_claim_retenue_qualifie_nest_plus_demande(
+        contrat: Index) -> None:
+    """Story 5.6 (L1b) : l'écart mesuré sur S2 le 03/09/2026, dans sa forme exacte.
+
+    Le contrôle rend `pertinente=true` sur une affirmation qui écrit « un robinet resté ouvert …
+    **est** un débordement de ces installations », et, dans le même objet JSON,
+    `fait_requis_present=false` avec `fait_manquant="rupture, fissure ou débordement…"` — sans
+    remplir `qualites_exigees` ni `qualites_etablies`, si bien que la porte de L1 n'avait rien à
+    corroborer. Le dossier redemandait donc au client d'établir ce que la réponse qu'il lisait
+    venait d'affirmer. La qualification affirmée par la claim ouvre la même porte.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
+                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert v.claims[0].status.applicable == "oui"
+    assert [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and v.verdict.missing.faits == []
+    assert not [q for q in v.verdict.ask_client if "Fait à établir" in q]
+
+
+async def test_un_fait_manquant_quaucune_claim_ne_qualifie_reste_demande(contrat: Index) -> None:
+    """La garde inverse, côté claim : rien dans le texte affiché ne rattache un fait déclaré.
+
+    Même clause, même libellé, même `fait_manquant` — mais l'affirmation se contente de recopier ce
+    que la clause dit, sans nommer aucune circonstance du dossier. Il n'y a alors pas de
+    qualification à corroborer, et la question au client est la bonne réponse.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de rupture, fissure ou débordement.",
+                    [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert v.claims[0].status.applicable == "humain"
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and QUALITE_DEBORDEMENT in v.verdict.missing.faits
+
+
+async def test_un_fait_manquant_qualificatif_reste_demande_meme_qualifie_par_la_claim(
+        contrat: Index) -> None:
+    """Le cas bougie sous la nouvelle porte : elle ne l'ouvre pas d'un pouce.
+
+    L'affirmation rattache pourtant bien une circonstance déclarée (« la bougie ») au vocabulaire de
+    la clause, et le libellé s'y relit mot pour mot. Mais *subite* appartient à `QUALIFICATIFS` : la
+    vitesse à laquelle la chaleur a agi ne se déduit d'aucune circonstance, et aucune qualification
+    du modèle ne peut en tenir lieu.
+    """
+    faits = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
+                  description="Une bougie allumée est tombée sur le canapé.")
+    draft = _draft(("c1", "Le contrat exclut les dégâts au bâtiment causés par la chaleur ; une "
+                          "bougie tombée sur le canapé est une action subite de la chaleur.",
+                    [("cg:p1:2", Q_EXCLUSION)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, SUBITE, [], []), verdicts=[("c1", True)])],
+        faits=faits, blocs=["cg:p1:2"])
+    assert v.claims[0].status.applicable == "humain"
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and SUBITE in v.verdict.missing.faits
+
+
+async def test_une_claim_rejetee_ne_qualifie_rien(contrat: Index) -> None:
+    """Une affirmation que le contrôle écarte n'est pas affichée : elle ne qualifie donc rien.
+
+    C'est le troisième verrou de la porte, et le seul qui ne se lise pas dans le texte : ce qui
+    établit un fait pour le dossier est ce que la personne **lit**, jamais une phrase retirée de la
+    réponse.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
+                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", False)], raisons={"c1": "non_soutenue"})],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert not v.claims and v.rejected_claims
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
 
 
 async def test_an_unconfirmed_kind_is_human_and_caps_the_verdict(contrat: Index) -> None:

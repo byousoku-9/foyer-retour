@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 
 from server.app.config import Settings
-from server.app.corpus.ebauche import joindre_amorces_denumeration
+from server.app.corpus.ebauche import (joindre_amorces_denumeration,
+                                       joindre_segments_orphelins)
 from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.racine import _lecture_interne_sans_racine
@@ -894,3 +895,70 @@ async def test_la_sous_question_ne_porte_jamais_une_attribution_lexicale_de_bloc
     assert facettes == [{"facette": 0, "libelle": "les appareils"},
                         {"facette": 1, "libelle": "les denrées"}]
     assert "blocs_decisionnels" not in contenu
+
+
+# --- story 5.6 (L1b) : la règle des antécédents, rendue mécanique -----------------------------
+
+def _draft_segments(*segments: tuple[str, str, list[str]]) -> AnswerDraft:
+    """`(texte, kind, claim_ids)` → une ébauche dont chaque `claim_id` cité existe."""
+    ids = {cid for _t, _k, cids in segments for cid in cids}
+    return AnswerDraft(
+        segments=[{"text": t, "kind": k, "claim_ids": list(cids)} for t, k, cids in segments],
+        claims=[{"claim_id": cid, "text": f"Affirmation {cid}.",
+                 "quotes": [{"block_id": "cg:p1:1", "quote": f"passage {cid}"}]}
+                for cid in sorted(ids)])
+
+
+def test_une_phrase_sans_antecedent_est_jointe_a_la_precedente() -> None:
+    """La forme exacte mesurée sur G1 le 03/09/2026 : « Sans cette déclaration, ni matricule… ».
+
+    L'antécédent est dans la phrase d'avant. La consigne l'interdisait depuis L1 et n'était pas
+    respectée ; le code joint désormais les deux en **une** unité — de vérification comme
+    d'affichage —, si bien qu'aucune coupe ne peut laisser l'orpheline seule.
+    """
+    brut = _draft_segments(
+        ("Vous disposez de huit jours pour déclarer votre arrivée à la commune.", "factuel", ["c1"]),
+        ("Sans cette déclaration, ni matricule, ni sécurité sociale.", "factuel", ["c2"]),
+        ("Les allocations familiales sont dues pour tout enfant résidant au Luxembourg.",
+         "factuel", ["c3"]))
+    joint, jointures = joindre_segments_orphelins(brut)
+    assert jointures == 1
+    assert [s.text for s in joint.segments] == [
+        "Vous disposez de huit jours pour déclarer votre arrivée à la commune. "
+        "Sans cette déclaration, ni matricule, ni sécurité sociale.",
+        "Les allocations familiales sont dues pour tout enfant résidant au Luxembourg."]
+    assert joint.segments[0].claim_ids == ["c1", "c2"]
+    assert joint.claims == brut.claims  # la jointure ne touche jamais aux affirmations
+
+
+def test_les_bornes_de_la_jointure_des_orphelines() -> None:
+    """Quatre fermetures, parce qu'une jointure trop large grossit l'unité sans rien réparer."""
+    # 1. « Il » impersonnel : la phrase est autonome, rien n'est joint.
+    autonome = _draft_segments(("Le bail est signé.", "factuel", ["c1"]),
+                               ("Il faut apporter les originaux.", "factuel", ["c2"]))
+    assert joindre_segments_orphelins(autonome) == (autonome, 0)
+    # 2. Un segment `limite` ne rejoint pas le texte affiché : il va dans `unknown[]`.
+    limite = _draft_segments(("Le bail est signé.", "factuel", ["c1"]),
+                             ("Cette lecture n'a pas couvert les impôts.", "limite", []))
+    assert joindre_segments_orphelins(limite) == (limite, 0)
+    # 3. Le premier segment n'a pas de prédécesseur à qui être joint.
+    premier = _draft_segments(("Cette déclaration conditionne tout le reste.", "factuel", ["c1"]))
+    assert joindre_segments_orphelins(premier) == (premier, 0)
+    # 4. Une transition suivie d'une orpheline factuelle devient un segment **factuel** : un texte
+    #    qui affirme n'est pas une articulation, et `AnswerDraft` exige alors une affirmation citée.
+    apres_transition = _draft_segments(("En résumé,", "transition", []),
+                                       ("Elle conditionne tout le reste.", "factuel", ["c1"]))
+    joint, jointures = joindre_segments_orphelins(apres_transition)
+    assert jointures == 1
+    assert joint.segments[0].kind == "factuel" and joint.segments[0].claim_ids == ["c1"]
+
+
+def test_la_jointure_couvre_les_quatre_langues_servies() -> None:
+    """Une réponse en portugais se coupe comme une réponse en français : même contrat d'affichage."""
+    for ouverture in ("Cette formalité prend vingt minutes.", "This step takes twenty minutes.",
+                      "Diese Formalitat dauert zwanzig Minuten.", "Esta etapa leva vinte minutos.",
+                      "Sans cette déclaration, rien ne suit."):
+        brut = _draft_segments(("La commune enregistre votre arrivée.", "factuel", ["c1"]),
+                               (ouverture, "factuel", ["c2"]))
+        _joint, jointures = joindre_segments_orphelins(brut)
+        assert jointures == 1, ouverture
