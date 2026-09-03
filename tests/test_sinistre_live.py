@@ -72,22 +72,46 @@ def index() -> Index:
 
 
 def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
-                     non_etablies: list[str] | None = None) -> list[ClaimJugee]:
+                     non_etablies: list[str] | None = None) -> tuple[list[ClaimJugee], list[str]]:
     """Les claims affichées, re-jugées avec un jeu de champs typés choisi par le test.
 
     `fait_requis_present=true`, aucune option, aucune condition particulière, aucun fait manquant :
     le jeu le plus favorable qui soit. `exigees` / `non_etablies` y ajoutent le contrôle des qualités
     (revue Codex 1.8, B3). Rejouer la table dessus montre ce qui tient réellement le verdict ouvert,
     ce que la fixture d'un run unique ne peut pas prouver.
+
+    **Ce que « au mieux-disant » ne peut pas atteindre, et pourquoi il faut le dire (story 5.6,
+    T1c).** Ce helper choisit des `ChampsApplicabilite` ; il ne choisit pas le corpus. Or la règle (2)
+    d'`applicable_de_claim` rend `humain` toute claim qui cite un bloc décisionnel **sans `kind`
+    confirmé**, *avant* de regarder le moindre champ : aucun jeu de champs ne peut la rendre
+    favorable. Une telle claim laissée dans le rejeu ne mesure plus les qualités exigées, elle mesure
+    le typage du corpus — et elle ferme la règle (3) pour une raison que le témoin ne teste pas.
+    Elle est donc **mise de côté**, et rendue à l'appelant : le témoin re-dérive la raison de chaque
+    mise à l'écart, de sorte que rien ne puisse être escamoté en silence.
+
+    **La trace qui l'a rendu nécessaire.** Depuis que la place de l'ébauche de navigation vaut
+    `navigation_draft_max_claims` (6, T1b), la réponse bougie affiche **deux** claims au lieu d'une :
+    `c1` sur `p34:12` (la garantie de l'article 3.1.1.1.6, `kind_confirmed=True`, socle) et `c2` sur
+    `p34:7` (« 3.1.1.1.1 L'incendie … », `kind` = `garantie`, `kind_confirmed=False`). Le rejeu
+    donnait `{c1: oui, c2: humain}` : la règle (3) refusait de trancher sur `c2` et le verdict tombait
+    en (4), `ne_tranche_pas`. Ce n'est **pas** F3 (`facettes_sans_reponse`) — ce paramètre vaut 0 dans
+    le rejeu, la branche n'est jamais atteinte, et le pipeline lui-même rend « Aucune règle de la
+    table ne tranche sur les clauses retrouvées », pas la phrase des sous-questions. Le produit a
+    raison : une seconde garantie au typage non confirmé est ouverte pour de bon. C'est le témoin qui
+    avait cessé d'isoler sa propriété.
     """
+    documents = index.corpus.documents
     jugees: list[ClaimJugee] = []
+    ecartees: list[str] = []
     for claim in answer.claims:
+        blocs = [documents[index.doc_of(q.block_id)].block(q.block_id) for q in claim.quotes]
+        decisionnels = [bloc for bloc in blocs if bloc.kind in KINDS_DECISIONNELS]
+        if any(not bloc.kind_confirmed for bloc in decisionnels):
+            ecartees.append(claim.claim_id)
+            continue
         clauses = []
-        for q in claim.quotes:
-            document = index.corpus.documents[index.doc_of(q.block_id)]
-            bloc = document.block(q.block_id)
-            if bloc.kind not in KINDS_DECISIONNELS:
-                continue
+        for bloc in decisionnels:
+            document = documents[index.doc_of(bloc.block_id)]
             noeud = document.node_of(bloc.block_id)
             clauses.append(ClauseCitee(
                 block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
@@ -97,7 +121,7 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
                                  champs=ChampsApplicabilite(
                                      fait_requis_present=True, qualites_exigees=exigees or [],
                                      qualites_non_etablies=non_etablies or [])))
-    return jugees
+    return jugees, ecartees
 
 
 def _settings() -> Settings:
@@ -348,14 +372,29 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     # plus favorable qui soit (`fait_requis_present=true`, aucune option, aucune CP) — celui qui a
     # produit un `couvert` sur un run d'avant-correctif.
     subite = "action subite de la chaleur"
-    ouvert = decider(_au_mieux_disant(answer, index, exigees=[subite], non_etablies=[subite]),
-                     ask_client_max=settings.ask_client_max)
+    rejeu, ecartees = _au_mieux_disant(answer, index, exigees=[subite], non_etablies=[subite])
+    ouvert = decider(rejeu, ask_client_max=settings.ask_client_max)
     assert ouvert.value != "couvert", ouvert.value  # la qualité non établie referme la règle (3)
     assert any(subite in q for q in ouvert.ask_client)
     # et la règle (3) n'est pas morte pour autant : sans qualité exigée, la même garantie du socle
     # sort `couvert`. C'est bien le corroborant qui manque au cas bougie, pas le chemin.
-    sans_qualite = decider(_au_mieux_disant(answer, index), ask_client_max=settings.ask_client_max)
+    sans_qualite_jugees, _ = _au_mieux_disant(answer, index)
+    sans_qualite = decider(sans_qualite_jugees, ask_client_max=settings.ask_client_max)
     assert sans_qualite.value == "couvert", sans_qualite.value
+    # T1c : le rejeu doit encore porter **la** garantie du cas bougie — sans quoi il prouverait la
+    # règle (3) sur autre chose que la clause dont l'AC parle.
+    assert any(clause.block_id == f"{DOC_ID}:p34:12"
+               for jugee in sans_qualite_jugees for clause in jugee.clauses), \
+        "la garantie de l'article 3.1.1.1.6 a disparu du rejeu : le témoin ne prouve plus rien"
+    # Et ce que le mieux-disant a mis de côté l'a été pour la **seule** raison qu'aucun jeu de champs
+    # ne peut lever — la règle (2) d'`applicable_de_claim`, `kind` décisionnel non confirmé. La
+    # raison est re-dérivée ici, à partir du corpus, et non lue sur le helper qui l'a appliquée.
+    for claim_id in ecartees:
+        claim = next(c for c in answer.claims if c.claim_id == claim_id)
+        blocs = [documents[index.doc_of(q.block_id)].block(q.block_id) for q in claim.quotes]
+        assert any(bloc.kind in KINDS_DECISIONNELS and not bloc.kind_confirmed for bloc in blocs), (
+            f"claim {claim_id} écartée du rejeu sans que son typage soit en cause : le mieux-disant "
+            "escamote une claim que la table aurait dû juger")
 
     # (5bis) Revue Codex 1.8 (B3, tour 3) : l'énumération des qualités ne repose plus sur la parole du
     # modèle. Le code relit le **texte** de la clause citée, et sur la garantie réelle de l'article
