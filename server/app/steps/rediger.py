@@ -292,7 +292,9 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
             name="quotes_fusionnees", ok=True,
             detail=f"{fusions} affirmation(s) citaient deux extraits d'un même bloc : fusionnés en "
                    "un passage contigu qui les couvre, au lieu d'un échec de schéma terminal"))
-    draft, amorces = joindre_amorces_denumeration(draft, index=index, doc_id=doc_id)
+    draft, amorces = joindre_amorces_denumeration(
+        draft, index=index, doc_id=doc_id,
+        blocs_servis=[bloc.block_id for bloc in retrieval.blocs])
     if amorces:
         step.checks.append(CheckResult(
             name="amorce_jointe", ok=True,

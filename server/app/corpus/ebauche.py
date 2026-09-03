@@ -12,6 +12,8 @@ déjà le texte des blocs — et les deux bornes de `config.py` leur arrivent en
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from server.app.corpus.index import Index
 from server.app.corpus.text import normalize
 from server.app.domain.answer import AnswerDraft, AnswerSegment, Claim, Quote
@@ -73,8 +75,8 @@ def fusionner_quotes_du_meme_bloc(draft: AnswerDraft, *, index: Index,
     return draft.model_copy(update={"claims": claims}), fusions
 
 
-def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index,
-                                 doc_id: str) -> tuple[AnswerDraft, int]:
+def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: str,
+                                 blocs_servis: Iterable[str]) -> tuple[AnswerDraft, int]:
     """L'item d'une énumération cité seul reçoit **la phrase qui l'ouvre**, mot pour mot.
 
     Mesuré sur A16 (`a16-final1/a16-r1.json`) : « Le contrat garantit les biens désignés contre le
@@ -90,7 +92,7 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index,
     qu'un bloc est un item d'énumération — c'est l'unité de lecture que *retrouver* sert déjà. La
     jonction est donc structurelle, avant toute vérification.
 
-    Trois bornes, et elles disent ce que cette projection n'est pas :
+    Quatre bornes, et elles disent ce que cette projection n'est pas :
 
     - **rien n'est écrit.** La citation ajoutée est le texte normalisé du bloc d'amorce, tel que le
       corpus le porte ; *vérifier* le renormalisera pour le retrouver et republiera le texte brut,
@@ -101,11 +103,22 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index,
       distinction que le prompt trace, appliquée par le code ;
     - **un seul niveau.** Seules les citations rendues par le modèle sont examinées, jamais les
       amorces qu'on vient d'ajouter : la jonction ne se propage pas, comme
-      `amorce_de_lenumeration` elle-même ne remonte qu'un cran.
+      `amorce_de_lenumeration` elle-même ne remonte qu'un cran ;
+    - **l'amorce doit avoir été servie.** `blocs_servis` est l'univers des blocs transmis au
+      contrôle (`RetrievalResult.blocs` — celui-là même que `verifier._controler_quote` nomme
+      `fournis`). Une amorce hors de cet univers existe dans le corpus mais n'a été mise sous les
+      yeux de personne : la joindre rattachait la claim à un bloc « qui n'a pas été fourni dans ce
+      message », et *vérifier* rejetait alors la claim **entière** en `non_retrouvee` — la
+      projection censée sauver une citation la détruisait. Mesuré le 03/09/2026 sur le témoin de
+      préflight du pipeline sinistre : l'item ouvert et son amorce vivent dans deux nœuds
+      distincts, la claim tombait, et la chaîne payait une relance qu'aucun défaut ne justifiait.
+      Hors de l'univers servi, l'item reste donc cité seul — exactement l'état d'avant cette
+      projection, jamais moins.
 
     Un bloc d'un autre document, inconnu de l'index ou sans amorce est laissé tel quel : ce n'est
     pas ici qu'on juge une citation.
     """
+    servis = set(blocs_servis)
     jointes = 0
     claims: list[Claim] = []
     for claim in draft.claims:
@@ -116,7 +129,7 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index,
                 if index.doc_of(quote.block_id) != doc_id:
                     continue
                 amorce = index.amorce_de_lenumeration(quote.block_id)
-                if amorce is None or amorce in deja:
+                if amorce is None or amorce in deja or amorce not in servis:
                     continue
                 texte = index.corpus.documents[doc_id].block(amorce).text_norm
             except KeyError:

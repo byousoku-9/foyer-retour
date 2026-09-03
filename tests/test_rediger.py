@@ -261,8 +261,12 @@ async def test_lamorce_de_lenumeration_est_jointe_a_litem_cite_seul() -> None:
                      "text": "Le contrat garantit les biens désignés contre le péril des fumées et "
                              "des suies.", "quotes": list(quotes)}]))
 
+    # L'univers servi au contrôle : l'item **et** son amorce, comme les ouvre `ouvrir_noeud` sur le
+    # nœud de l'énumération (mesuré sur A16 : `p34:5` à `p34:12` ouverts ensemble).
+    servis = [item.block_id, amorce.block_id]
     joint, jointes = joindre_amorces_denumeration(
-        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id=doc.doc_id)
+        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id=doc.doc_id,
+        blocs_servis=servis)
 
     # Une claim, deux citations : l'amorce est le contexte de l'item, pas une seconde clause.
     assert jointes == 1 and len(joint.claims) == 1
@@ -274,16 +278,25 @@ async def test_lamorce_de_lenumeration_est_jointe_a_litem_cite_seul() -> None:
     # Fermeture 1 : l'amorce déjà citée n'est pas jointe deux fois.
     deja = draft({"block_id": item.block_id, "quote": item.text},
                  {"block_id": amorce.block_id, "quote": amorce.text})
-    assert joindre_amorces_denumeration(deja, index=index, doc_id=doc.doc_id) == (deja, 0)
+    assert joindre_amorces_denumeration(deja, index=index, doc_id=doc.doc_id,
+                                        blocs_servis=servis) == (deja, 0)
     # Fermeture 2 : un bloc qui n'est pas un item d'énumération — `p39:9` porte des voisins, c'est
     # une section — n'emporte rien.
     seul = draft({"block_id": autonome.block_id, "quote": autonome.text})
-    assert joindre_amorces_denumeration(seul, index=index, doc_id=doc.doc_id) == (seul, 0)
+    assert joindre_amorces_denumeration(seul, index=index, doc_id=doc.doc_id,
+                                        blocs_servis=[*servis, autonome.block_id]) == (seul, 0)
     # Fermeture 3 : un bloc hors du document servi est laissé tel quel (ce n'est pas ici qu'on juge
     # une citation), et la jonction ne se propage pas d'un cran de plus — une seule jointe.
     assert joindre_amorces_denumeration(
-        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id="autre") == (
-        draft({"block_id": item.block_id, "quote": item.text}), 0)
+        draft({"block_id": item.block_id, "quote": item.text}), index=index, doc_id="autre",
+        blocs_servis=servis) == (draft({"block_id": item.block_id, "quote": item.text}), 0)
+    # Fermeture 4 (correctif du 03/09/2026) : une amorce **hors de l'univers servi** n'est pas
+    # jointe. Elle existe dans le corpus, mais aucune ouverture ne l'a mise sous les yeux du
+    # modèle : `verifier._controler_quote` la rejetterait `non_retrouvee` et emporterait la claim
+    # entière — la projection détruirait la citation qu'elle prétend sauver.
+    hors = draft({"block_id": item.block_id, "quote": item.text})
+    assert joindre_amorces_denumeration(hors, index=index, doc_id=doc.doc_id,
+                                        blocs_servis=[item.block_id]) == (hors, 0)
 
 
 async def test_rediger_sinistre_trace_la_jonction_de_lamorce() -> None:
@@ -291,7 +304,12 @@ async def test_rediger_sinistre_trace_la_jonction_de_lamorce() -> None:
     index = Index(load_corpus(Path(__file__).resolve().parents[1] / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     item = doc.block("axa-lu-optihome-2017:p34:11")
-    retrieval = RetrievalResult(blocs=[item], opened_block_ids=[item.block_id])
+    # `ouvrir_noeud` sert le nœud entier : l'amorce de l'énumération est ouverte avec ses items
+    # (mesuré sur A16, `p34:5` à `p34:12`). C'est cet univers-là que le contrôle recevra, et le
+    # seul dans lequel la jonction a le droit d'ajouter une citation.
+    amorce = doc.block("axa-lu-optihome-2017:p34:6")
+    retrieval = RetrievalResult(blocs=[item, amorce],
+                                opened_block_ids=[item.block_id, amorce.block_id])
     brut = _draft(
         segments=[{"text": "Le contrat garantit les biens désignés contre le péril des fumées et "
                            "des suies.", "kind": "factuel", "claim_ids": ["c1"]}],
@@ -331,7 +349,10 @@ async def test_aucune_claim_fondatrice_nest_reecrite_en_code(texte: str) -> None
     index = Index(load_corpus(ROOT / "data", allow_ungated=True))
     doc = index.corpus.documents["axa-lu-optihome-2017"]
     block = doc.block("axa-lu-optihome-2017:p34:12")
-    retrieval = RetrievalResult(blocs=[block], opened_block_ids=[block.block_id])
+    # Comme ci-dessus : l'amorce `p34:6` est ouverte avec l'item, sans quoi la jonction n'a pas lieu.
+    amorce_bloc = doc.block("axa-lu-optihome-2017:p34:6")
+    retrieval = RetrievalResult(blocs=[block, amorce_bloc],
+                                opened_block_ids=[block.block_id, amorce_bloc.block_id])
     settings = _settings()
     citation = block.text.strip()[:settings.quote_max_chars // 2]
     brut = _draft(
