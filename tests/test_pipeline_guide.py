@@ -887,11 +887,18 @@ async def test_a_retry_that_verifies_worse_never_replaces_the_answer(index: Inde
 
 
 async def test_a_max_tokens_draft_is_retried_under_the_output_cap(index: Index) -> None:
-    """M4 : la troncature de *rédiger* est éprouvée sous le plafond de sortie du chemin servi."""
+    """M4 : la troncature de *rédiger* est éprouvée sous le plafond de sortie du chemin servi.
+
+    Le plafond abaissé est celui de l'étape qui **produit** l'ébauche servie — le tour terminal de
+    la navigation (`navigation_rediger_max_tokens`) depuis l'amendement AD-1 du 03/09/2026, et non
+    `rediger_max_tokens`, que plus aucun appel de ce chemin n'envoie. Le motif se lit sur le réglage
+    lui-même : un littéral y recopierait la valeur du jour au lieu du plafond réellement envoyé.
+    """
     tronquee = _rediger(BONNE)
     tronquee["stop_reason"] = "max_tokens"
-    settings = _settings(rediger_max_tokens=19)
-    with pytest.raises(LlmParse, match=r"tronquée.*max_tokens=19"):
+    settings = _settings(navigation_rediger_max_tokens=19)
+    with pytest.raises(LlmParse,
+                       match=rf"tronquée.*max_tokens={settings.navigation_rediger_max_tokens}"):
         await _run(index, [_comprendre(), *_lecture(F1, F2), tronquee, tronquee],
                    settings=settings)
 
