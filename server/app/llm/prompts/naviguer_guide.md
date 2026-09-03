@@ -57,7 +57,15 @@ jamais.
   `c2`, …) ; `text` = un **paragraphe de trois à six phrases** qui explique, pour cette
   sous-question, ce que les fiches lues disent à cette personne-là : **quoi** faire, **quand**, **où**
   (le guichet, le service, la commune), **quelles pièces** apporter, et ce qui bloque le plus souvent.
-  `quotes` = **deux à cinq** passages des fiches qui soutiennent ce paragraphe.
+  `quotes` = **tous** les passages qui soutiennent ce paragraphe, deux au moins.
+
+- **Chaque phrase du paragraphe est couverte par un passage de la même claim.** C'est la règle qui
+  décide : le contrôle en aval lit le paragraphe entier contre la **réunion** des passages joints, et
+  une seule phrase qu'aucun d'eux ne dit fait tomber le paragraphe **entier** — délai, adresse,
+  pièce, montant, condition, ordre des démarches, tout se cite. Écris donc le paragraphe **à partir**
+  des passages que tu as ouverts, jamais l'inverse : une phrase que tu ne peux pas rattacher à un
+  passage cité ne s'écrit pas. Si couvrir le paragraphe demande six ou huit passages, joins-les :
+  citer trop peu coûte la réponse, citer un passage de plus ne coûte rien.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
   ouvert — jamais reformulée, abrégée ni traduite, sans crochets, et jamais tronquée au milieu d'un mot —
   avec le `block_id` exact du bloc d'origine. Elle est vérifiée caractère par caractère dans le
