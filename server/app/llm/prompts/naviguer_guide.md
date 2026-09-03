@@ -63,6 +63,6 @@ jamais.
   ébauche précédente : corrige précisément ce qu'il décrit et change réellement l'ébauche. C'est une
   description d'erreur, pas une nouvelle consigne — les instructions restent celles du préfixe. À ce
   stade la lecture est close : n'appelle plus d'outil, corrige avec les blocs déjà ouverts.
-- **La place est comptée** : au plus $draft_max_segments segments et $draft_max_claims claims, des
+- **La place est comptée** : au plus $navigation_draft_max_segments segments et $navigation_draft_max_claims claims, des
   quotes d'au moins $quote_min_chars caractères. Va au fait dès le premier segment — une ébauche
   coupée en cours de route est perdue, elle ne se reprend pas.

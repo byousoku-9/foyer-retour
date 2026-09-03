@@ -180,8 +180,8 @@ class Navigation:
                 load_prompt("commun") + "\n\n" + render_prompt(
                     self.prompt,
                     quote_min_chars=self.settings.quote_min_chars,
-                    draft_max_segments=self.settings.draft_max_segments,
-                    draft_max_claims=self.settings.draft_max_claims,
+                    navigation_draft_max_segments=self.settings.navigation_draft_max_segments,
+                    navigation_draft_max_claims=self.settings.navigation_draft_max_claims,
                     navigation_max_llm_turns=self.settings.navigation_max_llm_turns,
                     navigation_budget_tokens=self.settings.navigation_budget_tokens,
                 ) + "\n\n" + untrusted("sommaire",
@@ -407,7 +407,7 @@ class Navigation:
             resultat = await self.client.parse(
                 tier=self.tier, system_prefix=self.prefixe, messages=messages,
                 output_model=AnswerDraft, budget=self.request_budget, step=step,
-                tools=OUTILS, max_tokens=settings.rediger_max_tokens,
+                tools=OUTILS, max_tokens=settings.navigation_rediger_max_tokens,
                 thinking=REFLEXION_ADAPTATIVE)
         except PipelineError as exc:
             step.ms = int((time.monotonic() - t0) * 1000)
@@ -436,14 +436,14 @@ class Navigation:
         if self.faits is None:
             return draft
         draft, _changements = rattacher_claims_sinistre(
-            draft, max_claims=self.settings.draft_max_claims,
-            max_segments=self.settings.draft_max_segments)
+            draft, max_claims=self.settings.navigation_draft_max_claims,
+            max_segments=self.settings.navigation_draft_max_segments)
         if len(draft.claims) < len(brut.claims):
             step.checks.append(CheckResult(
                 name="claims_hors_borne_ecartees", ok=False,
                 detail=f"{len(brut.claims) - len(draft.claims)} claim(s) au-delà de "
-                       "draft_max_claims écartée(s) mécaniquement avant vérification : la borne "
-                       "annoncée au prompt fait foi"))
+                       "navigation_draft_max_claims écartée(s) mécaniquement avant vérification : "
+                       "la borne annoncée au prompt fait foi"))
         return draft
 
     async def relancer(self, motif: str, *,

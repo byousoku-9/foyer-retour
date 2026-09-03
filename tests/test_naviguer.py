@@ -324,3 +324,77 @@ async def test_la_trace_publie_les_tours_les_noeuds_la_lecture_et_la_reflexion()
     assert "réflexion 204 tokens" in next(
         c.detail for c in step_redaction.checks if c.name == "ebauche_dans_la_conversation")
     assert step_lecture.usage.cost_eur > 0 and step_redaction.usage.cost_eur > 0
+
+
+# --- 5. la place de l'ébauche, re-dérivée sur la mesure (story 5.6 T1b) -------------------
+
+
+def _ebauche_a_six_claims() -> dict[str, Any]:
+    """Six clauses décisionnelles citées, plus une articulation et une réserve.
+
+    C'est la forme que les trois réponses A16 du pipeline appelaient sans pouvoir la rendre :
+    deux sous-questions × la garantie de base, l'option et l'exclusion ou la condition qui la borne.
+    """
+    claims = [{"claim_id": f"c{rang}", "text": f"Le texte dit la clause {rang}.",
+               "quotes": [{"block_id": REGLE if rang % 2 else ITEM,
+                           "quote": "prend en charge la situation décrite" if rang % 2
+                                    else "Sont également pris en charge les épisodes répertoriés"}]}
+              for rang in range(1, 7)]
+    draft = {"segments": [*({"text": f"Le texte dit la clause {rang}.", "kind": "factuel",
+                             "claim_ids": [f"c{rang}"]} for rang in range(1, 7)),
+                          {"text": "Deux dommages distincts.", "kind": "transition",
+                           "claim_ids": []},
+                          {"text": "Ce que je ne sais pas.", "kind": "limite", "claim_ids": []}],
+              "claims": claims}
+    return fake_message(model=TIERS["reason"], text=json.dumps(draft, ensure_ascii=False))
+
+
+async def test_lebauche_de_navigation_tient_six_claims_avec_son_articulation_et_sa_reserve() -> None:
+    """La borne re-dérivée est celle qui part au prompt **et** celle que la projection applique.
+
+    `draft_max_claims` (4) venait de `rediger_max_tokens` (2 048), calibré sur l'ancien *rédiger*.
+    La navigation rédige dans une conversation dont le tour terminal demande la réflexion
+    adaptative, et son plafond est `navigation_rediger_max_tokens`. Le témoin tient les trois bouts
+    ensemble : la borne annoncée, la borne appliquée, et le plafond de sortie qui va avec.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}},
+                      {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+        _fin_de_lecture(), _ebauche_a_six_claims()])
+    settings = navigation.settings
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    # Rien n'est écarté : les six claims passent, et la réserve garde sa place sous la borne de
+    # segments — c'est elle que six segments factuels sous `draft_max_segments` (6) chassaient.
+    assert [claim.claim_id for claim in draft.claims] == [f"c{rang}" for rang in range(1, 7)]
+    assert [segment.kind for segment in draft.segments] == (
+        ["factuel"] * 6 + ["transition", "limite"])
+    assert not any(check.name == "claims_hors_borne_ecartees" for check in step.checks)
+    # La borne annoncée au préfixe est celle de la navigation, pas celle de l'ancien *rédiger*.
+    prefixe = fake.requests[0]["system"][0]["text"]
+    assert f"au plus {settings.navigation_draft_max_segments} segments et " \
+           f"{settings.navigation_draft_max_claims} claims" in prefixe
+    # Et le tour terminal part sous le plafond dérivé pour lui, pas sous celui de *rédiger*.
+    assert fake.requests[-1]["max_tokens"] == settings.navigation_rediger_max_tokens == 3072
+
+
+async def test_la_borne_de_claims_de_la_navigation_mord_toujours_quand_on_labaisse() -> None:
+    """L'autre sens : la borne n'a pas disparu, elle a été re-dérivée — et elle est tracée.
+
+    Abaissée à quatre, la même ébauche est ramenée à quatre claims et l'écart est **dit** : la
+    borne annoncée au prompt fait foi, et rien n'est jeté en silence (AD-16).
+    """
+    navigation, _fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}},
+                       {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+         _fin_de_lecture(), _ebauche_a_six_claims()],
+        navigation_draft_max_claims=4)
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert len(draft.claims) == 4
+    ecart = next(c for c in step.checks if c.name == "claims_hors_borne_ecartees")
+    assert not ecart.ok and "navigation_draft_max_claims" in ecart.detail

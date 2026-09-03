@@ -45,6 +45,12 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.retrieval_variant == "navigation" and s.navigation_tier == "reason"
     assert s.navigation_max_llm_turns == 8 and s.navigation_budget_tokens == 12000
     assert s.navigation_search_limit == 20
+    # Story 5.6 T1b : la place de l'ébauche de navigation, re-dérivée sur les trois réponses A16 du
+    # pipeline intégré — et les champs `draft_*` qui doivent la couvrir, puisque la fusion de
+    # relance de `pipelines/sinistre.py` s'y borne sans savoir quel étage a rédigé.
+    assert s.navigation_draft_max_claims == 6 and s.navigation_draft_max_segments == 9
+    assert s.navigation_rediger_max_tokens == 3072
+    assert s.draft_max_claims == 6 and s.draft_max_segments == 9
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (
         "reason", "reason", "reason")
@@ -193,6 +199,13 @@ def test_bounds_and_coherence() -> None:
     with pytest.raises(ValidationError, match="draft_max_claims.*draft_max_segments"):
         Settings(_env_file=None, draft_max_claims=4, draft_max_segments=3)
     Settings(_env_file=None, verifier_max_claims=4, draft_max_claims=4)
+    # Story 5.6 T1b : `navigation_rediger_max_tokens` entre dans le même contrôle, et la place de
+    # l'ébauche de navigation porte le même invariant claims <= segments que celle de *rédiger*.
+    with pytest.raises(ValidationError, match="navigation_rediger_max_tokens"):
+        Settings(_env_file=None, navigation_rediger_max_tokens=8192, llm_max_output_tokens=4096)
+    with pytest.raises(ValidationError,
+                       match="navigation_draft_max_claims.*navigation_draft_max_segments"):
+        Settings(_env_file=None, navigation_draft_max_claims=4, navigation_draft_max_segments=3)
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
                 {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0}):
         with pytest.raises(ValidationError):
@@ -721,7 +734,14 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     TOURS_CIBLE_AD1 = 8
     # Maxima enregistrés (108 réponses Sonnet, cf. `deadline_s` dans `config.py`).
     COMPRENDRE = 220
-    TOUR_TERMINAL = 1_509   # l'ébauche `AnswerDraft` : pire *rédiger* enregistré
+    # **Re-dérivé le 03/09/2026 (T1b), et c'est le seul terme que T1b déplace.** 1 509 était le pire
+    # *rédiger* enregistré **à quatre claims**, sur l'ancien étage. Depuis que la place de l'ébauche
+    # de navigation vaut `navigation_draft_max_claims` (6), ce maximum ne majore plus rien. Mesure :
+    # les trois réponses A16 du pipeline intégré rendent 1 574 / 1 181 / 1 259 tokens au tour
+    # terminal, dont 496 / 0 / 0 de réflexion — soit 1 078 / 1 181 / 1 259 de JSON à quatre claims,
+    # au pire ≈ 315 par claim. À six claims : 6 × 315 ≈ 1 890 de JSON, plus les 496 tokens de
+    # réflexion réellement observés sur ce tour.
+    TOUR_TERMINAL = 2_386   # l'ébauche `AnswerDraft` à six claims : 1 890 de JSON + 496 de réflexion
     VERIFIER = 820          # pire *vérifier* enregistré
     # Pire tour d'outils du prototype : 729 tokens, dont 657 de réflexion adaptative (A16 run 1,
     # tour 3). Les tours terminaux mesurés du prototype (709 à 900) restent sous `TOUR_TERMINAL`.
@@ -750,4 +770,8 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # Le débit publié **minore** encore la mesure : 85,3 tokens/s au plus lent des quatre runs du
     # prototype (bougie : 1 194 tokens de sortie en 16,0 s, deux appels).
     assert s.llm_output_tokens_per_s_min <= 85.3
+    # T1b : le plafond du tour terminal reste sous le terme le plus long de `_coherence`
+    # (`verifier_sinistre_max_tokens`), donc `llm_timeout_s` n'a pas à être re-dérivé — mais il est
+    # bien écrit qu'on a le temps de l'écrire.
+    assert s.duree_majoree_pour(s.navigation_rediger_max_tokens) <= s.llm_timeout_s
     assert s.llm_timeout_s < s.deadline_s and s.llm_retry_margin_s < s.deadline_s

@@ -823,8 +823,19 @@ class Settings(BaseSettings):
     # littéralement, il ne le duplique pas. Les prompts sont rendus par `prompting.render_prompt`,
     # donc restent déterministes et byte-identiques d'un appel à l'autre (préfixe cacheable, AD-9).
     quote_max_chars: int = Field(250, ge=1)
-    draft_max_segments: int = Field(6, ge=1)
-    draft_max_claims: int = Field(4, ge=1)
+    # **6 et 9 depuis la story 5.6 T1b (03/09/2026), et la raison n'est pas *rédiger*.** Ces deux
+    # champs sont lus par `pipelines/sinistre.py` comme « la place d'une ébauche », **quel que soit
+    # l'étage qui l'a produite** : `fusionner_acquis` lève si les acquis dépassent
+    # `draft_max_claims`, et les trois gardes « sans place » abandonnent la relance dès que les
+    # affirmations retenues les atteignent. Depuis l'amendement AD-1, l'ébauche servie vient de
+    # *naviguer* et sa borne propre est `navigation_draft_max_claims` (6) : laisser ces deux-ci à
+    # 4 et 6 rendait un `ValueError` atteignable sur un chemin nominal (cinq claims retenues, une
+    # relance due, la fusion refuse) et abandonnait la relance sur les ébauches à quatre claims que
+    # les réponses A16 rendent déjà. Ils majorent donc la borne du producteur servi — invariant tenu
+    # par `_coherence`, qui refuse au démarrage la configuration où ils ne la couvrent plus.
+    # La dérivation des valeurs, elle, est celle de la navigation (voir `navigation_draft_max_claims`).
+    draft_max_segments: int = Field(9, ge=1)
+    draft_max_claims: int = Field(6, ge=1)
     # Story 4.2a : nombre maximal de définitions auxiliaires que la rédaction sinistre rend
     # vérifiables par ébauche. Une définition éclaire la clause décisionnelle sans s'y substituer ;
     # ce seuil de comportement se règle ici, jamais en dur dans l'étape.
@@ -1290,6 +1301,53 @@ class Settings(BaseSettings):
     # AD-9 : Sonnet reste le plancher de tout choix sémantique servi, et la navigation **est** le
     # choix sémantique le plus lourd de la chaîne. `micro` reste réglable pour rejouer l'arbitrage.
     navigation_tier: Literal["micro", "reason"] = "reason"
+
+    # --- Story 5.6 (T1b, 03/09/2026) : la place de l'ébauche de navigation, re-dérivée ---------
+    # **Pourquoi ces trois seuils existent au lieu de réutiliser `draft_*` et `rediger_max_tokens`.**
+    # `draft_max_claims` (4) a été dérivé de `rediger_max_tokens` (2 048), lui-même calibré sur
+    # l'ancien *rédiger* — un appel **sans réflexion** dont le contexte était une sélection déjà
+    # faite par le code. La navigation rédige dans une conversation dont le tour terminal demande la
+    # réflexion adaptative (`REFLEXION_ADAPTATIVE`, `steps/naviguer.py`) : le fournisseur compte
+    # cette réflexion **dans le même `max_tokens`** que la sortie. Les deux étages n'ont donc ni le
+    # même contrat ni la même dépense, et la borne de l'un ne dérive pas celle de l'autre.
+    #
+    # **La mesure qui les décide** : les trois réponses A16 du pipeline intégré
+    # (`automation/runs/20260902-structure-index/a16-t1/a16-r{1,2,3}.json`, sinistre, deux
+    # sous-questions, chemin servi). A16 y est 2/3. Le run 1 tient dans **trois** claims — la
+    # condition d'applicabilité de l'option (`p39:7`) y prend une place entière comme claim, et
+    # `p34:12`, lu et transmis, n'en a plus. Le modèle se rationne **sous** la borne annoncée : ce
+    # n'est pas la coupe mécanique de `rattacher_claims_sinistre` qui a mordu (aucun
+    # `claims_hors_borne_ecartees` dans la trace), c'est la borne elle-même, écrite au prompt, qui
+    # lui fait choisir entre deux clauses décisionnelles. Le prototype, sans borne, rendait
+    # jusqu'à 5 claims.
+    #
+    # `navigation_draft_max_claims` : les sous-questions qu'une question de sinistre arrête (2 sur
+    # A16) × les trois clauses qui décident d'une sous-question d'assurance — la garantie de base,
+    # la garantie optionnelle avec sa condition d'acquisition, l'exclusion ou la condition qui la
+    # borne. C'est la forme du document, pas une marge : le prompt exige déjà « pas la meilleure
+    # d'entre elles, toutes ». Ce n'est **pas** `question_max_facettes` (4) × 3 = 12 : cette borne-ci
+    # est un comportement mesuré, pas un produit de bornes structurelles.
+    navigation_draft_max_claims: int = Field(6, ge=1)
+    # `navigation_draft_max_segments` : `rattacher_claims_sinistre` rend **un segment factuel par
+    # claim**, et les segments non factuels n'occupent que les places restantes. Six claims sous
+    # `draft_max_segments` (6) chasseraient donc toute articulation et, surtout, le segment `limite`
+    # par lequel la lecture dit ce qu'elle ne couvre pas — la borne de claims dégraderait la réponse
+    # au lieu de l'élargir. Mesuré sur les trois réponses A16 : 2, 1 et 1 segments non factuels.
+    # 6 + 3 laisse la place des deux transitions mesurées **et** de la limite.
+    navigation_draft_max_segments: int = Field(9, ge=1)
+    # `navigation_rediger_max_tokens` : le plafond du **tour terminal** de la navigation, sur le
+    # patron de `verifier_sinistre_max_tokens` — contrat JSON **plus** réserve de réflexion, les deux
+    # mesurés. Sortie du tour terminal sur les trois réponses A16 : 1 574 / 1 181 / 1 259 tokens,
+    # dont 496 / 0 / 0 de réflexion, soit **1 078 / 1 181 / 1 259 de JSON à quatre claims** — pire
+    # par claim ≈ 315. À six claims : 6 × 315 ≈ 1 890, arrondi à **1 920** de contrat. La réflexion
+    # de ce tour est **intermittente** (deux runs sur trois à zéro, un à 496) : la réserve majore le
+    # pire mesuré de 2,3×, soit **1 152**. Total **3 072**.
+    # Ce plafond reste sous `verifier_sinistre_max_tokens` (3 456) : le terme le plus long de
+    # `_coherence` ne bouge pas, donc `llm_timeout_s` (55 s) n'est pas re-dérivé — mais il entre
+    # bien dans le contrôle, pour qu'une hausse future ne puisse plus passer inaperçue.
+    # `max_tokens` ne facture pas : seul le majorant de préflight bouge, des tokens ajoutés au tarif
+    # de sortie du tier servi.
+    navigation_rediger_max_tokens: int = Field(3072, ge=1)
     # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
     # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
     # une première requête après expiration du préfixe paie ≈ 0,28 € d'écriture de cache, contre
@@ -1395,6 +1453,7 @@ class Settings(BaseSettings):
         for nom, valeur in (("comprendre_max_tokens", self.comprendre_max_tokens),
                             ("retrouver_outils_max_tokens", self.retrouver_outils_max_tokens),
                             ("rediger_max_tokens", self.rediger_max_tokens),
+                            ("navigation_rediger_max_tokens", self.navigation_rediger_max_tokens),
                             ("verifier_max_tokens", self.verifier_max_tokens),
                             ("verifier_sinistre_max_tokens", self.verifier_sinistre_max_tokens)):
             # Le plafond par étape ne peut pas dépasser le plafond de sortie du client : il part tel
@@ -1412,8 +1471,8 @@ class Settings(BaseSettings):
         # Le débit est **minoré** et la marge est une latence d'amorçage, toutes deux mesurées :
         # majorer une durée demande de sous-estimer la vitesse, pas de la moyenner.
         plus_longue = max(self.verifier_sinistre_max_tokens, self.verifier_max_tokens,
-                          self.rediger_max_tokens, self.comprendre_max_tokens,
-                          self.retrouver_outils_max_tokens)
+                          self.rediger_max_tokens, self.navigation_rediger_max_tokens,
+                          self.comprendre_max_tokens, self.retrouver_outils_max_tokens)
         duree_majoree = self.duree_majoree_pour(plus_longue)
         if duree_majoree > self.llm_timeout_s:
             raise ValueError(
@@ -1437,6 +1496,22 @@ class Settings(BaseSettings):
             # un dégradé silencieux du rappel (AD-16), invisible dans la réponse.
             raise ValueError(f"verifier_max_claims ({self.verifier_max_claims}) doit être "
                              f">= draft_max_claims ({self.draft_max_claims})")
+        # Story 5.6 T1b : les deux mêmes invariants, sur le couple que la **navigation** annonce.
+        # `rattacher_claims_sinistre` lève sur le premier ; le second garde du dégradé silencieux du
+        # rappel, une claim rendue qu'un vérificateur trop étroit rejetterait « non évaluée ».
+        if self.navigation_draft_max_claims > self.navigation_draft_max_segments:
+            raise ValueError(
+                f"navigation_draft_max_claims ({self.navigation_draft_max_claims}) doit être "
+                f"<= navigation_draft_max_segments ({self.navigation_draft_max_segments}) : une "
+                "claim sinistre exige son segment factuel atomique")
+        # Story 5.6 T1b : `pipelines/sinistre.py` borne la fusion de relance et ses trois gardes
+        # « sans place » sur les champs `draft_*`, **sans savoir quel étage a rédigé**. C'est la
+        # raison pour laquelle `draft_max_claims` et `draft_max_segments` ont été re-dérivés en même
+        # temps que les bornes de navigation : à 4 et 6, une ébauche de navigation à cinq claims
+        # retenues avec une relance due passait le pré-contrôle des limites (5 + 1 + 0 = 6) puis
+        # faisait lever `fusionner_acquis` — un `ValueError` sur un chemin nominal. Les deux couples
+        # doivent donc rester en phase tant que la fusion lit `draft_*` ; le jour où elle demandera
+        # sa borne à l'étage qui a produit l'ébauche, ce commentaire tombe et l'invariant se pose.
         if self.env == "prod":
             # AC 1.10 : « désactivé en production ». Forcé, et non seulement dérivé de l'absence de
             # la variable — sinon `ENV=prod ALLOW_UNGATED=true` armait la dérogation en production,
@@ -1518,6 +1593,9 @@ class Settings(BaseSettings):
             "navigation_max_llm_turns": self.navigation_max_llm_turns,
             "navigation_budget_tokens": self.navigation_budget_tokens,
             "navigation_search_limit": self.navigation_search_limit,
+            "navigation_draft_max_claims": self.navigation_draft_max_claims,
+            "navigation_draft_max_segments": self.navigation_draft_max_segments,
+            "navigation_rediger_max_tokens": self.navigation_rediger_max_tokens,
             "navigation_tier_reason": int(self.navigation_tier == "reason"),
             "facette_max_opens": self.facette_max_opens,
             "facette_reserve_max_part": self.facette_reserve_max_part,
