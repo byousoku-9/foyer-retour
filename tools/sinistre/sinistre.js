@@ -398,6 +398,7 @@
     navigation: "lecture du document par le modèle : tours, sections ouvertes et budget",
     lecture_refusee: "des sections sont restées fermées : le budget de lecture n'en laissait pas la place",
     tours_epuises: "plafond de tours de lecture atteint : la lecture est déclarée bornée",
+    tour_terminal_force: "une dernière section a été ouverte avant la rédaction, dans les bornes de lecture",
     ebauche_dans_la_conversation: "réponse rédigée dans la conversation de lecture, sur les seules sections ouvertes",
     relance_abandonnee: "relance de la rédaction abandonnée faute de budget",
     relance_moins_bonne: "relance rendue moins bonne que le premier essai : écartée",
