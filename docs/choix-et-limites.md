@@ -1052,4 +1052,8 @@ deux caches ne sont **armés que si la clé fournisseur est présente** : un ser
 payer n'a rien à économiser, et toute exécution hors ligne — la suite hermétique comprise — ne laisse
 aucun état sur disque qu'elle n'a pas demandé.
 
+## Story 5.6 (T9) — l'audit exact est un artefact, pas une dépendance de la réponse
+
+Un `ENOSPC` sur l'écriture de `.audit/llm-calls.jsonl` faisait échouer en 500 une requête dont l'appel modèle avait déjà abouti et déjà été facturé : AD-10 exige la `Trace` (calculée en mémoire) et réserve l'enveloppe exacte au hors-ligne, il ne pose nulle part l'audit en condition de service. Une panne disque perd donc l'artefact — `audit_persisted=False` le dit dans la trace, les empreintes et les tailles restant exactes — jamais la réponse, exactement comme le cache de réponses ; la borne s'arrête à `OSError`, une `ValueError` de taille signalant un défaut de notre code reste terminale. Deux corollaires du même incident : une erreur interne journalise désormais la pile de son `__cause__` (AD-16, « le détail part dans le log serveur » — un nom de classe n'est pas le détail), et un `OSError` de transport échappé de l'`await` d'appel devient un 503 relançable sans entrer dans la table des erreurs fournisseur, qui entoure aussi l'audit.
+
 </details>

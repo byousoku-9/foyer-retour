@@ -36,7 +36,7 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # définitions, les seuils orphelins — et surtout **ce que le retrait coûte** (dix témoins live sans
 # preuve réelle jusqu'au prochain enregistrement, la portée du profil qui n'atteint plus la lecture)
 # se consignent ici. Rien n'a été retiré ni réécrit.
-ANNEXE_SHA256 = "0a555a9552d2c6b74b7ba2bb28b2b3c5d69352bf8aeca81f71cdadc16a419db9"
+ANNEXE_SHA256 = "b530b3d74e6eff37ff6fa286e4efaf0ebbd02fca7770f0100e1d729f99c81c53"
 
 
 def _document() -> str:
