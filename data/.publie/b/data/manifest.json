@@ -323,7 +323,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T10:37:16Z",
+      "date": "2026-09-03T11:15:26Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -334,7 +334,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "cce0580be5ad37ef399c3763fb0e4de2c67ccfac2b9a00c8658fdb5bf82267da",
+          "run_digest": "9a3695fcd4306bd771de561230d740c771933812e0cf261cfa0b43e93995c9c5",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -345,7 +345,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "cce0580be5ad37ef399c3763fb0e4de2c67ccfac2b9a00c8658fdb5bf82267da",
+          "run_digest": "9a3695fcd4306bd771de561230d740c771933812e0cf261cfa0b43e93995c9c5",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -356,7 +356,7 @@
           "threshold": 1.0,
           "scope": "suite:guide",
           "n": 3,
-          "run_digest": "cce0580be5ad37ef399c3763fb0e4de2c67ccfac2b9a00c8658fdb5bf82267da",
+          "run_digest": "9a3695fcd4306bd771de561230d740c771933812e0cf261cfa0b43e93995c9c5",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -367,13 +367,13 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "4b49deb1800bb3f7ba79213461e702877f2edf623ae1f36cfc77f124f822a941",
+          "run_digest": "850e02c4592aed5bc8633ff745418547ca553d3c4738ebba667f65b37c85a798",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "cce0580be5ad37ef399c3763fb0e4de2c67ccfac2b9a00c8658fdb5bf82267da",
+      "run_digest": "9a3695fcd4306bd771de561230d740c771933812e0cf261cfa0b43e93995c9c5",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -412,7 +412,7 @@
         "max_cost_eur_per_request": 1.3,
         "cost_alert_eur": 1.0,
         "evals_max_cost_eur": 20.0,
-        "live_budget_eur": 12.0,
+        "live_budget_eur": 14.0,
         "baseline_tiers": 0,
         "comprendre_tier_reason": 1,
         "rediger_tier_reason": 1,
@@ -557,7 +557,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "4836861d53199d4111bf7cd46e89025847dbb753",
+      "candidate_revision": "ee606f2926455378508b7d2e451d746f4aabf26f",
       "report_digest": null,
       "structure_hash": null
     }
