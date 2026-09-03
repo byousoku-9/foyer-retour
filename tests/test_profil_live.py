@@ -25,6 +25,7 @@ au premier synonyme et cesse de mesurer quoi que ce soit.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,6 +34,7 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import load_corpus
 from server.app.corpus.text import normalize
 from server.app.domain.profil import Profil, noeuds_du_profil
+from server.app.domain.trace import CheckResult
 from server.app.domain.question import ParsedQuestion
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -79,6 +81,54 @@ def _evoque(libelles: list[str], *attendus: str) -> bool:
     """L'un des libellés (normalisé) contient l'un des mots attendus — le modèle choisit les siens."""
     normalises = [normalize(t) for t in libelles]
     return any(attendu in n for n in normalises for attendu in attendus)
+
+
+ABANDON = "promu(s) sans bloc retenu"
+RESTITUTION = "leur place a été rendue"
+
+
+def _profil_a_tenu_sa_promesse(check: Any) -> bool:
+    """Le profil a-t-il fait ce qu'il devait — sans exiger qu'il ait eu de la chance ?
+
+    **Correctif du tour 7 (G1), et c'est la même correction qu'au tour 4 sur le témoin bougie : on
+    resserre la garde, jamais l'assertion.** Le témoin exigeait `check.ok is True`, alors que le
+    contrôle passe à `ok=False` dès qu'**un** nœud désigné — n'importe lequel, pas forcément celui
+    de l'AC — a été promu sans tenir sous le budget de blocs. Sa place lui est alors rendue, la
+    lecture est refaite, et le résultat est exactement celui d'un run sans profil pour cette
+    place-là : c'est le comportement **prescrit** par la revue Codex 2.3 (I1), et il dépend du
+    vocabulaire que le modèle a choisi. Mesuré le 03/09/2026 sur un réenregistrement live :
+    `lux-guide:fecole` était bien ouvert — l'AC tenait — et le contrôle était rouge pour
+    `lux-guide:fallocations`. Exiger `ok is True` était exiger de la chance.
+
+    Ce qui reste exigé, et qui n'est pas vide : une promotion abandonnée **nomme sa restitution**.
+    C'est le seul fait qui rende l'abandon inoffensif ; sans lui, le profil aurait retiré un nœud à
+    la question sans rien lui rendre — précisément ce que I1 a fermé. L'alarme de réglage, elle,
+    garde son `ok=False` et ses deux témoins hermétiques dans `test_retrouver.py`.
+    """
+    if ABANDON in check.detail:
+        return RESTITUTION in check.detail
+    return check.ok is True
+
+
+def test_la_garde_du_temoin_accepte_une_place_rendue_et_refuse_une_place_perdue() -> None:
+    """Rouge avant / vert après, sur la forme **mesurée** du réenregistrement du 03/09/2026."""
+    mesure = CheckResult(
+        name="noeuds_du_profil", ok=False,
+        detail="0 place(s) réservée(s) sur 2 (aucune) ; 0 nœud(s) cédé(s) (aucun) ; "
+               "1 promu(s) sans bloc retenu (lux-guide:fallocations) : le budget de blocs a écarté "
+               "leur fenêtre, leur place a été rendue (lux-guide:fdemarches)")
+    assert _profil_a_tenu_sa_promesse(mesure) is True
+    # La borne, et c'est elle qui empêche la garde d'être vide : un abandon **sans** restitution
+    # serait un nœud retiré à la question sans rien lui rendre, et il reste refusé.
+    perdue = mesure.model_copy(update={
+        "detail": "0 place(s) réservée(s) sur 2 (aucune) ; 1 nœud(s) cédé(s) (lux-guide:fdemarches)"
+                  " ; 1 promu(s) sans bloc retenu (lux-guide:fallocations) : le budget de blocs a "
+                  "écarté leur fenêtre"})
+    assert _profil_a_tenu_sa_promesse(perdue) is False
+    # Et le chemin nominal reste le chemin nominal.
+    assert _profil_a_tenu_sa_promesse(CheckResult(
+        name="noeuds_du_profil", ok=True,
+        detail=f"1 place(s) réservée(s) sur 2 ({ECOLE}) ; 1 nœud(s) cédé(s) (x)")) is True
 
 
 async def test_un_profil_enfants_fait_sortir_des_themes_scolaires(index: Index,
@@ -132,8 +182,7 @@ async def test_le_profil_fait_ouvrir_la_fiche_ecole_par_le_pipeline(index: Index
     # `ecole` parmi les candidats dépend du vocabulaire que le modèle a réellement choisi : forcer
     # l'une des deux ferait rougir le test au premier synonyme, sans qu'aucune règle ait bougé.
     (check,) = [c for c in retrouver.checks if c.name == "noeuds_du_profil"]
-    assert check.ok is True
-    assert ECOLE in check.detail or check.detail.startswith("aucune place réservée"), check.detail
+    assert _profil_a_tenu_sa_promesse(check), check.detail
     # AD-10 / AD-15 : aucune clé de profil, aucun terme cherché, aucun contenu de bloc dans la trace.
     assert "enfants" not in check.detail
 
