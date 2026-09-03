@@ -556,7 +556,7 @@ def test_lappariement_abandonne_se_dit_et_ne_retire_rien(cas: dict[str, Any]) ->
 
 # --- AD-6 / AC : ce que la page affiche ----------------------------------
 
-def test_le_badge_et_la_portee_sont_en_tete(cas: dict[str, Any]) -> None:
+def test_le_badge_est_en_tete_et_la_portee_dite_une_fois(cas: dict[str, Any]) -> None:
     """AC : le badge du verdict et la mention de portée, tous deux posés par `textContent`.
 
     Story 5.6 (L2) : le libellé est celui qu'un assuré lit — « Sous conditions », pas la valeur du
@@ -567,8 +567,12 @@ def test_le_badge_et_la_portee_sont_en_tete(cas: dict[str, Any]) -> None:
     assert len(badge) == 1
     assert badge[0]["texte"] == "Sous conditions"
     assert badge[0]["cls"] == "badge verdict-sous_conditions"
+    # Story 5.6 (L2b) : la portée est dite **une fois**, dans les garde-fous. Elle était écrite deux
+    # fois sur le même écran — sous la pastille et dans la ligne de la règle, en deux formulations
+    # de la même réserve. Ce qui compte reste vrai : elle est là, et une seule fois.
     assert cas["verdict"]["portee"] == [
         "au regard des conditions générales seules — verdict non validé par un expert assurance"]
+    assert cas["verdict"]["portee_dans_gardefous"] is True
 
 
 def test_la_portee_du_front_contient_celle_du_domaine(cas: dict[str, Any]) -> None:
@@ -599,7 +603,14 @@ def test_un_verdict_hors_contrat_nest_pas_traduit_en_valeur_connue(cas: dict[str
 
 def test_la_raison_et_le_texte_du_serveur_sont_affiches(cas: dict[str, Any]) -> None:
     """AD-6 : « l'UI affiche `value` + `reason` ». Le texte est rendu par le serveur (AD-3)."""
-    assert cas["verdict"]["raison"] == [
+    # Story 5.6 (L2b) : la raison composée par la table dit *par quelle règle* le verdict est
+    # tombé, jamais un fait sur le sinistre — et la première phrase porte déjà la conclusion en
+    # français. Elle n'est donc plus une quatrième ligne grise sous la pastille : elle se replie
+    # dans « Comment cette réponse a été obtenue », en tête du panneau. Affichée, jamais perdue.
+    assert cas["verdict"]["raison"] == []
+    rubriques = {r["titre"]: [l["texte"] for l in r["lignes"]]
+                 for r in cas["verdict"]["trace"]["rubriques"]}
+    assert rubriques["Ce qui a décidé le verdict"] == [
         "Une clause conditionne la garantie (au regard des conditions générales seules)"]
     assert cas["verdict"]["analyse"] == [
         "La garantie vise l'action subite de la chaleur. Une condition reste ouverte."]
@@ -803,7 +814,9 @@ def test_une_trace_pauvre_ne_fait_apparaitre_aucune_rubrique_inventee(cas: dict[
     écrits en parallèle : la page doit se lire aussi bien avant qu'après que le serveur ait posé
     ses champs, sans rien remplir entre-temps."""
     titres = [r["titre"] for r in cas["trace_pauvre"]["rubriques"]]
-    assert titres == ["Ce que l'analyse a coûté", "Cette requête"]
+    # « Ce qui a décidé le verdict » n'est pas une rubrique inventée : c'est la raison que le
+    # serveur a composée, repliée ici depuis le bloc 1 (story 5.6, L2b).
+    assert titres == ["Ce qui a décidé le verdict", "Ce que l'analyse a coûté", "Cette requête"]
     assert cas["trace_pauvre"]["seuils"] is None
     for rubrique in cas["trace_pauvre"]["rubriques"]:
         for ligne in rubrique["lignes"]:
@@ -815,8 +828,9 @@ def test_une_trace_qui_na_rien_a_dire_nouvre_pas_un_panneau_vide(cas: dict[str, 
     assert cas["trace_muette"] is None
     assert cas["trace_absente"] is None
     # Un coût **nul** n'est pas un silence : aucun appel n'a été facturé, et c'est une mesure.
-    assert [r["titre"] for r in cas["trace_cout_nul"]["rubriques"]] == ["Ce que l'analyse a coûté"]
-    assert cas["trace_cout_nul"]["rubriques"][0]["lignes"][0]["texte"] == (
+    assert [r["titre"] for r in cas["trace_cout_nul"]["rubriques"]] == [
+        "Ce qui a décidé le verdict", "Ce que l'analyse a coûté"]
+    assert cas["trace_cout_nul"]["rubriques"][1]["lignes"][0]["texte"] == (
         "cette analyse n'a rien coûté (aucun appel facturé)")
 
 
@@ -1410,7 +1424,7 @@ def test_la_mention_de_confidentialite_dit_ce_que_la_politique_dit(page: str) ->
 def test_la_page_na_ni_build_ni_requete_tierce(page: str) -> None:
     """D8 : sans framework, sans requête tierce, et **sans** dépendance à `web/app/styles.css`."""
     scripts = re.findall(r'<script[^>]*src="([^"]+)"', page)
-    assert scripts == ["sinistre.js?v=5"]
+    assert scripts == ["sinistre.js?v=6"]
     # Aucune feuille de style externe : les styles sont dans la page, et surtout pas ceux du guide
     # (`web/app/styles.css`, 1 328 lignes taillées pour un autre DOM — une classe renommée là-bas
     # casserait celui-ci). Le commentaire d'en-tête l'explique ; ce qu'on vérifie, ce sont les
@@ -1649,10 +1663,16 @@ def test_les_quatre_blocs_sont_dans_lordre_et_aucun_nest_replie(cas: dict[str, A
     Le test porte donc sur l'ordre **et** sur le tag : un bloc peint en `<details>` repasserait.
     """
     vu = cas["verdict"]
+    # Story 5.6 (L2b) : « Comment cette réponse a été obtenue » ne flotte plus après les blocs —
+    # il ferme le bloc 4, celui qui parle déjà de ce que la vérification a établi.
     assert vu["blocs"] == ["bloc bloc-reponse", "bloc bloc-appuis", "bloc bloc-manques",
-                           "bloc bloc-gardefous", "dossier details-preuves", "trace"]
-    assert vu["blocs_titres"] == ["1 La réponse", "2 Sur quoi je m'appuie",
-                                  "3 Ce qu'il me manque pour aller plus loin", "4 Garde-fous"]
+                           "bloc bloc-gardefous", "dossier details-preuves"]
+    assert vu["blocs_titres"] == ["La réponse", "Sur quoi je m'appuie",
+                                  "Ce qu'il me manque pour aller plus loin", "Garde-fous"]
+    # Le numéro est devenu un pictogramme, posé par la feuille : le script pose un porteur vide et
+    # décoratif, l'intitulé reste écrit à côté de lui.
+    assert vu["blocs_icones"] == [{"tag": "span", "cls": "bloc-icone", "aria": "true"}] * 4
+    assert vu["trace_dans_gardefous"] is True
     # Le dossier conversationnel vient **après** les quatre blocs, replié, et il s'appelle « Dossier ».
     assert vu["dossier_tag"] == ["details"] and vu["dossier_titre"] == ["Dossier"]
 
@@ -1678,6 +1698,107 @@ def test_les_questions_decisives_ne_sont_posees_quune_fois(cas: dict[str, Any]) 
     # Un seul champ libre et un seul jeu de boutons : la mécanique existante, déplacée, pas doublée.
     assert fil["champs_libres"] == 1
     assert fil["boutons_oui_non"] == ["Oui", "Non", "Ne sait pas"]
+
+
+# =========================================================================
+# Story 5.6 (L2b) — l'aspect : ce qui se lit en premier, et ce qui se replie.
+#
+# Le tour L2 avait la bonne structure et le mauvais aspect : sept lignes d'avertissement avant le
+# premier champ, un rapport d'ingestion au milieu de la carte de saisie, trois lignes grises
+# redondantes sous le verdict, deux objets orphelins en bas d'écran. Rien n'est supprimé ici —
+# tout est déplacé ou replié, et ces tests disent **où**.
+# =========================================================================
+
+
+def test_lavertissement_tient_en_une_ligne_et_garde_son_texte_entier(page: str) -> None:
+    """AD-15 : l'obligation d'information ne se résume pas. Elle se replie.
+
+    La ligne visible dit l'essentiel ; le `<details>` « Détails » porte le texte intégral, mot pour
+    mot, y compris les quatre réserves de la politique du fournisseur et son lien. Un `<details>`
+    **fermé par défaut** : aucun `open` sur la page.
+    """
+    tete = page[:page.index('id="formulaire"')]
+    assert ("Démonstrateur public : ne saisissez aucune donnée réelle. Vos textes sont envoyés à "
+            "Anthropic, rien n'est conservé ici." in tete)
+    avert = page[page.index('class="avert" id="avertissement"'):page.index("<noscript>")]
+    assert '<details class="avert-details">' in avert
+    assert "<summary>Détails</summary>" in avert
+    # Le texte long vit **après** le `<summary>`, donc dans le repli — jamais au-dessus.
+    replie = avert[avert.index("<summary>Détails</summary>"):]
+    for morceau in ("ne saisissez aucune donnée réelle ou nominative de sinistre",
+                    "sous 30 jours", "accord de rétention différent", "jusqu'à deux ans",
+                    "privacy.claude.com"):
+        assert morceau in replie, morceau
+    # Aucun repli de la page n'est ouvert au chargement : un `<details open>` est un bloc déplié
+    # qui prétend être replié.
+    assert "<details" in page and re.search(r"<details[^>]*\bopen\b", page) is None
+
+
+def test_les_rapports_dingestion_sont_replies_sous_le_resultat(page: str) -> None:
+    """L2b : la liste des contrats servis documente, elle ne décide pas.
+
+    Elle occupait le milieu de la carte de saisie, entre le sélecteur de contrat et la description.
+    Elle passe sous `#resultat`, dans un `<details>` fermé. Le sélecteur, lui, ne bouge pas : c'est
+    lui qui décide, et il reste dans le formulaire.
+    """
+    assert page.index('id="resultat"') < page.index('id="documents-audit"')
+    assert page.index('id="documents-audit"') > page.index("</form>")
+    audits = page[page.index('<details class="audits">'):]
+    assert audits.index('id="documents-audit"') < audits.index("</details>")
+    assert ">Contrats servis et rapports d'ingestion<" in page
+    # Le contrat, lui, se choisit toujours dans la carte de saisie.
+    formulaire = page[page.index('id="formulaire"'):page.index("</form>")]
+    assert 'id="contrat"' in formulaire and 'id="documents-audit"' not in formulaire
+
+
+def test_la_pastille_de_verdict_se_lit_a_cote_de_la_premiere_phrase(cas: dict[str, Any]) -> None:
+    """L2b : le verdict et la phrase qui l'énonce sont **une** information.
+
+    Trois paragraphes les séparaient — la phrase, l'explication, puis la pastille : le lecteur
+    lisait deux fois la même conclusion, à deux endroits. Ils partagent maintenant la tête du
+    bloc 1, sur la même ligne dès que la largeur le permet.
+    """
+    assert cas["verdict"]["reponse_tete"] == [["reponse-phrase", "badge"]]
+
+
+def test_les_quatre_blocs_portent_un_pictogramme_decoratif(cas: dict[str, Any]) -> None:
+    """L2b : un numéro dit le rang d'un bloc, pas sa nature. Le pictogramme vient de la feuille
+    (un masque SVG par classe de bloc) ; le script ne pose qu'un porteur vide et `aria-hidden`,
+    parce que `className` n'est pas assignable sur un élément SVG et que l'intitulé, lui, est
+    écrit à côté."""
+    assert cas["verdict"]["blocs_icones"] == [
+        {"tag": "span", "cls": "bloc-icone", "aria": "true"}] * 4
+    assert "bloc-num" not in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_le_bord_gauche_dune_clause_dit_son_role(cas: dict[str, Any]) -> None:
+    """L2b : garantie = accent, exclusion = rouge, condition = ambre, définition = gris.
+
+    La classe vient du `kind` d'AD-2, jamais du modèle, et **seuls** les kinds de la table en
+    reçoivent une : un kind inconnu garde l'accent par défaut plutôt qu'une couleur inventée.
+    """
+    roles = cas["roles_de_clause"]
+    assert roles["garantie"] == "appui appui-role-garantie"
+    assert roles["exclusion"] == "appui appui-role-exclusion"
+    assert roles["condition"] == "appui appui-role-condition"
+    assert roles["definition"] == "appui appui-role-definition"
+    assert roles["invente"] == "appui", "un kind hors table n'a pas de couleur de rôle"
+    page = PAGE.read_text(encoding="utf-8")
+    for role, teinte in (("garantie", "--accent"), ("exclusion", "--rouge"),
+                         ("condition", "--ambre"), ("definition", "--gris")):
+        regle = re.search(rf"\.appui-role-{role}[^{{]*\{{([^}}]*)\}}", page)
+        assert regle and teinte in regle.group(1), role
+
+
+def test_ce_qui_documente_ne_flotte_plus_apres_les_blocs(cas: dict[str, Any]) -> None:
+    """L2b : la pastille d'état et « Comment cette réponse a été obtenue » pendaient après les
+    quatre blocs, séparées d'eux par un filet — deux objets dont rien ne disait à quoi ils se
+    rapportaient. Ils vivent dans le bloc 4, celui qui parle déjà de ce que la vérification a
+    établi. La portée, elle, n'est plus dite qu'une fois, au même endroit."""
+    vu = cas["verdict"]
+    assert vu["trace_dans_gardefous"] is True
+    assert vu["portee_dans_gardefous"] is True
+    assert vu["etat"] and all(e.startswith("etat ") for e in vu["etat"])
 
 
 @pytest.mark.parametrize("valeur", sorted(get_args(VerdictValue)))
@@ -1783,7 +1904,8 @@ def test_une_clause_ecartee_passe_en_retrait_apres_les_autres(cas: dict[str, Any
     """AC : « les clauses citées comme ne s'appliquant pas sont affichées en retrait, plus
     discrètes ». L'ordre de lecture suit la décision, pas l'ordre de publication du serveur."""
     vu = cas["appuis_ecartes"]
-    assert vu["ordre"] == ["appui", "appui appui-ecarte"]
+    assert vu["ordre"] == ["appui appui-role-condition",
+                           "appui appui-role-garantie appui-ecarte"]
     # La clause écartée est publiée **en premier** par le serveur et affichée en second.
     assert vu["chemins"] == ["Une condition reste ouverte.",
                              "La garantie vise l'action subite de la chaleur."]
@@ -1807,9 +1929,7 @@ def test_les_garde_fous_chiffrent_ce_qui_a_ete_relu_et_retire(cas: dict[str, Any
     assert vu["gf_zero"][0] == "2 citations relues mot pour mot dans le contrat"
     assert vu["gf_zero"][1] == "0 phrase retirée"
     assert vu["gf_trois"][1] == "3 phrases retirées : aucun passage ne les soutenait"
-    assert vu["gf_zero"][2] == (
-        "Verdict calculé par des règles fixes, pas par le modèle · conditions générales seules · "
-        "pas un avis d'expert")
+    assert vu["gf_zero"][2] == "Verdict calculé par des règles fixes, pas par le modèle"
 
 
 def test_le_compte_des_phrases_retirees_vient_du_controle_et_jamais_dun_defaut(
@@ -1953,7 +2073,7 @@ def test_les_quatre_blocs_tiennent_sur_une_reponse_entiere(rendus: dict[str, Any
     garde-fous — c'est exactement ce qui manquait en production."""
     vu = rendus[nom]
     attendu = ["bloc bloc-reponse", "bloc bloc-appuis", "bloc bloc-manques", "bloc bloc-gardefous",
-               "dossier details-preuves", "trace"]
+               "dossier details-preuves"]
     if vu["bloc2"] is None:  # un refus n'a aucune clause à montrer : le bloc 2 n'existe pas
         attendu.remove("bloc bloc-appuis")
     assert vu["ordre"] == attendu

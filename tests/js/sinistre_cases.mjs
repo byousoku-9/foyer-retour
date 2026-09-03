@@ -755,6 +755,10 @@ async function main() {
     const { SINISTRE } = charger(PAGE, () => reponseHttp({ corps: {} }));
     const vue = SINISTRE.vueVerdict(reponseVerdict());
     const plat = aplatirVue(vue);
+    // Story 5.6 (L2b) : la portée et le panneau « Comment cette réponse a été obtenue » ne
+    // flottent plus après les blocs — on relève **où** ils vivent, pas seulement qu'ils existent.
+    const blocGF = (vue.enfants || []).filter(
+      (n) => String(n.cls || "").indexOf("bloc-gardefous") !== -1)[0] || null;
     cas.verdict = {
       badge: plat.filter((n) => n.cls && n.cls.indexOf("badge") === 0)
         .map((n) => ({ cls: n.cls, texte: n.texte })),
@@ -800,11 +804,22 @@ async function main() {
       texte_entier: texteEntier(vue),
       // Story 5.6 (L2) : les quatre blocs, dans l'ordre, et le fait qu'aucun ne soit replié.
       blocs: (vue.enfants || []).map((n) => n.cls),
+      // Le pictogramme n'a pas de texte : l'intitulé du bloc est ce qui reste.
       blocs_titres: plat.filter((n) => n.cls === "bloc-titre")
-        .map((n) => (n.enfants || []).map((e) => e.texte).join(" ")),
+        .map((n) => (n.enfants || []).map((e) => e.texte).filter((t) => t).join(" ")),
       reponse_phrase: textesDe(vue, "reponse-phrase"),
       reponse_suite: textesDe(vue, "reponse-suite"),
       gardefous: plat.filter((n) => premiereClasse(n) === "gf").map((n) => n.texte),
+      // La portée vit dans les garde-fous, et **une seule fois** sur tout l'écran.
+      portee_dans_gardefous: textesDe(vue, "portee").length === 1 && blocGF !== null &&
+        textesDe(blocGF, "portee").length === 1,
+      trace_dans_gardefous: plat.filter((n) => n.cls === "trace").length === 1 &&
+        blocGF !== null && aplatirVue(blocGF).filter((n) => n.cls === "trace").length === 1,
+      blocs_icones: plat.filter((n) => n.cls === "bloc-icone").map((n) => ({
+        tag: n.tag, cls: n.cls, aria: (n.attrs || {})["aria-hidden"] })),
+      // La pastille de verdict est **dans** la tête du bloc 1, à côté de la première phrase.
+      reponse_tete: plat.filter((n) => n.cls === "reponse-tete")
+        .map((n) => (n.enfants || []).map((e) => premiereClasse(e))),
       dossier_tag: plat.filter((n) => premiereClasse(n) === "dossier").map((n) => n.tag),
       dossier_titre: plat.filter((n) => premiereClasse(n) === "dossier")
         .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "summary").map((e) => e.texte)),
@@ -2092,6 +2107,17 @@ async function main() {
       chemins: aplatirVue(vue).filter((n) => premiereClasse(n) === "appui")
         .map((n) => aplatirVue(n).filter((x) => x.cls === "appui-clair").map((x) => x.texte)[0]),
     };
+    // Story 5.6 (L2b) : le bord gauche et l'étiquette d'une clause disent son **rôle**. La classe
+    // vient du `kind` d'AD-2 ; un kind hors table n'en reçoit aucune.
+    cas.roles_de_clause = {};
+    for (const kind of ["garantie", "exclusion", "condition", "definition", "invente"]) {
+      const parRole = reponseVerdict();
+      parRole.sources = [Object.assign({}, parRole.sources[0], { kind: kind })];
+      parRole.answer.claims = [parRole.answer.claims[0]];
+      cas.roles_de_clause[kind] = aplatirVue(SINISTRE.vueVerdict(parRole))
+        .filter((n) => premiereClasse(n) === "appui").map((n) => n.cls)[0] || null;
+    }
+
     // `sources[i].claim_id` : le rattachement sans l'appariement positionnel de D6.
     const parId = reponseVerdict();
     parId.sources = [Object.assign({}, parId.sources[1], { claim_id: "c2" }),
