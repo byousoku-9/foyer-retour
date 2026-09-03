@@ -2013,6 +2013,24 @@ async function main() {
       boutons_plus: aplatirVue(vueBloc).filter((n) => n.cls === "appui-plus").length,
     };
 
+    // Story 5.6 (L1c) — le rattachement aux faits, sur sa propre ligne sous ce que la clause dit.
+    const avecLien = reponseVerdict();
+    avecLien.answer.claims[0].rattachement =
+      "Une bougie tombée sur le canapé est une action subite de la chaleur.";
+    const vueLien = SINISTRE.vueVerdict(avecLien, { doc_id: "cg-mini" });
+    const carteLien = aplatirVue(vueLien).filter((n) => premiereClasse(n) === "appui")[0];
+    cas.appui_rattachement = {
+      en_clair: textesDe(vueLien, "appui-clair"),
+      rattachement: textesDe(vueLien, "appui-rattachement"),
+      // Deux lignes, dans cet ordre : la clause d'abord, le lien avec les faits ensuite.
+      ordre: aplatirVue(carteLien)
+        .map((n) => premiereClasse(n))
+        .filter((c) => c === "appui-clair" || c === "appui-rattachement"),
+      // Sans rattachement, la clause se lit exactement comme avant : aucune ligne de plus.
+      sans: textesDe(SINISTRE.vueVerdict(reponseVerdict(), { doc_id: "cg-mini" }),
+                     "appui-rattachement"),
+    };
+
     // Une citation que le paragraphe ne contient pas : la quote seule, et la page le dit.
     const desaccord = reponseVerdict();
     desaccord.sources[0].texte_bloc = "Un paragraphe qui ne contient pas la citation attendue.";

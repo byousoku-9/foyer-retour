@@ -969,6 +969,8 @@ window.CHAT = (function () {
     qualite_etablie_par_qualification: "une qualité que la clause nomme est remplie par le fait déclaré",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    rattachement_fondu_dans_la_clause: "le lien avec les faits est écrit dans la phrase de la clause, où il est jugé contre les citations",
+    rattachement_hors_borne: "un lien avec les faits dépasse la borne d'affichage : ignoré, la clause reste",
     renvoi_cp_non_enumere: "la clause renvoie aux conditions particulières ou à une option, ce que la lecture n'avait pas rendu",
     quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     amorce_jointe: "la phrase qui ouvre une énumération a été jointe à l'item cité",

@@ -427,6 +427,8 @@
     qualite_etablie_par_qualification: "une qualité que la clause nomme est remplie par le fait déclaré",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    rattachement_fondu_dans_la_clause: "le lien avec les faits est écrit dans la phrase de la clause, où il est jugé contre les citations",
+    rattachement_hors_borne: "un lien avec les faits dépasse la borne d'affichage : ignoré, la clause reste",
     renvoi_cp_non_enumere: "la clause renvoie aux conditions particulières ou à une option, ce que la lecture n'avait pas rendu",
     quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     amorce_jointe: "la phrase qui ouvre une énumération a été jointe à l'item cité",
@@ -589,7 +591,7 @@
         rang++;
       }
       out.push({ claim_id: claim.claim_id, text: claim.text, status: claim.status || null,
-                 clauses: clauses });
+                 rattachement: claim.rattachement, clauses: clauses });
     }
     if (rang !== plates.length) return null;
     return out;
@@ -1584,7 +1586,8 @@
     if (tousIdentifies) {
       return { degrade: false, ambigus: 0, entrees: sources.map(function (s) {
         var c = parId[s.claim_id];
-        return { src: s, texte: String(c.text || ""), status: c.status || null };
+        return { src: s, texte: String(c.text || ""), status: c.status || null,
+                 rattachement: String(c.rattachement || "") };
       }) };
     }
 
@@ -1593,7 +1596,8 @@
       var entrees = [];
       appariees.forEach(function (e) {
         e.clauses.forEach(function (s) {
-          entrees.push({ src: s, texte: String(e.text || ""), status: e.status || null });
+          entrees.push({ src: s, texte: String(e.text || ""), status: e.status || null,
+                         rattachement: String(e.rattachement || "") });
         });
       });
       return { entrees: entrees, degrade: false, ambigus: 0 };
@@ -1682,6 +1686,15 @@
       enfants.push(noeud("div", "appui-entier", null, [corps.tronque], { "hidden": "hidden" }));
     }
     if (entree.texte) enfants.push(noeud("p", "appui-clair", entree.texte));
+    // Story 5.6 (L1c) — le **rattachement aux faits**, sur sa propre ligne, sous ce que la clause
+    // dit. Deux phrases, deux lignes, parce que ce sont deux choses : la première est ce que le
+    // contrat écrit et que la citation au-dessus soutient ; la seconde dit que ce qui est arrivé
+    // au déclarant est ce que cette clause nomme. Les fondre en un paragraphe laisserait croire
+    // que la citation prouve aussi la seconde — c'est précisément ce que le moteur a cessé de
+    // faire. Absente, il n'y a rien à afficher et la clause se lit comme avant.
+    if (entree.rattachement) {
+      enfants.push(noeud("p", "appui-rattachement", entree.rattachement));
+    }
     var statut = statutTexte(entree.status);
     if (statut) enfants.push(noeud("p", "appui-statut", statut));
 
@@ -2101,6 +2114,11 @@
       exiger(estChaine(c.quotes[i].block_id), champ + ".quotes[" + i + "].block_id");
     }
     lireStatut(c.status, champ + ".status");
+    // Story 5.6 (L1c). Facultatif — une clause qui ne nomme aucun fait déclaré n'en porte pas —,
+    // mais **typé** dès qu'il est là : la page l'affiche sous ce que la clause dit.
+    if (c.rattachement !== undefined) {
+      exiger(ouNul(estChaine)(c.rattachement), champ + ".rattachement");
+    }
   }
 
   // Une affirmation écartée : la page en affiche le texte et le motif, et **jamais** sa citation

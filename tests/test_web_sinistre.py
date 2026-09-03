@@ -1874,6 +1874,23 @@ def test_une_clause_affiche_son_chemin_son_paragraphe_et_sa_phrase_en_clair(
     assert vu["extraits"] == 0 and vu["boutons_plus"] == 0
 
 
+def test_le_rattachement_aux_faits_se_lit_sous_la_clause_et_seulement_sil_existe(
+        cas: dict[str, Any]) -> None:
+    """Story 5.6 (L1c) : deux lignes, deux natures, dans cet ordre.
+
+    La première est ce que le contrat écrit, et la citation au-dessus la soutient. La seconde dit
+    que ce qui est arrivé au déclarant est ce que cette clause nomme — aucune citation ne peut le
+    prouver, et c'est pourquoi elle ne se fond pas dans la première. Une clause qui ne nomme aucun
+    fait déclaré n'affiche rien de plus qu'avant.
+    """
+    vu = cas["appui_rattachement"]
+    assert vu["en_clair"][0] == "La garantie vise l'action subite de la chaleur."
+    assert vu["rattachement"] == [
+        "Une bougie tombée sur le canapé est une action subite de la chaleur."]
+    assert vu["ordre"] == ["appui-clair", "appui-rattachement"]
+    assert vu["sans"] == []
+
+
 def test_une_citation_introuvable_dans_son_bloc_saffiche_seule(cas: dict[str, Any]) -> None:
     """Le corpus servi et le bloc publié peuvent diverger : la page ne surligne rien au jugé."""
     vu = cas["appui_citation_introuvable"]
