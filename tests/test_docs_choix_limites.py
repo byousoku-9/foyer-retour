@@ -29,7 +29,14 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # décidé les caches (0,28 € d'écriture de préfixe contre 0,015 € à chaud) et la limite volontaire du
 # cache de réponses — clé exacte, jamais sémantique — se consignent ici. Rien n'a été retiré ni
 # réécrit.
-ANNEXE_SHA256 = "1b3314781d46228555d6ac7fe6e992422d70051996cab1eeda9cd380ee55331f"
+# Bougé le 03/09/2026 (story 5.6, T2) : le registre gagne « retirer les passes qui choisissaient,
+# garder les outils ». La synthèse est bornée à environ deux pages et suit les jalons de la story ;
+# le détail de ce qui a été supprimé — les deux variantes de *retrouver*, la réservation par
+# sous-question, l'attribution lexicale, `couvrir_facettes`, l'attachement automatique des
+# définitions, les seuils orphelins — et surtout **ce que le retrait coûte** (dix témoins live sans
+# preuve réelle jusqu'au prochain enregistrement, la portée du profil qui n'atteint plus la lecture)
+# se consignent ici. Rien n'a été retiré ni réécrit.
+ANNEXE_SHA256 = "0a555a9552d2c6b74b7ba2bb28b2b3c5d69352bf8aeca81f71cdadc16a419db9"
 
 
 def _document() -> str:

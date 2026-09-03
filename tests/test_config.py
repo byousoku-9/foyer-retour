@@ -38,10 +38,13 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.deadline_s + s.client_abort_margin_s == 315
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
-    # `max_llm_turns` : trois depuis le correctif du tour 2 — à deux, le verdict terminal de la
-    # navigation est structurellement inatteignable (les résultats du dernier tour ne sont
-    # jamais réinjectés), et la suffisance sémantique reste toujours refusée.
-    assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20 and s.max_llm_turns == 3
+    assert s.max_opens == 6 and s.node_window == 30 and s.search_limit == 20
+    # `variante_nombre_max_part` : 0,01 depuis l'amendement AD-1 du 03/09/2026 (tâche T2), qui
+    # renomme `facette_variante_max_part` sans toucher à sa valeur ni à son raisonnement — il ne
+    # borne plus une sous-question mais l'élargissement de la **requête** de l'outil `chercher`.
+    # 1 % sépare, sur le contrat servi, les mots rares qui nomment une clause (`fumées` 0,07 %,
+    # `bris` 0,57 %) de ceux que le document porte partout (`liés` 1,36 %, `dommages` 8,9 %).
+    assert s.variante_nombre_max_part == 0.01
     # 15 depuis l'amendement AD-1 du 03/09/2026 : la séquence servie compte les tours de
     # navigation et l'ébauche rendue dans la même conversation (voir `tests/test_budget.py`).
     assert s.max_llm_attempts == 15 and s.retrouver_outils_max_tokens == 1024
@@ -126,7 +129,7 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     assert t.thresholds["quote_min_chars"] == 30
     assert t.thresholds["raison_publiable_max_chars"] == 500
     assert t.thresholds["max_cost_eur_per_request"] == 0.75
-    assert {"max_opens", "node_window", "search_limit", "max_llm_attempts", "max_llm_turns",
+    assert {"max_opens", "node_window", "search_limit", "max_llm_attempts",
             "retrouver_outils_max_tokens", "max_cost_eur_per_request",
             "rate_limit_per_minute", "rate_limit_per_day", "deadline_s",
             # story 1.4 : plafonds de sortie par étape et borne en blocs de *retrouver*
@@ -144,8 +147,9 @@ def test_thresholds_feed_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             "evals_max_cost_eur",
             # corrective 4.2a : la borne de définitions auxiliaires de la rédaction sinistre
             "draft_max_definitions",
-            # story 2.3 : les places réservées, parmi `max_opens`, aux nœuds que le profil désigne
-            "profil_max_opens",
+            # amendement AD-1 du 03/09/2026 (T2) : la part des blocs au-delà de laquelle une forme
+            # de nombre n'élargit plus la requête de `chercher`
+            "variante_nombre_max_part",
             # story 3.1 : seuils génériques de densité, OCR et qualité PDF
             "mixed_page_image_density", "ocr_dpi", "quality_min_words", "foreign_signal_min",
             "french_signal_ratio_min",
@@ -198,8 +202,6 @@ def test_bounds_and_coherence() -> None:
             Settings(_env_file=None, **{field: "micro"})
     with pytest.raises(ValidationError, match="baseline_tiers"):
         Settings(_env_file=None, env="prod", baseline_tiers=True)
-    with pytest.raises(ValidationError, match="max_llm_turns"):
-        Settings(_env_file=None, max_llm_turns=4)
     # story 1.5 : *vérifier* doit pouvoir juger tout ce que *rédiger* peut produire, sinon des claims
     # retrouvées seraient rejetées « non évaluées » par pure configuration (dégradé silencieux).
     with pytest.raises(ValidationError, match="verifier_max_claims"):
@@ -214,8 +216,12 @@ def test_bounds_and_coherence() -> None:
     with pytest.raises(ValidationError,
                        match="navigation_draft_max_claims.*navigation_draft_max_segments"):
         Settings(_env_file=None, navigation_draft_max_claims=4, navigation_draft_max_segments=3)
+    # La part qui élargit une requête reste une **part** : zéro n'élargirait jamais rien, et
+    # au-delà de 1 elle admettrait toutes les formes, y compris celles des mots que le document
+    # porte partout — la borne `gt=0, le=1` a survécu au renommage de T2.
     for bad in ({"deadline_s": 0}, {"quote_min_ratio": 1.5}, {"max_opens": 0}, {"max_cost_eur_per_request": -1},
-                {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0}):
+                {"evals_max_cost_eur": -1}, {"rate_limit_per_day": 0},
+                {"variante_nombre_max_part": 0.0}, {"variante_nombre_max_part": 1.5}):
         with pytest.raises(ValidationError):
             Settings(_env_file=None, **bad)
 
@@ -737,10 +743,12 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     majorant honnête est le plafond réellement envoyé, `verifier_sinistre_max_tokens` — donc le
     témoin le lit sur la configuration, au lieu de figer un nombre que la prochaine mesure démentira.
 
-    Le témoin est écrit contre la **cible du spine** (8 tours), et non contre `max_llm_turns` : la
-    deadline doit couvrir le chemin que l'architecture rend légitime, que le code de l'étape ait
-    déjà été réécrit ou non. La seconde assertion tient l'autre bout — une configuration qui
-    autoriserait plus de tours que la cible sortirait de la dérivation sans que rien ne rougisse.
+    Le témoin est écrit contre la **cible du spine** (8 tours), et non contre le plafond du code :
+    la deadline doit couvrir le chemin que l'architecture rend légitime. La seconde assertion tient
+    l'autre bout — une configuration qui autoriserait plus de tours que la cible sortirait de la
+    dérivation sans que rien ne rougisse. Depuis la tâche T2 du 03/09/2026, le plafond de tours du
+    chemin servi est `navigation_max_llm_turns` : `max_llm_turns` bornait la variante `outils`, qui
+    n'est plus servie et n'existe plus.
     """
     from server.app.config import Settings
 
@@ -770,9 +778,10 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     # Le seul terme lu sur la configuration, pour la raison dite dans la docstring : à `medium`, la
     # sortie de *vérifier* n'est pas mesurée, et son plafond est ce qui la borne.
     VERIFIER = s.verifier_sinistre_max_tokens
-    assert s.max_llm_turns <= TOURS_CIBLE_AD1, (
-        f"max_llm_turns ({s.max_llm_turns}) dépasse la cible d'AD-1 ({TOURS_CIBLE_AD1}) : la "
-        "deadline a été dérivée pour ce nombre de tours, il faut la re-dériver avant de le franchir")
+    assert s.navigation_max_llm_turns <= TOURS_CIBLE_AD1, (
+        f"navigation_max_llm_turns ({s.navigation_max_llm_turns}) dépasse la cible d'AD-1 "
+        f"({TOURS_CIBLE_AD1}) : la deadline a été dérivée pour ce nombre de tours, il faut la "
+        "re-dériver avant de le franchir")
 
     # Le pire chemin nominal : *comprendre*, sept tours d'outils, le tour terminal qui rend
     # l'ébauche, *vérifier*, puis la relance atomique d'AD-3 — *rédiger* et *vérifier* indissociables.

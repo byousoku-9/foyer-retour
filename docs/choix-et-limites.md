@@ -947,6 +947,58 @@ vitrées`, `dégât des eaux → fuite d'eau` (Baloise) ; `bris de vitrages → 
 garantie incendie` (AXA). Sur le guide, la seule perte notable est `assurance`, qui est exactement
 l'exemple de catégorie que I1 citait — et le terme reste cherché.
 
+## Story 5.6 (T2) — retirer les passes qui choisissaient, garder les outils
+
+Le 03/09/2026, le chemin servi est devenu la **navigation par le modèle** : il reçoit le sommaire
+complet, ouvre ce qu'il veut avec quatre outils, et rédige dans la même conversation. La tâche T2 a
+retiré ce que ce chemin rend faux — les passes de code qui **choisissaient** ce que la rédaction
+verrait. Ce n'est pas un nettoyage : ces passes étaient le contraire de la décision.
+
+**Ce qui est parti, code et témoins ensemble.** Les deux variantes de *retrouver* qui portaient ces
+passes (`deterministe`, `outils`) ; la réservation d'une place de lecture par sous-question
+(`reserver_les_facettes`, `groupes_prioritaires` et `reservations_out` d'`Index.chercher`) ;
+l'attribution lexicale d'un bloc à une sous-question (`selection_par_facette`, la couverture pleine,
+`_classement_par_facette`) ; la complétion de la liste des blocs après *retrouver* au nom de la
+couverture (`couvrir_facettes`) ; l'attachement automatique des définitions et des renvois ; et les
+seuils devenus orphelins (`facette_max_opens`, `facette_reserve_max_part`, `profil_max_opens`,
+`max_llm_turns`, `enumeration_max_tokens`).
+
+**Le motif n'était pas un réglage manqué, c'était une impossibilité.** Aucun critère lexical ne
+sépare « la fumée » d'une exclusion de « les fumées et les suies » d'une garantie : ce qui les
+distingue — un nom au pluriel contre un participe passé — n'est pas une information que l'index, qui
+supprime les accents, porte. Quatre contre-factuels rejoués hors ligne corrigent chacun une
+sous-question et ramènent le faux positif sur l'autre. Mesuré : la réservation d'une seule variante
+(`vitre → vitres`) coûtait 703 tokens, 20 % du budget de lecture, pendant que 14 à 15 candidats
+proposés étaient refusés faute de place ; les définitions attachées d'office en occupaient 764 de
+plus, 22 %.
+
+**Ce qui reste, et pourquoi.** `Index.chercher` et `Dictionnaire.expand` restent — mais `chercher`
+**propose** : il rend `(block_id, node_id, extrait)` et rien n'entre dans la rédaction que le modèle
+n'ait ouvert. L'élargissement de la requête par formes de nombre reste aussi, borné par
+`variante_nombre_max_part` : sans lui `chercher('fumée')` ne rencontre pas la clause écrite au
+pluriel, et le modèle conclurait que le contrat est muet — une recherche qui manque le seul bloc
+décisif n'est pas une proposition, c'est un contresens. L'unité d'énumération reste, tranchée comme
+propriété de la donnée et non comme passe : `ouvrir_noeud` rend le nœud **et** ses enfants feuilles à
+un seul bloc, donc l'amorce et ses items ensemble, sans rang ni réservation. Le refus zéro hit
+d'AD-5, la vérification des citations au caractère près, les quatre statuts et la table de verdict
+ne bougent pas — le diff de *vérifier* et du verdict est vide.
+
+**La couverture par sous-question survit entière, et change seulement de destinataire.** *vérifier*
+la mesure toujours, et c'est elle qui décide `complete` (AD-4). Ce que le code en fait n'est plus
+d'ouvrir des blocs : il **nomme au modèle** la sous-question restée sans affirmation affichée, dans
+la conversation où il a lu. Ce qui repart est un libellé, jamais un `block_id` ; aucun chemin de code
+ne dérive plus un bloc d'un rang de facette.
+
+**Ce que le retrait coûte, écrit plutôt que tu.** Dix témoins live épinglaient les variantes
+retirées ; leurs fixtures portaient des corps de requête qui n'existent plus, et les rejouer sur la
+navigation demande un enregistrement facturé. Trois propriétés perdent donc leur preuve **réelle**
+jusqu'au prochain enregistrement : l'adossement de chaque phrase affichée à une citation relue sur le
+guide, la fidélité des quatre langues servies après retraduction, et le majorant de coût du chemin
+froid du guide (sa moitié sinistre survit). Elles restent prouvées hors ligne, et la seule fixture
+live qui traverse le chemin servi rejoue verte sans réseau. Enfin, la portée dérivée du profil
+(`scope.noeuds`, story 2.3) n'atteint plus la lecture : la réservation qui l'honorait appartenait à
+la variante retirée, et le profil n'agit plus que par ses thèmes.
+
 ## Story 5.6 (T5) — deux caches pour la facture, et ce qu'ils n'ont pas le droit de faire
 
 La navigation par le modèle (amendement AD-1 du 03/09/2026) multiplie les tours, donc les écritures

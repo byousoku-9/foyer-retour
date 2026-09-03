@@ -151,9 +151,9 @@ def _demarrages_de_rediger(fournisseur: FakeAnthropic, settings: Settings) -> in
                if request["max_tokens"] == settings.rediger_max_tokens)
 
 
-async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
+async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Le vrai pipeline outils atteint *rédiger* sous 0,12 €, puis refuse juste au-dessus."""
+    """Le pipeline servi atteint la rédaction sous 0,12 €, puis refuse juste au-dessus."""
     import server.app.llm.client as client_module
 
     settings = _settings()
@@ -190,14 +190,14 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
                  "input": {"node_id": node_id}},
             ],
         )
-        # AD-1 : un premier tour qui rend `tool_use` impose un appel de plus par tour restant — la
-        # navigation doit conclure (`sufficient: false`, aucun `result_uid`) avant que *rédiger*
-        # démarre. Le nombre de tours n'est **pas** recopié ici : il se lit sur le budget, si bien
-        # qu'abaisser `max_llm_turns` raccourcit le script au lieu de le laisser trop long et muet.
-        conclusion = fake_message(
+        # Amendement AD-1 du 03/09/2026 : un tour qui rend `tool_use` impose un appel de plus, et la
+        # lecture se **clôt** sur un tour sans outil — après quoi l'ébauche est demandée dans la
+        # même conversation. Le nombre de tours n'est pas recopié ici : la fin de lecture est
+        # explicite, si bien que le script reste juste quel que soit `navigation_max_llm_turns`.
+        fin_de_lecture = fake_message(
             model=modele_attendu("retrouver_outils", settings), stop_reason="end_turn",
-            text=json.dumps({"sufficient": False, "result_uid": None}))
-        navigation = [outils, *[conclusion] * (settings.max_llm_turns - 1)]
+            text="J'ai lu ce qu'il faut.")
+        navigation = [outils, fin_de_lecture]
         rediger = fake_message(model=modele_attendu("rediger", settings), text=json.dumps({
             "segments": [{"text": "La garantie vise l'action subite de la chaleur.",
                           "kind": "factuel", "claim_ids": ["c1"]}],
@@ -236,7 +236,7 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
     client = LlmClient(settings, anthropic_client=fournisseur)
     answer, trace = await sinistre.run(
         DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
-        settings=settings, request_id="preflight-outils-reel", budget=budget)
+        settings=settings, request_id="preflight-navigation-reel", budget=budget)
 
     # La propriété visée n'est ni un rang dans la liste des requêtes ni un identifiant de modèle
     # (deux étapes peuvent partager le même tier, et un rang bouge dès qu'un tour de navigation est
@@ -274,13 +274,12 @@ async def test_preflight_outils_nominal_passe_et_un_depassement_reste_refuse(
         await sinistre.run(
             DOC_ID, QUESTION, FAITS, corpus=index.corpus, index=index,
             client=client_bloque, settings=settings,
-            request_id="preflight-outils-bloque", budget=budget)
-    # La chaîne est allée au bout de la navigation (les deux tours d'AD-1) puis s'est arrêtée
-    # **avant** de payer *rédiger* : c'est le refus que l'AC demande, et c'est le démarrage de
-    # *rédiger* qui le dit — pas le tier, que la navigation partage désormais avec la rédaction.
-    # `max_llm_turns` borne la navigation ; le navigateur peut conclure avant (le scénario nominal
-    # rend son verdict au deuxième tour), donc le compte est un **majorant**, pas une égalité.
-    assert 2 <= len(fournisseur_bloque.requests) <= 1 + settings.max_llm_turns
+            request_id="preflight-navigation-bloque", budget=budget)
+    # La chaîne est allée au bout de la lecture puis s'est arrêtée **avant** de payer l'ébauche :
+    # c'est le refus que l'AC demande, et c'est le démarrage de la rédaction qui le dit — pas le
+    # tier, que la navigation partage avec elle. `navigation_max_llm_turns` borne les tours ; le
+    # modèle peut clore sa lecture avant, donc le compte est un **majorant**, pas une égalité.
+    assert 2 <= len(fournisseur_bloque.requests) <= 1 + settings.navigation_max_llm_turns
     assert _demarrages_de_rediger(fournisseur_bloque, settings) == 0
 
 
@@ -358,7 +357,9 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert retrouver.name == "retrouver"
     verifier_etage(retrouver, settings, etape="retrouver_outils")
     assert len(retrouver.calls) >= 1, "la navigation par outils appelle le modèle"
-    assert len(retrouver.calls) <= settings.max_llm_turns  # bornée à deux tours (AD-1)
+    # Amendement AD-1 du 03/09/2026 : la lecture est bornée par le plafond de sûreté des tours
+    # de navigation, et le modèle clôt le plus souvent bien avant.
+    assert len(retrouver.calls) <= settings.navigation_max_llm_turns
     for step in (s for s in trace.steps if s.name == "verifier"):
         # AD-9 amendé : **un** appel groupé, jamais un second — et à l'étage configuré, quel qu'il
         # soit (le tier a été promu depuis l'écriture de ce test ; l'invariant, lui, n'a pas bougé).

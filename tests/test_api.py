@@ -636,11 +636,14 @@ def test_variante_inconnue_est_refusee(prod: TestClient) -> None:
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "inconnue"}, headers=XFF)
     assert r.status_code == 400
     assert double.appels == []  # refus HTTP avant le pipeline, donc avant tout appel facturé
-    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "deterministe"},
-                  headers=XFF)
-    assert r.status_code == 200
-    r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "outils"}, headers=XFF)
-    assert r.status_code == 200 and double.appels[-1]["variant"] == "outils"
+    # Tâche T2 de la story 5.6 : `outils` et `deterministe` ont été **supprimées**, donc elles sont
+    # devenues des variantes inconnues comme les autres — 400 avant tout appel facturé, et non un
+    # repli silencieux vers le chemin servi, qui rendrait une réponse sous une étiquette fausse.
+    for disparue in ("outils", "deterministe"):
+        r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": disparue},
+                      headers=XFF)
+        assert r.status_code == 400, disparue
+        assert double.appels == [], disparue
     r = prod.post("/api/v1/chat", json={"question": "q", "profil": {}, "variant": "full_context"},
                   headers=XFF)
     assert r.status_code == 200 and double.appels[-1]["variant"] == "full_context"
@@ -1699,6 +1702,25 @@ def _script_du_mini_guide() -> list[dict]:
     ]
 
 
+def _lecture_du_mini_guide(*node_ids: str) -> list[dict]:
+    """La lecture du modèle sur le mini-corpus : un tour d'outils, puis le tour qui la clôt.
+
+    C'est le chemin **servi** depuis l'amendement AD-1 du 03/09/2026 : *retrouver* est une
+    conversation où le modèle ouvre lui-même les nœuds qu'il veut lire, et *rédiger* est le message
+    suivant du même fil. Un scénario de bout en bout doit donc dire quels nœuds le modèle a ouverts,
+    exactement comme il dit quelle ébauche il a rendue.
+    """
+    from server.app.llm.models import TIERS
+    from tests.llm_fake import fake_message
+
+    return [
+        fake_message(model=TIERS["reason"], stop_reason="tool_use", content=[
+            {"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
+             "input": {"node_id": node_id}} for rang, node_id in enumerate(node_ids)]),
+        fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+    ]
+
+
 def _pipeline_reel(script: list[dict], *, fake: Any = None) -> Any:
     """Le **vrai** `repondre_guide`, avec un modèle scripté à la place du réseau.
 
@@ -1790,13 +1812,19 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
     ebauche = {"segments": [{"text": "Une affirmation.", "kind": "factuel", "claim_ids": ["c1"]}],
                "claims": [{"claim_id": "c1", "text": "Une affirmation.",
                            "quotes": [{"block_id": f"{DOC_ID}:q1:2", "quote": FAQ_R[:40]}]}]}
+    # La lecture est **bornée par le budget de tokens de la navigation** : le modèle ouvre les deux
+    # nœuds du mini-corpus, le second est refusé faute de place (123 tokens tiennent, 123 + 99 non),
+    # et *naviguer* le publie en `truncated` sans rien couper en silence. C'est la borne servie
+    # depuis l'amendement AD-1 du 03/09/2026 ; `retrieval_max_blocks` bornait la passe de code qui
+    # choisissait les blocs, et elle n'existe plus.
     script = [_script_du_mini_guide()[0],
+              *_lecture_du_mini_guide(f"{DOC_ID}:farrivee", f"{DOC_ID}:q1"),
               fake_message(model=TIERS["reason"], text=json.dumps(ebauche)),
               fake_message(model=TIERS["reason"], text=json.dumps(ebauche))]
-    etat.pipeline = _pipeline_reel_borne(script, retrieval_max_blocks=1)
+    etat.pipeline = _pipeline_reel_borne(script, navigation_budget_tokens=200)
 
     r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?", "profil": {},
-                                        "variant": "deterministe"}, headers=XFF)
+                                        "variant": "navigation"}, headers=XFF)
 
     assert r.status_code == 200, r.text
     j = r.json()
@@ -1813,62 +1841,6 @@ def test_une_lecture_partielle_traverse_le_vrai_pipeline_puis_la_route(prod: Tes
     assert j["answer"]["rejected_claims"] and j["sources"] == []
     assert j["unknown"] and j["answer"]["unknown"] == j["unknown"]
     assert [s["name"] for s in j["trace"]["steps"]][-1] == "restituer"
-
-
-@pytest.mark.parametrize("variant", ["outils"])
-def test_chat_reel_uses_the_four_navigation_tools_for_the_outils_variant(
-        prod: TestClient, monkeypatch: pytest.MonkeyPatch, variant: str | None) -> None:
-    """La variante `outils` n'est plus servie par défaut (amendement AD-1 du 03/09/2026) ; elle
-    reste construite et exercée ici. Le chemin servi, lui, est couvert par `tests/test_naviguer.py`
-    et par les témoins de bout en bout des deux pipelines."""
-    from server.app.llm.models import TIERS
-    from tests.llm_fake import FakeAnthropic, fake_message
-
-    corpus, index = _mini_corpus()
-    calls = {name: 0 for name in ("sommaire", "ouvrir_noeud", "chercher", "definitions")}
-    for name in calls:
-        original = getattr(index, name)
-
-        def record(*args: Any, _name: str = name, _original: Any = original, **kwargs: Any):
-            calls[_name] += 1
-            return _original(*args, **kwargs)
-
-        monkeypatch.setattr(index, name, record)
-
-    tools = fake_message(
-        model=TIERS["micro"], stop_reason="tool_use",
-        content=[
-            {"type": "tool_use", "id": "toolu_summary", "name": "sommaire",
-             "input": {"doc_id": DOC_ID}},
-            {"type": "tool_use", "id": "toolu_search", "name": "chercher",
-             "input": {"termes": ["arrivée"]}},
-            {"type": "tool_use", "id": "toolu_open", "name": "ouvrir_noeud",
-             "input": {"node_id": f"{DOC_ID}:farrivee",
-                       "focus_block_id": f"{DOC_ID}:farrivee:2"}},
-            {"type": "tool_use", "id": "toolu_defs", "name": "definitions",
-             "input": {"termes": ["arrivée"],
-                       "blocs_ouverts": [f"{DOC_ID}:farrivee:2"]}},
-        ])
-    script = _script_du_mini_guide()
-    script.insert(1, tools)
-    script.insert(2, fake_message(model=TIERS["reason"], stop_reason="end_turn", content=[]))
-    fake = FakeAnthropic(script)
-    etat = prod.app.state.foyer
-    etat.corpus, etat.index = corpus, index
-    etat.pipeline = _pipeline_reel([], fake=fake)
-    body: dict[str, Any] = {"question": "Quel délai après mon arrivée ?", "profil": {}}
-    if variant is not None:
-        body["variant"] = variant
-
-    response = prod.post("/api/v1/chat", json=body, headers=XFF)
-
-    assert response.status_code == 200 and response.json()["sources"]
-    assert response.json()["trace"]["variant"] == "outils"
-    # `sommaire` est lu une première fois pour le prompt puis une seconde par l'outil lui-même ;
-    # les trois autres compteurs ne peuvent provenir que de l'exécution des tool_use scriptés.
-    assert calls["sommaire"] >= 1
-    assert all(calls[name] > 0 for name in ("ouvrir_noeud", "chercher", "definitions"))
-    assert [tool["name"] for tool in fake.requests[1]["tools"]] == list(calls)
 
 
 def test_une_reponse_servie_porte_ses_blocs_resolus_et_le_profil_de_son_gate(
@@ -1890,11 +1862,13 @@ def test_une_reponse_servie_porte_ses_blocs_resolus_et_le_profil_de_son_gate(
     corpus.alerts[DOC_ID] = ["source_absente"]
     etat = prod.app.state.foyer
     etat.corpus, etat.index = corpus, index
-    etat.pipeline = _pipeline_reel(_script_du_mini_guide())
+    comprendre, ebauche, verifier = _script_du_mini_guide()
+    etat.pipeline = _pipeline_reel(
+        [comprendre, *_lecture_du_mini_guide(f"{DOC_ID}:farrivee"), ebauche, verifier])
 
     r = prod.post("/api/v1/chat", json={"question": "Quel délai après mon arrivée ?",
                                         "profil": {}, "historique": [],
-                                        "variant": "deterministe"}, headers=XFF)
+                                        "variant": "navigation"}, headers=XFF)
 
     assert r.status_code == 200
     trace = r.json()["trace"]

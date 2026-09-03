@@ -33,7 +33,7 @@ def _namespace() -> dict[str, object]:
         "models": {"micro": "claude-haiku"},
         "parameters": {"max_tokens": 42},
         "schema": {"type": "object"},
-        "variant": "outils",
+        "variant": "navigation",
         "pipeline_digest": "p",
         "prompts_digest": "q",
         "source_hash": "s",
@@ -158,9 +158,9 @@ def test_namespace_cache_reelle_varie_et_produit_un_miss_persistant(
         pipeline_digest_hex="p", prompts_digest_hex="q",
         dictionnaire=Dictionnaire(doc_id="doc"), dictionnaires={},
     )
-    avant = namespace_cache(cas, ctx, doc_id="doc", variant="outils")
+    avant = namespace_cache(cas, ctx, doc_id="doc", variant="navigation")
 
-    variant = "outils"
+    variant = "navigation"
     if component == "schema":
         monkeypatch.setattr(runner, "CACHE_NAMESPACE_SCHEMA", 2)
     elif component == "models":
@@ -168,7 +168,7 @@ def test_namespace_cache_reelle_varie_et_produit_un_miss_persistant(
     elif component == "parameters":
         ctx.settings = Settings(_env_file=None, usd_eur=0.5)
     elif component == "variant":
-        variant = "deterministe"
+        variant = "full_context"
     elif component == "pipeline_digest":
         ctx.pipeline_digest_hex = "p2"
     elif component == "prompts_digest":
@@ -296,17 +296,21 @@ def test_variante_incompatible_est_refusee_au_preflight() -> None:
         variante_du_cas(_cas_sinistre(), "local")
 
 
-def test_la_suite_sinistre_tourne_la_navigation_par_defaut_et_garde_les_autres_en_baseline() -> None:
+def test_la_suite_sinistre_ne_tourne_plus_que_la_navigation_par_le_modele() -> None:
     """Story 4.2d : deux runs ne sont comparables qu'à variante égale — le harness mesure le défaut.
 
-    AD-1, amendement du 03/09/2026 : la **navigation par le modèle** est le chemin servi ; `outils`
-    et `deterministe` restent des baselines **explicitement** demandées.
+    AD-1, amendement du 03/09/2026, tâche T2 de la story 5.6 : la **navigation par le modèle** est le
+    chemin servi et, pour le sinistre, le **seul**. `outils` et `deterministe` ne sont plus des
+    baselines explicitement demandables : elles ont été supprimées avec les passes de code qui
+    choisissaient ce que la rédaction verrait, et les demander est devenu un couple impossible —
+    refusé au préflight, donc avant tout appel facturé, et non replié en silence sur le défaut.
     """
     cas = _cas_sinistre()
     assert variante_du_cas(cas, None) == "navigation" == runner.pipeline_sinistre.VARIANT
-    assert variante_du_cas(cas, "deterministe") == "deterministe"
-    assert variante_du_cas(cas, "outils") == "outils"
     assert variante_du_cas(cas, "navigation") == "navigation"
+    for disparue in ("deterministe", "outils"):
+        with pytest.raises(RefusDeTourner, match="incompatible"):
+            variante_du_cas(cas, disparue)
 
 
 @pytest.mark.parametrize("field", ["block_ids", "fiche_ids"])
@@ -321,7 +325,7 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
         tmp_path: Path) -> None:
     cas = _cas()
     resultat = Resultat(
-        id=cas.id, suite="guide", label="bonne_reponse", variant="outils",
+        id=cas.id, suite="guide", label="bonne_reponse", variant="navigation",
         cost_eur=0.0, cost_eur_original=0.02, ms=11, found=True, expected_found=True,
         expected_block_ids=["guide:b1"],
         claims=[{"claim_id": "c1", "quotes": [{"block_id": "guide:b1", "quote": "preuve"}]}],
@@ -339,7 +343,7 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
         "labels": {label: int(label == "bonne_reponse") for label in (
             "bonne_reponse", "mauvais_doc", "doc_manque", "claim_non_soutenu", "faux_refus",
             "citation_introuvable", "parsing")},
-        "variants": {"outils": 1},
+        "variants": {"navigation": 1},
         "recall": 0.5,
             "average_cost_eur": 0.0,
             "latency_p50_ms": 5,
@@ -356,7 +360,7 @@ def test_rapport_partiel_distingue_les_non_executes_et_agrege_toutes_les_mesures
     assert rapport["executions_interrupted"] == 1
     md = rendre_markdown(rapport, preuve_externe=None)
     for attendu in ("cases_hash", "recall", "coût moyen", "latence p50", "ne_tranche_pas",
-                    "<code>bonne_reponse</code>", "<code>outils</code>", "Cas non exécutés"):
+                    "<code>bonne_reponse</code>", "<code>navigation</code>", "Cas non exécutés"):
         assert attendu in md
     json_path, md_path = tmp_path / "out" / "result.json", tmp_path / "out" / "result.md"
     espace = poser_espace(tmp_path, cibles=(Path("out") / "result.json", Path("out") / "result.md"))

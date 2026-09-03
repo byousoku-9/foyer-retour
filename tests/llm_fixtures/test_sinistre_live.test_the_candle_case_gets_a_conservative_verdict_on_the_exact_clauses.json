@@ -487,6 +487,47 @@
       }
     }
   },
+  "claude-sonnet-5:01498d8c04ee005d": {
+    "certificate": {
+      "messages_sha256": "ad7c9e5de73927dc8dfb144ad2867e46960dc16372e837889066a21622015456",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:01498d8c04ee005d",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg4VuP7orJ6gBHVhujMq",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45663,
+        "inference_geo": "global",
+        "input_tokens": 1804,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:148043acdd85cc80": {
     "certificate": {
       "messages_sha256": "b0ff3811c750e96bb7f614ef79d2032a8dabd090238b121e6a759e74a5730c5c",
@@ -529,6 +570,48 @@
         "output_tokens": 863,
         "output_tokens_details": {
           "thinking_tokens": 640
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:1885141db4caa96e": {
+    "certificate": {
+      "messages_sha256": "5dab1c688e76e61ca2205f6cdfa8ab0adaadceefd776e338a4060a01e35c4624",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:1885141db4caa96e",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La garantie « Incendie et périls assimilés » couvre plusieurs périls distincts, dont l'incendie proprement dit et une clause spécifique aux brûlures sans incendie.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal, ou d'objets dont la destination n'est pas de brûler.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Cette dernière clause qualifie précisément l'absence d'embrasement ou de commencement d'incendie que les faits déclarés écartent eux-mêmes, en maintenant la garantie malgré cette absence.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les garanties complémentaires lues étendent la portée de la garantie à la décongélation de denrées alimentaires et à la dégradation du contenu des sèche-linge ou lave-linge, mais ne visent pas les dégâts par brûlure au mobilier lui-même.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ma lecture ne m'a pas permis d'examiner les exclusions générales (point 2.10) ni d'éventuelles franchises applicables à cette garantie, qui pourraient encore restreindre la portée de la clause citée.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal, ou d'objets dont la destination n'est pas de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler\"}]},{\"claim_id\":\"c2\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]},{\"claim_id\":\"c3\",\"text\":\"Cette dernière clause qualifie précisément l'absence d'embrasement ou de commencement d'incendie que les faits déclarés écartent eux-mêmes, en maintenant la garantie malgré cette absence.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie\"}]},{\"claim_id\":\"c4\",\"text\":\"Les garanties complémentaires lues étendent la portée de la garantie à la décongélation de denrées alimentaires et à la dégradation du contenu des sèche-linge ou lave-linge, mais ne visent pas les dégâts par brûlure au mobilier lui-même.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:15\",\"quote\":\"à la décongélation de denrées alimentaires périssables contenues dans un surgélateur, congélateur ou réfrigérateur à usage domestique\"},{\"block_id\":\"axa-lu-optihome-2017:p34:16\",\"quote\":\"à la dégradation du contenu des sèche-linge ou lave-linge à la suite d’un sinistre relevant de l’un des périls prévus\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Ceg4W2hQ7LAKjEybRzAXz",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 46560,
+        "inference_geo": "global",
+        "input_tokens": 1930,
+        "output_tokens": 1545,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
@@ -1022,11 +1105,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le contrat couvre-t-il le mobilier de salon (canapé) brûlé partiellement par une bougie allumée tombée sur celui-ci, sans embrasement ni commencement d'incendie, sans propagation de flammes ni dégât au bâtiment, survenu dans le salon du domicile assuré ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât par brûlure\",\"incendie\",\"commencement d'incendie\",\"bougie\"],\"themes\":[],\"facettes\":[\"Le contrat couvre-t-il ce dommage au mobilier causé par une brûlure sans incendie caractérisé ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du canapé par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé, sans propagation de flammes\",\"moment\":\"2026-08-01\"}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le mobilier de salon (canapé) a brûlé partiellement suite à la chute d'une bougie allumée posée sur une table basse, sans embrasement ni commencement d'incendie, sans propagation de flammes ni dégât au bâtiment : ce dommage est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât des flammes sans incendie\",\"brûlure accidentelle\",\"canapé\",\"bougie\"],\"themes\":[],\"facettes\":[\"Le dommage au mobilier causé par la bougie est-il couvert par la garantie incendie/dégât des flammes ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure partielle du canapé sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"chute d'une bougie allumée posée sur une table basse\",\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011Ceg26SoakaSGZ2ddgMPDP",
+      "id": "msg_011Ceg4VEr7gB8rh4P6ouw7z",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1042,7 +1125,7 @@
         "cache_read_input_tokens": 3996,
         "inference_geo": "global",
         "input_tokens": 249,
-        "output_tokens": 347,
+        "output_tokens": 334,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1910,6 +1993,48 @@
       }
     }
   },
+  "claude-sonnet-5:b2aee7d320c6162e": {
+    "certificate": {
+      "messages_sha256": "00fd6494a19d5bc0d88b1676d2db516686319eec5791918fb5ee244989aee362",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "df010e1b47f46a386815ef3b25a7de2cdc8abc64d448649eee1f12cf4979eb6b",
+      "system_sha256": "df381ad66b7314d46dac925ced1241fe1bb838c4dbcfd525f41f6d27d4c3f454",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:b2aee7d320c6162e",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        }
+      ],
+      "id": "msg_011Ceg4X6EWV3UYNdfr6p4gQ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "max_tokens",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13247,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 13247,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 1675,
+        "output_tokens": 4096,
+        "output_tokens_details": {
+          "thinking_tokens": 4096
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:b7260f4c4648c49a": {
     "certificate": {
       "messages_sha256": "2919e3acb3337d7f8f39df18d629f23f27d3a3dbe7df9975d9a664f1890a9a31",
@@ -2247,6 +2372,70 @@
         "output_tokens": 169,
         "output_tokens_details": {
           "thinking_tokens": 90
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d509b3e9b0238a5c": {
+    "certificate": {
+      "messages_sha256": "0f130588151803f44c3e45f132bab3c83cb2d2f796b2e12a8a0a8c7ca89f323e",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "8d982336ed5232ca7ad6ef296dafd7e1117340380c0fc8b8a5ec201b199f031f",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:d509b3e9b0238a5c",
+    "response": {
+      "content": [
+        {
+          "signature": "Ev0ECpABCBEYAipAKKrgkXnWRCCogHRh+wpfA82xrLpyg6P37xZXz9zQxWunS0kuzIVHPhLRQNWrd4FMVIHYXwGfJmWWzRA6vD54DDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZex5NQGEgwQUHCn7lm3PI4NExMaDEroZtpDBWVKzkK1wyIwsh6uY8Z/wnJlMSl2ga9xyq9Vz5iduJmH4x8YhfokgNymPB3dFQDFGDI9uLIxYxVhKpkD9oSMejLOfuRDKy+AeXAjmQGGRKFdN3pT5iYJWZmrmPVj+rJ3gthPk5Z52RcJTs2lvVNz/UgKcjUiNtCIwW5Mrid0aAZ3WvkYhLicc3PsekGxT0ROLXXQB64Lvi3A6aRGc03Sda9Lpzrd9+wFXGVt/3ox1vbsBadf8ExYoy7W+spTXWVQa/jCnASMVKGKVgtJWzQijYAJGmRrLvK2b67GNzT2dDObSLb9mSGaVsWY8juXxeREo7bZolbSNPSS5jTUIjY/RXL/wwE0jZp+ST2doskKxYCKQmBqFlDLRxzufP6oooQJaDP8HZqlx2QCD8Klf/pETYM0wPCKNKTpgpIBG7YHxBoSVKCGE3QNMiIh6mzWnibLLwJQ3aFv5blJTMVsDrABqeyosM0uTzv0M6i6LrDY4vFacEN27ymJj7cDycgqwtpQDB/T0uWDxhsHtoYOBortHhlBnUujwDCn+wm6izaLcOHPTqVznZNKdOYQwxcg4MEYttldUMxO+yLTqSqGhH6Jc8QcBhWyf/Dg2r8G91n/Q5dP5rCK3RgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01RwE91dnauc8F2DfQKkvbPJ",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_017B15h9hsgPXR4f2u6Bhbqi",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.2"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Ceg4VaKtdN5HN4jT1udbA",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 45663,
+        "inference_geo": "global",
+        "input_tokens": 454,
+        "output_tokens": 326,
+        "output_tokens_details": {
+          "thinking_tokens": 177
         },
         "service_tier": "standard"
       }

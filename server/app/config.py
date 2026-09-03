@@ -561,63 +561,29 @@ class Settings(BaseSettings):
 
     # Retrouver (AD-1)
     max_opens: int = Field(6, ge=1)
-    # Story 2.3 : le nombre de places **réservées**, parmi `max_opens`, aux nœuds que le profil
-    # désigne (`domain/profil.py::noeuds_du_profil`). Ce n'est ni un quota de plus ni un filtre :
-    # `max_opens` reste le nombre de nœuds ouverts, et les places réservées sont prises aux
-    # **derniers** nœuds retenus, ceux que la question classait le moins bien. À 0, le profil
-    # n'ordonne plus rien et *retrouver* se comporte comme avant la story ; à `max_opens`, il
-    # pourrait évincer la fiche qui répond. 2 sur 6 est le compromis que l'AC demande — une place,
-    # pas la priorité de lecture — et c'est une valeur `[HYPOTHÈSE]`, à régler avec les
-    # questions-témoins (4.2) comme `max_opens` lui-même.
-    profil_max_opens: int = Field(2, ge=0)
-    # Combien d'ouvertures **ciblées** la couverture par facette s'autorise pour *une* facette qui
-    # n'a encore aucun bloc décisionnel confirmé — dans *retrouver* comme au second cycle du
-    # pipeline. Ce n'est pas une réserve prise sur `max_opens` (contrairement à `profil_max_opens`) :
-    # les ouvertures ciblées passent par le **même** quota `max_opens` et les mêmes budgets de blocs
-    # et de tokens, et s'arrêtent avec eux. Ce nombre borne seulement l'acharnement sur une facette,
-    # pour qu'une sous-question dont le contrat ne parle pas ne consomme pas le quota des autres.
+    # Amendement AD-1 du 03/09/2026, tâche T2 : **la part des blocs au-delà de laquelle une forme
+    # de nombre n'élargit plus une requête.** Ce seuil a survécu au retrait des heuristiques de
+    # choix, et il ne s'appelle plus `facette_*` parce qu'il ne sert plus une sous-question : il
+    # borne l'élargissement de la **requête** de l'outil `chercher`, sur le chemin servi
+    # (`steps/naviguer.py::_mapping`).
     #
-    # Dérivation : le classement de la facette est déjà restreint aux kinds décisionnels **confirmés
-    # par le corpus** (`Index.chercher(kinds_confirmes=…)`), donc son premier candidat est la
-    # meilleure règle que l'index connaisse pour cette sous-question ; un second essai ne sert qu'au
-    # cas où l'unité atomique du premier n'a pas tenu sous le budget de blocs. Au-delà de deux, ce
-    # n'est plus le classement qui est mal ordonné, c'est la facette qui n'est pas dans le contrat —
-    # et la dire absente est alors la réponse honnête. `[HYPOTHÈSE]`, à régler aux témoins comme
-    # `max_opens` lui-même.
-    facette_max_opens: int = Field(2, ge=1)
-    # Correctif du tour 2 (R1) : la part du budget de lecture que la couverture par facette peut
-    # **garder** avant la navigation, pour que l'unité décisionnelle de chaque sous-question ne soit
-    # pas mangée par les voisins de fenêtre et les définitions suivies automatiquement — mesuré sur
-    # les trois runs A16 : 99,8 % du budget de tokens consommé, dont 39 % de lexique, quand la clause
-    # manquante en coûtait 210.
+    # Pourquoi il reste. `Index.chercher` est un lexique strictement littéral : `chercher('fumée')`
+    # ne rencontre pas la clause écrite « Les fumées et les suies », et le modèle en conclurait que
+    # le contrat est muet. La requête porte donc les **formes de nombre régulières** de ses mots.
     #
-    # C'est une **réallocation bornée**, jamais une capacité de plus : `retrieval_max_blocks` et
-    # `retrieval_max_tokens` ne bougent pas. La borne existe pour la même raison que
-    # `profil_max_opens < max_opens` — une réserve qui prendrait tout le budget ne classerait plus
-    # la lecture, elle la remplacerait, et le navigateur ne rapporterait plus rien de son propre
-    # choix. La moitié laisse largement la place : quatre unités décisionnelles du contrat servi
-    # coûtent ~1 000 tokens sur 3 500 (29 %), et une seule ~210 (6 %). `[HYPOTHÈSE]`, à régler aux
-    # témoins comme les autres bornes de l'étape.
-    facette_reserve_max_part: float = Field(0.5, gt=0, le=1)
-    # Correctif du tour 3 (R2). Un libellé de facette est une **phrase** ; `Index.chercher` est un
-    # lexique strictement littéral. « …par la fumée » ne rencontre donc jamais « Les fumées et les
-    # suies », et aucune phrase de facette n'atteint jamais `full_matches > 0` — mesuré sur les six
-    # libellés des trois runs A16, sur le contrat servi. La requête de facette ajoute donc à son
-    # libellé les **formes de nombre régulières** de ses mots, comme variantes du même canonique.
-    #
-    # Toutes, ce serait pire que rien : `dommages`, `liés`, `salon` sont des mots que le document
-    # porte partout, et une variante d'un mot fréquent est pleinement couverte par des dizaines de
-    # blocs — la garde de R1 redeviendrait inerte, et le rang 0 repartirait au bruit (mesuré :
-    # 8 à 20 blocs pleins par libellé). Seuls les mots que le document porte **rarement** nomment
-    # une clause plutôt que son sujet.
+    # Pourquoi il est borné. Toutes, ce serait pire que rien : `dommages`, `liés`, `salon` sont des
+    # mots que le document porte partout, et une variante d'un mot fréquent est pleinement couverte
+    # par des dizaines de blocs — la proposition repartirait au bruit (mesuré : 8 à 20 blocs pleins
+    # par libellé). Seuls les mots que le document porte **rarement** nomment une clause plutôt que
+    # son sujet.
     #
     # Une **part** des blocs, jamais un compte : un document deux fois plus long porterait deux fois
     # plus de blocs pour le même mot. Mesuré sur le contrat servi (1 400 blocs) : `fumées` et
     # `suies` 0,07 %, `bris` 0,57 % — contre `liés` 1,36 %, `dommage` 2,9 %, `dommages` 8,9 %. 1 %
     # sépare les deux familles avec de la marge des deux côtés. `[HYPOTHÈSE]`, à régler aux témoins.
-    facette_variante_max_part: float = Field(0.01, gt=0, le=1)
+    variante_nombre_max_part: float = Field(0.01, gt=0, le=1)
     # Correctif du tour 5 (C8), **le seuil frère du précédent, et il en est bien un**. Le raisonnement
-    # est mot pour mot celui de `facette_variante_max_part` : une forme d'**un seul mot** que le
+    # est mot pour mot celui de `variante_nombre_max_part` : une forme d'**un seul mot** que le
     # document porte partout est pleinement couverte par des dizaines de blocs, et le `full_matches`
     # sur lequel toute la sélection par sous-question repose depuis R1 redevient inerte. La seule
     # différence est la provenance de la forme — dérivée par le code là-bas, **écrite dans le
@@ -670,7 +636,7 @@ class Settings(BaseSettings):
     # n'est jamais une garantie, c'est une chance de relire. Relever ce plafond est une décision de
     # coût, mesurable par l'orchestrateur, qui appartient au gate 4.5.
     # **10, et non 9 (02/09/2026, correctif du tour 2).** La séquence la plus longue en consomme
-    # exactement neuf — *comprendre*, les **trois** tours de navigation (`max_llm_turns`, dont le
+    # exactement neuf — *comprendre*, les **trois** tours de la navigation par outils, dont le
     # tour de conclusion sans lequel aucun verdict de suffisance n'est atteignable), *rédiger*,
     # *vérifier*, la relance d'AD-3 (`APPELS_DE_LA_RELANCE` = 2) et la reprise de 4.2e
     # (`APPELS_DE_LA_REPRISE` = 1). Le plafond est donc `9 + 1`, et ce `+1` est le premier retry
@@ -688,20 +654,6 @@ class Settings(BaseSettings):
     # boucle. Le garde-fou du coût reste ailleurs et s'applique avant chaque envoi
     # (`max_cost_eur_per_request`), tout comme la deadline.
     max_llm_attempts: int = Field(15, ge=1)
-    # Correctif du tour 2 (cause R2/R5). **À deux tours, le verdict terminal de la navigation est
-    # inatteignable** : le tour 0 cherche, le tour 1 ouvre, et les résultats du tour 1 ne sont
-    # jamais réinjectés (le dialogue s'arrête). Le navigateur ne voit donc jamais ce qu'il a ouvert,
-    # ne peut constater aucun manque par sous-question, et ne rend aucun verdict — les trois runs
-    # A16 montrent deux appels et une suffisance toujours refusée, donc le bandeau « je n'ai pas pu
-    # lire tout ce qui pouvait concerner votre question » sur une réponse parfaitement sourcée.
-    #
-    # Coût du troisième tour : **un appel `reason` de plus, et seulement quand le navigateur a
-    # encore appelé un outil au deuxième**. Mesuré sur les traces A16, l'étape *retrouver* coûte
-    # 0,047 € et 8,5-9,9 s pour deux appels ; le tour de conclusion en ajoute donc ~0,015-0,024 € et
-    # ~2-5 s, sur une requête à 0,17-0,20 € et 60-74 s — soit ~+10 % de coût et ~+5 % de latence au
-    # pire, sur une deadline de 100 s dont 26 à 40 restaient libres. Ce tour n'ouvre pas plus : il
-    # reste borné par `max_opens`, `retrieval_max_blocks` et `retrieval_max_tokens`.
-    max_llm_turns: int = Field(3, ge=1, le=3)
     # Décision 2.6 mesurée : Haiku réduit le coût de navigation. `reason` reste autorisé pour
     # rejouer l'arbitrage, mais n'est plus le défaut.
     # Le triplet servi vient d'un artefact versionné unique. Les champs restent surchargeables par
@@ -709,8 +661,14 @@ class Settings(BaseSettings):
     # Une nouvelle instance relit l'artefact : après promotion atomique, HTTP, pipeline direct et
     # runner convergent au prochain démarrage/chargement sans dépendre d'une constante importée
     # avant la publication. Les variables d'environnement gardent leur priorité Pydantic normale.
-    # « navigation » est le chemin servi depuis l'amendement AD-1 du 03/09/2026 ; les trois autres
-    # restent réglables pour rejouer une comparaison, et ne sont plus servies.
+    # « navigation » est le chemin servi depuis l'amendement AD-1 du 03/09/2026, et depuis la tâche
+    # T2 c'est le seul du sinistre ; `full_context` reste réglable pour rejouer une comparaison sur
+    # le guide. `deterministe` et `outils` **n'existent plus** : leur code a été supprimé. Elles
+    # restent **nommables** ici parce que la matrice de comparaison 4.4 (`server/evals/baselines.py`)
+    # et sa preuve scellée les nomment, et que resserrer ce `Literal` rendrait cette matrice
+    # illisible avant qu'un protocole de remplacement ait été mesuré (T6). Les demander au service
+    # ne dégrade rien en silence : les deux pipelines refusent la variante par `InvalidRequest`,
+    # **avant** le premier appel facturé, et `data/retrieval-default.json` sert `navigation`.
     retrieval_variant: Literal["navigation", "deterministe", "outils",
                                "full_context"] = RETRIEVAL_DEFAULT.variant
     retrouver_outils_tier: Literal["micro", "reason"] = RETRIEVAL_DEFAULT.tier
@@ -759,23 +717,12 @@ class Settings(BaseSettings):
     # faits de blocs longs et laisse une marge mesurée jusque dans l'enveloppe multilingue « arrivée »
     # aux JSON / identifiants de 30 blocs ; le nombre de blocs ne sert plus de point d'équilibre.
     retrieval_max_tokens: int = Field(3500, ge=1)
-    # Correctif du tour 6 (F1). **Une énumération est une unité de lecture, tant qu'elle en reste
-    # une.** Les périls d'une même garantie se qualifient les uns les autres — « même lorsqu'il n'y
-    # a pas eu embrasement, ni commencement d'incendie » du sixième péril dit quelque chose des cinq
-    # autres —, et les lire séparément fait mentir chacun par omission. Au-delà de cette borne,
-    # l'unité redevient l'amorce et l'item demandé : c'est le comportement d'avant ce correctif, et
-    # il reste juste ; ce qui serait faux est de transmettre un article entier pour une feuille.
-    #
-    # Mesuré hors ligne sur les documents servis : le contrat AXA porte **22 énumérations** (médiane
-    # 6 blocs, maximum 15 ; tokens p50 592, p75 799, p90 1 261, maximum 1 526) ; Baloise et le guide
-    # n'en portent **aucune** au sens structurel retenu — la borne n'y change donc rien. L'unité du
-    # cas mesuré, « Étendue de la garantie » incendie, vaut **593 tokens** pour 7 blocs.
-    #
-    # 900 : les 17 énumérations sur 22 qui sont des énumérations de règles passent, les 5 qui sont
-    # des articles déguisés (925 à 1 526) sont refusées, et une unité ne peut jamais occuper plus du
-    # quart de `retrieval_max_tokens` — deux sous-questions apportant chacune la leur laissent donc
-    # plus de la moitié du budget au navigateur. `[HYPOTHÈSE]`, à régler aux témoins.
-    enumeration_max_tokens: int = Field(900, ge=1)
+    # Correctif du tour 6 (F1). **Une énumération est une unité de lecture** — les périls d'une même
+    # garantie se qualifient les uns les autres, et les lire séparément fait mentir chacun par
+    # omission. La borne en tokens que *retrouver* lui appliquait (`enumeration_max_tokens`) est
+    # partie avec lui en T2 : sur le chemin servi, `ouvrir_noeud` rend le nœud entier **et** ses
+    # enfants feuilles à un seul bloc (`steps/naviguer.py::blocs_du_noeud`), donc l'amorce et ses
+    # items ensemble, et la lecture entière est bornée par `navigation_budget_tokens`.
 
     # Coût (AD-9, AD-10).
     # **0,45 €, et non 0,18 (02/09/2026, tour « budgets Sonnet »).** 0,18 € datait du chiffrage fait
@@ -959,7 +906,7 @@ class Settings(BaseSettings):
     # d'un nombre d'entrées fixe.** Une taille de page constante (40) traitait de la même façon un
     # contrat profond de 750 nœuds longs et un guide plat de 87 fiches courtes : le second n'était
     # plus vu qu'aux 40 premières entrées, et les suivantes n'étaient plus atteignables que par
-    # `chercher` — avec un seul tour outillé pour paginer, chercher et ouvrir (`max_llm_turns`).
+    # `chercher` — avec un seul tour outillé pour paginer, chercher et ouvrir.
     # Ces deux seuils sont un **budget**, pas une taille : `Index.sommaire_page` en déduit, pour
     # chaque document, combien d'entrées tiennent dans une page et quelle longueur d'aperçu chacune
     # peut porter. Un document plat et large reçoit donc sa carte entière avec son signal ; un
@@ -970,7 +917,7 @@ class Settings(BaseSettings):
     # `summary_page_max_chars` — le budget d'une carte **complète** : le document entier, avec son
     # aperçu, dans le préfixe cacheable de navigation. Il est cher (~4 250 tokens à l'heuristique du
     # dépôt) et il vaut son prix, parce qu'il **remplace la pagination** : le navigateur voit tout
-    # le document en un tour, ce qui compte quand `max_llm_turns` n'en laisse qu'un d'outillé. Le
+    # le document en un tour, ce qui comptait quand un seul tour était outillé. Le
     # guide (87 fiches, 16 008 caractères mesurés) entre dedans.
     summary_page_max_chars: int = Field(17000, ge=200)
     # `summary_slice_max_chars` — le budget d'une carte **partielle**, pour un document qui ne tient
@@ -1367,7 +1314,6 @@ class Settings(BaseSettings):
     # `navigation_max_llm_turns` : le plafond de **sûreté** des tours d'outils, pas une cible. La
     # série réelle en a employé 2 à 4 ; 8 laisse la place d'une recherche infructueuse suivie d'une
     # exploration, et c'est le budget de lecture — non le nombre de tours — qui borne la dépense.
-    # Distinct de `max_llm_turns` (≤ 3), qui borne la variante `outils` que cette story ne sert plus.
     navigation_max_llm_turns: int = Field(8, ge=1)
     # `navigation_budget_tokens` : ce que la **lecture** peut coûter, tous nœuds ouverts confondus.
     # Appliqué au refus, jamais à la sélection (le code ne coupe rien en silence : il refuse une
@@ -1501,12 +1447,6 @@ class Settings(BaseSettings):
             raise ValueError(f"llm_timeout_s ({self.llm_timeout_s}) doit être < deadline_s ({self.deadline_s})")
         if self.llm_retry_margin_s >= self.deadline_s:
             raise ValueError(f"llm_retry_margin_s ({self.llm_retry_margin_s}) doit être < deadline_s ({self.deadline_s})")
-        if self.profil_max_opens >= self.max_opens:
-            # Le même invariant que `RetrievalBudget`, vérifié **au démarrage** : une configuration
-            # contradictoire (`MAX_OPENS=2` dans un `.env`) doit refuser de booter, pas produire un
-            # `RetrievalBudget` invalide à la première question (revue coordonnée 2.3, A4).
-            raise ValueError(f"profil_max_opens ({self.profil_max_opens}) doit être < max_opens "
-                             f"({self.max_opens}) : le profil ordonne, il ne remplace pas la question")
         tiers_proteges = {
             "comprendre_tier": self.comprendre_tier,
             "verifier_tier": self.verifier_tier,
@@ -1669,7 +1609,6 @@ class Settings(BaseSettings):
             "quote_min_chars": self.quote_min_chars,
             "quote_min_ratio": self.quote_min_ratio,
             "max_opens": self.max_opens,
-            "profil_max_opens": self.profil_max_opens,
             "navigation_max_llm_turns": self.navigation_max_llm_turns,
             "navigation_budget_tokens": self.navigation_budget_tokens,
             "navigation_search_limit": self.navigation_search_limit,
@@ -1677,9 +1616,7 @@ class Settings(BaseSettings):
             "navigation_draft_max_segments": self.navigation_draft_max_segments,
             "navigation_rediger_max_tokens": self.navigation_rediger_max_tokens,
             "navigation_tier_reason": int(self.navigation_tier == "reason"),
-            "facette_max_opens": self.facette_max_opens,
-            "facette_reserve_max_part": self.facette_reserve_max_part,
-            "facette_variante_max_part": self.facette_variante_max_part,
+            "variante_nombre_max_part": self.variante_nombre_max_part,
             "node_window": self.node_window,
             "search_limit": self.search_limit,
             "limite_liee_max": self.limite_liee_max,
@@ -1692,7 +1629,6 @@ class Settings(BaseSettings):
             "pdf_render_max_pixels": self.pdf_render_max_pixels,
             "pdf_render_queue_timeout_s": self.pdf_render_queue_timeout_s,
             "max_llm_attempts": self.max_llm_attempts,
-            "max_llm_turns": self.max_llm_turns,
             "retrouver_outils_max_tokens": self.retrouver_outils_max_tokens,
             "retrieval_max_blocks": self.retrieval_max_blocks,
             "retrieval_max_tokens": self.retrieval_max_tokens,

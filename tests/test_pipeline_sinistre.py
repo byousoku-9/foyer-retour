@@ -4,6 +4,13 @@ la relance unique d'AD-3, les bornes d'entrée et la trace d'AD-10.
 Comme pour le guide, `FakeAnthropic` lève sur tout appel non scripté : la **longueur du script est
 une assertion**. C'est ainsi que « *vérifier* n'a fait qu'**un** appel `reason` » (AD-9 amendé) se
 vérifie sans compter les appels à la main.
+
+**Le chemin servi est la navigation par le modèle** (AD-1, amendement du 03/09/2026 ; story 5.6,
+T2) : *retrouver* est une conversation où le modèle ouvre lui-même ce qu'il lit, et l'ébauche est le
+message suivant du **même** fil. Tout script de ce fichier porte donc, entre *comprendre* et
+*rédiger*, un préambule de lecture de deux appels — inséré par `_run` quand le témoin ne le
+scripte pas lui-même. Les variantes `outils` et `deterministe` ont disparu avec les passes de code
+qui choisissaient ce que la rédaction verrait, et leurs témoins avec elles.
 """
 
 from __future__ import annotations
@@ -34,10 +41,8 @@ from server.app.domain.errors import (
 )
 from server.app.domain.ingest import Gate, ManifestEntry
 from server.app.domain.question import Faits, ParsedQuestion
-from server.app.domain.retrieval import FacetteCouverture, RetrievalResult
-from server.app.domain.trace import CheckResult, StepTrace
+from server.app.domain.trace import StepTrace
 from server.app.domain.verdict import (
-    KINDS_DECISIONNELS,
     ChampsApplicabilite,
     ClaimJugee,
     ClauseCitee,
@@ -48,8 +53,6 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.pipelines import sinistre
-from server.app.steps import retrouver as retrouver_module
-from server.app.pipelines.commun import retrieval_budget
 from server.app.steps.restituer import PHRASES_DE_LACUNE, PHRASES_DE_REFUS_SINISTRE
 from tests.llm_fake import FakeAnthropic, fake_message, provider_exception
 
@@ -138,7 +141,15 @@ def _settings(**kw) -> Settings:
 
 
 def _budget(deadline_s: float = 100.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=6, max_cost_eur=0.20)
+    """Le plafond d'appels par défaut du fichier.
+
+    Huit, et non plus six, depuis que le chemin servi est la navigation par le modèle (amendement
+    AD-1 du 03/09/2026) : la chaîne la plus longue de ce fichier paie *comprendre* (1), les deux
+    tours de lecture (2), l'ébauche (1), le contrôle (1), puis la relance d'AD-3 et sa vérification
+    (2) — sept appels. Le plafond n'est pas ce qui est mesuré ici ; les témoins qui l'éprouvent
+    posent le leur, chiffré sur la chaîne qu'ils veulent arrêter.
+    """
+    return RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.20)
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
@@ -158,26 +169,6 @@ def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
         "moment": "2026-08-01",
         # `champs` en dernier : ce que le test surcharge l'emporte sur le défaut.
         **champs}))
-
-
-def _outils(*, termes: list[str] | None = None, node_id: str | None = None,
-            stop_reason: str = "tool_use", **fenetre) -> dict:
-    """Un tour de navigation par outils sur le mini-contrat témoin de ce fichier.
-
-    Le même motif de scriptage qu'au guide (`tests/test_pipeline_guide.py`) : `FakeAnthropic` rend
-    un message `tool_use`, et *retrouver* exécute réellement les outils sur l'index. Il ne sert
-    qu'aux tests de route déjà écrits, que le changement de défaut de la story 4.2d oblige à
-    scripter une navigation ; les preuves de 4.2d, elles, ont leur corpus neutre et leur propre
-    `_navigation`.
-    """
-    contenu: list[dict] = []
-    if termes is not None:
-        contenu.append({"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
-                        "input": {"termes": termes}})
-    if node_id is not None:
-        contenu.append({"type": "tool_use", "id": "toolu_ouvrir", "name": "ouvrir_noeud",
-                        "input": {"node_id": node_id, **fenetre}})
-    return fake_message(model=TIERS["micro"], stop_reason=stop_reason, content=contenu)
 
 
 def _rediger(*claims: tuple[str, str, list[tuple[str, str]]]) -> dict:
@@ -241,21 +232,76 @@ def _verifier(*entrees: tuple, nb_segments: int = 8, enumere: bool = True,
 
 
 # Sentinelle : « n'envoie pas `variant` du tout » — le seul moyen d'éprouver le **défaut** du
-# pipeline (story 4.2d). Le défaut du helper reste `deterministe` : tous les tests écrits avant
-# cette story demandent donc explicitement la baseline, et continuent de mesurer ce qu'ils mesuraient.
-# Depuis l'amendement AD-1 du 03/09/2026, le défaut du **pipeline** est `navigation` : les témoins
-# de la variante `outils` la demandent donc explicitement, et le chemin servi est éprouvé par
-# `tests/test_naviguer.py` et par les témoins de bout en bout.
+# pipeline. C'est le défaut du helper depuis l'amendement AD-1 du 03/09/2026 : la navigation par le
+# modèle est le seul chemin servi, donc le seul que ces témoins ont à mesurer. Les variantes
+# `outils` et `deterministe` ont disparu du pipeline (story 5.6, T2) et avec elles les passes de
+# code qui choisissaient ce que la rédaction verrait.
 SANS_VARIANTE = object()
+
+# Les deux nœuds du mini-contrat témoin. Les ouvrir tous les deux rend ses six blocs citables :
+# c'est la lecture la plus large que ce contrat autorise, donc la seule qui ne décide **rien** à la
+# place du script qui la suit. Un témoin qui veut une lecture plus étroite pose la sienne.
+NOEUDS_DU_MINI_CONTRAT = (f"{DOC_ID}:socle", f"{DOC_ID}:ext")
+
+# Sentinelle : « insère le préambule de lecture standard ». `lecture=[]` dit l'inverse — la chaîne
+# n'atteint pas *retrouver* (refus d'AD-5, borne d'entrée), ou le script porte déjà sa navigation.
+LECTURE_STANDARD = object()
+
+
+def _lecture(*node_ids: str, termes: list[str] | None = None) -> list[dict]:
+    """Le préambule de lecture du **chemin servi** : un tour d'outils, puis la fin de lecture.
+
+    Depuis l'amendement AD-1 du 03/09/2026, *retrouver* est une conversation : le modèle ouvre
+    lui-même les nœuds qu'il veut lire, puis rend un tour **sans outil** qui clôt la lecture, et
+    l'ébauche est le message suivant du même fil (`steps/naviguer.py`). Deux appels, donc, entre
+    *comprendre* et *rédiger* — c'est cette longueur-là que les témoins de ce fichier comptent.
+    """
+    contenu: list[dict[str, Any]] = []
+    if termes is not None:
+        contenu.append({"type": "tool_use", "id": "toolu_chercher", "name": "chercher",
+                        "input": {"termes": termes}})
+    for rang, node_id in enumerate(node_ids):
+        contenu.append({"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
+                        "input": {"node_id": node_id}})
+    return [fake_message(model=TIERS["reason"], stop_reason="tool_use", content=contenu),
+            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="J'ai fini de lire.")]
+
+
+def _lecture_vide() -> list[dict]:
+    """Le navigateur conclut sans rien ouvrir : un seul tour, aucun bloc citable.
+
+    C'est la forme que prend, sur le chemin servi, « la recherche n'a rapporté aucun bloc » : le
+    pipeline refuse alors avec son verdict, exactement comme avant.
+    """
+    return [fake_message(model=TIERS["reason"], stop_reason="end_turn", text="Rien à ouvrir.")]
+
+
+# Le budget de lecture qui laisse passer le premier nœud et refuse le second, sur les deux corpus
+# témoins de ce fichier (mini-contrat : 342 puis 103 tokens ; corpus neutre : 341 puis 80). C'est la
+# seule façon de borner une lecture sur le chemin servi : `retrieval_max_blocks` ne coupe plus rien
+# puisque aucune passe de code ne sélectionne les blocs — c'est le modèle qui ouvre, et c'est
+# `navigation_budget_tokens` qui lui refuse le nœud de trop (`steps/naviguer.py`).
+BUDGET_DE_LECTURE_BORNEE = 400
 
 
 async def _run(index: Index, script: list, *, settings: Settings | None = None,
                budget: RequestBudget | None = None, faits=FAITS, doc_id: str | None = None,
-               variant: object = "deterministe", dossier: MissingPackage | None = None,
+               variant: object = SANS_VARIANTE, dossier: MissingPackage | None = None,
                lang: str | None = None, question: str = QUESTION,
+               lecture: object = LECTURE_STANDARD,
                dictionnaire: Dictionnaire | None = None):
+    """Scripte une requête sinistre de bout en bout sur le **chemin servi**.
+
+    Le préambule de lecture est inséré juste après *comprendre*, à l'endroit exact où le pipeline
+    ouvre sa conversation de navigation : le script que le témoin écrit reste donc celui de ce qu'il
+    mesure — l'ébauche, le contrôle, la relance — et la lecture, qui n'est le sujet d'aucun d'eux,
+    n'a pas à être recopiée cent fois.
+    """
     settings = settings or _settings()
-    fake = FakeAnthropic(script)
+    tours = list(_lecture(*NOEUDS_DU_MINI_CONTRAT) if lecture is LECTURE_STANDARD else lecture)
+    # Un script vide n'atteint aucun appel (borne d'entrée refusée) : rien à insérer.
+    complet = [script[0], *tours, *script[1:]] if script else list(script)
+    fake = FakeAnthropic(complet)
     client = LlmClient(settings, anthropic_client=fake)
     variante = {} if variant is SANS_VARIANTE else {"variant": variant}
     answer, trace = await sinistre.run(doc_id, question, faits, corpus=index.corpus, index=index,
@@ -302,10 +348,12 @@ async def test_the_candle_case_runs_the_five_steps_and_carries_its_verdict(
         _verifier(("c1", True, False, False, False, "caractère subit de l'action de la chaleur"),
                   ("c2", True, False, False, False, None),
                   ("c3", True, False, False, False, None))])
-    assert fake.remaining_script == 0 and len(fake.requests) == 3  # reason, reason, reason
-    assert fake.requests[1]["max_tokens"] == _settings().rediger_max_tokens == 2048
+    # Cinq appels : *comprendre*, les deux tours de lecture de la navigation, l'ébauche rendue
+    # dans le même fil, puis l'unique appel de *vérifier*.
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
+    assert fake.requests[3]["max_tokens"] == _settings().rediger_max_tokens == 2048
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    assert trace.pipeline == "sinistre" and trace.variant == "deterministe"
+    assert trace.pipeline == "sinistre" and trace.variant == "navigation"
     assert len(next(s for s in trace.steps if s.name == "verifier").calls) == 1
     # Story 2.5 : la même trace que le guide sait nommer les clauses du contrat et son gate ; le
     # pipeline sinistre n'a pas de dictionnaire et ne prétend donc pas en avoir consulté un.
@@ -353,12 +401,11 @@ def test_la_trace_riche_du_vrai_pipeline_traverse_la_route_http(
     from server.app.api.main import create_app
 
     # La route ne transporte pas `variant` : c'est le **défaut du pipeline** qui est servi, et
-    # depuis la story 4.2d c'est la navigation par outils — d'où le tour d'outils dans le script.
+    # depuis l'amendement AD-1 du 03/09/2026 c'est la navigation par le modèle — d'où le tour
+    # d'outils, puis la fin de lecture, dans le script.
     script = [
-        _comprendre(), _outils(termes=["mobilier", "chaleur", "contenu"],
-                               node_id=f"{DOC_ID}:socle"),
-        fake_message(model=TIERS["reason"], stop_reason="end_turn",
-                     text=json.dumps({"sufficient": False, "result_uid": None})),
+        _comprendre(),
+        *_lecture(f"{DOC_ID}:socle", termes=["mobilier", "chaleur", "contenu"]),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -401,9 +448,7 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
     script = [
         _comprendre(cause="fuite progressive depuis des mois",
                     evenement="effondrement soudain du plafond", moment="hier"),
-        _outils(termes=["mobilier", "chaleur", "contenu"], node_id=f"{DOC_ID}:socle"),
-        fake_message(model=TIERS["reason"], stop_reason="end_turn",
-                     text=json.dumps({"sufficient": False, "result_uid": None})),
+        *_lecture(f"{DOC_ID}:socle", termes=["mobilier", "chaleur", "contenu"]),
         _rediger(GAR),
         _verifier(("c1", True, True, False, False, None)),
     ]
@@ -437,22 +482,24 @@ def test_la_chronologie_structuree_traverse_le_pipeline_et_la_route_http(
     assert description_brute not in answer["texte"]
 
 
-async def test_un_autre_contrat_ne_recoit_pas_les_aliases_lexicaux_axa(
-        index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_un_autre_contrat_ne_recoit_pas_les_aliases_lexicaux_axa(index: Index) -> None:
+    """Sans dictionnaire du document interrogé, rien n'élargit ce que la recherche porte.
+
+    Le point de mesure suit le chemin servi : ce ne sont plus les termes remis à une passe de code
+    qui portent la garde — il n'y en a plus —, mais ceux que le pipeline **transmet au navigateur**
+    (`Navigation._demande`) puis ceux que la preuve d'absence publie. C'est là, et nulle part
+    ailleurs, qu'un alias d'un autre contrat pourrait entrer.
+    """
     terme = "dommages causés par un animal"
-    recus: list[list[str]] = []
-
-    def retrouver_capture(parsed, **_kw):
-        recus.append(list(parsed.terms))
-        return RetrievalResult(), StepTrace(name="retrouver", tier="reason")
-
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", retrouver_capture)
-    answer, trace, fake = await _run(index, [_comprendre(terms=[terme])])
+    answer, trace, fake = await _run(index, [_comprendre(terms=[terme])],
+                                     lecture=_lecture_vide())
 
     assert fake.remaining_script == 0
-    assert recus == [[terme]]
+    demande = fake.requests[1]["messages"][0]["content"]
+    assert f'"termes": ["{terme}"]' in demande
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit" and answer.reason.terms_searched == [terme]
+    assert answer.reason.variants_count == 0
     assert [step.name for step in trace.steps] == ["comprendre", "retrouver", "restituer"]
 
 
@@ -471,32 +518,37 @@ async def test_une_variante_du_contrat_change_la_recherche_sans_fuite_inter_cont
         [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")],
     )
 
+    # Le navigateur cherche l'alias : c'est l'outil `chercher` que le dictionnaire élargit
+    # désormais (`Navigation._mapping`), et le résultat qu'il rend au modèle est la seule trace
+    # observable de cet élargissement — aucune passe de code n'ouvre plus de bloc à sa place.
     answer, trace, fake = await _run(index, [
         _comprendre(terms=[alias]), _rediger(MAUVAISE), _rediger(seconde_mauvaise),
-    ], dictionnaire=dictionnaire)
-    retrouver = next(step for step in trace.steps if step.name == "retrouver")
+    ], dictionnaire=dictionnaire,
+        lecture=_lecture(f"{DOC_ID}:socle", termes=[alias]))
     assert fake.remaining_script == 0
-    assert retrouver.opened_block_ids, "la variante devait ouvrir les blocs portant le canonique"
-    assert f"{DOC_ID}:p1:2" in retrouver.opened_block_ids
+    candidats = fake.requests[2]["messages"][-1]["content"][0]["content"]
+    assert f"{DOC_ID}:p1:2" in candidats, "la variante devait proposer les blocs portant le canonique"
     assert answer.reason is not None and answer.reason.kind == "claims_rejetes"
     assert answer.reason.terms_searched == [canonique]
     assert answer.reason.variants_count == 1
     assert trace.dictionnaire is not None
     assert trace.dictionnaire.model_dump() == {
         "charge": True, "validated": True, "corpus_ok": True, "court_circuit_actif": False}
-    controle = next(c for c in retrouver.checks if c.name == "dictionnaire")
-    assert controle.detail == "1 variante(s) ajoutée(s) à 1 terme(s)"
 
     dictionnaire_autre = Dictionnaire(
         charge=True, doc_id="autre-contrat", validated=True, corpus_ok=True, canoniques=1,
         _groupes=dictionnaire._groupes, _canoniques=dictionnaire._canoniques,
     )
     sans_fuite, trace_sans_fuite, fake_sans_fuite = await _run(
-        index, [_comprendre(terms=[alias])], dictionnaire=dictionnaire_autre)
+        index, [_comprendre(terms=[alias])], dictionnaire=dictionnaire_autre,
+        lecture=_lecture(termes=[alias]))
     retrouver_sans_fuite = next(step for step in trace_sans_fuite.steps if step.name == "retrouver")
     assert fake_sans_fuite.remaining_script == 0
+    # Le dictionnaire d'un autre contrat n'élargit rien : la même recherche ne rapporte plus rien,
+    # et il n'y a donc aucun bloc à ouvrir.
+    assert fake_sans_fuite.requests[2]["messages"][-1]["content"][0]["content"] == (
+        "aucun candidat pour ces termes.")
     assert retrouver_sans_fuite.opened_block_ids == []
-    assert all(c.name != "dictionnaire" for c in retrouver_sans_fuite.checks)
     assert sans_fuite.reason is not None and sans_fuite.reason.kind == "zero_hit"
     assert sans_fuite.reason.terms_searched == [alias]
     assert sans_fuite.reason.variants_count == 0
@@ -745,12 +797,15 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
     redactions = [request for request in fake.requests
                   if request["max_tokens"] == settings.rediger_max_tokens]
     assert len(redactions) == 2
+    # La première ébauche est demandée dans le fil de la lecture, sur les seuls blocs ouverts : le
+    # plan composé par le code a disparu avec la variante `deterministe` (story 5.6, T2), et c'est
+    # `steps/naviguer.py` qui rédige maintenant. Ce que ce témoin mesure — la relance qui rend la
+    # fondatrice vérifiable sans lâcher la définition acquise — se lit sur le second message.
     premiere_consigne = redactions[0]["messages"][-1]["content"]
-    assert "Plan de sortie : 1 sous-question(s)" in premiere_consigne
-    assert f"Définitions applicables à rendre vérifiables : {DOC_ID}:p1:4" in premiere_consigne
+    assert "Tu as fini de lire" in premiere_consigne
     consigne_relance = redactions[1]["messages"][-1]["content"]
     assert "règle conditionnelle que le passage énonce" in consigne_relance
-    assert f"Acquis à reconduire pendant la relance : {DOC_ID}:p1:4" in consigne_relance
+    assert f"Acquis à reconduire : {DOC_ID}:p1:4" in consigne_relance
     assert [step.name for step in trace.steps].count("rediger") == 2
     assert [claim.claim_id for claim in answer.claims] == ["c2", "c1"]
     assert answer.verdict is not None
@@ -819,7 +874,8 @@ async def test_a_rejected_claim_triggers_one_retry_then_refuses_with_a_verdict(i
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(MAUVAISE), _rediger(("c9", "Autre tentative, aussi fausse.",
                                                      [(f"{DOC_ID}:p1:2", "couvert à quatre-vingt pour cent")]))])
-    assert fake.remaining_script == 0 and len(fake.requests) == 3  # comprendre, rédiger, rédiger
+    # comprendre, les deux tours de lecture, rédiger, rédiger : la longueur reste l'assertion.
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "rediger", "verifier", "restituer"]
     assert answer.found is False
@@ -855,7 +911,10 @@ async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence
     écartées, et le `ne_tranche_pas` calculé par la règle (0bis) d'AD-6 — jamais un verdict de
     remplacement.
     """
-    settings = _settings(retrieval_max_blocks=1)
+    # La lecture est bornée par le **budget de lecture** : le navigateur ouvre le socle, puis se
+    # voit refuser l'annexe faute de tokens. C'est la seule borne du chemin servi — aucune passe de
+    # code ne coupe plus une liste de blocs (story 5.6, T2).
+    settings = _settings(navigation_budget_tokens=BUDGET_DE_LECTURE_BORNEE)
     answer, trace, _fake = await _run(
         index, [_comprendre(), _rediger(MAUVAISE),
                 _rediger(("c9", "Autre tentative, aussi fausse.",
@@ -866,7 +925,7 @@ async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence
                                              "rediger", "verifier", "restituer"]
     assert answer.found is False and answer.complete is False and answer.reason is None
     assert answer.lecture_partielle is not None
-    assert answer.lecture_partielle.blocks_read == 1 and answer.lecture_partielle.nodes_read == 1
+    assert answer.lecture_partielle.blocks_read == 5 and answer.lecture_partielle.nodes_read == 1
     assert answer.lecture_partielle.documents == [DOC_ID]
     assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
     # AD-6/AD-16 : jamais un sinistre sans verdict, et jamais un verdict de remplacement.
@@ -885,10 +944,10 @@ async def test_une_contradiction_sur_un_segment_identique_ne_vide_plus_une_lectu
     Le vrai zéro-claim tronqué, lui, rend depuis la story 4.2f un 200 typé portant une
     `LecturePartielle` (test ci-dessus) — et non plus un `TruncatedRead`.
 
-    `retrieval_max_blocks=4` : la lecture est bien tronquée (l'exclusion `p2:1` reste fermée,
+    Le budget de lecture borné : la lecture est bien tronquée (l'exclusion `p2:1` reste fermée,
     `trace.truncations == 1`) **et** la clause citée `p1:2` est fournie — c'est la configuration de
     l'incident : la seule anomalie est la contradiction, pas la citation."""
-    settings = _settings(retrieval_max_blocks=4)
+    settings = _settings(navigation_budget_tokens=BUDGET_DE_LECTURE_BORNEE)
     texte = "Les dégâts au mobilier par action subite de la chaleur sont couverts."
     identique = fake_message(model=TIERS["reason"], text=json.dumps({
         "segments": [{"text": texte, "kind": "factuel", "claim_ids": ["c1"]}],
@@ -982,7 +1041,7 @@ async def test_une_definition_seule_declenche_la_relance_vers_la_fondatrice_retr
                   ("c2", True, False, False, False, None))])
 
     assert fake.remaining_script == 0
-    relance = fake.requests[3]["messages"][-1]["content"]
+    relance = fake.requests[5]["messages"][-1]["content"]
     assert "clause décisionnelle confirmée pourtant retrouvée" in relance
     assert f"{DOC_ID}:p1:2" in relance
     assert "sans décider de son applicabilité" in relance
@@ -1078,7 +1137,7 @@ async def test_une_fondatrice_omise_sans_place_ne_lance_pas_de_relance_tronquant
         _verifier(("c2", True, False, False, False, None))],
         settings=_settings(draft_max_claims=1))
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert [c.claim_id for c in answer.claims] == ["c2"]
     assert any(check.name == "relance_fondatrice_sans_place"
                for step in trace.steps for check in step.checks)
@@ -1100,7 +1159,7 @@ async def test_une_relance_saturee_nest_pas_lancee_quand_une_limite_acquise_tomb
                   facettes=[["c2"], ["c5"]])],
         settings=_settings(draft_max_claims=3, draft_max_segments=3))
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
     assert any("franchise" in u for u in answer.unknown)
     assert any(check.name == "relance_sans_place_pour_les_limites"
@@ -1122,7 +1181,7 @@ async def test_la_reproduction_codex_deux_acquis_bornes_et_une_limite_reste_enti
                   facettes=[["c2"], ["c5"]])],
         settings=_settings(draft_max_claims=2, draft_max_segments=4))
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
     assert any("franchise" in u for u in answer.unknown)
     assert any(check.name == "relance_fondatrice_sans_place"
@@ -1150,7 +1209,7 @@ async def test_une_limite_rejetee_ne_bloque_pas_la_relance_fondatrice(index: Ind
                   facettes=[["c1", "c2"], ["c5"]])],
         settings=_settings(draft_max_claims=3, draft_max_segments=3))
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 5
+    assert fake.remaining_script == 0 and len(fake.requests) == 7
     assert {c.claim_id for c in answer.claims} == {"c1", "c2", "c5"}
     assert not any(check.name == "relance_sans_place_pour_les_limites"
                    for step in trace.steps for check in step.checks)
@@ -1175,7 +1234,7 @@ async def test_des_limites_dupliquees_sont_normalisees_avant_la_premiere_verific
                   facettes=[["c2"], ["c5"]])],
         settings=_settings(draft_max_claims=3, draft_max_segments=3))
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert {c.claim_id for c in answer.claims} == {"c2", "c5"}
     # Normalisée à la source : une seule réserve, des deux côtés de toute comparaison (le second
     # élément d'`unknown` est la lacune projetée de la relance abandonnée, pas un doublon).
@@ -1251,7 +1310,7 @@ async def test_une_fondatrice_citee_ne_declenche_aucune_relance_supplementaire(i
         _comprendre(), _rediger(GAR),
         _verifier(("c1", True, True, False, False, None))])
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert [c.claim_id for c in answer.claims] == ["c1"]
 
 
@@ -1266,7 +1325,7 @@ async def test_une_fondatrice_non_confirmee_ne_declenche_pas_la_relance_fondatri
         _comprendre(), _rediger(DEF),
         _verifier(("c2", True, False, False, False, None))])
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    assert fake.remaining_script == 0 and len(fake.requests) == 5
     assert [c.claim_id for c in answer.claims] == ["c2"]
 
 
@@ -1419,24 +1478,24 @@ def test_la_fusion_saute_un_acquis_reconduit_a_lidentique() -> None:
     assert len(fusion.segments) == 1
 
 
-# --- variantes de *retrouver* (story 4.2d) -------------------------------------
-# AD-1, amendement du 25/08/2026 : « la navigation par outils est le mode par défaut de *retrouver* ;
-# la variante `deterministe` devient la baseline de comparaison des évals et le repli ». Le sinistre
-# ne connaissait qu'une variante — donc **toute** requête `POST /api/v1/sinistre`, dont le corps ne
-# porte pas de `variant`, empruntait encore le chemin déterministe.
+# --- le chemin servi de *retrouver* : la navigation par le modèle -----------------
+# AD-1, amendement du 03/09/2026 : « la navigation par le modèle est le chemin servi ». Depuis la
+# tâche T2 de la story 5.6, c'est le **seul** — les variantes `outils` et `deterministe` portaient
+# les passes de code qui choisissaient ce que la rédaction verrait (réservation par sous-question,
+# attribution lexicale, complétion par la couverture), et l'amendement les refuse.
 #
-# **Corpus propre à la story, volontairement neutre** (revue croisée 4.2d, I1). Les preuves qui
-# portent les AC de 4.2d ne lisent ni `DOC_ID`, ni la fixture `index`, ni `QUESTION`, `FAITS`, `GAR`
-# ou les `Q_*` du mini-contrat témoin : aucun assureur, aucun cas du golden set, aucun mot du cas
-# témoin (chaleur, mobilier, bougie, subite, incendie, contenu, brûlure). La story ne câble pas un
-# document ni un sinistre, elle câble une **variante** : ses preuves ne doivent donc rien devoir à
-# l'identité de ce qui est lu. Les tests des histoires antérieures gardent, eux, le mini-contrat
-# témoin qui les a écrits — il est leur sujet, pas un décor.
+# **Corpus volontairement neutre** (revue croisée 4.2d, I1). Les preuves qui portent ce chemin ne
+# lisent ni `DOC_ID`, ni la fixture `index`, ni `QUESTION`, `FAITS`, `GAR` ou les `Q_*` du
+# mini-contrat témoin : aucun assureur, aucun cas du golden set, aucun mot du cas témoin (chaleur,
+# mobilier, bougie, subite, incendie, contenu, brûlure). Ce qui est câblé ici n'est pas un document
+# ni un sinistre, c'est un **chemin** : ses preuves ne doivent donc rien devoir à l'identité de ce
+# qui est lu. Les tests des histoires antérieures gardent, eux, le mini-contrat témoin qui les a
+# écrits — il est leur sujet, pas un décor.
 #
 # L'idiome — corpus synthétique, puis **permutation** de ses identifiants — est celui de
 # `tests/test_metamorphique.py` (story 4.2b) : une décision qui bougerait sous permutation prouverait
 # un branchement sur l'identité, et c'est la garde que
-# `test_les_decisions_de_variante_survivent_a_la_permutation_du_corpus` tient plus bas.
+# `test_les_decisions_du_pipeline_survivent_a_la_permutation_du_corpus` tient plus bas.
 
 TERMES_NEUTRES = ("objet", "registre", "structure")
 QUESTION_NEUTRE = "La situation décrite relève-t-elle du texte applicable ?"
@@ -1529,7 +1588,7 @@ class CorpusNeutre(NamedTuple):
 
 
 def _corpus_neutre(identite: IdentiteNeutre) -> CorpusNeutre:
-    """Le corpus synthétique de 4.2d sous une identité donnée : un socle commun, une annexe."""
+    """Le corpus synthétique neutre sous une identité donnée : un socle commun, une annexe."""
     par_cle: dict[str, str] = {}
     blocs: list[dict[str, Any]] = []
     noeuds: list[Node] = []
@@ -1577,57 +1636,6 @@ def _corpus_neutre(identite: IdentiteNeutre) -> CorpusNeutre:
         identite=identite, par_cle=par_cle)
 
 
-def _corpus_http_a_fondatrice_tardive() -> CorpusNeutre:
-    """Quatre hits indépendants : seule la dernière place départage l'auxiliaire et la règle."""
-    identite = IdentiteNeutre(
-        doc_id="texte-neutre-priorite", page_socle=1, page_annexe=4, seq_depart=1,
-        socle="n1", annexe="n4", racine="n0")
-    clauses = (
-        ("auxiliaire_initiale", "condition",
-         "Signalbrut signalbrut signalbrut signalbrut formalité déclarée."),
-        ("auxiliaire_definition", "definition",
-         "Signalbrut signalbrut signalbrut objet inventorié."),
-        ("auxiliaire_contexte", "para", "Signalbrut signalbrut contexte général."),
-        ("fondatrice", "garantie", "Signalbrut règle décisionnelle de prise en charge."),
-    )
-    par_cle: dict[str, str] = {}
-    blocs: list[dict[str, Any]] = []
-    noeuds: list[Node] = []
-    for rang, (cle, kind, texte) in enumerate(clauses, start=1):
-        node_id = f"{identite.doc_id}:n{rang}"
-        block_id = f"{identite.doc_id}:p{rang}:1"
-        par_cle[cle] = block_id
-        bloc: dict[str, Any] = {
-            "block_id": block_id, "loc": f"p{rang}", "seq": 1,
-            "kind": kind, "text": texte,
-        }
-        if kind in {"condition", "definition", "garantie"}:
-            bloc["kind_source"] = "manual"
-            bloc["scope_node_id"] = node_id
-        if kind == "definition":
-            bloc["defines"] = "objet inventorié"
-        blocs.append(bloc)
-        noeuds.append(Node(
-            node_id=node_id, level=1, title=f"Section {rang}",
-            items=[{"block_id": block_id}]))
-    noeuds.append(Node(
-        node_id=identite.noeud(identite.racine), level=0, title="Texte applicable",
-        items=[{"node_id": node.node_id} for node in noeuds]))
-    document = Document(
-        doc_id=identite.doc_id, kind="contrat", title="Texte neutre", edition="2030",
-        nodes=noeuds, blocks=blocs)
-    for bloc in document.blocks:
-        bloc.text_norm = normalize(bloc.text)
-    manifest = {identite.doc_id: ManifestEntry(
-        status="servi", source_hash=f"sha-{identite.doc_id}", ingest_fingerprint="fp-priorite",
-        document_hash="sha-doc", edition="2030")}
-    return CorpusNeutre(
-        index=Index(Corpus(
-            documents={identite.doc_id: document}, manifest=manifest,
-            summaries={identite.doc_id: "# Texte neutre\n- quatre sections indépendantes"})),
-        identite=identite, par_cle=par_cle)
-
-
 @pytest.fixture
 def neutre() -> CorpusNeutre:
     return _corpus_neutre(IDENTITE_NEUTRE)
@@ -1641,7 +1649,7 @@ def _settings_neutre(identite: IdentiteNeutre, **kw) -> Settings:
 
 def _tier_de_navigation() -> str:
     """Le tier de navigation vient de la configuration (AD-9), jamais d'un littéral recopié ici."""
-    return Settings(_env_file=None, anthropic_api_key="").retrouver_outils_tier
+    return Settings(_env_file=None, anthropic_api_key="").navigation_tier
 
 
 def _comprendre_neutre(corpus: CorpusNeutre, *, termes: list[str] | None = None, **champs) -> dict:
@@ -1668,12 +1676,12 @@ def _verifier_neutre() -> dict:
     return _verifier(("k1", True, True, False, False, None, [], []))
 
 
-def _navigation(corpus: CorpusNeutre, *, noeuds: tuple[str, ...] = (), chercher: bool = True,
-                stop_reason: str = "tool_use") -> dict:
+def _navigation(corpus: CorpusNeutre, *, noeuds: tuple[str, ...] = (),
+                chercher: bool = True) -> dict:
     """Un tour de navigation par outils sur le corpus neutre : une recherche, puis des ouvertures.
 
-    Sans recherche ni ouverture, le tour ne demande rien : la navigation est alors tronquée sans
-    aucun bloc, l'état exact qui arme le repli déterministe.
+    Sans recherche ni ouverture, le tour ne demande rien : la lecture se clôt sur-le-champ, et elle
+    n'a ouvert aucun bloc citable.
     """
     demandes: list[dict[str, Any]] = []
     if chercher:
@@ -1682,7 +1690,12 @@ def _navigation(corpus: CorpusNeutre, *, noeuds: tuple[str, ...] = (), chercher:
     for rang, nom in enumerate(noeuds):
         demandes.append({"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
                          "input": {"node_id": corpus.identite.noeud(nom)}})
-    return fake_message(model=TIERS["micro"], stop_reason=stop_reason, content=demandes)
+    return fake_message(model=TIERS["micro"], stop_reason="tool_use", content=demandes)
+
+
+def _fin_de_lecture() -> dict:
+    """Le tour **sans outil** qui clôt la lecture : c'est lui qui fait sortir `Navigation.lire`."""
+    return fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT")
 
 
 def _tous_les_noeuds(corpus: CorpusNeutre) -> tuple[str, ...]:
@@ -1697,200 +1710,36 @@ def _script_navigation(corpus: CorpusNeutre, **navigation) -> list:
     par un message de plus dans la **même** conversation, et non par un second appel.
     """
     navigation.setdefault("noeuds", _tous_les_noeuds(corpus))
-    return [_comprendre_neutre(corpus), _navigation(corpus, **navigation),
-            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+    return [_comprendre_neutre(corpus), _navigation(corpus, **navigation), _fin_de_lecture(),
             _rediger_neutre(corpus), _verifier_neutre()]
 
 
-def _script_outils(corpus: CorpusNeutre, **navigation) -> list:
-    """Script nominal question-aware : lecture, conclusion d'insuffisance, rédaction, vérification.
-
-    La question canonique neutre ne partage volontairement aucun terme avec les clauses. Les termes
-    fournis par *comprendre* permettent donc leur rappel, mais ne peuvent plus clore la suffisance à
-    leur place : après un tour contenant des outils, le navigateur consomme son second tour borné.
-    Un tour sans outil conclut déjà au premier message et ne reçoit pas cette réponse supplémentaire.
-    """
-    navigation.setdefault("noeuds", _tous_les_noeuds(corpus))
-    demande_outil = bool(navigation.get("chercher", True) or navigation["noeuds"])
-    script = [_comprendre_neutre(corpus), _navigation(corpus, **navigation)]
-    if demande_outil:
-        script.append(fake_message(
-            model=TIERS["reason"], stop_reason="end_turn",
-            text=json.dumps({"sufficient": False, "result_uid": None}),
-        ))
-    return [*script, _rediger_neutre(corpus), _verifier_neutre()]
-
-
-async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = "outils",
+async def _run_neutre(corpus: CorpusNeutre, script: list, *, variant: object = SANS_VARIANTE,
                       settings: Settings | None = None, **kw):
+    # Ces témoins écrivent eux-mêmes leur navigation, sur **leur** corpus : `_run` n'a rien à
+    # insérer, et le préambule du mini-contrat n'aurait de toute façon aucun sens ici.
+    kw.setdefault("lecture", [])
     return await _run(corpus.index, script,
                       settings=settings or _settings_neutre(corpus.identite),
                       question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=variant, **kw)
 
 
-async def test_sans_variante_le_sinistre_navigue_par_outils(neutre: CorpusNeutre) -> None:
-    """AC : `run` **sans** `variant` fait tourner la navigation par outils, chaîne inchangée."""
-    answer, trace, fake = await _run_neutre(neutre, _script_outils(neutre))
+async def test_sans_variante_le_sinistre_navigue_par_le_modele(neutre: CorpusNeutre) -> None:
+    """AC : `run` **sans** `variant` fait tourner la navigation par le modèle, chaîne inchangée."""
+    answer, trace, fake = await _run_neutre(neutre, _script_navigation(neutre))
 
     assert fake.remaining_script == 0
-    assert trace.pipeline == "sinistre" and trace.variant == "outils"
+    assert trace.pipeline == "sinistre" and trace.variant == "navigation"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
                                              "restituer"]
     retrouver = trace.steps[1]
-    # Le tier **réellement** appelé est publié (AD-10) : la navigation a bien eu lieu ici, là où le
-    # chemin déterministe n'appelait aucun modèle.
+    # Le tier **réellement** appelé est publié (AD-10) : la lecture a bien eu lieu ici, et c'est le
+    # modèle qui l'a faite — deux tours, les quatre outils offerts à chacun d'eux.
     assert retrouver.tier == _tier_de_navigation() and len(retrouver.calls) == 2
     assert all(call.tools == ["sommaire", "ouvrir_noeud", "chercher", "definitions"]
                for call in retrouver.calls)
     assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
     assert answer.found and answer.verdict is not None
-
-
-async def test_le_pipeline_complete_une_auxiliaire_jusqua_lapplicabilite_fondatrice(
-        neutre: CorpusNeutre) -> None:
-    """La suffisance du sinistre atteint une claim fondatrice sans forcer son applicabilité."""
-    auxiliaire = neutre.bloc("definition_objet")
-    termes = ["désigne"]
-    assert [(hit.clause_uid, hit.node_uid) for hit in neutre.index.chercher(
-        termes, limit=20, doc_id=neutre.identite.doc_id)] == [
-            (auxiliaire, neutre.identite.noeud(neutre.identite.socle))]
-    navigation_auxiliaire = _outils(
-        termes=termes,
-        node_id=neutre.identite.noeud(neutre.identite.socle),
-        focus_block_id=auxiliaire)
-    fin_navigation = fake_message(
-        model=TIERS["reason"], stop_reason="end_turn",
-        text=json.dumps({"sufficient": False, "result_uid": None}),
-    )
-    reglages = _settings_neutre(
-        neutre.identite, node_window=1, max_opens=2, profil_max_opens=0)
-
-    answer, trace, fake = await _run_neutre(
-        neutre,
-        [_comprendre_neutre(neutre, termes=termes), navigation_auxiliaire, fin_navigation,
-         _rediger_neutre(neutre), _verifier_neutre()],
-        settings=reglages)
-
-    assert fake.remaining_script == 0
-    retrouver = trace.steps[1]
-    roles_ouverts = neutre.cles(retrouver.opened_block_ids)
-    assert roles_ouverts[0] == "definition_objet"
-    assert "prise_en_charge" in roles_ouverts
-    assert len(answer.claims) == 1
-    assert answer.claims[0].quotes[0].block_id == neutre.bloc("prise_en_charge")
-    assert answer.claims[0].status.applicable == "oui"
-    assert answer.verdict is not None and answer.verdict.value == "couvert"
-
-
-def test_le_pipeline_priorise_la_fondatrice_deja_retrouvee_sous_le_quota_existant() -> None:
-    """La route conserve le quota et laisse *vérifier* calculer seul l'applicabilité."""
-    from fastapi.testclient import TestClient
-
-    from server.app.api.main import create_app
-
-    neutre = _corpus_http_a_fondatrice_tardive()
-    termes = ["signalbrut"]
-    auxiliaire = neutre.bloc("auxiliaire_initiale")
-    fondatrice = neutre.bloc("fondatrice")
-    assert neutre.cles(block_id for block_id, _node_id in neutre.index.chercher(
-        termes, limit=20, doc_id=neutre.identite.doc_id)) == [
-            "auxiliaire_initiale", "auxiliaire_definition", "auxiliaire_contexte", "fondatrice"]
-    texte_fondateur = neutre.index.corpus.documents[neutre.identite.doc_id].block(
-        fondatrice).text
-    navigation_auxiliaire = _outils(
-        termes=termes,
-        node_id=neutre.identite.noeud(neutre.identite.socle),
-        focus_block_id=auxiliaire)
-    fin_navigation = fake_message(
-        model=TIERS["reason"], stop_reason="end_turn",
-        text=json.dumps({"sufficient": False, "result_uid": None}),
-    )
-    claim_fondatrice = (
-        "k1", "Le texte prend en charge la situation décrite.",
-        [(fondatrice, texte_fondateur)])
-    fake = FakeAnthropic([
-        _comprendre(
-            terms=termes, question_resolue=QUESTION_RESOLUE_NEUTRE, facettes=[],
-            bien="objet inventorié", evenement="épisode répertorié",
-            lieu="local déclaré", cause="agent externe", moment="période déclarée"),
-        navigation_auxiliaire, fin_navigation,
-        _rediger(claim_fondatrice),
-        _verifier(("k1", True, True, False, False, None, [], [])),
-    ])
-    reglages = _settings_neutre(
-        neutre.identite, env="dev", allow_ungated=True,
-        node_window=1, max_opens=2, profil_max_opens=0, retrieval_max_blocks=2)
-
-    async def pipeline_http(doc_id: str, question: str, faits: Faits, **kw):
-        kw["client"] = LlmClient(kw["settings"], anthropic_client=fake)
-        # Le quota et la transmission de la fondatrice sont des mécanismes de la variante
-        # `outils` : elle n'est plus servie par défaut (amendement AD-1 du 03/09/2026) et se
-        # demande donc explicitement, sans quoi ce témoin mesurerait un autre chemin.
-        return await sinistre.run(doc_id, question, faits, variant="outils", **kw)
-
-    app = create_app(reglages)
-    with TestClient(app) as client:
-        etat = app.state.foyer
-        etat.corpus, etat.index = neutre.index.corpus, neutre.index
-        etat.pipeline_sinistre = pipeline_http
-        reponse = client.post("/api/v1/sinistre", json={
-            "doc_id": neutre.identite.doc_id, "question": QUESTION_NEUTRE,
-            "faits": FAITS_NEUTRES.model_dump()})
-
-    redactions = [request for request in fake.requests
-                  if request["max_tokens"] == reglages.rediger_max_tokens]
-    assert redactions
-    blocs_transmis = str(redactions[0]["messages"])
-    assert auxiliaire in blocs_transmis
-    assert fondatrice in blocs_transmis
-    assert reponse.status_code == 200, reponse.text
-    corps = reponse.json()
-    assert fake.remaining_script == 0
-    retrouver = corps["trace"]["steps"][1]
-    roles_ouverts = neutre.cles(retrouver["opened_block_ids"])
-    assert roles_ouverts == ["auxiliaire_initiale", "fondatrice"]
-    assert len(retrouver["calls"]) == 2
-    assert corps["answer"]["claims"][0]["quotes"][0]["block_id"] == fondatrice
-    assert corps["answer"]["claims"][0]["status"]["applicable"] == "oui"
-    assert corps["answer"]["verdict"]["value"] == "couvert"
-
-
-async def test_le_pipeline_reste_prudent_quand_la_fondatrice_est_hors_quota(
-        neutre: CorpusNeutre) -> None:
-    auxiliaire = neutre.bloc("inscription")
-    fondatrice = neutre.bloc("prise_en_charge")
-    texte_auxiliaire = neutre.index.corpus.documents[neutre.identite.doc_id].block(auxiliaire).text
-    navigation_auxiliaire = _outils(
-        termes=neutre.identite.termes(),
-        node_id=neutre.identite.noeud(neutre.identite.socle),
-        focus_block_id=auxiliaire)
-    tentative_bornee = _outils(
-        node_id=neutre.identite.noeud(neutre.identite.socle),
-        focus_block_id=fondatrice)
-    reglages = _settings_neutre(
-        neutre.identite, node_window=1, max_opens=1, profil_max_opens=0)
-    claim_auxiliaire = (
-        "k-aux", "Une formalité déclarative est mentionnée.",
-        [(auxiliaire, texte_auxiliaire)])
-
-    answer, trace, fake = await _run_neutre(
-        neutre,
-        # Trois tours de navigation depuis le correctif du tour 2 : les deux premiers appellent des
-        # outils, le troisième conclut. Sans ce tour de conclusion, aucun verdict de suffisance
-        # n'était atteignable — c'est tout l'objet du relèvement de `max_llm_turns`.
-        [_comprendre_neutre(neutre), navigation_auxiliaire, tentative_bornee,
-         fake_message(model=TIERS["reason"], stop_reason="end_turn",
-                      text=json.dumps({"sufficient": False, "result_uid": None})),
-         _rediger(claim_auxiliaire),
-         _verifier(("k-aux", True, True, False, False, None, [], []))],
-        settings=reglages)
-
-    assert fake.remaining_script == 0
-    assert auxiliaire in trace.steps[1].opened_block_ids
-    assert fondatrice not in trace.steps[1].opened_block_ids
-    assert trace.truncations >= 1
-    assert all(quote.block_id != fondatrice for claim in answer.claims for quote in claim.quotes)
-    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
 
 
 def test_une_requete_http_sans_variante_sert_la_navigation_par_le_modele(
@@ -1937,187 +1786,46 @@ def test_une_requete_http_sans_variante_sert_la_navigation_par_le_modele(
     assert corps["sources"][0]["block_id"] == neutre.bloc("prise_en_charge")
 
 
-async def test_la_variante_outils_explicite_est_le_meme_chemin_que_le_defaut(
+async def test_une_lecture_bornee_qui_a_des_blocs_reste_un_contexte_honnete(
         neutre: CorpusNeutre) -> None:
-    """AC : `variant="outils"` et l'absence de variante ne sont pas deux chemins."""
-    _defaut, trace_defaut, _f1 = await _run_neutre(neutre, _script_outils(neutre))
-    _explicite, trace_explicite, _f2 = await _run_neutre(neutre, _script_outils(neutre),
-                                                         variant="outils")
+    """AC : `truncated` avec au moins un bloc admis reste un contexte honnête, publié `complete=False`.
 
-    assert trace_defaut.variant == trace_explicite.variant == "outils"
-    assert [s.name for s in trace_defaut.steps] == [s.name for s in trace_explicite.steps]
-    assert (trace_defaut.steps[1].opened_block_ids
-            == trace_explicite.steps[1].opened_block_ids)
-    assert [c.name for c in trace_defaut.steps[1].checks] == [
-        c.name for c in trace_explicite.steps[1].checks]
-
-
-async def test_la_variante_deterministe_reste_la_baseline_en_code_pur(
-        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC : `variant="deterministe"` garde le chemin code pur **et** son départage de la story 1.8."""
-    recus: list[dict[str, Any]] = []
-    reel = sinistre.retrouver_deterministe
-
-    def capture(*args: Any, **kw: Any):
-        recus.append(kw)
-        return reel(*args, **kw)
-
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
-    _answer, trace, fake = await _run_neutre(
-        neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre), _verifier_neutre()],
-        variant="deterministe")
+    Le socle passe, l'annexe est refusée faute de budget de lecture : le modèle a de quoi rédiger,
+    la lecture n'a pas tout vu, et la réponse le dit au lieu de promettre une exhaustivité.
+    """
+    reglages = _settings_neutre(neutre.identite,
+                                navigation_budget_tokens=BUDGET_DE_LECTURE_BORNEE)
+    answer, trace, fake = await _run_neutre(neutre, _script_navigation(neutre), settings=reglages)
 
     assert fake.remaining_script == 0
-    assert trace.variant == "deterministe"
-    assert trace.steps[1].calls == []  # aucun appel modèle : la baseline reste comparable
-    assert len(recus) == 1 and recus[0]["kinds_prioritaires"] == KINDS_DECISIONNELS
-
-
-async def test_les_deux_variantes_rendent_le_meme_contrat_sous_le_meme_budget(
-        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC : même `RetrievalResult`, mêmes blocs atteignables, même `RetrievalBudget`."""
-    resultats: dict[str, RetrievalResult] = {}
-    bornes: dict[str, Any] = {}
-    reel_outils, reel_deterministe = sinistre.retrouver_outils, sinistre.retrouver_deterministe
-
-    async def capture_outils(*args: Any, **kw: Any):
-        resultat, step = await reel_outils(*args, **kw)
-        resultats["outils"], bornes["outils"] = resultat, kw["budget"]
-        return resultat, step
-
-    def capture_deterministe(*args: Any, **kw: Any):
-        resultat, step = reel_deterministe(*args, **kw)
-        resultats["deterministe"], bornes["deterministe"] = resultat, kw["budget"]
-        return resultat, step
-
-    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_deterministe)
-
-    await _run_neutre(neutre, _script_outils(neutre))
-    await _run_neutre(neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre),
-                               _verifier_neutre()], variant="deterministe")
-
-    outils, deterministe = resultats["outils"], resultats["deterministe"]
-    # Même contrat : mêmes champs, même type — `RetrievalResult` n'a pas de variante d'un côté.
-    assert set(outils.model_dump()) == set(deterministe.model_dump())
-    # Même borne, à l'octet des seuils près : c'est `retrieval_budget(settings)` des deux côtés (deux
-    # requêtes distinctes ici, donc deux objets — l'identité se prouve dans le test du repli).
-    attendue = retrieval_budget(_settings_neutre(neutre.identite))
-    assert bornes["outils"] == bornes["deterministe"] == attendue
-    # Mêmes blocs atteignables : sur ce corpus, la navigation ouvre ce que l'index classe.
-    assert sorted(neutre.cles(outils.opened_block_ids)) == sorted(
-        neutre.cles(deterministe.opened_block_ids))
-    assert (sorted(neutre.cles(b.block_id for b in outils.blocs))
-            == sorted(neutre.cles(b.block_id for b in deterministe.blocs)))
-    assert outils.truncated is deterministe.truncated is False
-
-
-async def test_une_navigation_tronquee_sans_bloc_se_replie_une_seule_fois(
-        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC : repli **unique**, borné, sous le même budget, et nommé dans la trace."""
-    appels: list[dict[str, Any]] = []
-    bornes_outils: list[Any] = []
-    reel_deterministe, reel_outils = sinistre.retrouver_deterministe, sinistre.retrouver_outils
-
-    def capture(*args: Any, **kw: Any):
-        appels.append(kw)
-        return reel_deterministe(*args, **kw)
-
-    async def capture_outils(*args: Any, **kw: Any):
-        bornes_outils.append(kw["budget"])
-        return await reel_outils(*args, **kw)
-
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture)
-    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
-    answer, trace, fake = await _run_neutre(
-        neutre, _script_outils(neutre, noeuds=(), chercher=False))
-
-    assert fake.remaining_script == 0 and answer.found
     retrouver = trace.steps[1]
-    # Une seule tentative de repli, et elle garde le départage décisionnel de la story 1.8.
-    assert len(appels) == 1 and appels[0]["kinds_prioritaires"] == KINDS_DECISIONNELS
-    # Sous **la même** borne, littéralement le même objet : un repli qui reconstruirait un budget de
-    # même valeur satisferait une égalité, pas une identité — et AD-1 borne l'étape, pas chaque passe.
-    assert len(bornes_outils) == 1 and appels[0]["budget"] is bornes_outils[0]
-    assert any(c.name == "repli_deterministe" and not c.ok for c in retrouver.checks)
-    # Un seul appel modèle : le repli est du code pur, il n'ajoute aucun tour.
-    assert len(retrouver.calls) == 1 and retrouver.tier == _tier_de_navigation()
     assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
-
-
-async def test_le_repli_fusionne_les_checks_et_les_candidats_des_deux_passes(
-        neutre: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
-    """AD-10 : les candidats écartés des **deux** passes sont publiés, et les checks fusionnés."""
-    reel = sinistre.retrouver_deterministe
-
-    def repli_marque(*args: Any, **kw: Any):
-        resultat, step = reel(*args, **kw)
-        step.checks.append(CheckResult(name="controle_deterministe", ok=True, detail="fusionné"))
-        return resultat, step
-
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", repli_marque)
-    reglages = _settings_neutre(neutre.identite, retrieval_max_blocks=4)
-    candidats_outils = [b for b, _ in neutre.index.chercher(
-        neutre.identite.termes(), limit=reglages.search_limit, doc_id=neutre.identite.doc_id)]
-
-    async def navigation_vide(*args: Any, **kw: Any):
-        # Le test vise la fusion du repli, pas la politique de complétion. Depuis que le pipeline
-        # déclare une suffisance fondatrice, une vraie recherche ne reste justement plus vide tant
-        # qu'un candidat admissible tient. Ce seam reproduit donc la sortie bornée qui arme le repli.
-        kw["candidats_out"].extend(candidats_outils)
-        step = StepTrace(name="retrouver", tier=reglages.retrouver_outils_tier)
-        step.discarded_block_ids = list(candidats_outils)
-        step.checks.append(CheckResult(
-            name="candidats_non_ouverts", ok=False,
-            detail=f"{len(candidats_outils)} candidat(s) non lu(s)"))
-        return RetrievalResult(
-            discarded_block_ids=list(candidats_outils), truncated=True), step
-
-    monkeypatch.setattr(sinistre, "retrouver_outils", navigation_vide)
-    answer, trace, fake = await _run_neutre(
-        neutre, [_comprendre_neutre(neutre), _rediger_neutre(neutre), _verifier_neutre(),
-                 _rediger_neutre(neutre)], settings=reglages)
-
-    assert fake.remaining_script == 0
-    retrouver = trace.steps[1]
-    assert [c.name for c in retrouver.checks] == [
-        "candidats_non_ouverts", "repli_deterministe", "controle_deterministe"]
-    # La réservation survivante est une `condition`, donc déjà décisionnelle au sens D7. Elle peut
-    # légitimement évincer la garantie sous cette borne ; le contenu est prouvé indépendamment du
-    # faux draft, et AD-6 garde la décision fail-closed faute de fondatrice affichée.
-    assert neutre.cles(retrouver.opened_block_ids) == [
-        "titre", "inscription", "definition_objet", "ecart_socle"]
-    assert answer.claims == []
-    assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    ouverts = set(retrouver.opened_block_ids)
-    assert retrouver.discarded_block_ids == [b for b in candidats_outils if b not in ouverts]
-    assert retrouver.discarded_block_ids and not answer.complete
-
-
-async def test_des_blocs_outils_partiels_ne_declenchent_aucun_repli(neutre: CorpusNeutre) -> None:
-    """AC : `truncated` avec au moins un bloc admis reste un contexte honnête, publié `complete=False`."""
-    # Une seule branche ouverte, tour coupé par `max_tokens` : des blocs utiles, et une lecture bornée.
-    answer, trace, fake = await _run_neutre(neutre, _script_outils(
-        neutre, noeuds=(neutre.identite.socle,), stop_reason="max_tokens"))
-
-    assert fake.remaining_script == 0
-    retrouver = trace.steps[1]
-    assert retrouver.opened_block_ids  # des blocs partiels, donc un contexte
-    assert not any(c.name == "repli_deterministe" for c in retrouver.checks)
+    assert retrouver.discarded_block_ids
+    assert any(c.name == "lecture_refusee" and not c.ok for c in retrouver.checks)
     assert trace.truncations == 1 and answer.found and not answer.complete
 
 
-async def test_un_repli_lui_aussi_vide_laisse_remonter_le_budget_exceeded(
+async def test_une_lecture_sans_le_moindre_bloc_laisse_remonter_le_budget_exceeded(
         neutre: CorpusNeutre) -> None:
-    """AC : aucune absence du contrat n'est affirmée à partir d'une borne qui est la nôtre."""
+    """AC : aucune absence du contrat n'est affirmée à partir d'une borne qui est la nôtre.
+
+    Le budget de lecture refuse jusqu'au premier nœud : rien n'est ouvert, et la lecture est
+    **bornée** — pas muette. Convertir cela en `zero_hit` fabriquerait une absence à partir d'une
+    borne qui est la nôtre (AD-1) ; le pipeline lève, et sa trace partielle voyage avec l'erreur.
+    """
     with pytest.raises(BudgetExceeded, match="aucune absence du contrat n'est affirmée") as capture:
-        await _run_neutre(neutre, [_comprendre_neutre(neutre), _navigation(neutre, chercher=False)],
-                          settings=_settings_neutre(neutre.identite, retrieval_max_tokens=1))
+        await _run_neutre(
+            neutre,
+            [_comprendre_neutre(neutre), _navigation(neutre, chercher=False,
+                                                     noeuds=_tous_les_noeuds(neutre)),
+             _fin_de_lecture()],
+            settings=_settings_neutre(neutre.identite, navigation_budget_tokens=1))
 
     trace = capture.value.trace  # AD-16 : la trace partielle voyage avec l'erreur
-    assert trace is not None and trace.variant == "outils"
+    assert trace is not None and trace.variant == "navigation"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
-    assert any(c.name == "repli_deterministe" for c in trace.steps[1].checks)
+    assert trace.steps[1].opened_block_ids == []
+    assert any(c.name == "lecture_refusee" and not c.ok for c in trace.steps[1].checks)
 
 
 async def test_un_echec_de_navigation_voyage_avec_son_etape_partielle(
@@ -2129,70 +1837,44 @@ async def test_un_echec_de_navigation_voyage_avec_son_etape_partielle(
         await _run_neutre(neutre, [_comprendre_neutre(neutre), panne])
 
     trace = capture.value.trace
-    assert trace is not None and trace.variant == "outils"
+    assert trace is not None and trace.variant == "navigation"
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver"]
     assert len(trace.steps[-1].calls) == 1
 
 
 async def test_une_variante_inconnue_est_refusee_avant_tout_appel_facture(
         neutre: CorpusNeutre) -> None:
-    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », et le message énumère les variantes connues."""
+    """AD-1 : « un `pipeline.variant` inconnu ⇒ 400 », et le message énumère les variantes connues.
+
+    Depuis la story 5.6 (T2) il n'en reste qu'une, et c'est le chemin servi : les variantes `outils`
+    et `deterministe` portaient les passes de code qui choisissaient ce que la rédaction verrait, et
+    l'amendement AD-1 du 03/09/2026 les refuse. Une valeur inconnue reste refusée **avant** tout
+    appel facturé — jamais dégradée en silence.
+    """
     with pytest.raises(InvalidRequest, match="variante") as capture:
         await _run_neutre(neutre, [], variant="agentique")
     assert all(connue in capture.value.message for connue in sinistre.VARIANTES)
-    assert sinistre.VARIANTES == {"navigation", "outils", "deterministe"}
+    assert sinistre.VARIANTES == {"navigation"}
     assert sinistre.VARIANT == "navigation"  # le chemin servi (amendement AD-1 du 03/09/2026)
 
 
 # --- la garde métamorphique : aucune décision ne tient à l'identité de ce qui est lu -------------
 
-async def _decisions_de_variante(corpus: CorpusNeutre, scenario: str,
-                                 monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Ce que 4.2d **décide** sur un corpus donné, lu en rôles et non en identifiants.
+async def _decisions_du_pipeline(corpus: CorpusNeutre) -> dict[str, Any]:
+    """Ce que le pipeline **décide** sur un corpus donné, lu en rôles et non en identifiants.
 
-    Variante retenue, dispatch effectif (navigation appelée ou non, nombre de replis), champs du
-    `RetrievalResult`, checks de la trace, blocs ouverts et écartés — tout ce dont la story répond.
+    Chaîne d'étapes, checks de la trace, tier et nombre d'appels de la lecture, blocs ouverts et
+    écartés, verdict de recherche — tout ce dont le chemin servi répond. La story 4.2d mesurait
+    ici son dispatch entre variantes ; il n'y en a plus qu'un (story 5.6, T2), et c'est la
+    propriété qui reste — aucune décision ne tient à l'identité de ce qui est lu — que cette garde
+    tient désormais, entière.
     """
-    replis: list[dict[str, Any]] = []
-    navigations: list[dict[str, Any]] = []
-    champs: dict[str, set[str]] = {}
-    reel_deterministe, reel_outils = sinistre.retrouver_deterministe, sinistre.retrouver_outils
-
-    def capture_deterministe(*args: Any, **kw: Any):
-        resultat, step = reel_deterministe(*args, **kw)
-        replis.append(kw)
-        champs["resultat"] = set(resultat.model_dump())
-        return resultat, step
-
-    async def capture_outils(*args: Any, **kw: Any):
-        resultat, step = await reel_outils(*args, **kw)
-        navigations.append(kw)
-        champs["resultat"] = set(resultat.model_dump())
-        return resultat, step
-
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", capture_deterministe)
-    monkeypatch.setattr(sinistre, "retrouver_outils", capture_outils)
-
-    if scenario == "defaut":
-        # La variante `outils` n'est plus le défaut du pipeline (amendement AD-1 du 03/09/2026),
-        # mais son dispatch reste construit et se mesure ici, demandé explicitement.
-        script, variant = _script_outils(corpus), "outils"
-    elif scenario == "repli":
-        script, variant = _script_outils(corpus, noeuds=(), chercher=False), "outils"
-    else:  # baseline explicite
-        script = [_comprendre_neutre(corpus), _rediger_neutre(corpus), _verifier_neutre()]
-        variant = "deterministe"
-    answer, trace, fake = await _run_neutre(corpus, script, variant=variant)
+    answer, trace, fake = await _run_neutre(corpus, _script_navigation(corpus))
 
     retrouver = trace.steps[1]
     return {
         "variant": trace.variant,
         "etapes": [s.name for s in trace.steps],
-        "navigations": len(navigations),
-        "replis": len(replis),
-        # `kinds_prioritaires` du départage décisionnel : passé, ou non, aux mêmes endroits.
-        "kinds": [kw.get("kinds_prioritaires") for kw in replis],
-        "champs_du_resultat": champs["resultat"],
         "checks": [(c.name, c.ok) for c in retrouver.checks],
         "tier": retrouver.tier,
         "appels_modele": len(retrouver.calls),
@@ -2203,36 +1885,29 @@ async def _decisions_de_variante(corpus: CorpusNeutre, scenario: str,
     }
 
 
-@pytest.mark.parametrize("scenario", ["defaut", "repli", "baseline"])
-async def test_les_decisions_de_variante_survivent_a_la_permutation_du_corpus(
-        scenario: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Story 4.2b, idiome métamorphique appliqué aux décisions de 4.2d.
+async def test_les_decisions_du_pipeline_survivent_a_la_permutation_du_corpus() -> None:
+    """Story 4.2b, idiome métamorphique appliqué aux décisions du chemin servi.
 
     Le second corpus est le premier permuté : autre `doc_id`, autres pages, `seq` décalés, nœuds
     renommés, ordre des termes inversé. Aucune de ces choses n'est un champ typé ; aucune ne doit
-    donc peser sur la variante retenue, sur le dispatch, sur l'unicité du repli, sur les champs du
-    `RetrievalResult`, sur les checks de la trace, ni même sur l'ordre des blocs transmis — le
-    corpus déclare exactement le même ordre de lecture des deux côtés. L'égalité est donc exigée
-    **entière** : une seule décision qui bougerait ici prouverait un branchement sur l'identité,
-    c'est-à-dire la garde qui manquait à 4.2d.
+    donc peser sur la chaîne, sur les champs du `RetrievalResult`, sur les checks de la trace, ni
+    même sur l'ordre des blocs transmis — le corpus déclare exactement le même ordre de lecture des
+    deux côtés. L'égalité est donc exigée **entière** : une seule décision qui bougerait ici
+    prouverait un branchement sur l'identité.
 
     Les blocs sont comparés par leur **rôle** (`CorpusNeutre.cles`) et non par leur identifiant :
     comparer les identifiants bruts serait exiger que la permutation n'ait pas eu lieu.
     """
-    base = await _decisions_de_variante(_corpus_neutre(IDENTITE_NEUTRE), scenario, monkeypatch)
-    permute = await _decisions_de_variante(_corpus_neutre(IDENTITE_PERMUTEE), scenario, monkeypatch)
+    base = await _decisions_du_pipeline(_corpus_neutre(IDENTITE_NEUTRE))
+    permute = await _decisions_du_pipeline(_corpus_neutre(IDENTITE_PERMUTEE))
 
     assert base == permute
-    # …et la garde ne serait pas une garde si elle comparait deux fois rien : le scénario a bien
-    # exercé le dispatch qu'il annonce, sur deux corpus qui ne partagent aucun identifiant.
-    assert base["variant"] == ("deterministe" if scenario == "baseline" else "outils")
-    assert base["replis"] == (1 if scenario in ("repli", "baseline") else 0)
+    # …et la garde ne serait pas une garde si elle comparait deux fois rien.
+    assert base["variant"] == "navigation"
     assert base["ouverts"], "le scénario doit avoir ouvert des blocs"
 
 
-@pytest.mark.parametrize("scenario", ["defaut", "repli", "baseline"])
-async def test_l_ordre_de_lecture_declare_ne_deplace_que_l_ordre_des_blocs(
-        scenario: str, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_l_ordre_de_lecture_declare_ne_deplace_que_l_ordre_des_blocs() -> None:
     """La seule chose que la permutation a le droit de déplacer, et rien d'autre.
 
     `Node.items` est « la source unique de l'ordre de lecture » (AD-2) : c'est une **donnée du
@@ -2242,14 +1917,15 @@ async def test_l_ordre_de_lecture_declare_ne_deplace_que_l_ordre_des_blocs(
     diffère. Sans la dernière assertion, la garde pourrait passer en comparant deux fois le même
     ordre et ne prouverait rien.
     """
-    base = await _decisions_de_variante(_corpus_neutre(IDENTITE_NEUTRE), scenario, monkeypatch)
-    relu = await _decisions_de_variante(_corpus_neutre(IDENTITE_RELUE), scenario, monkeypatch)
+    base = await _decisions_du_pipeline(_corpus_neutre(IDENTITE_NEUTRE))
+    relu = await _decisions_du_pipeline(_corpus_neutre(IDENTITE_RELUE))
 
     assert {c: v for c, v in base.items() if c not in ("ouverts", "ecartes")} == {
         c: v for c, v in relu.items() if c not in ("ouverts", "ecartes")}
     assert sorted(base["ouverts"]) == sorted(relu["ouverts"])
     assert sorted(base["ecartes"]) == sorted(relu["ecartes"])
     assert base["ouverts"] != relu["ouverts"], "l'ordre de lecture inversé doit se voir"
+
 
 
 # --- bornes d'entrée : rien de facturé -----------------------------------------
@@ -2301,7 +1977,7 @@ async def test_a_budget_and_a_deadline_are_exclusive(index: Index) -> None:
 
 # --- court-circuits d'AD-5, toujours avec un verdict ----------------------------
 async def test_an_out_of_scope_request_is_refused_after_one_reason_call(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre")])
+    answer, trace, fake = await _run(index, [_comprendre("hors_perimetre")], lecture=[])
     assert fake.remaining_script == 0 and len(fake.requests) == 1  # l'étage `reason` n'est pas atteint
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.found is False and answer.reason is not None
@@ -2316,7 +1992,7 @@ async def test_un_refus_sinistre_contradictoire_est_normalise_puis_refuse_sans_r
         index: Index) -> None:
     answer, trace, fake = await _run(index, [
         _comprendre("hors_perimetre", clarification="Quel objet désignez-vous ?"),
-    ])
+    ], lecture=[])
 
     assert [step.name for step in trace.steps] == ["comprendre", "restituer"]
     assert len(fake.requests) == 1 and "retrouver" not in [step.name for step in trace.steps]
@@ -2325,15 +2001,19 @@ async def test_un_refus_sinistre_contradictoire_est_normalise_puis_refuse_sans_r
 
 
 async def test_an_english_refusal_produced_by_the_sinistre_pipeline_stays_english(index: Index) -> None:
-    answer, _trace, fake = await _run(index, [_comprendre("hors_perimetre", language="en")])
+    answer, _trace, fake = await _run(index, [_comprendre("hors_perimetre", language="en")],
+                                      lecture=[])
     assert fake.remaining_script == 0
     assert answer.lang == "en" and answer.lang_fallback is False
     assert answer.texte == PHRASES_DE_REFUS_SINISTRE["en"]["hors_perimetre"]
 
 
 async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Index) -> None:
-    answer, trace, fake = await _run(index, [_comprendre(terms=["zzzz"])])
-    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    answer, trace, fake = await _run(index, [_comprendre(terms=["zzzz"])],
+                                     lecture=_lecture_vide())
+    # Deux appels : *comprendre*, puis le tour de navigation qui conclut sans rien ouvrir. C'est
+    # cette lecture-là — réelle, et vide — qui refuse ; aucun code ne cherche plus à sa place.
+    assert fake.remaining_script == 0 and len(fake.requests) == 2
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
@@ -2342,7 +2022,8 @@ async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Ind
 
 
 async def test_a_request_that_cannot_be_made_autonomous_still_carries_a_verdict(index: Index) -> None:
-    answer, trace, _fake = await _run(index, [_comprendre(clarification="De quel bien parlez-vous ?")])
+    answer, trace, _fake = await _run(index, [_comprendre(clarification="De quel bien parlez-vous ?")],
+                                     lecture=[])
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.clarification == "De quel bien parlez-vous ?"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
@@ -2399,7 +2080,10 @@ async def test_a_refusal_bounds_the_understood_facts_too(index: Index, intent: s
     trop_long = "x" * (settings.fait_manquant_max_chars + 1)
     termes = ["helicoptere"] if kind == "zero_hit" else None
     answer, trace, _fake = await _run(
-        index, [_comprendre(intent, terms=termes, cause=trop_long)], settings=settings)
+        index, [_comprendre(intent, terms=termes, cause=trop_long)], settings=settings,
+        # `zero_hit` passe par *retrouver* : sa lecture a lieu et n'ouvre rien. Le refus de
+        # périmètre, lui, court-circuite dès *comprendre* — il n'y a aucune lecture à scripter.
+        lecture=_lecture_vide() if kind == "zero_hit" else [])
     assert answer.found is False and answer.reason is not None and answer.reason.kind == kind
     compris = answer.faits_compris
     assert compris is not None
@@ -2421,7 +2105,8 @@ async def test_a_refusal_still_publishes_the_understood_facts(index: Index, inte
     dès *comprendre* — dans les deux cas, la portée existe déjà et rien ne justifie de la taire.
     """
     termes = ["helicoptere"] if kind == "zero_hit" else None
-    answer, _trace, _fake = await _run(index, [_comprendre(intent, terms=termes)])
+    answer, _trace, _fake = await _run(index, [_comprendre(intent, terms=termes)],
+                                      lecture=_lecture_vide() if kind == "zero_hit" else [])
     assert answer.found is False and answer.reason is not None and answer.reason.kind == kind
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
@@ -2432,7 +2117,8 @@ async def test_une_langue_forcee_est_demandee_pour_la_clarification_du_sinistre(
     clarification est la seule phrase affichée que le modèle écrit (AD-5), et sa langue se décide
     dans l'unique appel de *comprendre*."""
     answer, _trace, fake = await _run(
-        index, [_comprendre(clarification="Von welchem Gut sprechen Sie?", language="fr")], lang="de")
+        index, [_comprendre(clarification="Von welchem Gut sprechen Sie?", language="fr")],
+        lang="de", lecture=[])
     consigne = fake.requests[0]["messages"][0]["content"].split("</untrusted>")[-1]
     assert "Écris `clarification` en de (allemand), quelle que soit la langue de la question." in consigne
     assert answer.lang == "de" and answer.lang_fallback is False
@@ -2442,7 +2128,7 @@ async def test_une_langue_forcee_est_demandee_pour_la_clarification_du_sinistre(
 async def test_une_detection_non_servie_pose_quand_meme_la_clarification_du_sinistre(index: Index) -> None:
     """NB1, registre sinistre : même règle, même preuve (revue Codex 2.4, tour 2)."""
     answer, trace, _fake = await _run(
-        index, [_comprendre(clarification="¿De qué bien habla?", language="es")])
+        index, [_comprendre(clarification="¿De qué bien habla?", language="es")], lecture=[])
     assert answer.lang == "fr" and answer.lang_fallback is True
     assert answer.clarification == "¿De qué bien habla?"
     comprendre_step = next(s for s in trace.steps if s.name == "comprendre")
@@ -2452,7 +2138,7 @@ async def test_une_detection_non_servie_pose_quand_meme_la_clarification_du_sini
 async def test_a_clarification_publishes_no_understood_facts(index: Index) -> None:
     """`ClarificationRequise` n'a pas de portée (AD-5 : deux sorties typées exclusives) — rien à publier."""
     answer, _trace, _fake = await _run(index, [
-        _comprendre(clarification="De quel bien parlez-vous ?")])
+        _comprendre(clarification="De quel bien parlez-vous ?")], lecture=[])
     assert answer.clarification == "De quel bien parlez-vous ?"
     assert answer.faits_compris is None
 
@@ -2500,11 +2186,13 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     dépose est neutre quant au document — la page sinistre rend la même section « Ce que je ne sais
     pas » que celle du guide, et une phrase qui dirait « le guide » y serait fausse.
 
-    Trois appels au plafond : la relance qu'une claim rejetée rendrait utile n'a pas de quoi démarrer
-    (AD-1, « aucun retry ne démarre sans marge »), la réponse vérifiée est servie, et elle n'est pas
-    donnée pour complète — avec une phrase qui dit pourquoi.
+    Cinq appels au plafond — exactement ce que la chaîne servie dépense jusqu'à sa première
+    vérification (*comprendre*, les deux tours de lecture, l'ébauche, le contrôle) : la relance
+    qu'une claim rejetée rendrait utile n'a pas de quoi démarrer (AD-1, « aucun retry ne démarre
+    sans marge »), la réponse vérifiée est servie, et elle n'est pas donnée pour complète — avec une
+    phrase qui dit pourquoi.
     """
-    budget = RequestBudget(deadline_s=100.0, max_attempts=3, max_cost_eur=0.20)
+    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, False, False, False, None))], budget=budget)
@@ -2516,12 +2204,16 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
 
 
-# --- Correctif du 2026-09-02 : une facette, une règle — ou l'absence dite -------------------
+# --- Une facette, une règle — ou l'absence dite ----------------------------------------------
 #
-# Témoins hermétiques de la couverture par facette. Le corpus est **neutre** (aucun mot du cas
+# Témoins hermétiques de la couverture par sous-question. Le corpus est **neutre** (aucun mot du cas
 # témoin, aucun vocabulaire d'assurance), et chaque règle décisionnelle vit dans **son propre
-# nœud** : c'est la seule géométrie où une fenêtre ouverte sur l'une ne rapporte pas l'autre par
-# accident, donc la seule où « la seconde sous-question a-t-elle été cherchée ? » se répond.
+# nœud** : c'est la seule géométrie où une lecture qui ouvre l'une ne rapporte pas l'autre par
+# accident, donc la seule où « la seconde sous-question a-t-elle été traitée ? » se répond.
+#
+# Depuis la story 5.6 (T2), la couverture n'est plus **cherchée** par une passe de code : elle est
+# mesurée par *vérifier* sur les affirmations affichées, et ce qui repart au modèle est le
+# **libellé** de la sous-question restée sans réponse — jamais un `block_id`.
 
 CLAUSES_PAR_FACETTE = (
     ("regle_inventaire", "garantie",
@@ -2532,9 +2224,6 @@ CLAUSES_PAR_FACETTE = (
 # Les deux sous-questions, chacune classée par l'index sur **sa** règle et sur aucune autre.
 FACETTE_INVENTAIRE = "objet inventorié pris en charge"
 FACETTE_REGISTRE = "registre non déclaré"
-# Une sous-question dont aucun mot n'existe dans ce corpus : son classement est vide, et c'est la
-# seule forme d'absence qu'une lecture ait le droit d'affirmer.
-FACETTE_INTROUVABLE = "véhicule motorisé"
 CITATION_INVENTAIRE = "atteignant l'objet inventorié lors d'un épisode répertorié"
 CITATION_REGISTRE = "qui portent sur un registre non déclaré"
 
@@ -2588,11 +2277,6 @@ def _navigation_une_section(corpus: CorpusNeutre) -> dict:
          "input": {"node_id": f"{corpus.identite.doc_id}:n1"}}])
 
 
-def _verdict_insuffisant() -> dict:
-    return fake_message(model=TIERS["reason"], stop_reason="end_turn",
-                        text=json.dumps({"sufficient": False, "result_uid": None}))
-
-
 def _rediger_inventaire(corpus: CorpusNeutre) -> dict:
     return _rediger(("k1", "Le texte prend en charge l'objet inventorié.",
                      [(corpus.bloc("regle_inventaire"), CITATION_INVENTAIRE)]))
@@ -2618,148 +2302,29 @@ def _verifier_les_deux() -> dict:
 
 
 async def _run_par_facette(corpus: CorpusNeutre, script: list, *,
-                           variant: object = "outils", **kw):
-    # Le plafond d'appels par défaut du fichier (6) est calibré sur une chaîne sans navigation à
-    # deux tours ; ces témoins en ont une, et la relance d'AD-3 en coûte deux de plus. Le plafond
-    # est relevé pour que le budget ne décide pas à la place du mécanisme mesuré.
-    kw.setdefault("budget", RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
+                           variant: object = SANS_VARIANTE, **kw):
+    # Ces témoins écrivent leur navigation sur **leur** corpus : `_run` n'a rien à insérer.
+    kw.setdefault("lecture", [])
     return await _run(corpus.index, script,
                       settings=_settings_neutre(corpus.identite),
                       question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant=variant, **kw)
 
 
-async def test_la_facette_laissee_dehors_par_la_navigation_est_cherchee_puis_couverte(
-        par_facette: CorpusNeutre) -> None:
-    """Témoin 1 — deux sous-questions, une seule lue par le navigateur : l'autre est retrouvée.
-
-    C'est l'écart exact que la suffisance globale laissait ouvert : un bloc décisionnel confirmé
-    suffisait à clore l'étape, quelle que soit la sous-question auquel il répondait. La couverture
-    par facette va chercher la règle de la seconde, par le classement de sa propre requête restreint
-    aux kinds confirmés du corpus, sous le même quota d'ouvertures.
-    """
-    answer, trace, fake = await _run_par_facette(par_facette, [
-        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
-        _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
-        _rediger_les_deux(par_facette),
-        _verifier_les_deux()])
-
-    assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    # La règle de la seconde sous-question est bien partie à la rédaction, alors que le navigateur
-    # n'avait ouvert que la première section.
-    assert par_facette.cles(retrouver.opened_block_ids) == ["regle_inventaire", "regle_registre"]
-    couverture = next(c for c in retrouver.checks if c.name == "facettes_retrouvees")
-    assert couverture.ok and "2 facette(s) sur 2" in couverture.detail
-    assert answer.found and {q.block_id for c in answer.claims for q in c.quotes} == {
-        par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
-
-
-async def test_sans_couverture_par_facette_la_seconde_regle_ne_part_jamais(
-        par_facette: CorpusNeutre, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation du témoin 1 : la couverture par facette neutralisée, la lecture redevient partielle.
-
-    Le seam est la **traduction des facettes en requêtes** — sans elle, la passe n'a rien à couvrir
-    et la mesure n'a rien à mesurer, exactement l'état d'avant le correctif. Le témoin ci-dessus
-    doit alors virer au rouge : c'est ce qui prouve qu'il mesure le mécanisme et non l'index.
-    """
-    monkeypatch.setattr(retrouver_module, "_mappings_facettes", lambda *a, **kw: [])
-    _answer, trace, fake = await _run_par_facette(par_facette, [
-        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
-        _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
-        _rediger_inventaire(par_facette),
-        _verifier_une_facette()])
-
-    assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert par_facette.cles(retrouver.opened_block_ids) == ["regle_inventaire"]
-    assert not [c for c in retrouver.checks if c.name == "facettes_retrouvees"]
-
-
-async def test_une_facette_introuvable_est_dite_absente_sans_claim_inventee(
-        par_facette: CorpusNeutre) -> None:
-    """Témoin 2 — le contrat ne dit rien de la seconde sous-question : l'absence est **dite**.
-
-    Rien n'est inventé : aucune claim de plus, aucune relance vers une règle qui n'existe pas, et
-    la réponse porte la cause typée dans « Ce que je ne sais pas ». Les budgets de l'étape ne sont
-    pas dépassés — la passe n'ouvre que ce que le classement propose, et il ne propose rien.
-    """
-    reglages = _settings_neutre(par_facette.identite)
-    answer, trace, fake = await _run(
-        par_facette.index, [
-            _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_INTROUVABLE]),
-            _navigation_une_section(par_facette),
-            _verdict_insuffisant(),
-            _rediger_inventaire(par_facette),
-            _verifier_une_facette()],
-        settings=reglages, question=QUESTION_NEUTRE, faits=FAITS_NEUTRES, variant="outils",
-        budget=RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=0.20))
-
-    assert fake.remaining_script == 0
-    retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert len(retrouver.opened_block_ids) <= reglages.retrieval_max_blocks
-    couverture = next(c for c in retrouver.checks if c.name == "facettes_retrouvees")
-    assert not couverture.ok and "déclaré(s) absent(s)" in couverture.detail
-    # La chaîne cesse honnêtement : pas de seconde rédaction pour une règle qui n'existe pas.
-    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
-                                             "restituer"]
-    assert len(answer.claims) == 1
-    assert PHRASES_DE_LACUNE["fr"]["facettes_sans_clause"][0].format(n=1) in answer.unknown
-    assert answer.complete is False
-
-
 async def test_une_seule_facette_laisse_le_chemin_inchange(neutre: CorpusNeutre) -> None:
     """Témoin 3 — une sous-question : la chaîne est **exactement** celle d'avant le correctif.
 
-    Une facette unique **est** la question. Sa couverture décisionnelle est déjà ce que mesure la
-    suffisance déclarée par l'appelant — sur la question résolue, pas sur une paraphrase. La
-    couverture par facette ne s'y applique donc pas du tout : aucun bloc de plus, aucun contrôle de
-    plus, aucune borne de lecture, aucune couverture publiée. C'est le chemin du cas ancre, et
-    c'est ce qui garantit que sa fixture live se rejoue sans être réenregistrée.
+    Une facette unique **est** la question, et la rédaction la couvre : rien ne repart au modèle,
+    aucun contrôle de couverture ne se pose, aucune relance n'est due. C'est le chemin du cas ancre,
+    et c'est ce qui garantit que sa fixture live se rejoue sans être réenregistrée.
     """
-    answer, trace, fake = await _run_neutre(neutre, _script_outils(neutre))
+    answer, trace, fake = await _run_neutre(neutre, _script_navigation(neutre))
 
     assert fake.remaining_script == 0
     retrouver = next(s for s in trace.steps if s.name == "retrouver")
-    assert not [c for c in retrouver.checks
-                if c.name in {"facettes_retrouvees", "couverture_facettes"}]
+    assert not [c for etape in trace.steps for c in etape.checks
+                if c.name == "facettes_non_couvertes"]
     assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
     assert trace.truncations == 0 and answer.found and answer.complete
-
-
-async def test_la_facette_retrouvee_mais_non_redigee_relance_la_redaction(
-        par_facette: CorpusNeutre) -> None:
-    """Témoin du second cycle — les blocs étaient là, la rédaction en a oublié un.
-
-    C'est la seconde moitié de l'écart A16 : la lecture portait les deux règles, la première
-    rédaction n'en a rendu qu'une, et le second cycle re-rédigeait sur les mêmes blocs sans jamais
-    dire lequel manquait. Le motif nomme désormais la clause décisionnelle retrouvée pour la
-    sous-question restée sans réponse, et la relance la rend vérifiable.
-    """
-    answer, trace, fake = await _run_par_facette(par_facette, [
-        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
-        _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
-        _rediger_inventaire(par_facette),
-        _verifier_une_facette(),
-        _rediger_les_deux(par_facette),
-        _verifier_les_deux()])
-
-    assert fake.remaining_script == 0
-    relance = fake.requests[-2]["messages"][-1]["content"]
-    # La clause de la sous-question restée sans réponse est **nommée** au rédacteur. Depuis le
-    # correctif du tour 2, c'est la consigne fondatrice qui la porte — la plus précise des deux —
-    # parce que `_fondatrices_omises` raisonne désormais par sous-question : une fondatrice citée
-    # pour l'une ne dit plus rien de l'autre.
-    assert "clause décisionnelle confirmée pourtant retrouvée" in relance
-    assert par_facette.bloc("regle_registre") in relance
-    # Correctif du tour 2 : le motif **nomme** la sous-question restée sans réponse. Le rédacteur
-    # ne pouvait pas la deviner — il ne recevait ni les libellés, ni le constat de couverture.
-    assert "restée(s) sans affirmation affichée" in relance
-    assert FACETTE_REGISTRE in relance and FACETTE_INVENTAIRE not in relance.split("motif")[-1]
-    assert {q.block_id for c in answer.claims for q in c.quotes} == {
-        par_facette.bloc("regle_inventaire"), par_facette.bloc("regle_registre")}
 
 
 async def test_sous_navigation_la_facette_non_couverte_repart_en_consigne_dans_le_meme_fil(
@@ -2778,7 +2343,7 @@ async def test_sous_navigation_la_facette_non_couverte_repart_en_consigne_dans_l
             _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
             _navigation(par_facette, chercher=False,
                         noeuds=(par_facette.identite.socle, par_facette.identite.annexe)),
-            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="PRÊT"),
+            _fin_de_lecture(),
             _rediger_inventaire(par_facette),
             _verifier_une_facette(),
             _rediger_les_deux(par_facette),
@@ -2812,7 +2377,7 @@ async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(
     answer, trace, fake = await _run_par_facette(par_facette, [
         _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
         _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
+        _fin_de_lecture(),
         _rediger_inventaire(par_facette),
         _verifier_une_facette()])
 
@@ -2821,56 +2386,6 @@ async def test_sans_relance_du_second_cycle_la_facette_reste_sans_reponse(
                                              "restituer"]
     assert {q.block_id for c in answer.claims for q in c.quotes} == {
         par_facette.bloc("regle_inventaire")}
-
-
-def _retrieval_a_deux_fondatrices(corpus: CorpusNeutre) -> RetrievalResult:
-    """Le retrieval du corpus à deux facettes : une règle décisionnelle confirmée par facette."""
-    document = corpus.index.corpus.documents[corpus.identite.doc_id]
-    blocs = [document.block(corpus.bloc(cle))
-             for cle in ("regle_inventaire", "regle_registre")]
-    return RetrievalResult(
-        blocs=blocs, opened_block_ids=[b.block_id for b in blocs],
-        facettes=[FacetteCouverture(rang=0, block_ids=(corpus.bloc("regle_inventaire"),),
-                                    candidats=1),
-                  FacetteCouverture(rang=1, block_ids=(corpus.bloc("regle_registre"),),
-                                    candidats=1)])
-
-
-def _verification_couvrant_la_premiere(corpus: CorpusNeutre) -> Verification:
-    """Une affirmation affichée, qui cite la fondatrice de la **première** sous-question."""
-    return Verification(
-        claims=[VerifiedClaim(
-            claim_id="k1", text="Le texte prend en charge l'objet inventorié.",
-            quotes=[VerifiedQuote(block_id=corpus.bloc("regle_inventaire"),
-                                  quote=CITATION_INVENTAIRE, start=0, end=len(CITATION_INVENTAIRE),
-                                  text_start=0, text_end=len(CITATION_INVENTAIRE))],
-            status=ClaimStatus(retrouvee=True, pertinente=True, edition="2030"))],
-        found=True, facettes_couvertes=[0])
-
-
-def test_une_fondatrice_citee_pour_une_facette_nen_couvre_pas_une_autre(
-        par_facette: CorpusNeutre) -> None:
-    """Correctif du tour 2 — la base décisionnelle existe **par sous-question**, ou pas du tout.
-
-    A16 #2 : la lecture portait les deux règles, la rédaction n'en citait qu'une, et ce garde-fou
-    se taisait parce qu'« une fondatrice citée » suffisait à le désarmer, quel que soit le nombre
-    de sous-questions ouvertes. Le rouge-avant est la ligne du dessous : sans couverture par
-    facette mesurée, la règle historique — celle qui s'appliquait à A16 #2 — ne signale rien.
-    """
-    parsed = ParsedQuestion(
-        question_resolue=QUESTION_RESOLUE_NEUTRE, intent="question",
-        facettes=[FACETTE_INVENTAIRE, FACETTE_REGISTRE])
-    retrieval = _retrieval_a_deux_fondatrices(par_facette)
-    verification = _verification_couvrant_la_premiere(par_facette)
-    reglages = _settings_neutre(par_facette.identite)
-
-    assert sinistre._fondatrices_omises(verification, retrieval, reglages, parsed) == [
-        par_facette.bloc("regle_registre")]
-
-    # Mutation : la couverture par facette effacée du résultat, la règle historique reprend — et
-    # elle se tait, parce qu'une fondatrice est citée quelque part.
-    sans_mesure = retrieval.model_copy(update={"facettes": []})
-    assert sinistre._fondatrices_omises(verification, sans_mesure, reglages, parsed) == []
 
 
 def test_une_relance_qui_ne_prouve_rien_de_neuf_ne_domine_pas() -> None:
@@ -2973,18 +2488,6 @@ def test_un_hors_objet_narme_plus_la_relance_mais_un_defaut_de_redaction_si(inde
     assert arme(None)
 
 
-def test_la_consigne_des_limites_ne_redemande_pas_un_bloc_juge_hors_objet(index: Index) -> None:
-    """Rapport rédiger E — le message ne peut pas ordonner ce que le motif ordonne de remplacer."""
-    hors_objet = Verification.model_construct(
-        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "hors_objet")], found=True)
-    non_soutenue = Verification.model_construct(
-        claims=[], rejected_claims=[_rejetee("c1", f"{DOC_ID}:p1:5", "non_soutenue")], found=True)
-
-    assert sinistre._blocs_juges_hors_objet(hors_objet) == [f"{DOC_ID}:p1:5"]
-    # Une limite rejetée faute de soutien reste demandée : là, la relance est utile.
-    assert sinistre._blocs_juges_hors_objet(non_soutenue) == []
-
-
 async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
         index: Index) -> None:
     """Rapport rédiger B — un 200 valide devenait un 503 parce qu'une amélioration a expiré.
@@ -2995,7 +2498,7 @@ async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
     26,3 s (A16 #2), à 34 % de marge sous `llm_timeout_s`.
     """
     fake = FakeAnthropic([
-        _comprendre(), _rediger(GAR, MAUVAISE),
+        _comprendre(), *_lecture(*NOEUDS_DU_MINI_CONTRAT), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, True, False, False, None),
                   ("c9", False, False, False, False, None, [], [], "non_soutenue")),
         _rediger(GAR),
@@ -3005,7 +2508,7 @@ async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
 
     answer, trace = await sinistre.run(
         None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
-        settings=settings, request_id="req-sinistre", budget=_budget(), variant="deterministe")
+        settings=settings, request_id="req-sinistre", budget=_budget())
 
     assert fake.remaining_script == 0
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
@@ -3021,7 +2524,7 @@ async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
 async def test_un_acquis_vide_garde_la_regle_terminale_dad16(index: Index) -> None:
     """L'exception est fermée : sans rien à servir, un appel commencé qui échoue reste terminal."""
     fake = FakeAnthropic([
-        _comprendre(), _rediger(MAUVAISE),
+        _comprendre(), *_lecture(*NOEUDS_DU_MINI_CONTRAT), _rediger(MAUVAISE),
         _verifier(("c9", False, False, False, False, None, [], [], "non_soutenue")),
         _rediger(GAR),
         provider_exception(anthropic.APITimeoutError)])
@@ -3030,8 +2533,7 @@ async def test_un_acquis_vide_garde_la_regle_terminale_dad16(index: Index) -> No
 
     with pytest.raises(Timeout):
         await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
-                           settings=settings, request_id="req-sinistre", budget=_budget(),
-                           variant="deterministe")
+                           settings=settings, request_id="req-sinistre", budget=_budget())
 
 
 async def test_la_trace_publie_ce_que_comprendre_a_decide(index: Index) -> None:
@@ -3080,18 +2582,18 @@ async def test_aucune_exception_ne_sort_nue_de_la_chaine(index: Index, monkeypat
     trace n'avait même jamais été construite. AD-16 exige une trace partielle sur tout échec
     terminal ; la règle ne peut pas dépendre du type qu'un défaut interne aura pris.
     """
-    def exploser(*_args, **_kw):
+    async def exploser(_self):
         raise ValueError("un défaut interne qui n'est pas un PipelineError")
 
-    monkeypatch.setattr(sinistre, "retrouver_deterministe", exploser)
+    # Le seam est la lecture du chemin servi : c'est elle, désormais, qui **est** *retrouver*.
+    monkeypatch.setattr(sinistre.Navigation, "lire", exploser)
     fake = FakeAnthropic([_comprendre()])
     settings = _settings()
     client = LlmClient(settings, anthropic_client=fake)
 
     with pytest.raises(PipelineError) as erreur:
         await sinistre.run(None, QUESTION, FAITS, corpus=index.corpus, index=index, client=client,
-                           settings=settings, request_id="req-sinistre", budget=_budget(),
-                           variant="deterministe")
+                           settings=settings, request_id="req-sinistre", budget=_budget())
 
     assert erreur.value.code.value == "internal"
     assert erreur.value.trace is not None
@@ -3105,67 +2607,6 @@ async def test_aucune_exception_ne_sort_nue_de_la_chaine(index: Index, monkeypat
 # --- Correctif du tour 3 (R4) : ne relancer que sur ce qu'une relance peut rendre pertinent ----
 
 
-async def test_une_facette_dont_la_reprise_na_rien_rouvert_ne_relance_pas(
-        par_facette: CorpusNeutre) -> None:
-    """R4 — la relance n'avait devant elle que des blocs déjà soumis, et lus.
-
-    Mesuré sur la troisième réponse A16 : la reprise ciblée court-circuitait (« 0 bloc rouvert »),
-    le motif ordonnait quand même une claim sur le bloc déjà transmis, le rédacteur obéissait, et le
-    contrôle rejetait les deux claims — 42 s et 0,09 € pour rien. Le bloc n'étant pas une fondatrice
-    confirmée jamais citée, aucun chemin précis ne le réclamait : c'est une absence de clause neuve,
-    et elle se dit.
-    """
-    # Les deux règles sont transmises et **toutes deux citées** : aucune fondatrice n'est omise,
-    # donc aucun chemin précis ne réclame quoi que ce soit. Le contrôle n'attribue pourtant les
-    # deux affirmations qu'à la première sous-question — la seconde reste sans réponse, et la
-    # reprise ciblée n'a rien de neuf à rouvrir.
-    corpus = par_facette
-    answer, trace, fake = await _run_par_facette(corpus, [
-        _comprendre_facettes(corpus, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
-        fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
-            {"type": "tool_use", "id": "t1", "name": "ouvrir_noeud",
-             "input": {"node_id": f"{corpus.identite.doc_id}:n1"}},
-            {"type": "tool_use", "id": "t2", "name": "ouvrir_noeud",
-             "input": {"node_id": f"{corpus.identite.doc_id}:n2"}}]),
-        _verdict_insuffisant(),
-        _rediger_les_deux(corpus),
-        _verifier(("k1", True, True, False, False, None, [], []),
-                  ("k2", True, True, False, False, None, [], []),
-                  facettes=[["k1", "k2"], []])])
-
-    assert fake.remaining_script == 0
-    # Aucune seconde rédaction : la chaîne s'arrête au lieu de redemander un bloc déjà soumis.
-    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
-                                             "restituer"]
-    absence = [c for s in trace.steps for c in s.checks if c.name == "facettes_sans_clause"]
-    assert absence and "l'absence est dite plutôt que fabriquée" in absence[0].detail
-    assert answer.complete is False and len(answer.claims) == 2
-
-
-def test_un_bloc_a_correspondance_partielle_nentre_pas_dans_les_fondatrices_omises(
-        par_facette: CorpusNeutre) -> None:
-    """R4, première garde — elle est **héritée** de R1, et ce témoin le fixe.
-
-    `_fondatrices_omises` lit `FacetteCouverture.block_ids`, qui ne contient plus que des
-    correspondances pleines. Un bloc que seul un recouvrement partiel proposait ne peut donc plus
-    entrer dans le motif — c'est lui qui a fait ordonner une claim sur une exclusion hors sujet.
-    """
-    parsed = ParsedQuestion(
-        question_resolue=QUESTION_RESOLUE_NEUTRE, intent="question",
-        facettes=[FACETTE_INVENTAIRE, FACETTE_REGISTRE])
-    retrieval = _retrieval_a_deux_fondatrices(par_facette)
-    verification = _verification_couvrant_la_premiere(par_facette)
-    reglages = _settings_neutre(par_facette.identite)
-
-    assert sinistre._fondatrices_omises(verification, retrieval, reglages, parsed) == [
-        par_facette.bloc("regle_registre")]
-    # La même couverture, vidée comme R1 la vide sur un recouvrement partiel : plus rien à relancer.
-    partielle = retrieval.model_copy(update={"facettes": [
-        FacetteCouverture(rang=0, block_ids=(par_facette.bloc("regle_inventaire"),), candidats=1),
-        FacetteCouverture(rang=1, block_ids=(), candidats=0)]})
-    assert sinistre._fondatrices_omises(verification, partielle, reglages, parsed) == []
-
-
 # --- Correctif du tour 4 (C1) : une remise ne se refuse pas pour la deadline -------------------
 
 
@@ -3173,7 +2614,8 @@ class _BudgetQuiExpire(RequestBudget):
     """Budget dont la deadline s'épuise juste après le n-ième appel facturé (horloge factice).
 
     Compter les appels plutôt que les secondes rend le témoin déterministe : l'instant d'expiration
-    est exactement l'entre-deux-étapes que l'on veut éprouver.
+    est exactement l'entre-deux-étapes que l'on veut éprouver. La chaîne servie en compte cinq
+    jusqu'à la remise — *comprendre*, les deux tours de lecture, l'ébauche, le contrôle.
     """
 
     def __init__(self, apres_appels: int) -> None:
@@ -3198,7 +2640,7 @@ async def test_une_reponse_verifiee_nest_pas_jetee_pour_onze_millisecondes(index
     """
     answer, trace, fake = await _run(
         index, [_comprendre(), _rediger(GAR), _verifier(("c1", True, True, False, False, None))],
-        budget=_BudgetQuiExpire(3))
+        budget=_BudgetQuiExpire(5))
 
     assert fake.remaining_script == 0
     assert answer.found is True and answer.verdict is not None
@@ -3214,7 +2656,7 @@ async def test_la_deadline_ferme_toujours_la_porte_devant_une_etape_qui_depense(
     with pytest.raises(Timeout, match="verifier"):
         await _run(index, [_comprendre(), _rediger(GAR),
                            _verifier(("c1", True, True, False, False, None))],
-                   budget=_BudgetQuiExpire(2))
+                   budget=_BudgetQuiExpire(4))
 
 
 async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Index) -> None:
@@ -3297,59 +2739,34 @@ async def test_une_facette_couverte_par_une_auxiliaire_seule_relance_toujours(in
     assert sinistre._fondatrice_rejetee(auxiliaire, parsed, corpus=index.corpus, index=index)
 
 
-# --- Correctif du tour 4 (C4) : une absence mesurée ne s'efface pas par déclaration ------------
-
-
-async def test_le_controle_ne_peut_pas_couvrir_une_sous_question_sans_candidat(
-        par_facette: CorpusNeutre) -> None:
-    """C4 — mesuré sur A16 : la facette « fumée » déclarée couverte par une clause de chaleur.
-
-    *retrouver* avait publié `facettes_retrouvees ok=false` (« le contrat lu n'en porte aucun pour
-    le rang 1 ») et `verdict_par_facette : verdict contredit par la mesure du code (qui fait foi) ».
-    Le contrôle a néanmoins attribué le rang 1 à une claim citant la clause de chaleur : plus de
-    rang non couvert, donc pas de reprise, pas de garde, pas de lacune — la réponse servie ne disait
-    pas un mot de la fumée et ne le disait pas non plus.
-
-    La sous-question introuvable de ce corpus n'a **aucun** candidat ; la voie existante reprend la
-    main : reprise ciblée sans rien à rouvrir, absence dite, réponse incomplète.
-    """
-    answer, trace, fake = await _run_par_facette(par_facette, [
-        _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_INTROUVABLE]),
-        _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
-        _rediger_inventaire(par_facette),
-        # Le contrôle attribue **les deux** rangs à l'unique claim affichée.
-        _verifier(("k1", True, True, False, False, None, [], []), facettes=[["k1"], ["k1"]])])
-
-    assert fake.remaining_script == 0
-    verifier = next(s for s in trace.steps if s.name == "verifier")
-    (contredit,) = [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
-    assert not contredit.ok and "la mesure du code fait foi" in contredit.detail
-    assert answer.complete is False
-    assert PHRASES_DE_LACUNE["fr"]["facettes_sans_clause"][0].format(n=1) in answer.unknown
+# --- L'attribution du contrôle fait foi : le code mesure, il ne réattribue pas ------------------
 
 
 async def test_une_attribution_sur_une_sous_question_pourvue_nest_jamais_contredite(
         par_facette: CorpusNeutre) -> None:
-    """La borne du correctif, et elle est voulue : le code ne corrige jamais une bonne attribution.
+    """Le code ne corrige jamais une attribution du contrôle, fût-elle croisée.
 
-    Un classement **non vide** ne dit rien de l'attribution ; seul le vide est une mesure, et il ne
-    fait que refuser d'être effacé.
+    Depuis la story 5.6 (T2), plus aucune passe de code n'attribue un bloc à une sous-question :
+    c'est *vérifier* qui mesure la couverture sur les affirmations **affichées** (AD-4), et le
+    pipeline se contente d'en tirer ce qui repart au modèle. Les deux sous-questions étant
+    couvertes, rien ne repart : aucune relance, aucun manque annoncé.
     """
     answer, trace, fake = await _run_par_facette(par_facette, [
         _comprendre_facettes(par_facette, [FACETTE_INVENTAIRE, FACETTE_REGISTRE]),
-        _navigation_une_section(par_facette),
-        _verdict_insuffisant(),
+        _navigation(par_facette, chercher=False,
+                    noeuds=(par_facette.identite.socle, par_facette.identite.annexe)),
+        _fin_de_lecture(),
         _rediger_les_deux(par_facette),
-        # Les deux rangs sont pourvus par le classement ; l'attribution du contrôle fait foi, même
-        # croisée (la claim du registre est portée au rang 0 et inversement).
+        # L'attribution du contrôle fait foi, même croisée (la claim du registre est portée au
+        # rang 0 et inversement).
         _verifier(("k1", True, True, False, False, None, [], []),
                   ("k2", True, True, False, False, None, [], []),
                   facettes=[["k2"], ["k1"]])])
 
     assert fake.remaining_script == 0
+    assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "rediger", "verifier",
+                                             "restituer"]
     verifier = next(s for s in trace.steps if s.name == "verifier")
-    assert not [c for c in verifier.checks if c.name == "couverture_declaree_sans_candidat"]
     assert not [c for c in verifier.checks if c.name == "facettes_non_couvertes"]
     assert len(answer.claims) == 2
 
@@ -3369,7 +2786,11 @@ async def test_un_couvert_ne_se_prononce_pas_quand_une_sous_question_na_aucune_c
     """
     answer, trace, fake = await _run(index, [
         _comprendre(facettes=["couverture du sinistre", "bris de la vitre de l'insert"]),
-        _rediger(GAR), _verifier(("c1", True, True, False, False, None))])
+        _rediger(GAR), _verifier(("c1", True, True, False, False, None)),
+        # La sous-question restée sans affirmation repart au modèle comme consigne (AD-1 amendé) ;
+        # il reconduit son ébauche à l'identique, la relance est sans effet, et c'est bien le
+        # verdict de la **première** vérification que ce témoin lit.
+        _rediger(GAR)])
 
     assert fake.remaining_script == 0
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]

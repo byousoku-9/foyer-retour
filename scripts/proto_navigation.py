@@ -213,7 +213,7 @@ def chercher(index: Index, dictionnaire: Dictionnaire, settings: Any, *, doc_id:
                                   part_max=settings.dictionnaire_variante_max_part)
     for terme, variantes in mapping.items():
         for forme in _variantes_de_facette([terme, *variantes], index=index, doc_id=doc_id,
-                                           part_max=settings.facette_variante_max_part):
+                                           part_max=settings.variante_nombre_max_part):
             if forme not in variantes:
                 variantes.append(forme)
     hits = index.chercher(mapping, limit=limit, doc_id=doc_id)

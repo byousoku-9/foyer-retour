@@ -213,7 +213,10 @@ class DictionnaireTrace(DomainModel):
 class Trace(DomainModel):
     request_id: str
     pipeline: str
-    variant: str = "deterministe"
+    # Amendement AD-1 du 03/09/2026, T2 : le défaut nomme le chemin **servi**. Il valait
+    # `deterministe` — une variante supprimée —, si bien qu'une trace construite sans variante
+    # nommait un chemin qui n'existe plus.
+    variant: str = "navigation"
     # AD-10 : « les logs portent, par requête, `intent`, `found`, `verdict.value`, `reason.kind`,
     # `variants_count`, `blocks_scanned` et `cost_eur` ». Tous ces champs se lisent sur la réponse,
     # sauf `intent` : il est produit par *comprendre*, à l'intérieur du pipeline, et n'apparaît nulle

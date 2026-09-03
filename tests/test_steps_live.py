@@ -28,8 +28,6 @@ from server.app.domain.retrieval import RetrievalBudget
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.steps.comprendre import comprendre
-from server.app.steps.rediger import rediger
-from server.app.steps.retrouver import retrouver_deterministe
 from tests.fixtures import LLMRecorder
 from tests.helpers_tiers import verifier_etage
 from tests.llm_fake import RecordedAnthropic
@@ -106,46 +104,3 @@ async def test_meteo_question_is_settled_by_the_intent_alone(llm_recorder: LLMRe
     # L'intent seul tranche : un unique appel, à l'étage configuré, et aucune étape au-delà.
     verifier_etage(step, _settings(), appels=1)
     assert budget.attempts == 1
-
-
-async def test_full_chain_draft_is_sourced_on_at_least_two_fiches(index: Index, llm_recorder: LLMRecorder) -> None:
-    client, budget = _client(llm_recorder), _budget()
-    parsed, step_c = await comprendre(DEUX_SUJETS, [], Profil(enfants=True), client=client, budget=budget,
-                                      settings=_settings())
-    assert isinstance(parsed, ParsedQuestion)
-
-    retrieval, step_r = retrouver_deterministe(parsed, corpus=index.corpus, index=index,
-                                               budget=_retrieval_budget(), settings=_settings(),
-                                               doc_id=DOC_ID)
-    assert retrieval.blocs, "aucun bloc retrouvé pour une question du périmètre du guide"
-    # AD-9 affecte `retrouver → reason` sans exception ; `calls=[]` dit que la variante déterministe
-    # n'a appelé aucun modèle (revue Codex 1.4, B3).
-    assert step_r.tier == "reason" and step_r.calls == []
-
-    draft, step_d = await rediger(parsed, retrieval, [], client=client, budget=budget, index=index,
-                                  doc_id=DOC_ID, settings=_settings())
-
-    # AD-3 : chaque segment factuel cite une claim, chaque quote est recopiée depuis un bloc fourni
-    fournis = {b.block_id: b for b in retrieval.blocs}
-    assert len(draft.claims) >= 2, [c.text for c in draft.claims]
-    fiches = set()
-    for claim in draft.claims:
-        for quote in claim.quotes:
-            bloc = fournis.get(quote.block_id)
-            assert bloc is not None, f"{quote.block_id} n'était pas dans les blocs fournis"
-            assert normalize(quote.quote) in bloc.text_norm, (quote.block_id, quote.quote)
-            fiches.add(quote.block_id.split(":")[1])
-    assert len(fiches) >= 2, fiches
-    assert [s for s in draft.segments if s.kind == "factuel"]
-
-    assert step_d.name == "rediger" and step_d.tier == "reason"
-    # 1 appel, 2 si le premier a buté sur `rediger_max_tokens` (les tokens de réflexion comptent dans
-    # la sortie) : le client relance alors avec le motif « réponse tronquée ». Cette relance ne passe
-    # sous le plafond que parce que le fournisseur a confirmé avoir caché le préfixe (reprise B5).
-    assert 1 <= len(step_d.calls) <= 2
-    assert all(c.model.startswith("claude-sonnet") for c in step_d.calls)
-    # le plafond par requête (0,10 €) tient pour la chaîne entière, majorant compris. `cost_eur` cumule
-    # des arrondis appel par appel : la comparaison tolère un centième de centime par appel.
-    assert budget.cost_eur == pytest.approx(step_c.usage.cost_eur + step_d.usage.cost_eur,
-                                            abs=1e-4 * len(step_c.calls + step_d.calls))
-    assert budget.cost_eur < _settings().max_cost_eur_per_request

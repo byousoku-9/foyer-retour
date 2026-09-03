@@ -10,24 +10,14 @@ la définition même d'une rustine, vue depuis l'autre côté.
 
 from __future__ import annotations
 
-from server.app.config import Settings
-from server.app.corpus.index import Index
-from server.app.corpus.loader import Corpus
 from server.app.corpus.text import normalize
-from server.app.domain import Block, BlockRef, Document, Node, NodeRef, RetrievalBudget
-from server.app.domain.question import ParsedQuestion, QuestionScope
 from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee, ClauseCitee,
                                        applicabilites_des_claims, decider)
-from server.app.llm.budget import RequestBudget
-from server.app.llm.client import LlmClient
-from server.app.llm.models import TIERS
-from server.app.steps.retrouver import retrouver_deterministe, retrouver_outils
 from server.evals.plancher import charger_plancher as _charger_plancher_4_5
 from server.evals.run import Cas as _Cas4_5
 from server.evals.run import Resultat as _Resultat4_5
 from server.evals.run import construire_decisions as _decisions4_5
 from server.evals.run import quote_hash
-from tests.llm_fake import FakeAnthropic, fake_message
 
 # Vocabulaire volontairement neutre : aucun assureur réel, aucun cas du golden set.
 SOCLE = "n-socle"
@@ -138,110 +128,6 @@ def test_controle_negatif_un_decideur_branche_sur_block_id_est_detecte() -> None
 
     assert mauvais_decideur(original) is True
     assert mauvais_decideur(permute) is False
-
-
-def _index_multifacette(prefixe: str, *, inverse: bool) -> tuple[Index, ParsedQuestion]:
-    textes = [
-        "Thème de profil général.",
-        "Thème de profil général répété.",
-        "Première démarche avec son justificatif.",
-        "Seconde démarche avec son échéance.",
-        "Sujet ajouté sans rapport.",
-    ]
-    blocs = []
-    for i, texte in enumerate(textes):
-        page = i + 10 if not inverse else i + 40
-        sequence = i + 1 if not inverse else len(textes) - i + 20
-        blocs.append(Block(block_id=f"{prefixe}:p{page}:{sequence}", text=texte,
-                           loc=f"p{page}", seq=sequence))
-    ordre = list(reversed(blocs)) if inverse else blocs
-    nodes = [Node(node_id=f"{prefixe}-root",
-                  items=[NodeRef(node_id=f"{prefixe}-n{i}") for i in range(len(ordre))])]
-    nodes.extend(Node(node_id=f"{prefixe}-n{i}", items=[BlockRef(block_id=bloc.block_id)])
-                 for i, bloc in enumerate(ordre))
-    document = Document(doc_id=prefixe, kind="guide", title="Neutre", edition="e",
-                        nodes=nodes, blocks=blocs)
-    parsed = ParsedQuestion(
-        question_resolue="Comparer deux démarches.", intent="question",
-        terms=["première démarche", "seconde démarche"],
-        scope=QuestionScope(themes=["thème de profil", "sujet ajouté"]),
-        facettes=["première démarche", "seconde démarche"],
-    )
-    return Index(Corpus(documents={prefixe: document},
-                        summaries={prefixe: f"{prefixe}-root"})), parsed
-
-
-def test_la_diversification_multifacette_est_invariante_aux_ids_pages_ordre_et_theme_etranger() -> None:
-    original, question_1 = _index_multifacette("doc-neutre", inverse=False)
-    permute, question_2 = _index_multifacette("miroir-neutre", inverse=True)
-
-    def passages(index: Index, parsed: ParsedQuestion) -> list[str]:
-        hits = index.chercher(parsed.termes_de_recherche(), limit=2,
-                              groupes_prioritaires=parsed.facettes)
-        return [index.corpus.documents[index.doc_of(block_id)].block(block_id).text
-                for block_id, _node_id in hits]
-
-    attendu = ["Première démarche avec son justificatif.",
-               "Seconde démarche avec son échéance."]
-    assert passages(original, question_1) == passages(permute, question_2) == attendu
-
-
-async def test_les_deux_variantes_completent_les_memes_roles_sous_permutation() -> None:
-    attendus = ["Première démarche avec son justificatif.",
-                "Seconde démarche avec son échéance."]
-
-    async def passages(prefixe: str, *, inverse: bool) -> tuple[list[str], list[str]]:
-        index, parsed = _index_multifacette(prefixe, inverse=inverse)
-        corpus = index.corpus
-        budget = RetrievalBudget(max_opens=2, node_window=1, search_limit=2,
-                                 max_llm_turns=2, max_blocks=2, max_tokens=6000)
-        settings = Settings(_env_file=None, max_cost_eur_per_request=1.0)
-        deterministe, _ = retrouver_deterministe(
-            parsed, corpus=corpus, index=index, budget=budget,
-            settings=settings, doc_id=prefixe)
-        premier = next(block for block in corpus.documents[prefixe].blocks
-                        if block.text == attendus[0])
-        fake = FakeAnthropic([
-            fake_message(model=TIERS["micro"], stop_reason="tool_use", content=[
-                {"type": "tool_use", "id": "t1", "name": "chercher",
-                 "input": {"termes": parsed.termes_de_recherche()}},
-                {"type": "tool_use", "id": "t2", "name": "ouvrir_noeud",
-                 "input": {"node_id": index.parent_node(premier.block_id),
-                           "focus_block_id": premier.block_id}},
-            ]),
-            # « Comparer deux démarches » rappelle les deux formulations singulières, mais ne
-            # les rend pas lexicalement suffisantes : le second tour borné conclut sans outil.
-            fake_message(model=TIERS["micro"], stop_reason="end_turn", content=[]),
-        ])
-        request_budget = RequestBudget(deadline_s=100, max_attempts=8, max_cost_eur=1.0)
-        outils, _ = await retrouver_outils(
-            parsed, corpus=corpus, index=index, budget=budget, settings=settings,
-            client=LlmClient(settings, anthropic_client=fake),
-            request_budget=request_budget, doc_id=prefixe)
-        assert request_budget.attempts == 2
-
-        def textes(resultat) -> list[str]:
-            return [block.text for block in resultat.blocs]
-
-        return textes(deterministe), textes(outils)
-
-    original = await passages("doc-neutre", inverse=False)
-    permute = await passages("miroir-neutre", inverse=True)
-    assert original == permute == (attendus, attendus)
-
-
-def test_controle_negatif_la_coupe_globale_sans_facettes_perd_les_deux_passages_utiles() -> None:
-    original, question_1 = _index_multifacette("doc-neutre", inverse=False)
-    permute, question_2 = _index_multifacette("miroir-neutre", inverse=True)
-
-    def mauvais_selecteur(index: Index, parsed: ParsedQuestion) -> list[str]:
-        return [index.corpus.documents[index.doc_of(block_id)].block(block_id).text
-                for block_id, _node_id in index.chercher(parsed.termes_de_recherche(), limit=2)]
-
-    attendus = {"Première démarche avec son justificatif.",
-                "Seconde démarche avec son échéance."}
-    assert attendus.isdisjoint(mauvais_selecteur(original, question_1))
-    assert attendus.isdisjoint(mauvais_selecteur(permute, question_2))
 
 
 def test_une_exclusion_applicable_reste_applicable_sous_permutation() -> None:

@@ -85,10 +85,9 @@ def retrieval_budget(settings: Settings) -> RetrievalBudget:
     `config.py` mais personne ne les renseignait — *rédiger* levait `BudgetExceeded` sur une fiche
     entière au lieu de recevoir un retrieval borné."""
     return RetrievalBudget(max_opens=settings.max_opens, node_window=settings.node_window,
-                           search_limit=settings.search_limit, max_llm_turns=settings.max_llm_turns,
+                           search_limit=settings.search_limit,
                            max_blocks=settings.retrieval_max_blocks,
-                           max_tokens=settings.retrieval_max_tokens,
-                           profil_max_opens=settings.profil_max_opens)
+                           max_tokens=settings.retrieval_max_tokens)
 
 
 def libelles_de_blocs(corpus: Any, doc_id: str, steps: list[StepTrace]) -> list[BlocTrace]:

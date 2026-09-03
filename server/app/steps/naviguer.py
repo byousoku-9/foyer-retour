@@ -265,7 +265,7 @@ class Navigation:
         for terme, variantes in mapping.items():
             for forme in variantes_de_nombre([terme, *variantes], index=self.index,
                                              doc_id=self.doc_id,
-                                             part_max=settings.facette_variante_max_part):
+                                             part_max=settings.variante_nombre_max_part):
                 if forme not in variantes:
                     variantes.append(forme)
         return mapping

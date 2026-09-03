@@ -137,10 +137,10 @@ indexé par le modèle, les paramètres, les schémas, le pipeline, le corpus, l
 
 `Index.chercher` rend des `ScoredHit` immuables portant identités, titre complet, extrait borné et
 score rationnel exact. Le tri finit par document, clause, résultat ; l’identité question ignore
-l’ordre des groupes. `outils`, `deterministe` et `full_context` transportent le record sans recalcul
-jusqu’à l’admission et la suffisance. Les `ContextUnit` voisins gardent leur rôle sans hériter de la
-pertinence ; snapshots et admission partagent union dédupliquée et estimateur de tokens. Toute
-nouvelle version exige tests des trois consommateurs et revue d’architecture.
+l’ordre des groupes. Depuis l’amendement AD-1 du 03/09/2026, ce classement **propose** : il ne
+réserve plus rien pour personne, les variantes qui attribuaient un bloc à une sous-question ayant
+été supprimées. Les `ContextUnit` voisins gardent leur rôle sans hériter de la pertinence ;
+snapshots et admission partagent union dédupliquée et estimateur de tokens.
 
 ## Un service, une origine, une promotion conditionnelle
 
