@@ -24,8 +24,8 @@ from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import TIERS
 from server.app.llm.pricing import estimate_tokens
-from server.app.steps.naviguer import (OUTILS, Navigation, _rendre_blocs, blocs_du_noeud,
-                                       sommaire_complet)
+from server.app.steps.naviguer import (OUTILS, TOOL_CHOICE_AUCUN, Navigation, _rendre_blocs,
+                                       blocs_du_noeud, sommaire_complet)
 from tests.llm_fake import FakeAnthropic, fake_message
 
 DEFAUT = object()  # « faits non précisés » : distinct de « pas de faits », qui est le guide
@@ -400,6 +400,88 @@ async def test_la_borne_de_claims_de_la_navigation_mord_toujours_quand_on_labais
     assert len(draft.claims) == 4
     ecart = next(c for c in step.checks if c.name == "claims_hors_borne_ecartees")
     assert not ecart.ok and "navigation_draft_max_claims" in ecart.detail
+# --- 5 bis. le tour terminal, demandé sans outils (story 5.6, T1e) -----------------------
+
+
+async def test_le_tour_terminal_part_outils_fermes_apres_un_end_turn_precoce() -> None:
+    """`end_turn` avant la borne : l'ébauche est demandée dans la foulée, `tool_choice` fermé.
+
+    Ce que ferme `tool_choice` et **pas** le retrait de `tools` : les outils restent dans le corps,
+    donc le préfixe facturable — sommaire compris — ne bouge pas entre le dernier tour de lecture et
+    le tour qui cite. Le fournisseur ne réécrit pas son cache pour un changement de `tool_choice` ;
+    il le réécrirait pour un changement de `tools`.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(), _ebauche()])
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert isinstance(draft, AnswerDraft)
+    assert navigation.tours == 2 and navigation.tour_terminal_force == 0
+    terminal = fake.requests[-1]
+    assert terminal["tool_choice"] == TOOL_CHOICE_AUCUN == {"type": "none"}
+    assert terminal["tools"] == fake.requests[0]["tools"]  # le préfixe facturable ne bouge pas
+    assert "tool_choice" not in fake.requests[0]
+    # Le modèle sait où il en est : le message le dit, il ne se déduit pas du corps de la requête.
+    assert "sans appel d'outil" in terminal["messages"][-1]["content"]
+    assert not any(check.name == "tour_terminal_force" for check in step.checks)
+    assert "0 tour(s) terminal(aux) forcé(s)" in next(
+        c.detail for c in step.checks if c.name == "ebauche_dans_la_conversation")
+
+
+async def test_la_borne_des_tours_atteinte_demande_lebauche_sans_outils() -> None:
+    """L'autre entrée du tour terminal : la lecture est **bornée**, pas finie — et rien n'échoue.
+
+    C'est le chemin que le prototype ne connaissait pas : sa boucle ne demandait l'ébauche qu'après
+    un `end_turn`, donc jamais alors que le modèle voulait encore lire.
+    """
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+         _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+         _ebauche()],
+        navigation_max_llm_turns=2)
+
+    step_lecture = await navigation.lire()
+    draft, _step = await navigation.rediger()
+
+    assert any(check.name == "tours_epuises" and not check.ok for check in step_lecture.checks)
+    assert isinstance(draft, AnswerDraft) and navigation.retrieval().truncated
+    assert fake.requests[-1]["tool_choice"] == TOOL_CHOICE_AUCUN
+
+
+async def test_un_tour_terminal_qui_redemande_un_outil_le_sert_puis_obtient_lebauche() -> None:
+    """Le fait mesuré du 03/09/2026 : `stop_reason=tool_use` au tour qui devait citer.
+
+    Il valait un 503 (« dialogue d'outils non supporté ») sur une lecture qui n'avait rien
+    d'anormal. Il vaut désormais une lecture de plus, servie dans la borne des tours, puis l'ébauche
+    — et la trace le dit au lieu de le taire.
+    """
+    navigation, fake = _navigation([
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE}}),
+        _fin_de_lecture(),
+        _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": ANNEXE}}),
+        _ebauche()])
+
+    await navigation.lire()
+    draft, step = await navigation.rediger()
+
+    assert isinstance(draft, AnswerDraft)
+    assert navigation.tour_terminal_force == 1 and navigation.tours == 3
+    # L'outil a été exécuté pour de bon : le bloc de l'annexe est entré dans la lecture.
+    assert ITEM in navigation.ouverts and step.opened_block_ids == [TITRE, REGLE, ITEM]
+    # Le rappel voyage dans le **même** message que le résultat, en bloc `text` après lui.
+    dernier = fake.requests[-1]["messages"][-1]["content"]
+    assert any(part.get("type") == "tool_result" and TEXTE_ITEM in part["content"]
+               for part in dernier)
+    assert dernier[-1]["type"] == "text" and "sans appel d'outil" in dernier[-1]["text"]
+    force = next(c for c in step.checks if c.name == "tour_terminal_force")
+    assert not force.ok and "tool_choice" in force.detail
+    assert "1 tour(s) terminal(aux) forcé(s)" in next(
+        c.detail for c in step.checks if c.name == "ebauche_dans_la_conversation")
+
+
 # --- 6. l'unité d'énumération, gardée par la structure du rendu --------------------------
 
 

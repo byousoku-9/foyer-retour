@@ -29,9 +29,12 @@ personne désigne dans le parcours du guide. C'est une **indication**, pas une c
 sont pas ouvertes, rien ne t'oblige à les lire, et lire une fiche qui ne répond pas à la question
 dépense ton budget pour rien. Ouvre-les si tu juges qu'elles répondent, ignore-les sinon.
 
-Quand tu as fini de lire, **n'appelle plus aucun outil** et réponds par le seul mot `PRÊT`. Le code
-te demandera alors ton ébauche, dans cette même conversation : tu garderas sous les yeux tout ce que
-tu as lu.
+Quand tu as fini de lire, **n'appelle plus aucun outil** et réponds par le seul mot `PRÊT`. Dans
+tous les cas, un message t'annoncera le **tour terminal** — « rends maintenant l'ébauche JSON, sans
+appel d'outil » : à ce moment les outils sont fermés, y compris si tu n'avais pas fini de lire, et
+c'est là que tu rédiges. N'essaie pas d'en rappeler un : rédige avec les nœuds que tu as ouverts, et
+dis dans un segment `limite` ce que ta lecture n'a pas couvert. Tu garderas sous les yeux tout ce
+que tu as lu.
 
 ## 2. Rédiger
 

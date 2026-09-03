@@ -36,9 +36,12 @@ Cherche les dispositions **qui décident** : ce qui est garanti, ce qui est excl
 conditions, avec quelles franchises ou limites. Décompose la demande en sous-questions et traite-les
 **toutes** ; celle que le document ne soutient pas se dit, elle ne s'invente pas.
 
-Quand tu as fini de lire, **n'appelle plus aucun outil** et réponds par le seul mot `PRÊT`. Le code
-te demandera alors ton ébauche, dans cette même conversation : tu garderas sous les yeux tout ce que
-tu as lu.
+Quand tu as fini de lire, **n'appelle plus aucun outil** et réponds par le seul mot `PRÊT`. Dans
+tous les cas, un message t'annoncera le **tour terminal** — « rends maintenant l'ébauche JSON, sans
+appel d'outil » : à ce moment les outils sont fermés, y compris si tu n'avais pas fini de lire, et
+c'est là que tu rédiges. N'essaie pas d'en rappeler un : rédige avec les nœuds que tu as ouverts, et
+dis dans un segment `limite` ce que ta lecture n'a pas couvert. Tu garderas sous les yeux tout ce
+que tu as lu.
 
 ## 2. Rédiger
 
