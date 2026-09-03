@@ -677,6 +677,47 @@ MOTIF_NON_PERTINENCE_GENERIQUE = (
 )
 
 
+# Story 5.6 (T18). Le pendant de `QUALIFICATIFS` (domaine) pour l'**autre** chose qu'une clause peut
+# subordonner : non plus une qualité de l'événement, mais une pièce du dossier que le verdict ne lit
+# pas. Un contrat d'habitation n'écrit ces renvois que d'une poignée de façons — « dans la limite
+# prévue dans vos conditions particulières », « si le pack … est souscrit », « les garanties
+# optionnelles » —, et deux lexiques plutôt qu'un parce que les deux pièces sont distinctes dans
+# `MissingPackage` comme dans les questions au client : les conditions particulières d'un côté, les
+# options souscrites de l'autre.
+#
+# Fermé et court, pour la même raison que `QUALIFICATIFS` : il ne sert pas à comprendre la clause,
+# seulement à savoir qu'elle renvoie. Une racine est portée par tout mot du texte qui commence par
+# elle (« option » → « optionnelles », « souscrit » → « souscrites »). Mesuré sur les deux contrats
+# servis : 22 des 169 blocs `garantie` de Baloise et 21 des 271 d'AXA portent un de ces renvois dans
+# leur propre texte — c'est une minorité nommée, pas une politique qui fermerait la règle (3) d'AD-6.
+#
+# Il vit ici et non dans le domaine, contrairement à `QUALIFICATIFS` : un seul appelant l'emploie,
+# celui qui relit le corpus. Le verdict, lui, ne voit que le résultat (`ClauseCitee.renvois`).
+RENVOIS_CP: frozenset[str] = frozenset({
+    "conditions particulieres", "conditions speciales", "mentionne au contrat",
+    "mentionnee au contrat", "prevu au contrat", "prevue au contrat"})
+
+RENVOIS_OPTION: frozenset[str] = frozenset({"option", "souscrit"})
+
+
+def _mots_renvoi(texte: str) -> set[str]:
+    """Les racines de renvoi que le texte d'une clause emploie.
+
+    `normalize()` est la relecture du reste du fichier (casse, diacritiques, séparateurs, césures) :
+    c'est elle qui fait qu'un « Conditions Particulières » coupé sur deux lignes du PDF se lit comme
+    la racine. Les racines composées sont cherchées telles quelles ; les racines d'un seul mot le
+    sont en tête de mot, comme `_mots_qualifiants`, pour couvrir les flexions sans ouvrir la porte à
+    une sous-chaîne prise au milieu d'un autre mot.
+    """
+    plat = normalize(texte)
+    trouves: set[str] = set()
+    for racine in (*RENVOIS_CP, *RENVOIS_OPTION):
+        motif = re.escape(racine) if " " in racine else rf"\b{re.escape(racine)}"
+        if re.search(motif, plat):
+            trouves.add(racine)
+    return trouves
+
+
 def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
@@ -700,7 +741,12 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # modèle énumère les qualités que la clause exige ; le texte de la clause dit, lui, s'il
             # avait quelque chose à énumérer. Une liste vide n'est plus « aucune qualité exigée »
             # quand la clause écrit « soudain » (`_qualites_de_la_clause`).
-            qualificatifs=list(_mots_qualifiants(block.text).values())))
+            qualificatifs=list(_mots_qualifiants(block.text).values()),
+            # T18, même source et même raison : le texte de la clause dit s'il subordonne son effet à
+            # une pièce que le verdict ne lit pas. `cp_requise: false` sur une clause qui écrit
+            # « dans la limite prévue dans vos conditions particulières » passait pour « la clause n'y
+            # renvoie pas » (`_mots_renvoi`).
+            renvois=sorted(_mots_renvoi(block.text))))
     return clauses
 
 
@@ -1626,9 +1672,32 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                             # consultable : celle-ci ne publie qu'un compte et le statut appliqué.
                             detail="1 qualité exigée par la clause citée n'a pas été énumérée "
                                    "(l'affirmation est traitée comme `humain`)"))
+            # T18, dans l'esprit de B3 : le **code relit le texte de la clause**. Une clause de
+            # garantie qui écrit qu'elle ne joue que dans la limite des conditions particulières, ou
+            # que si l'option est souscrite, y renvoie — que le modèle l'ait coché ou non. Le forçage
+            # ne va que dans un sens (`or`) : le code n'affaiblit jamais un `true` rendu par le
+            # modèle, il ne fait que refuser un `false` que le texte cité dément. Effet sur AD-6 : la
+            # claim vaut `humain` et la règle (2bis) rend `sous_conditions`, jamais `couvert`.
+            #
+            # Seules les clauses `garantie` sont relues. Un renvoi dans une exclusion ou une condition
+            # ne rend pas la garantie conditionnelle : ces claims-là ouvrent déjà le verdict par la
+            # règle (2), et forcer leurs champs ne dirait rien de plus.
+            renvois = {r for clause in clauses.get(a.claim_id, []) if clause.kind == "garantie"
+                       for r in clause.renvois}
+            cp_requise = a.cp_requise or bool(renvois & RENVOIS_CP)
+            option_requise = a.option_requise or bool(renvois & RENVOIS_OPTION)
+            forces = ((cp_requise and not a.cp_requise) + (option_requise and not a.option_requise))
+            if forces:
+                step.checks.append(CheckResult(
+                    name="renvoi_cp_non_enumere", ok=False,
+                    # Comme `qualite_de_la_clause_non_enumeree` : la trace technique ne publie qu'un
+                    # compte et le statut appliqué, jamais le texte de la clause.
+                    detail=f"{forces} renvoi(s) aux conditions particulières ou aux options souscrites "
+                           "écrit(s) par la clause citée n'a pas été rendu : l'affirmation est traitée "
+                           "comme `humain`"))
             applicabilites[a.claim_id] = ChampsApplicabilite(
-                fait_requis_present=a.fait_requis_present, option_requise=a.option_requise,
-                cp_requise=a.cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,
+                fait_requis_present=a.fait_requis_present, option_requise=option_requise,
+                cp_requise=cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,
                 qualites_exigees=exigees, qualites_non_etablies=non_etablies)
             if a.fait_requis_present and non_etablies:
                 # Le modèle s'est contredit : il coche « le fait exigé est présent » après avoir nommé

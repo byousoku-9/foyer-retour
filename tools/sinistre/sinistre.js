@@ -393,6 +393,7 @@
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    renvoi_cp_non_enumere: "la clause renvoie aux conditions particulières ou à une option, ce que la lecture n'avait pas rendu",
     quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     amorce_jointe: "la phrase qui ouvre une énumération a été jointe à l'item cité",
     blocs_decisionnels_ecartes: "des clauses lues ont été écartées par la rédaction, avec leur motif",

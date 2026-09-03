@@ -124,6 +124,12 @@ class ClauseCitee(DomainModel):
     # `qualites_exigees: []` sur une clause qui exige un événement soudain passait pour « aucune
     # qualité exigée ». Orthographe d'origine — ces mots sont affichés dans les questions au client.
     qualificatifs: list[str] = Field(default_factory=list)
+    # Story 5.6 (T18), même idiome que `qualificatifs` : les renvois contractuels que **le texte de la
+    # clause** écrit (« dans la limite prévue dans vos conditions particulières », « si le pack … est
+    # souscrit »), relus dans le corpus. Ce sont les racines du lexique de `steps.verifier`, pas les
+    # mots du texte : elles ne sont jamais affichées, elles ne servent qu'à savoir laquelle des deux
+    # pièces du dossier la clause subordonne (`steps.verifier.RENVOIS_CP` / `RENVOIS_OPTION`).
+    renvois: list[str] = Field(default_factory=list)
 
 
 class ClaimJugee(DomainModel):

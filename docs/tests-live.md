@@ -3479,9 +3479,9 @@ déclarée ici — jamais silencieuse — **épinglée sur le digest périmé qu
 encore** (l'excuse de `tests/test_digests.py` tombe dès qu'un gate change de digest : toute
 dérive nouvelle rougit) et se solde par un re-gate live orchestrateur :
 
-- gate-a-relancer: lux-guide pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
-- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
-- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e
+- gate-a-relancer: lux-guide pipeline_digest=43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=43198fe91176ad53470ea58092f560ae7839eb33e2b052087aba0609e200600d
 
 Commande par document (orchestrateur, HEAD figé — `--repeat 3` obligatoire : un gate n=1 serait
 sous-échantillonné, ses décisions `stabilite_*` rouges, et il ne remplacerait pas le vert). Le

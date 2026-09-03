@@ -1297,6 +1297,17 @@ Q_CONTREDIT_B = "exclus les vols de vélos, quel que soit le lieu de rangement"
 # Une clause décisionnelle dont un renvoi n'a pas été résolu à l'ingestion.
 RENVOI_OUVERT = "La garantie tempête s'applique dans les limites fixées à l'article 12 des présentes."
 Q_RENVOI_OUVERT = "garantie tempête s'applique dans les limites fixées à l'article 12"
+# Story 5.6 (T18). Trois garanties du socle qui n'écrivent **aucun** qualificatif — elles peuvent donc
+# atteindre `oui` — et qui se distinguent seulement par leur renvoi contractuel. Les deux premières
+# reprennent les deux formes que Baloise emploie (`p20:17`, `p22:15`) ; la troisième est
+# la borne du lexique : « adoption » contient « option » sans y renvoyer.
+RENVOI_CP = ("Nous garantissons, au lieu d'assurance, dans la limite prévue dans vos conditions "
+             "particulières, le mobilier de salon.")
+Q_RENVOI_CP = "dans la limite prévue dans vos conditions particulières"
+RENVOI_OPTION = "Le mobilier de jardin est garanti si le pack « Jardin » est souscrit."
+Q_RENVOI_OPTION = "garanti si le pack « Jardin » est souscrit"
+RENVOI_ABSENT = "L'adoption d'un animal de compagnie ne modifie pas les garanties du présent contrat."
+Q_RENVOI_ABSENT = "adoption d'un animal de compagnie ne modifie pas les garanties"
 
 FAITS = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
               description="Une bougie a mis le feu au mobilier de salon, sans embrasement ; "
@@ -1333,6 +1344,13 @@ def contrat() -> Index:
         # AD-4/AD-6 : un renvoi que l'ingestion n'a pas résolu sur une clause décisionnelle.
         {"block_id": "cg:p1:9", "loc": "p1", "seq": 9, "kind": "garantie", "text": RENVOI_OUVERT,
          "kind_source": "manual", "scope_node_id": "cg:socle", "unresolved_refs": ["article 12"]},
+        # T18 : le renvoi contractuel que la clause **écrit** (conditions particulières, option).
+        {"block_id": "cg:p1:10", "loc": "p1", "seq": 10, "kind": "garantie", "text": RENVOI_CP,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:11", "loc": "p1", "seq": 11, "kind": "garantie", "text": RENVOI_OPTION,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
+        {"block_id": "cg:p1:12", "loc": "p1", "seq": 12, "kind": "garantie", "text": RENVOI_ABSENT,
+         "kind_source": "manual", "scope_node_id": "cg:socle"},
     ]
     doc = Document(
         doc_id="cg", kind="contrat", title="Mini contrat", edition="juin 2017",
@@ -1340,7 +1358,8 @@ def contrat() -> Index:
                     items=[{"block_id": "cg:p1:1"}, {"block_id": "cg:p1:3"}, {"block_id": "cg:p1:4"},
                            {"block_id": "cg:p1:5"}, {"block_id": "cg:p1:6"},
                            {"block_id": "cg:p1:7"}, {"block_id": "cg:p1:8"},
-                           {"block_id": "cg:p1:9"}]),
+                           {"block_id": "cg:p1:9"}, {"block_id": "cg:p1:10"},
+                           {"block_id": "cg:p1:11"}, {"block_id": "cg:p1:12"}]),
                Node(node_id="cg:ext", level=1, title="Extensions", scope={"kind": "extension"},
                     items=[{"block_id": "cg:p1:2"}]),
                Node(node_id="cg:root", level=0, title="Contrat",
@@ -1893,6 +1912,76 @@ async def test_a_clause_that_writes_no_quality_still_reaches_a_yes(contrat: Inde
                                         verdicts=[("c1", True)])])
     assert v.claims[0].status.applicable == "oui"
     assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
+
+
+async def test_une_garantie_qui_renvoie_aux_conditions_particulieres_ne_rend_jamais_couvert(
+        contrat: Index) -> None:
+    """Story 5.6 (T18) : la forme mesurée du `couvert` de la ronde Baloise `-7` (17:53-18:09).
+
+    Le gate a rendu `couvert` sur une répétition où le modèle avait coché `fait_requis_present=true`,
+    `cp_requise=false`, `option_requise=false` et rendu deux listes de qualités vides sur des
+    garanties du socle — les deux autres répétitions rendaient `ne_tranche_pas`. C'est la même
+    variance que B3 avait traitée pour les qualités, sur l'autre champ : le modèle décide seul si la
+    clause dépend d'une pièce du dossier, et un `false` de complaisance ouvre la règle (3) d'AD-6.
+    La clause, elle, l'écrit — « dans la limite prévue dans vos conditions particulières » (Baloise
+    `p20:17`). Le code la relit, force `cp_requise`, et la règle (2bis) rend `sous_conditions`.
+    """
+    draft = _draft(("c1", "Le mobilier de salon est couvert.", [("cg:p1:10", Q_RENVOI_CP)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert len([c for c in step.checks if c.name == "renvoi_cp_non_enumere" and not c.ok]) == 1
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert any("conditions particulières" in q for q in v.verdict.ask_client)
+
+
+async def test_une_garantie_soumise_a_une_option_souscrite_est_lue_dans_son_texte(
+        contrat: Index) -> None:
+    """L'autre pièce du dossier, et l'autre forme du renvoi : « si le pack … est souscrit ».
+
+    Les deux lexiques sont distincts parce que les deux pièces le sont — `MissingPackage` les compte
+    séparément et les questions au client ne disent pas la même chose. Un renvoi aux options ne doit
+    pas faire réclamer les conditions particulières, ni l'inverse.
+    """
+    draft = _draft(("c1", "Le mobilier de jardin est couvert.", [("cg:p1:11", Q_RENVOI_OPTION)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert len([c for c in step.checks if c.name == "renvoi_cp_non_enumere" and not c.ok]) == 1
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
+    assert any("options" in q for q in v.verdict.ask_client)
+
+
+async def test_une_clause_sans_renvoi_garde_son_false_et_atteint_le_oui(contrat: Index) -> None:
+    """La borne du lexique, des deux côtés du correctif.
+
+    `cg:p1:12` écrit « L'**adoption** d'un animal » : la sous-chaîne « option » y est, le renvoi n'y
+    est pas. Les racines d'un seul mot sont donc cherchées en tête de mot, comme les qualificatifs.
+    Ce témoin existe pour qu'un futur passage à la sous-chaîne nue soit refusé par la suite plutôt
+    que découvert en live — il rendrait conditionnelle toute clause qui parle d'adoption.
+    """
+    draft = _draft(("c1", "Le contrat n'est pas modifié.", [("cg:p1:12", Q_RENVOI_ABSENT)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "renvoi_cp_non_enumere"]
+
+
+async def test_le_code_ne_ramene_jamais_un_renvoi_rendu_a_faux(contrat: Index) -> None:
+    """Le forçage ne va que dans un sens : un `true` du modèle survit à une clause sans renvoi.
+
+    C'est l'asymétrie que B3 avait posée pour les qualités et que ce contrôle reprend — le texte de
+    la clause est une source *supplémentaire*, jamais une source qui contredit le modèle vers le bas.
+    """
+    draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
+    v, _step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, True, True, None, [], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and v.verdict.value == "sous_conditions"
 
 
 async def test_a_fact_that_shares_a_word_but_denies_the_quality_establishes_nothing(
