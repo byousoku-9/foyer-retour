@@ -845,7 +845,42 @@ class Settings(BaseSettings):
     # saturait) : le garde-fou mord encore sur une requête anormale. La cause durable — un préfixe
     # qui grandit avec l'arbre — est consignée en reprise différée (`prefixe-sommaire-borne`) : borner
     # ou trancher le sommaire du préfixe ramènera le froid vers 0,15 € et ce plafond pourra redescendre.
-    max_cost_eur_per_request: float = Field(0.75, ge=0)
+    # **1,30 €, et non 0,75 (03/09/2026, story 5.6 T7).** Le chiffrage de 16 h 35 datait de la
+    # veille de l'amendement AD-1 : il majorait une chaîne dont la lecture était faite par du code
+    # et dont l'ébauche sortait de *rédiger*. Le chemin servi écrit désormais, **au premier tour de
+    # navigation**, un préfixe de sommaire complet au tarif d'écriture de cache 1 h, puis rend son
+    # ébauche dans la même conversation, et *vérifier* réfléchit sous une réserve de
+    # `verifier_thinking_reserve_tokens`. Mesure du 03/09/2026 10 h 05, cas bougie, chaîne réelle à
+    # cache **froid** : la requête est morte sur ce garde-fou — `0,5557 € déjà engagés + 0,1979 €
+    # estimés > 0,7500 €` —, c'est-à-dire un 503 de configuration sur un sinistre parfaitement
+    # nominal, exactement ce qu'AD-16 interdit.
+    #
+    # **La dérivation, sur le même pire chemin nominal que `deadline_s`** (12 appels : *comprendre*,
+    # sept tours d'outils, le tour terminal, *vérifier*, puis la relance atomique d'AD-3). Chaque
+    # appel est majoré par `estimate_cost` lui-même, sur les bornes que l'estimateur voit réellement
+    # sur la chaîne scriptée du sinistre (préfixes réels, `estimate_chars_per_token` 2,0 et
+    # `estimate_tokenizer_factor` 1,3) : préfixe de navigation **55 983** tokens, tour terminal
+    # 56 843, *vérifier* 19 539, *comprendre* 5 355. Le garde-fou compare `engagé + majorant` avant
+    # chaque envoi ; l'engagé réel est lui-même majoré par la somme des majorants qui précèdent, si
+    # bien que la somme des douze est la valeur qu'il faut couvrir.
+    #   — préfixe **écrit une fois puis relu** (ce que le fournisseur fait, et ce que
+    #     `RequestBudget.prefix_seen` fait escompter à l'estimation) : **1,1591 €** ;
+    #   — préfixe **jamais relu** (le mur, jamais atteint en ligne) : **3,6191 €**.
+    # 1,30 € couvre le pire nominal froid avec **12 %** de marge et reste **2,8 fois** sous le mur :
+    # le garde-fou mord donc encore sur une requête réellement anormale — un tour de plus que la
+    # borne, un second retry, un préfixe qui aurait doublé — sans jamais couper le chemin servi.
+    #
+    # **Ce qu'il en coûte, et qu'il faut dire.** Ce n'est pas ce qu'une requête paie : le chemin
+    # servi facture 0,199 € à chaud (trois runs A16 du 03/09) et ≈ 0,67 € à froid. C'est ce qu'on
+    # s'autorise à engager avant de refuser. Les deux plafonds d'évals suivent mécaniquement
+    # (`evals_max_cost_eur`, `live_budget_eur`), parce que `estimate_run_majorant` chiffre une
+    # campagne à `exécutions × ce plafond`. La cause durable reste la même qu'au 02/09 — un préfixe
+    # qui grandit avec l'arbre du document —, consignée en reprise différée
+    # (`prefixe-sommaire-borne`) : borner ou trancher le sommaire du préfixe ramènera le froid vers
+    # 0,15 € et ces trois plafonds pourront redescendre ensemble. Le maintien au chaud de T5
+    # (`prefix_keepalive_*`) rend le chemin froid rare en production ; il ne le rend pas impossible,
+    # et un plafond n'a pas le droit de parier dessus.
+    max_cost_eur_per_request: float = Field(1.30, ge=0)
     # **0,25 €, et non 0,05.** `cout_eleve` est de l'**observabilité** (AD-10), pas un garde-fou : il
     # doit désigner une requête anormale. À 0,05 € il se levait au sortir de *retrouver* — 0,0427 € à
     # son second tour, 0,0548 € avant *rédiger* — c'est-à-dire sur toutes les requêtes, ce qui n'est
@@ -853,7 +888,20 @@ class Settings(BaseSettings):
     # enregistrée facture 0,2295 €. 0,25 € se place 9 % au-dessus d'elle et 1,8 fois sous le plafond :
     # l'alerte dit donc « cette requête a dépassé tout ce qu'une chaîne enregistrée a coûté », et elle
     # le dit avant que le plafond ne refuse.
-    cost_alert_eur: float = Field(0.25, ge=0)
+    # **1,00 €, et non 0,25 (03/09/2026, T7).** Même règle qu'au 02/09, autre mesure : l'alerte doit
+    # se situer **au-dessus** de ce qu'une chaîne mesurée a jamais coûté et **sous** le plafond qui
+    # refuse. La chaîne froide mesurée du cas bougie engage 0,5557 € avant *vérifier*, et l'appel qui
+    # suit est majoré à 0,1979 € : elle coûte donc au plus **0,7536 €**, et **0,9279 €** quand la
+    # relance d'AD-3 s'y ajoute (ses deux appels, préfixes chauds, sont majorés à 0,1743 €). À
+    # 0,25 € l'alerte se lèverait dès le premier tour de navigation de **toute** requête froide —
+    # c'est-à-dire sur du bruit, ce que ce champ existe pour ne pas être. 1,00 € se place 7,8 %
+    # au-dessus de la chaîne froide complète et 23 % sous le plafond : elle dit encore « cette
+    # requête a dépassé tout ce qu'une chaîne mesurée a coûté », et elle le dit avant le refus.
+    # L'écart au plafond est plus mince qu'au 02/09 (1,3× contre 3×), et c'est la conséquence
+    # assumée d'un préfixe froid à 0,28 € : entre « ne pas hurler sur une requête nominale froide »
+    # et « prévenir longtemps à l'avance », c'est le premier qui fait d'une alerte un signal. Le
+    # même correctif durable (`prefixe-sommaire-borne`) rendra l'écart à nouveau confortable.
+    cost_alert_eur: float = Field(1.00, ge=0)
     # AD-9 : « en évals, le plafond par requête est remplacé par un plafond **par run** (`--max-cost`) ».
     # CLAUDE.md le redit : « les évals tournent seulement avec la clé **et un plafond** ». C'est donc
     # un seuil comme les autres — il vit ici, jamais en dur dans `server/evals/run.py`, et `--max-cost`
@@ -878,7 +926,14 @@ class Settings(BaseSettings):
     # 6,7 % de marge, pour un coût réel attendu d'environ 3 à 6 € (0,09 à 0,42 € par exécution selon
     # que le préfixe est chaud ou froid). `--repeat 5` (18,75 €) et `full` restent refusés sans
     # `--max-cost` explicite.
-    evals_max_cost_eur: float = Field(12.0, ge=0)
+    # **20,0 €, et non 12,0 (03/09/2026, T7).** Toujours entraîné, jamais choisi : le plafond par
+    # requête passe à 1,30 € (voir `max_cost_eur_per_request`), et le gate vertical à `--repeat 3`
+    # majore donc 15 × 1,30 = **19,50 €**. 20,0 € le laisse partir avec 2,6 % de marge, pour un coût
+    # **réel** attendu de 3 à 10 € selon que les préfixes sont chauds (0,199 €/exécution mesurés) ou
+    # froids (≈ 0,67 €). `--repeat 5` (32,50 €) et le profil `full` restent refusés sans
+    # `--max-cost` explicite. `live_budget_eur` bouge avec, à la même valeur : c'est le plus petit
+    # des deux que `evals/run.py` confronte au majorant.
+    evals_max_cost_eur: float = Field(20.0, ge=0)
     # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
     #
     # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
@@ -924,7 +979,8 @@ class Settings(BaseSettings):
     # tenu de passer `LIVE_BUDGET_EUR` explicitement (CLAUDE.md, `automation/epreuves-agent.md`) —
     # ce défaut est le filet de celui qui l'oublie, pas l'autorisation de s'en passer.
     # 12,00 € depuis le 02/09/2026 16 h 50, avec `evals_max_cost_eur` : 15 exécutions × 0,75 €.
-    live_budget_eur: float = Field(12.00, gt=0)
+    # 20,00 € depuis le 03/09/2026 (T7), avec `evals_max_cost_eur` : 15 exécutions × 1,30 €.
+    live_budget_eur: float = Field(20.00, gt=0)
     live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse

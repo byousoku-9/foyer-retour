@@ -4044,3 +4044,77 @@ lourd est de **183 967 tokens** d'entrée, `+16 000` de sortie, sous les `200 00
 moins que le majorant. `context_window` vaut 200 000 dans `server/app/llm/models.py` alors que le
 modèle servi en accepte 1 000 000 : **constaté, délibérément non modifié** dans ce tour, et déposé
 en reprise différée.
+
+## 03/09/2026 — re-dérivation du plafond de coût sur le chemin froid de la navigation (story 5.6, T7)
+
+### Ce que le builder a fait au live : rien
+
+Aucun appel facturé. La mesure est celle du run réel du 03/09 à 10 h 05 (ré-enregistrement de la
+fixture `test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses`) et le rejeu hors
+ligne de la chaîne sinistre scriptée, qui donne à l'estimateur les préfixes réels.
+
+### Le fait de produit
+
+Le run réel du cas bougie, à cache **froid**, est mort sur le garde-fou de coût :
+
+```
+BudgetExceeded : 0,5557 € déjà engagés + 0,1979 € estimés > 0,7500 €
+```
+
+C'est un 503 de configuration sur un sinistre parfaitement nominal — ce qu'AD-16 interdit. La cause
+n'est pas une dérive : c'est le chemin servi depuis l'amendement AD-1 du 03/09. Le premier tour de
+navigation écrit le sommaire complet dans le préfixe cacheable, au tarif d'**écriture** de cache 1 h
+(≈ 0,28 €), et *vérifier* réfléchit sous une réserve de `verifier_thinking_reserve_tokens` (5 120),
+donc avec un `max_tokens` de 6 144 que l'estimation majore intégralement.
+
+### Ce que l'estimation voit, mesuré
+
+Bornes relevées sur la chaîne sinistre scriptée (préfixes réels, `estimate_chars_per_token` 2,0 /
+`estimate_tokenizer_factor` 1,3) :
+
+| appel | préfixe (tokens estimateur) | messages | `max_tokens` | majorant froid |
+|---|---|---|---|---|
+| *comprendre* | 5 355 | 361 | 1 024 | 0,0447 € |
+| tour d'outils | 55 983 | 8 414 | 1 024 | 0,3464 € (0,0528 € préfixe relu) |
+| tour terminal | 56 843 | 8 672 | 3 072 | 0,3801 € (0,0820 € préfixe relu) |
+| *vérifier* | 19 539 | 779 | 6 144 | 0,1948 € (0,0923 € préfixe relu) |
+
+L'estimation **majore au tarif d'écriture seulement quand le préfixe n'est pas encore chaud** : le
+client passe `prefix_cached=(prompt_cache and budget.prefix_seen(prefix_digest))`
+(`llm/client.py`), et `RequestBudget.note_prefix` n'est alimenté qu'au vu d'un `usage` où le
+fournisseur a lui-même confirmé avoir écrit ou lu le préfixe. La distinction existe donc bien, et
+elle est du bon côté : un préfixe que le fournisseur n'a pas caché n'escompte jamais le tarif de
+lecture. Corollaire de méthode : sur la chaîne **scriptée**, le faux fournisseur ne rend aucun usage
+de cache, si bien que chaque préflight est chiffré comme froid — c'est ce qui en fait l'instrument
+du majorant rigoureux.
+
+### La dérivation
+
+Même pire chemin nominal que `deadline_s` : douze appels — *comprendre*, sept tours d'outils, le
+tour terminal, *vérifier*, puis la relance atomique d'AD-3. Le garde-fou compare `engagé + majorant`
+avant chaque envoi, et l'engagé réel est lui-même majoré par la somme des majorants qui précèdent :
+la valeur à couvrir est donc la somme des douze.
+
+| régime | somme des douze majorants |
+|---|---|
+| préfixe écrit une fois puis relu (ce que fait le fournisseur) | **1,1591 €** |
+| préfixe jamais relu (le mur, jamais atteint en ligne) | **3,6191 €** |
+
+### Bornes retenues
+
+| borne | avant | après | ce qui la fixe |
+|---|---|---|---|
+| `max_cost_eur_per_request` | 0,75 € | **1,30 €** | +12 % sur le pire nominal froid (1,1591 €), 2,8× sous le mur (3,6191 €) |
+| `cost_alert_eur` | 0,25 € | **1,00 €** | +7,8 % sur la chaîne froide complète, relance comprise (0,9279 €), 23 % sous le plafond |
+| `evals_max_cost_eur` | 12,0 € | **20,0 €** | entraîné : gate vertical `--repeat 3` = 15 exécutions × 1,30 € = 19,50 € |
+| `live_budget_eur` | 12,0 € | **20,0 €** | le budget effectif est `min(--max-cost, LIVE_BUDGET_EUR)` : relever l'autre seul est inopérant |
+
+Ce que le plafond continue de refuser : un tour de plus que `navigation_max_llm_turns`, un second
+retry de parse, un préfixe qui aurait doublé. Ce qu'il ne coupe plus : le chemin servi à froid.
+
+### La cause durable, redite
+
+Le préfixe grandit avec l'arbre du document. Tant qu'il n'est pas borné ou tranché
+(reprise différée `prefixe-sommaire-borne`), le chemin froid coûte ≈ 0,67 € contre 0,199 € à chaud,
+et ces trois plafonds restent hauts. Le maintien au chaud de T5 (`prefix_keepalive_*`) rend le froid
+rare en production ; il ne le rend pas impossible, et un plafond n'a pas le droit de parier dessus.
