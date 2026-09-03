@@ -20,22 +20,24 @@ window.CHAT = (function () {
   // les retient de la sonde. Ce qui suit n'est qu'un **repli**, pour la premiere requete quand la
   // sonde n'a pas encore repondu.
   var HISTORIQUE_MAX_TOURS_REPLI = 6;   // config.historique_max_turns
-  var DEADLINE_SERVEUR_REPLI = 165;     // config.deadline_s
+  var DEADLINE_SERVEUR_REPLI = 250;     // config.deadline_s
   // Marge au-dessus de la deadline du serveur avant que le navigateur n'abandonne. Ce n'etait pas
   // un seuil du serveur, c'en est un : `config.client_abort_margin_s`, publie par `/sante`. Ce qui
   // reste ici n'est, comme les deux autres, qu'un **repli**.
   //
   // Story 5.6 (T3, 03/09/2026) : elle ne se choisit plus « un peu au-dessus de la deadline », elle
   // est dictee par l'ordre qu'AD-11 impose depuis l'amendement AD-1 — attente du client **>**
-  // `--timeout` Cloud Run (300 s) **>** deadline serveur (165 s). D'ou 165 + 150 = 315 s. En
+  // `--timeout` Cloud Run (300 s) **>** deadline serveur. Story 5.6 (T1c) : la deadline passe a
+  // 250 s et cette marge est le **reste**, pas un seuil propre — 250 + 65 = 315 s, la meme
+  // patience qu'avant, repartie autrement. En
   // dessous, la page couperait avant l'infrastructure et afficherait « assistant indisponible »
   // pour une requete que Cloud Run a tuee : un repli sans echec reel, ce qu'AD-11 interdit. Ce
   // n'est pas une attente, c'est le delai au bout duquel on renonce ; une reponse normale arrive
   // en 20 a 30 s, et un 503 est affiche des qu'il arrive.
-  var MARGE_ABANDON_S_REPLI = 150;      // config.client_abort_margin_s
+  var MARGE_ABANDON_S_REPLI = 65;       // config.client_abort_margin_s
   // Le budget d'un petit GET — ici `/sante` — n'est **pas** la marge ci-dessus. Il l'empruntait
   // tant qu'elles valaient toutes deux 10 s ; depuis que la marge est dictee par le `--timeout` de
-  // Cloud Run (150 s), l'emprunt verrouillerait la saisie deux minutes et demie devant un serveur
+  // Cloud Run, l'emprunt verrouillerait la saisie plus d'une minute devant un serveur
   // mort, puisque la premiere question attend cette sonde. Seuil propre, meme regime de repli.
   var SONDE_BUDGET_S_REPLI = 10;        // config.client_probe_timeout_s
   // `Turn.texte <= 2000` (server/app/domain/question.py) n'est **pas** dans `thresholds()` : c'est
