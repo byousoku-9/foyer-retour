@@ -76,11 +76,13 @@ jamais.
   - `factuel` — rapporte ce qu'une clause lue établit ; porte **au moins un** `claim_ids` ;
   - `transition` — articulation sans contenu factuel ; `claim_ids` vide ;
   - `limite` — ce que ta lecture ne permet pas d'affirmer ; `claim_ids` vide.
-- `claims` : une entrée par affirmation vérifiable — `claim_id` unique (`c1`, `c2`, …), `text` = la
-  phrase affirmée, `quotes` = une ou deux citations qui la soutiennent, `facette` = le **rang** de
+- `claims` : une entrée par affirmation vérifiable — `claim_id` unique (`c1`, `c2`, …), `text` = ce
+  que la clause dit, `quotes` = une ou deux citations qui le soutiennent, `facette` = le **rang** de
   la sous-question à laquelle cette affirmation répond, tel que les sous-questions te sont données
   (la première vaut `0`). C'est contre l'objet de **cette** sous-question que sa pertinence sera
-  jugée ; plusieurs affirmations peuvent porter le même rang.
+  jugée ; plusieurs affirmations peuvent porter le même rang. `rattachement` = facultatif, **une**
+  phrase qui relie les faits déclarés au vocabulaire de cette clause (voir plus bas) ; au plus
+  $rattachement_max_chars caractères.
 - Chaque claim doit être effectivement affichée : rattache son `claim_id` à un segment `factuel`
   dont le texte reprend exactement `claim.text`. N'ajoute jamais une claim « en réserve » sans
   phrase factuelle correspondante.
@@ -122,24 +124,33 @@ jamais.
     décident rien et ne tiennent la place d'aucune des clauses ci-dessus. Un item d'énumération dont
     le texte vise ces faits **est**, lui, une telle clause : traite-le comme les autres, et ne le
     tiens pas pour un doublon de l'item voisin.
-- **Qualifie le fait déclaré, dans chaque claim dont la clause nomme l'événement.** Ce n'est pas
-  une option de style : sans elle, le contrôle en aval ne peut pas savoir que le fait décrit est
-  celui que la clause vise, et il pose au client une question sur ce qu'il vient d'écrire. Ajoute
-  donc à la claim, après un point-virgule, une seconde proposition dont le sujet est **le fait
-  déclaré** et le prédicat **le mot de la clause**. Exemple normatif, étranger par construction à tout cas soumis : une clause vise
-  « l'affaissement du sol par suite de glissement ou d'effondrement de terrain » et les faits disent
-  que le talus a cédé sous la terrasse ; la claim s'écrit « le contrat couvre l'affaissement du sol
-  par suite de glissement de terrain ; un talus qui cède sous la terrasse est un glissement de
-  terrain ». C'est une qualification, pas un verdict : elle ne dit ni « couvert », ni « exclu », ni
-  « cette clause s'applique » — elle nomme le fait dans le vocabulaire du contrat. Laisser cette
-  qualification implicite la fait poser en **question** au client : on lui demande de confirmer ce
-  qu'il vient d'écrire.
+- **Le `rattachement` : ce que la clause dit d'un côté, le lien avec les faits de l'autre.** Deux
+  champs, jamais un seul texte. `text` dit ce que la **clause** dit, et rien d'autre : c'est lui que
+  les citations doivent soutenir, mot pour mot, et tout ce qui le dépasse le fait rejeter.
+  `rattachement` dit, en **une phrase**, que le fait déclaré est ce que la clause nomme : sujet =
+  **le fait déclaré**, prédicat = **le mot de la clause**. Il n'est jamais jugé contre les
+  citations — aucune clause ne peut prouver ce qu'un assuré a vécu.
 
-  Ne la fais **jamais** quand le fait manque réellement. Une qualité que le contrat exprime par un
-  **qualificatif** — soudain, subit, accidentel, fortuit, imprévisible, involontaire, intentionnel,
-  violent, direct, immédiat, permanent, avec effraction… — ne se déduit d'aucune circonstance :
-  qu'un appareil de chauffage ait été posé près d'un rideau ne dit rien de la vitesse à laquelle la
-  chaleur a agi. Ces qualités-là restent à confirmer, et la claim n'en dit rien.
+  Exemple normatif, étranger par construction à tout cas soumis : une clause vise « l'affaissement
+  du sol par suite de glissement ou d'effondrement de terrain » et les faits disent que le talus a
+  cédé sous la terrasse. Alors `text` = « le contrat couvre l'affaissement du sol par suite de
+  glissement de terrain » et `rattachement` = « un talus qui cède sous la terrasse est un glissement
+  de terrain ». Écrire la seconde phrase **dans** `text` ferait tomber les deux ensemble, la clause
+  comprise : c'est la faute la plus coûteuse de ce formulaire.
+
+  Renseigne-le dans **chaque** claim dont la clause nomme l'événement, la circonstance ou la qualité
+  déclarés. Sans lui, le contrôle en aval ne peut pas savoir que le fait décrit est celui que la
+  clause vise, et il pose au client une question sur ce qu'il vient d'écrire.
+
+  Écris-le aussi quand le lien passe par un **qualificatif** du contrat — soudain, subit,
+  accidentel, fortuit, imprévisible, involontaire, intentionnel, violent, direct, immédiat,
+  permanent, avec effraction… : ces qualités-là ne se déduisent d'aucune circonstance, le contrôle
+  les laissera à confirmer par le client, et la clause, elle, **reste** retenue. Tu n'as donc rien à
+  gagner à taire le lien, ni à le forcer : dis-le tel qu'il est, dans son champ.
+
+  Ce n'est jamais un verdict : n'y écris ni « couvert », ni « exclu », ni « cette clause
+  s'applique ». Et n'y invente aucune circonstance — si les faits déclarés ne disent pas le fait que
+  tu nommerais, laisse le champ vide.
 
 - **Quand aucune clause lue ne vise l'événement**, ne dresse pas l'inventaire de ce que tu n'as pas
   lu. Écris, dans cet ordre, et **rien de plus — pas d'exclusion générale, pas de clause de

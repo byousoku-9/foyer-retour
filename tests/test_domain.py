@@ -191,7 +191,7 @@ def test_node_items_is_single_source_of_order() -> None:
 # AD-3 / AD-4
 def test_answer_models() -> None:
     assert fields(answer.Quote) == {"block_id", "quote"}
-    assert fields(answer.Claim) == {"claim_id", "text", "quotes", "facette"}
+    assert fields(answer.Claim) == {"claim_id", "text", "quotes", "facette", "rattachement"}
     assert fields(answer.ClaimStatus) == {
         "retrouvee", "pertinente", "applicable", "applicable_reason", "edition",
     }

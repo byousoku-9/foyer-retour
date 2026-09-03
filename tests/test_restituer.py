@@ -51,6 +51,54 @@ def _rejet(claim_id: str = "c2") -> RejectedClaim:
                          rejection_kind="non_retrouvee", motif="citation introuvable")
 
 
+def test_le_rattachement_est_un_second_segment_et_la_clause_survit_a_son_retrait() -> None:
+    """Story 5.6 (L1c), garde-fou 4 : deux segments, jamais un texte fondu.
+
+    Ce que la clause dit et le lien avec les faits déclarés ne se jugent pas de la même façon — le
+    premier contre les citations, le second comme une qualification. Ils s'affichent donc à la
+    suite, mais **séparément** : la coupe de l'affichage est celle de la lecture. Retirer le second
+    laisse la clause entière, citée, et son `claim_id` sous les yeux du front ; c'est exactement la
+    propriété que fondre les deux phrases dans un seul `text` avait perdue.
+    """
+    claim = _claim().model_copy(update={
+        "rattachement": "Un robinet resté ouvert est un débordement de ces installations."})
+    verification = Verification(
+        segments=[AnswerSegment(text="Le contrat couvre le débordement.", kind="factuel",
+                                claim_ids=["c1"])],
+        claims=[claim], found=True, complete=True)
+    answer, _step = restituer(language="fr", verification=verification)
+    assert [(s.text, s.kind, s.claim_ids) for s in answer.segments] == [
+        ("Le contrat couvre le débordement.", "factuel", ["c1"]),
+        ("Un robinet resté ouvert est un débordement de ces installations.", "factuel", ["c1"]),
+    ]
+    assert answer.texte == ("Le contrat couvre le débordement. "
+                            "Un robinet resté ouvert est un débordement de ces installations.")
+    # Le retrait du second segment — la coupe que le front peut faire, et que le contrôle fait déjà
+    # sur les phrases non soutenues — laisse la clause affichée et citée.
+    sans_lien = [s for s in answer.segments if s.text != claim.rattachement]
+    assert [s.claim_ids for s in sans_lien] == [["c1"]]
+    assert " ".join(s.text for s in sans_lien) == "Le contrat couvre le débordement."
+
+
+def test_le_rattachement_dune_claim_ecartee_nest_pas_affiche() -> None:
+    """Une clause que le contrôle n'a pas retenue n'affiche rien — son rattachement non plus.
+
+    C'est la même règle qu'AD-3 pose sur le segment factuel : ce que la personne lit est adossé à
+    une affirmation retenue, et rien d'autre. Un lien avec les faits survivant à sa clause aurait
+    affiché, seul, une qualification que plus aucune citation n'accompagne.
+    """
+    survivante = _claim("c1")
+    ecartee = _claim("c3").model_copy(update={
+        "rattachement": "Un robinet resté ouvert est un débordement de ces installations."})
+    verification = Verification(
+        segments=[AnswerSegment(text="Affirmation c1.", kind="factuel", claim_ids=["c1"]),
+                  AnswerSegment(text="Affirmation c3.", kind="factuel", claim_ids=["c3"])],
+        claims=[survivante], found=True, complete=True)
+    answer, _step = restituer(language="fr", verification=verification)
+    assert [s.text for s in answer.segments] == ["Affirmation c1."]
+    assert ecartee.rattachement not in answer.texte
+
+
 def test_texte_is_rendered_deterministically_from_the_surviving_segments() -> None:
     verification = Verification(
         segments=[AnswerSegment(text="  Vous avez huit jours. ", kind="factuel", claim_ids=["c1"]),

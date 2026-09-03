@@ -503,6 +503,53 @@ def test_le_statut_structure_de_la_claim_reste_publie_par_answer(prod: TestClien
     assert statut["edition"] == "git:test"
 
 
+def test_le_rattachement_aux_faits_est_publie_avec_la_claim_sans_toucher_aux_sources(
+        prod: TestClient) -> None:
+    """Story 5.6 (L1c) : `answer.claims[].rattachement`, additif, et `sources[i]` inchangé.
+
+    `Answer` est publié **intégral** par AD-11 : le champ voyage donc sans qu'aucune projection ne
+    le recopie, et c'est exactement ce qu'on veut vérifier — que rien ne le perde en route, et que
+    l'énumération de `sources[]`, dont le front tire son appariement (D6), ne bouge pas d'un item.
+    """
+    corpus, _ = _mini_corpus()
+    lien = "Un robinet resté ouvert est un débordement de ces installations."
+    claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    claim = claim.model_copy(update={"rattachement": lien})
+    answer = Answer(found=True, complete=True, texte=f"Délai. {lien}",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"]),
+                              AnswerSegment(text=lien, kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert j["answer"]["claims"][0]["rattachement"] == lien
+    # Une citation par quote de claim affichée, exactement comme avant : le second segment ne
+    # publie aucune source, parce qu'il n'en cite aucune — c'est la clause qui porte la preuve.
+    assert len(j["sources"]) == 1 and j["sources"][0]["claim_id"] == "c1"
+    assert set(j["sources"][0]) == {"block_id", "fiche_id", "titre", "url", "quote", "status",
+                                    "texte_bloc", "chemin", "claim_id"}
+
+
+def test_une_claim_sans_rattachement_publie_le_champ_a_null(prod: TestClient) -> None:
+    """Le champ est **toujours** publié, à `null` quand il n'y en a pas.
+
+    Le front lit `claim.rattachement` sans le chercher : une clé absente et une clé nulle ne sont
+    pas la même chose pour un lecteur JavaScript, et c'est la seconde qui dit « il n'y a pas de
+    lien à afficher ici ».
+    """
+    corpus, _ = _mini_corpus()
+    claim = _claim("c1", "Délai.", _citation(corpus, f"{DOC_ID}:farrivee:2", "huit jours"))
+    answer = Answer(found=True, complete=True, texte="Délai.",
+                    segments=[AnswerSegment(text="Délai.", kind="factuel", claim_ids=["c1"])],
+                    claims=[claim])
+    _brancher(prod, Double((answer, _trace())), mini=True)
+
+    j = prod.post("/api/v1/chat", json={"question": "q", "profil": {}}, headers=XFF).json()
+
+    assert j["answer"]["claims"][0]["rattachement"] is None
+
+
 # --- refus, clarification : des 200 -------------------------------------
 
 def test_un_refus_hors_perimetre_est_un_200(prod: TestClient) -> None:

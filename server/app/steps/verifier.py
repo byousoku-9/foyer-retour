@@ -58,6 +58,7 @@ from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
     DEMANDE_KINDS,
     DEMANDE_RAISONS,
+    RAISONS_CORRIGEABLES,
     AnswerDraft,
     AnswerSegment,
     Claim,
@@ -289,9 +290,9 @@ def _propositions(texte: str) -> list[str]:
     return [p for p in re.split(r"[.!?;]+", texte) if p.strip()]
 
 
-def _qualification_affirmee(texte_claim: str, *, faits_norm: str, preuve_norm: str,
+def _qualification_affirmee(rattachement: str, *, faits_norm: str, preuve_norm: str,
                             min_chars: int) -> bool:
-    """La claim affichée rattache-t-elle **un fait déclaré** au vocabulaire de la clause citée ?
+    """Le **rattachement** relie-t-il un fait déclaré au vocabulaire de la clause citée ?
 
     Story 5.6 (L1b). La porte de qualification de L1 (`_qualifie_par_la_clause`) est câblée sur
     `qualites_etablies`, une liste que le modèle remplit parfois. Mesuré le 03/09/2026 sur S2 : le
@@ -301,18 +302,24 @@ def _qualification_affirmee(texte_claim: str, *, faits_norm: str, preuve_norm: s
     avec `fait_manquant="rupture, fissure ou débordement de l'installation"`. Le dossier redemandait
     donc au client d'établir ce que la réponse qu'il lisait venait d'affirmer.
 
-    Ce que le code mesure ici est la **proposition qualifiante** elle-même, dans le texte affiché :
-    une proposition dont un mot porteur se relit dans les **faits déclarés** sans se relire dans la
-    citation (le sujet vient du client, pas du contrat) et dont un autre mot porteur se relit dans
-    la **citation vérifiée** (le prédicat vient du contrat). C'est la forme exacte que la consigne de
-    rédaction demande, et c'est tout ce qu'un code peut lire sans grammaire.
+    Story 5.6 (L1c). La proposition ne se lit plus dans `Claim.text` mais dans `Claim.rattachement`,
+    le champ que la rédaction remplit pour cela. La lecture, elle, ne change pas : une proposition
+    dont un mot porteur se relit dans les **faits déclarés** sans se relire dans la citation (le
+    sujet vient du client, pas du contrat) et dont un autre mot porteur se relit dans la **citation
+    vérifiée** (le prédicat vient du contrat). C'est tout ce qu'un code peut lire sans grammaire.
+
+    Séparer les deux champs est ce qui rend cette porte sûre. Tant que la qualification vivait dans
+    la phrase affichée, elle était jugée comme un support de la clause : le contrôle rejetait
+    l'affirmation entière — clause comprise — dès que le rattachement dépassait la citation d'un
+    qualificatif. Mesuré le 04/09/2026 sur le cas bougie, deux fois de suite. Le rattachement se
+    juge maintenant seul, et il ne peut jamais faire tomber la clause qu'il accompagne.
 
     Ce contrôle ne décide de rien seul : l'appelant exige en outre que la claim soit **retenue** et
     que le libellé lui-même soit écrit par la clause sans porter de qualificatif
     (`_qualifie_par_la_clause`). Le cas bougie reste donc entier — « soudain », « subite »,
     « direct » ne se déduisent d'aucune circonstance, et aucune proposition ne les ouvre.
     """
-    for proposition in _propositions(texte_claim):
+    for proposition in _propositions(rattachement):
         mots = _mots_significatifs(proposition, min_chars=min_chars)
         if not mots:
             continue
@@ -973,6 +980,24 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     step = StepTrace(name="verifier", tier=tier)
     sinistre = faits is not None
 
+    # Story 5.6 (L1c) — la borne du rattachement, appliquée **ici** et jamais au parse. Le
+    # rattachement est le seul texte affiché qu'aucune citation ne soutient : sans borne, il ouvrait
+    # la porte au paragraphe non sourcé que tout le reste de la chaîne interdit. Hors borne, il est
+    # **ignoré**, jamais tronqué — une demi-phrase de rattachement induirait en erreur plus sûrement
+    # qu'un rattachement tu —, et la clause qu'il accompagne reste affichée et citée : c'est la
+    # propriété entière de la séparation des deux champs.
+    hors_borne = [c for c in draft.claims
+                  if c.rattachement and len(c.rattachement) > settings.rattachement_max_chars]
+    if hors_borne:
+        ecartes_ids = {c.claim_id for c in hors_borne}
+        draft = draft.model_copy(update={"claims": [
+            c.model_copy(update={"rattachement": None}) if c.claim_id in ecartes_ids else c
+            for c in draft.claims]})
+        step.checks.append(CheckResult(
+            name="rattachement_hors_borne", ok=False,
+            detail=f"{len(hors_borne)} rattachement(s) dépassent {settings.rattachement_max_chars} "
+                   "caractères : ignoré(s) plutôt que tronqué(s) — la clause reste affichée"))
+
     # Blocs réellement transmis à *rédiger* : le périmètre exact de ce qui est citable (AD-1,
     # « les blocs effectivement passés au modèle »).
     fournis = {b.block_id for b in retrieval.blocs}
@@ -1009,6 +1034,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             kind = "non_retrouvee" if any(c.kind == "non_retrouvee" for c in echecs) else "ambigue"
             rejetees.append(RejectedClaim(
                 claim_id=claim.claim_id, text=claim.text, quotes=du_draft, facette=claim.facette,
+                rattachement=claim.rattachement,
                 status=ClaimStatus(retrouvee=False, pertinente=None, edition=edition),
                 rejection_kind=kind, motif=" ; ".join(c.motif for c in echecs)))
             continue
@@ -1025,7 +1051,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             if len(kinds) > 1:
                 rejetees.append(RejectedClaim(
                     claim_id=claim.claim_id, text=claim.text, quotes=list(quotes),
-                    facette=claim.facette, status=ClaimStatus(
+                    facette=claim.facette, rattachement=claim.rattachement, status=ClaimStatus(
                         retrouvee=True, pertinente=None, edition=edition),
                     line_ids=[lid for q in quotes for lid in q.line_ids],
                     rejection_kind="ambigue",
@@ -1133,6 +1159,32 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     else:
         raisons = {}
 
+    # Story 5.6 (L1c). Les affirmations qui ont écrit leur **rattachement aux faits dans `text`**
+    # au lieu du champ prévu. Le contrôle juge `text` contre les citations : un rattachement fondu
+    # dedans y est jugé comme un support, et la clause tombe avec lui — c'est exactement ce que le
+    # cas bougie a coûté deux fois le 04/09/2026. Le code ne réécrit rien (il n'écrit jamais le
+    # texte affiché) : il **constate**, et le motif de relance nomme alors le geste à faire, qui est
+    # de déplacer la proposition, pas de la supprimer.
+    fondus: set[str] = set()
+    if sinistre:
+        faits_declares = normalize(" ".join(
+            str(v) for v in (faits.model_dump() if faits is not None else {}).values()
+            if v is not None))
+        for claim, quotes, _edition in evaluees:
+            if claim.rattachement:
+                continue
+            preuve = " ".join(corpus.documents[index.doc_of(q.block_id)]
+                              .block(q.block_id).text_norm[q.start:q.end] for q in quotes)
+            if _qualification_affirmee(claim.text, faits_norm=faits_declares, preuve_norm=preuve,
+                                       min_chars=settings.qualite_mot_min_chars):
+                fondus.add(claim.claim_id)
+    if fondus:
+        step.checks.append(CheckResult(
+            name="rattachement_fondu_dans_la_clause", ok=False,
+            detail=f"{len(fondus)} affirmation(s) rattachent un fait déclaré au vocabulaire de leur "
+                   "clause dans `text` plutôt que dans `rattachement` : la clause est alors jugée "
+                   "sur un lien qu'aucune citation ne peut établir"))
+
     claims: list[VerifiedClaim] = []
     jugees: dict[str, ClaimJugee] = {}  # mode sinistre : ce que la table AD-6 lira des claims retenues
     manquants = 0
@@ -1162,16 +1214,26 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             line_ids += [lid for lid in q.line_ids if lid not in line_ids]
         if pertinente is True:
             claims.append(VerifiedClaim(claim_id=claim.claim_id, text=claim.text, quotes=quotes,
-                                        facette=claim.facette, status=status, line_ids=line_ids))
+                                        facette=claim.facette, rattachement=claim.rattachement,
+                                        status=status, line_ids=line_ids))
             continue
         raison_fermee = raisons.get(claim.claim_id) if pertinente is False else None
         motif = (MOTIFS_NON_PERTINENCE.get(raison_fermee or "", MOTIF_NON_PERTINENCE_GENERIQUE)
                  if pertinente is False else
                  "pertinence non rendue par le contrôle groupé : l'affirmation est écartée plutôt que devinée")
+        if claim.claim_id in fondus and raison_fermee in RAISONS_CORRIGEABLES:
+            # L1c : « retire ce que les passages ne disent pas » ferait supprimer le rattachement,
+            # alors que c'est lui qui évite de redemander au client ce qu'il vient de déclarer. Le
+            # geste juste est de le **déplacer**, et le motif le dit — sinon la relance corrige en
+            # perdant ce que L1b avait gagné.
+            motif += (" — la proposition qui nomme un fait déclaré dans le vocabulaire de la clause "
+                      "n'a pas sa place dans `text` : mets-la dans `rattachement`, où elle n'est pas "
+                      "jugée contre les citations")
         # Ces quotes **ont** été retrouvées : leurs offsets et `line_ids` sont conservés, c'est ce qui
         # rend la claim « affichable par le front » comme AD-3 le demande.
         rejetees.append(RejectedClaim(
             claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), facette=claim.facette,
+            rattachement=claim.rattachement,
             status=status, line_ids=line_ids, rejection_kind="non_pertinente",
             rejection_reason=raison_fermee, motif=motif))
     # Une claim que la borne `verifier_max_claims` a laissée hors du contrôle groupé n'a rien à
@@ -1181,6 +1243,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     for claim, quotes, edition in excedentaires:
         rejetees.append(RejectedClaim(
             claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), facette=claim.facette,
+            rattachement=claim.rattachement,
             line_ids=[lid for q in quotes for lid in q.line_ids],
             status=ClaimStatus(retrouvee=True, pertinente=None, edition=edition),
             rejection_kind="non_pertinente",
@@ -1296,6 +1359,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         for c in orphelines:
             rejetees.append(RejectedClaim(
                 claim_id=c.claim_id, text=c.text, quotes=list(c.quotes), facette=c.facette,
+                rattachement=c.rattachement,
                 status=c.status, line_ids=list(c.line_ids), rejection_kind="non_citee",
                 motif="affirmation vérifiée qu'aucune phrase de la réponse ne cite : rattache-la à un "
                       "segment factuel, ou retire-la"))
@@ -1588,6 +1652,13 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             citations.append({"block_id": q.block_id, "passage": block.text_norm[q.start:q.end]})
         charge: dict[str, Any] = {"claim_id": claim.claim_id, "affirmation": claim.text,
                                   "citations": citations}
+        # L1c : le **rattachement aux faits**, transmis à part de l'affirmation parce qu'il ne se
+        # juge pas contre les citations. Fondu dans `affirmation`, il faisait tomber la clause avec
+        # lui dès qu'il dépassait la citation d'un mot (cas bougie, 04/09/2026) ; envoyé sous sa
+        # propre clé, il est lu pour ce qu'il est — le lien entre le dossier et le vocabulaire de la
+        # clause, dont le contrat ne peut rien prouver. Absent, la clé ne paraît pas.
+        if claim.rattachement:
+            charge["rattachement"] = claim.rattachement
         # L1b : la sous-question **que l'affirmation déclare traiter**, quand le rang qu'elle rend
         # désigne bien une facette envoyée. C'est le barème contre lequel sa pertinence se juge :
         # une affirmation qui répond à la deuxième sous-question n'a pas à répondre à la première.
@@ -1753,14 +1824,17 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # seule source qui puisse dire qu'une qualité est bien celle que la clause écrit
         # (`_qualifie_par_la_clause`). Jamais la chaîne du modèle — la même règle qu'ailleurs.
         preuves_relues: dict[str, str] = {}
-        # Le **texte affiché** de chaque affirmation, normalisé une fois : c'est là que se lit la
-        # qualification que la claim affirme (L1b, `_qualification_affirmee`).
-        textes_claims: dict[str, str] = {}
+        # Le **rattachement aux faits** de chaque affirmation : c'est là, et nulle part ailleurs,
+        # que se lit la qualification qu'elle affirme (L1c). En L1b, la porte lisait `Claim.text` —
+        # ce qui obligeait la rédaction à écrire la qualification dans la phrase même de la clause,
+        # et le contrôle rejetait alors les deux ensemble. Deux champs, deux jugements : `text` se
+        # juge contre les citations, le rattachement se juge ici.
+        rattachements: dict[str, str] = {}
         for claim_evaluee, quotes_evaluees, _edition in evaluees:
             preuves_relues[claim_evaluee.claim_id] = " ".join(
                 corpus.documents[index.doc_of(q.block_id)].block(q.block_id).text_norm[q.start:q.end]
                 for q in quotes_evaluees)
-            textes_claims[claim_evaluee.claim_id] = claim_evaluee.text
+            rattachements[claim_evaluee.claim_id] = claim_evaluee.rattachement or ""
         # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
@@ -1864,18 +1938,21 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         name="fait_cite_hors_sujet", ok=False,
                         detail="le fragment cité pour une qualité n'en emploie aucun des mots : la "
                                "qualité est traitée comme non établie"))
-            # L1b : la **même** porte, ouverte par la claim elle-même plutôt que par la liste que le
-            # modèle a bien voulu remplir. Une affirmation retenue qui rattache un fait déclaré au
-            # vocabulaire de sa clause a établi ce que la clause exige — que le modèle l'ait rangé
-            # dans `qualites_exigees` ou dans `fait_manquant`, deux écritures du même jugement. Sans
-            # cela, le dossier redemande au client ce que la réponse qu'il lit vient d'affirmer
-            # (mesuré sur S2 le 03/09/2026). Les trois mêmes verrous qu'en L1 : la claim est
-            # **retenue**, le libellé est écrit par la clause citée, et il ne porte aucun
-            # qualificatif de `QUALIFICATIFS` — le cas bougie ne bouge pas d'un pouce.
+            # L1b, puis L1c : la **même** porte, ouverte par le rattachement de la claim plutôt que
+            # par la liste que le modèle a bien voulu remplir. Une affirmation retenue dont le
+            # rattachement nomme un fait déclaré dans le vocabulaire de sa clause a établi ce que la
+            # clause exige — que le modèle l'ait rangé dans `qualites_exigees` ou dans
+            # `fait_manquant`, deux écritures du même jugement. Sans cela, le dossier redemande au
+            # client ce que la réponse qu'il lit vient d'affirmer (mesuré sur S2 le 03/09/2026). Les
+            # trois mêmes verrous qu'en L1 : la claim est **retenue**, le libellé est écrit par la
+            # clause citée, et il ne porte aucun qualificatif de `QUALIFICATIFS`. Un rattachement
+            # qui en porte un — « une bougie tombée est une action **subite** de la chaleur » —
+            # laisse donc la qualité en question au client, et la clause, elle, reste retenue :
+            # c'est exactement ce que les deux champs séparés permettent.
             preuve_norm = preuves_relues.get(a.claim_id, "")
             qualifie_un_fait = (
                 verdicts.get(a.claim_id) is True
-                and _qualification_affirmee(textes_claims.get(a.claim_id, ""),
+                and _qualification_affirmee(rattachements.get(a.claim_id, ""),
                                             faits_norm=faits_norm, preuve_norm=preuve_norm,
                                             min_chars=settings.qualite_mot_min_chars))
 

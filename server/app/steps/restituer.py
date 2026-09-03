@@ -25,6 +25,7 @@ langues : il est réservé au repli d'une détection illisible ou non servie.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import get_args
 
 from server.app.domain.answer import (
@@ -37,6 +38,7 @@ from server.app.domain.answer import (
     LacuneKind,
     LecturePartielle,
     Verification,
+    VerifiedClaim,
 )
 from server.app.domain.langue import LANGUES_SERVIES
 from server.app.domain.question import QuestionScope
@@ -337,6 +339,43 @@ def _texte(segments: list[AnswerSegment]) -> str:
     return " ".join(s.text.strip() for s in segments if s.text.strip())
 
 
+def _avec_rattachements(segments: list[AnswerSegment],
+                        claims: Sequence[VerifiedClaim]) -> list[AnswerSegment]:
+    """La phrase affichée d'une affirmation : ce que la clause dit, **puis** son rattachement aux faits.
+
+    Story 5.6 (L1c). Les deux moitiés vivent dans deux champs parce qu'elles ne se jugent pas de la
+    même façon — `Claim.text` contre les citations, `Claim.rattachement` comme une qualification —,
+    et c'est ici, dans la seule étape qui fabrique l'`Answer`, qu'elles se rejoignent à l'écran.
+
+    Deux segments, jamais un seul texte concaténé : la coupe de l'affichage est aussi celle de la
+    lecture. Le second porte les `claim_ids` de la claim, si bien que le front le range sous les
+    mêmes citations ; retiré, il laisse la clause entière derrière lui — c'est la propriété que
+    fondre les deux phrases avait perdue.
+
+    Le rattachement est ajouté **après** *vérifier*, comme les repères déclarés : il n'a pas de
+    verdict de segment à recevoir, et il n'en prétend aucun. Il ne paraît que sous une claim
+    retenue — une clause écartée n'affiche rien —, et une seule fois, sous la première phrase qui
+    la cite : deux phrases qui citent la même affirmation ne redisent pas deux fois le même lien.
+    """
+    par_id = {claim.claim_id: claim for claim in claims if claim.rattachement}
+    if not par_id:
+        return segments
+    rendus: set[str] = set()
+    sortie: list[AnswerSegment] = []
+    for segment in segments:
+        sortie.append(segment)
+        if segment.kind != "factuel":
+            continue
+        for cid in segment.claim_ids:
+            claim = par_id.get(cid)
+            if claim is None or cid in rendus:
+                continue
+            rendus.add(cid)
+            sortie.append(AnswerSegment(text=str(claim.rattachement), kind="factuel",
+                                        claim_ids=[cid]))
+    return sortie
+
+
 def _reperes_declares(scope: QuestionScope | None, language: str) -> AnswerSegment | None:
     """Projette cause, événement puis moment sans relire la description brute.
 
@@ -526,6 +565,7 @@ def restituer(*, language: str, lang_fallback: bool = False,
     segments = [AnswerSegment(text=s.text, kind=s.kind,
                               claim_ids=[cid for cid in s.claim_ids if cid in survivantes])
                 for s in segments]
+    segments = _avec_rattachements(segments, verification.claims)
     reperes = (_reperes_declares(faits_compris, language)
                if registre == REGISTRE_SINISTRE else None)
     if reperes is not None:

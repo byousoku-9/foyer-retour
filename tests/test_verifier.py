@@ -192,6 +192,18 @@ def _draft(*claims: tuple[str, str, list[tuple[str, str]]]) -> AnswerDraft:
                  "quotes": [{"block_id": b, "quote": q} for b, q in quotes]} for cid, texte, quotes in claims])
 
 
+def _draft_rattache(cid: str, texte: str, rattachement: str,
+                    quotes: list[tuple[str, str]]) -> AnswerDraft:
+    """La même ébauche, avec le **rattachement aux faits** dans son champ plutôt que dans `text`.
+
+    Story 5.6 (L1c) : c'est toute la différence que ce tour introduit, et les témoins ci-dessous
+    l'emploient partout où L1b écrivait les deux phrases dans une seule.
+    """
+    draft = _draft((cid, texte, quotes))
+    return draft.model_copy(update={"claims": [
+        c.model_copy(update={"rattachement": rattachement}) for c in draft.claims]})
+
+
 async def _verifier(index: Index, draft: AnswerDraft, script: list, *, blocs: list[str] | None = None,
                     truncated: bool = False, settings: Settings | None = None, nb_facettes: int = 1):
     settings = settings or _settings()
@@ -2311,9 +2323,12 @@ async def test_un_fait_manquant_que_la_claim_retenue_qualifie_nest_plus_demande(
     corroborer. Le dossier redemandait donc au client d'établir ce que la réponse qu'il lisait
     venait d'affirmer. La qualification affirmée par la claim ouvre la même porte.
     """
-    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
-                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
-                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    draft = _draft_rattache(
+        "c1",
+        "Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+        "débordement.",
+        "Un robinet resté ouvert est un débordement de ces installations.",
+        [("cg:p1:18", Q_DEGATS_DES_EAUX)])
     v, step, _fake = await _verifier_sinistre(
         contrat, draft,
         [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
@@ -2323,6 +2338,122 @@ async def test_un_fait_manquant_que_la_claim_retenue_qualifie_nest_plus_demande(
     assert [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
     assert v.verdict is not None and v.verdict.missing.faits == []
     assert not [q for q in v.verdict.ask_client if "Fait à établir" in q]
+    # Ce que le rattachement fait, et rien de plus : il **complète** une clause déjà retenue et
+    # déjà soutenue par sa citation. Le verdict est celui de la table sur cette clause-là ; la
+    # contre-épreuve — qu'aucun `couvert` ne naisse d'un rattachement dont un verrou tombe — est le
+    # témoin suivant.
+    assert v.verdict.value == "couvert"
+
+
+async def test_un_rattachement_hors_borne_est_ignore_et_la_clause_reste(contrat: Index) -> None:
+    """Story 5.6 (L1c) : la borne d'affichage, appliquée sans jamais coûter la clause.
+
+    Le rattachement est le seul texte du modèle qui atteint l'écran sans qu'aucune citation ne le
+    soutienne : il lui faut sa borne, comme à `fait_manquant`. Elle n'est pas portée par le schéma —
+    un champ trop long ferait échouer le parse, consommerait le retry unique d'AD-16 et rendrait un
+    503 sur une réponse par ailleurs juste. Elle est appliquée ici : le rattachement est **ignoré**,
+    jamais tronqué, et la clause reste retenue, citée, affichée.
+    """
+    settings = _settings()
+    draft = _draft_rattache(
+        "c1",
+        "Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+        "débordement.",
+        "Un robinet resté ouvert est un débordement de ces installations. " * 20,
+        [("cg:p1:18", Q_DEGATS_DES_EAUX)])
+    assert len(draft.claims[0].rattachement or "") > settings.rattachement_max_chars
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"], settings=settings)
+    assert [c.claim_id for c in v.claims] == ["c1"] and v.claims[0].rattachement is None
+    assert [q.block_id for q in v.claims[0].quotes] == ["cg:p1:18"]
+    assert [c.ok for c in step.checks if c.name == "rattachement_hors_borne"] == [False]
+    # Ignoré veut dire ignoré : la porte de qualification ne le lit pas non plus, et la question
+    # revient au client. Un texte hors borne ne peut pas décider ce qu'il n'a pas le droit d'être lu.
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and QUALITE_DEBORDEMENT in v.verdict.missing.faits
+
+
+async def test_un_rattachement_fondu_dans_la_clause_est_constate_et_nomme_dans_la_relance(
+        contrat: Index) -> None:
+    """Story 5.6 (L1c) : la forme exacte que le cas bougie a prise deux fois le 04/09/2026.
+
+    La rédaction écrit le rattachement **dans** `text`. Le contrôle juge `text` contre les
+    citations, la proposition le dépasse, et la clause tombe avec le lien. Le code ne réécrit rien —
+    il n'écrit jamais le texte affiché — mais il **constate**, et la relance nomme alors le geste qui
+    répare : déplacer la proposition, jamais la supprimer. Le motif générique disait « retire de
+    l'affirmation tout ce que les passages cités ne disent pas », ce qui faisait perdre à la relance
+    ce que L1b avait gagné.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
+                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", False)], raisons={"c1": "non_soutenue"})],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert [c.ok for c in step.checks if c.name == "rattachement_fondu_dans_la_clause"] == [False]
+    assert v.motif is not None and "`rattachement`" in v.motif
+    # La même ébauche, le rattachement dans son champ : plus rien à constater, et le motif de
+    # relance reste celui du défaut réel.
+    draft = _draft_rattache(
+        "c1",
+        "Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+        "débordement.",
+        "Un robinet resté ouvert est un débordement de ces installations.",
+        [("cg:p1:18", Q_DEGATS_DES_EAUX)])
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", False)], raisons={"c1": "non_soutenue"})],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert not [c for c in step.checks if c.name == "rattachement_fondu_dans_la_clause"]
+    assert v.motif is not None and "`rattachement`" not in v.motif
+
+
+async def test_aucun_couvert_ne_nait_dun_rattachement_dont_un_verrou_tombe(contrat: Index) -> None:
+    """Story 5.6 (L1c), garde-fou 5 : le rattachement ne porte jamais un verdict à lui seul.
+
+    Trois légendes du même dossier, chacune retirant **un** des trois verrous de la porte de
+    qualification, et le même départ : la garantie des dégâts des eaux, un `fait_manquant` que seul
+    le rattachement pourrait combler, et un paquet contractuel sans renvoi — c'est-à-dire la seule
+    configuration où la table peut atteindre `couvert`. Sous chacun des trois, elle ne l'atteint
+    pas : il faut que la clause soit retenue, que la citation écrive le mot employé, et que ce mot
+    ne soit pas un qualificatif à confirmer. Le rattachement complète une preuve ; il n'en est
+    jamais une.
+    """
+    quotes = [("cg:p1:18", Q_DEGATS_DES_EAUX)]
+    texte = ("Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+             "débordement.")
+    cas = {
+        # 1. La claim n'est pas retenue : ce que la personne ne lit pas n'établit rien.
+        "claim rejetée": (
+            _draft_rattache("c1", texte, "Un robinet resté ouvert est un débordement de ces "
+                                         "installations.", quotes),
+            _applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                           verdicts=[("c1", False)], raisons={"c1": "non_soutenue"})),
+        # 2. Le rattachement nomme un fait que la **citation** n'écrit pas : le modèle inventerait
+        #    l'exigence qu'il déclare remplie.
+        "mot hors de la clause": (
+            _draft_rattache("c1", texte, "Un robinet resté ouvert est une infiltration par la "
+                                         "toiture du bâtiment.", quotes),
+            _applicabilite(("c1", False, False, False, "infiltration par la toiture", [], []),
+                           verdicts=[("c1", True)])),
+        # 3. Le libellé porte un qualificatif du lexique : aucune circonstance ne le déduit.
+        "qualificatif": (
+            _draft_rattache("c1", texte, "Un robinet resté ouvert est un débordement soudain de "
+                                         "ces installations.", quotes),
+            _applicabilite(("c1", False, False, False, "caractère soudain du débordement", [], []),
+                           verdicts=[("c1", True)])),
+    }
+    for nom, (draft, script) in cas.items():
+        v, step, _fake = await _verifier_sinistre(contrat, draft, [script], faits=FAITS_ROBINET,
+                                                  blocs=["cg:p1:18"])
+        assert v.verdict is not None and v.verdict.value != "couvert", nom
+        assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"], nom
 
 
 async def test_un_fait_manquant_quaucune_claim_ne_qualifie_reste_demande(contrat: Index) -> None:
@@ -2356,9 +2487,10 @@ async def test_un_fait_manquant_qualificatif_reste_demande_meme_qualifie_par_la_
     """
     faits = Faits(date="2026-08-01", lieu="domicile", montant_eur=1200.0,
                   description="Une bougie allumée est tombée sur le canapé.")
-    draft = _draft(("c1", "Le contrat exclut les dégâts au bâtiment causés par la chaleur ; une "
-                          "bougie tombée sur le canapé est une action subite de la chaleur.",
-                    [("cg:p1:2", Q_EXCLUSION)]))
+    draft = _draft_rattache(
+        "c1", "Le contrat exclut les dégâts au bâtiment causés par la chaleur.",
+        "Une bougie tombée sur le canapé est une action subite de la chaleur.",
+        [("cg:p1:2", Q_EXCLUSION)])
     v, step, _fake = await _verifier_sinistre(
         contrat, draft,
         [_applicabilite(("c1", False, False, False, SUBITE, [], []), verdicts=[("c1", True)])],
@@ -2366,6 +2498,12 @@ async def test_un_fait_manquant_qualificatif_reste_demande_meme_qualifie_par_la_
     assert v.claims[0].status.applicable == "humain"
     assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
     assert v.verdict is not None and SUBITE in v.verdict.missing.faits
+    # Story 5.6 (L1c), le garde-fou 1 : ce que L1 coûtait ici était la **clause**. Le rattachement
+    # porte un qualificatif du lexique, la qualité part donc en question au client — et la clause,
+    # elle, reste retenue, citée, et son rattachement voyage avec elle jusqu'à l'affichage.
+    assert [c.claim_id for c in v.claims] == ["c1"] and not v.rejected_claims
+    assert [q.block_id for q in v.claims[0].quotes] == ["cg:p1:2"]
+    assert v.claims[0].rattachement is not None and "subite" in v.claims[0].rattachement
 
 
 async def test_une_claim_rejetee_ne_qualifie_rien(contrat: Index) -> None:
@@ -2375,9 +2513,12 @@ async def test_une_claim_rejetee_ne_qualifie_rien(contrat: Index) -> None:
     établit un fait pour le dossier est ce que la personne **lit**, jamais une phrase retirée de la
     réponse.
     """
-    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
-                          "par suite de débordement ; un robinet resté ouvert est un débordement de "
-                          "ces installations.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    draft = _draft_rattache(
+        "c1",
+        "Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+        "débordement.",
+        "Un robinet resté ouvert est un débordement de ces installations.",
+        [("cg:p1:18", Q_DEGATS_DES_EAUX)])
     v, step, _fake = await _verifier_sinistre(
         contrat, draft,
         [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),

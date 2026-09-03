@@ -526,6 +526,15 @@ class Settings(BaseSettings):
     # non un seul. « La chaleur a agi lentement » partage « chaleur » avec « action subite de la
     # chaleur » et dit exactement le contraire ; c'est le qualificatif (*subite*) qui décide.
     qualite_mot_min_chars: int = Field(5, ge=1)
+    # Story 5.6 (L1c). Le **rattachement aux faits** d'une affirmation est le second texte du modèle
+    # qui atteint l'écran sans qu'aucune citation ne le soutienne : il dit que le fait déclaré est
+    # ce que la clause nomme, et aucun passage du contrat ne peut prouver ce qu'un assuré a vécu.
+    # Il lui faut donc sa borne, pour la même raison qu'à `fait_manquant` : sans elle, un champ que
+    # le contrôle ne juge pas contre les passages devient une porte ouverte sur un paragraphe non
+    # sourcé. 240 caractères tiennent la phrase demandée (« un robinet resté ouvert est un
+    # débordement de ces installations ») sans en tenir deux. Hors borne, le rattachement est
+    # **ignoré** — jamais tronqué — et la clause, elle, reste affichée et citée.
+    rattachement_max_chars: int = Field(240, ge=1)
     # L'appel `reason` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
@@ -1958,6 +1967,7 @@ class Settings(BaseSettings):
             "conversation_active_questions_max": self.conversation_active_questions_max,
             "qualites_exigees_max": self.qualites_exigees_max,
             "qualite_mot_min_chars": self.qualite_mot_min_chars,
+            "rattachement_max_chars": self.rattachement_max_chars,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
@@ -2185,7 +2195,8 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "verifier_max_claims", "verifier_sinistre_max_tokens", "verifier_sinistre_json_tokens",
     "verifier_thinking_reserve_tokens", "fait_manquant_max_chars", "ask_client_max",
     "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
-    "qualite_mot_min_chars", "historique_max_turns", "relance_sur_non_pertinence",
+    "qualite_mot_min_chars", "rattachement_max_chars", "historique_max_turns",
+    "relance_sur_non_pertinence",
     "quote_max_chars", "draft_max_segments", "draft_max_claims", "draft_max_definitions",
     "question_min_terms", "question_max_terms", "question_max_facettes", "scope_max_themes",
     "libelle_max_chars", "liste_max_items", "estimate_chars_per_token",

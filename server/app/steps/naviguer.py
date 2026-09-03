@@ -299,6 +299,7 @@ class Navigation:
                     navigation_draft_max_claims=self.settings.navigation_draft_max_claims,
                     navigation_max_llm_turns=self.settings.navigation_max_llm_turns,
                     navigation_budget_tokens=self.settings.navigation_budget_tokens,
+                    rattachement_max_chars=self.settings.rattachement_max_chars,
                 ) + "\n\n" + untrusted("sommaire",
                                        sommaire_complet(self.corpus, self.doc_id)))
         return self._prefixe

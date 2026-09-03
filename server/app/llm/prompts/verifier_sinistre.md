@@ -58,18 +58,35 @@ les dommages **causés par un choc violent** » rapporte encore la règle condit
 dossier (« ce dommage est couvert », « cette clause s'applique au sinistre décrit ») ajoute
 l'application au cas.
 
-**Une qualification n'est ni une conclusion, ni un ajout.** Une affirmation peut nommer un fait
-déclaré dans le **vocabulaire de la clause**, après un point-virgule : troisième exemple normatif,
-étranger par construction à tout cas soumis — la clause vise « l'affaissement du sol par suite de
-glissement ou d'effondrement de terrain », les faits disent que le talus a cédé sous la terrasse, et
-l'affirmation ajoute « … ; un talus qui cède sous la terrasse est un glissement de terrain ». Le
-sujet y est le fait, le prédicat le mot que la clause écrit, et rien n'y est dit de la couverture.
-Ce n'est pas une conclusion ajoutée : ne rends ni `conclusion_ajoutee`, ni `non_soutenue` pour cette
-seule proposition, dès lors que la quote porte bien le mot ainsi employé et que les faits déclarés
-portent bien le fait ainsi nommé. Une qualification est en revanche `non_soutenue` si le mot n'est
-pas dans la quote, si le fait n'est pas dans les faits déclarés, ou si elle porte sur un
-**qualificatif** que les faits ne disent pas (voir la question 2 ci-dessous) : un appareil de
-chauffage posé près d'un rideau ne qualifie pas de *subite* l'action de la chaleur.
+**Le `rattachement` se lit à part de l'affirmation, et ne la juge jamais.** Un bloc `claim` peut
+porter, à côté de son `affirmation`, un champ `rattachement` : une phrase qui nomme un fait déclaré
+dans le **vocabulaire de la clause**. Troisième exemple normatif, étranger par construction à tout
+cas soumis — la clause vise « l'affaissement du sol par suite de glissement ou d'effondrement de
+terrain », les faits disent que le talus a cédé sous la terrasse, et le rattachement dit « un talus
+qui cède sous la terrasse est un glissement de terrain ». Le sujet y est le fait, le prédicat le mot
+que la clause écrit, et rien n'y est dit de la couverture.
+
+Ce champ **ne fait pas partie de ce que les citations doivent soutenir**. Ton verdict `pertinente`
+porte sur `affirmation` seule : ne rends ni `non_soutenue`, ni `conclusion_ajoutee` parce que le
+rattachement dépasse ce que la quote établit — aucune quote ne pourra jamais établir ce qu'un assuré
+a vécu, et rejeter l'affirmation pour cela ferait tomber la clause avec le lien. Une clause dont
+l'affirmation est soutenue reste retenue quel que soit son rattachement.
+
+C'est dans les **champs typés** ci-dessous que le rattachement se lit, et de trois façons :
+
+- il se déduit des faits déclarés et n'emploie aucun **qualificatif** du contrat : la clause vise ce
+  cas, le fait est présent — n'écris pas en `fait_manquant` le nom que le contrat donne à ce que le
+  client vient de décrire ;
+- il passe par un **qualificatif** (soudain, subit, accidentel, direct, immédiat, violent, avec
+  effraction…) que les faits ne disent pas : la qualité reste à établir — nomme-la en
+  `fait_manquant` ou en `qualites_exigees`, et le client la confirmera. L'affirmation, elle, reste
+  `pertinente = true` : un appareil de chauffage posé près d'un rideau ne qualifie pas de *subite*
+  l'action de la chaleur, mais la clause qui l'exige a bien été lue et rapportée ;
+- les faits déclarés disent le **contraire** de ce que le rattachement affirme : c'est un périmètre
+  contraire, `fait_requis_present = false` et `fait_manquant = null` (question 1 ci-dessous).
+
+Un rattachement absent ne vaut aucun de ces trois cas : juge alors sur les seuls faits déclarés,
+comme s'il n'y en avait pas.
 
 Procède littéralement dans cet ordre : (1) relève toutes les conditions conservées dans
 l'affirmation ; (2) demande-toi si son sujet est seulement le contrat/la clause et une catégorie de

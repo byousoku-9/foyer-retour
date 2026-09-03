@@ -119,6 +119,40 @@ class Claim(DomainModel):
     # de rédaction du guide hors navigation) ; un rang hors de `facettes` est une sortie de modèle
     # comme une autre, recoupée par l'étape qui sait ce qu'elle a envoyé (AD-15), jamais ici.
     facette: int | None = None
+    # Story 5.6 (L1c) — le **rattachement aux faits** : une phrase qui dit que le fait déclaré est
+    # ce que la clause nomme (« un robinet oublié est un débordement de ces installations »).
+    #
+    # Il est séparé de `text` parce que les deux ne se jugent pas de la même façon, et les fondre
+    # coûtait la clause. `text` dit ce que la clause dit, et rien d'autre : il se juge contre les
+    # citations, et ce qui les dépasse le fait tomber. Le rattachement, lui, ne prétend rien du
+    # contrat — il nomme un fait du dossier dans le vocabulaire de la clause —, et aucune citation
+    # ne peut donc l'établir. Mesuré le 04/09/2026 sur le cas bougie : les deux phrases écrites dans
+    # le même `text` étaient rejetées **ensemble** (`non_soutenue`, puis `conclusion_ajoutee` au
+    # rejeu), et la garantie `p34:12` disparaissait de la réponse avec la qualité qu'elle exigeait.
+    #
+    # Il n'est jamais un support de `text`, jamais un verdict, et jamais une preuve : il se juge
+    # comme une **qualification** (`steps.verifier`), qui ouvre au plus la porte du fait établi et
+    # ne peut, seule, retenir aucune clause.
+    #
+    # Sa **longueur** est bornée par `rattachement_max_chars` — un texte affiché qu'aucune citation
+    # ne soutient ne peut pas être un paragraphe —, mais la borne n'est pas portée ici : un champ
+    # trop long ferait échouer le parse, donc consommerait le retry unique d'AD-16 et rendrait un
+    # 503 sur une réponse par ailleurs juste. C'est *vérifier* qui l'applique, en **ignorant** le
+    # rattachement hors borne : la clause, elle, reste affichée et citée.
+    rattachement: str | None = None
+
+    @field_validator("rattachement")
+    @classmethod
+    def _rattachement_vide_est_absent(cls, rattachement: str | None) -> str | None:
+        """Une chaîne blanche n'est pas un rattachement : elle est **absente**, et le dit.
+
+        Sans cela, `rattachement=""` serait un champ présent que l'affichage rendrait en segment
+        vide et que la porte de qualification lirait comme une phrase à analyser. Une seule forme
+        pour « il n'y en a pas », comme partout ailleurs dans le domaine.
+        """
+        if rattachement is None:
+            return None
+        return rattachement.strip() or None
 
     @property
     def preuve(self) -> frozenset[tuple[str, str]]:
@@ -253,6 +287,7 @@ class AnswerDraft(DomainModel):
             "segments": [{"text": plat(s.text), "kind": s.kind, "claim_ids": list(s.claim_ids)}
                          for s in self.segments],
             "claims": [{"claim_id": plat(c.claim_id), "text": plat(c.text), "facette": c.facette,
+                        "rattachement": plat(c.rattachement or ""),
                         "quotes": [{"block_id": plat(q.block_id), "quote": plat(q.quote)} for q in c.quotes]}
                        for c in self.claims],
         }
