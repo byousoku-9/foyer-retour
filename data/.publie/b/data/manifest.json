@@ -12,7 +12,7 @@
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460",
       "cases_hash": "0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0",
-      "pipeline_digest": "69cde475189175e35cb3730f3c4d3ac4764d45688b6a86a790a959cc41fb822d",
+      "pipeline_digest": "fb962de7135c5ab10e083a531cb38198380fa5d99d4feaec577a7caccbc06c32",
       "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -20,7 +20,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T11:35:47Z",
+      "date": "2026-09-03T12:07:04Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -31,7 +31,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
+          "run_digest": "ee29b4417d82b8638e38ab2c65da0b8931e28804e71d5e7c3d4421cd441c1876",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -42,7 +42,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
+          "run_digest": "ee29b4417d82b8638e38ab2c65da0b8931e28804e71d5e7c3d4421cd441c1876",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -53,7 +53,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
+          "run_digest": "ee29b4417d82b8638e38ab2c65da0b8931e28804e71d5e7c3d4421cd441c1876",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -64,7 +64,7 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
+          "run_digest": "ee29b4417d82b8638e38ab2c65da0b8931e28804e71d5e7c3d4421cd441c1876",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -75,7 +75,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
+          "run_digest": "a443927993719f77478d9ab22330cedf56774e0e3b90042fc96a150ed822c4c0",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -86,7 +86,7 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
+          "run_digest": "a443927993719f77478d9ab22330cedf56774e0e3b90042fc96a150ed822c4c0",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -97,13 +97,13 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "36ca49d843a041058ec18513dce2b468a88c52c18fb0c328a37eb159e91ad00f",
+          "run_digest": "a443927993719f77478d9ab22330cedf56774e0e3b90042fc96a150ed822c4c0",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "6bd689d5cbdea80a708f1410afa372bc5a6a3e1af3d9bb9bbd2a4f69b33b0a1f",
+      "run_digest": "ee29b4417d82b8638e38ab2c65da0b8931e28804e71d5e7c3d4421cd441c1876",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -287,7 +287,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "b69188c0b35a1f3b73aa1287b93321880e5f0b34",
+      "candidate_revision": "7ab400583f83528f32f94339c10b48982e277d13",
       "report_digest": null,
       "structure_hash": null
     }
