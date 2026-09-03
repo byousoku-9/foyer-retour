@@ -24,7 +24,12 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # généré, dont certains groupes sont des énumérations, la même règle élargissait « fumée » vers
 # « explosion » et « déplacement du sol ». Rien n'a été retiré ni réécrit : la section de I1 reste
 # telle quelle, et la nouvelle dit en quoi son domaine de validité s'arrête au guide.
-ANNEXE_SHA256 = "07bb70ed5d635cf7861b487e8880eef11761fd98c1c3cf213017875790f276d0"
+# Bougé le 03/09/2026 (story 5.6, T5) : le registre gagne « deux caches pour la facture ». La
+# synthèse est bornée à environ deux pages et suit les jalons de la story ; les deux chiffres qui ont
+# décidé les caches (0,28 € d'écriture de préfixe contre 0,015 € à chaud) et la limite volontaire du
+# cache de réponses — clé exacte, jamais sémantique — se consignent ici. Rien n'a été retiré ni
+# réécrit.
+ANNEXE_SHA256 = "1b3314781d46228555d6ac7fe6e992422d70051996cab1eeda9cd380ee55331f"
 
 
 def _document() -> str:
