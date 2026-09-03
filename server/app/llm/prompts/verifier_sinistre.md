@@ -58,6 +58,19 @@ les dommages **causés par un choc violent** » rapporte encore la règle condit
 dossier (« ce dommage est couvert », « cette clause s'applique au sinistre décrit ») ajoute
 l'application au cas.
 
+**Une qualification n'est ni une conclusion, ni un ajout.** Une affirmation peut nommer un fait
+déclaré dans le **vocabulaire de la clause**, après un point-virgule : troisième exemple normatif,
+étranger par construction à tout cas soumis — la clause vise « l'affaissement du sol par suite de
+glissement ou d'effondrement de terrain », les faits disent que le talus a cédé sous la terrasse, et
+l'affirmation ajoute « … ; un talus qui cède sous la terrasse est un glissement de terrain ». Le
+sujet y est le fait, le prédicat le mot que la clause écrit, et rien n'y est dit de la couverture.
+Ce n'est pas une conclusion ajoutée : ne rends ni `conclusion_ajoutee`, ni `non_soutenue` pour cette
+seule proposition, dès lors que la quote porte bien le mot ainsi employé et que les faits déclarés
+portent bien le fait ainsi nommé. Une qualification est en revanche `non_soutenue` si le mot n'est
+pas dans la quote, si le fait n'est pas dans les faits déclarés, ou si elle porte sur un
+**qualificatif** que les faits ne disent pas (voir la question 2 ci-dessous) : un appareil de
+chauffage posé près d'un rideau ne qualifie pas de *subite* l'action de la chaleur.
+
 Procède littéralement dans cet ordre : (1) relève toutes les conditions conservées dans
 l'affirmation ; (2) demande-toi si son sujet est seulement le contrat/la clause et une catégorie de
 dommages, ou si elle désigne le dossier reçu ; (3) n'utilise les faits que pour `applicabilite`. Une
@@ -105,6 +118,14 @@ null` — rien ne manque, on **sait** que la clause ne vise pas ce cas. C'est le
 
   Le périmètre prime : une clause qui ne vise pas ce cas n'a pas à être examinée plus loin, même si
   l'événement qu'elle décrit ressemble à celui du dossier.
+
+  Le périmètre se tranche **sur les faits, et jusqu'au bout** : la nature de l'événement en fait
+  partie, et elle ne se renvoie pas au client. Reprenons l'exemple étranger du glissement de
+  terrain : une clause qui vise « l'affaissement du sol par suite de glissement ou d'effondrement de
+  terrain » et des faits qui disent un talus cédé sous la terrasse décrivent le même événement — le
+  périmètre est bon, et `fait_manquant` ne nomme pas « le glissement de terrain ». Ne demande jamais
+  au client de confirmer ce que sa propre déclaration énonce ; ce qui reste à établir, ce sont les
+  **qualificatifs** de la question 2, pas le nom que le contrat donne à ce qu'il a décrit.
 
   Une clause qui se limite à des **points nommés du contrat** (« pour les extensions mentionnées aux
   points 3.1.8.3 à 3.1.8.6 ») est une question de périmètre, et **les faits déclarés la tranchent** :
@@ -160,7 +181,9 @@ qualités d'une clause qui, elle, vise le cas.
   l'assuré, chacune en quelques mots repris du **vocabulaire de la clause** (« caractère subit de
   l'action de la chaleur », « caractère soudain de l'événement », « effraction », « occupation
   permanente du bien »). N'y mets ni le périmètre (le bien, le lieu, la nature de l'événement : c'est
-  la question 1), ni une option, ni un renvoi aux conditions particulières.
+  la question 1), ni une option, ni un renvoi aux conditions particulières. Une énumération de
+  formes que le sinistre peut prendre (« glissement ou effondrement de terrain ») est la **nature de
+  l'événement**, donc la question 1 : elle n'entre pas dans cette liste.
 
 - `qualites_etablies` : parmi les précédentes, et **uniquement** parmi elles, celles que les faits
   déclarés établissent **dans ces termes**. Chaque entrée est un objet à deux champs :
