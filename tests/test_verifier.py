@@ -799,6 +799,30 @@ async def test_un_segment_byte_identique_a_sa_claim_retenue_est_affiche_sans_sec
     assert "Le délai" not in check.detail  # AD-10 : des comptes, jamais le texte
 
 
+async def test_un_segment_derive_voyage_en_contexte_lisible_sans_position_a_juger(
+        mini: Index) -> None:
+    """Le contrôle lit des affirmations atomiques ; la rédaction écrit un texte enchaîné.
+
+    Les dérivés sont transmis dans l'ordre du texte affiché, mais comme **contexte** : ils ne portent
+    aucune position, `a_juger` ne bouge pas (aucun bloc `segment` pour eux) et 4.2a-bis tient — un
+    texte, un seul jugement. Sans cela, une claim qui suit une autre perd son antécédent en route.
+    """
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("Le guide ne dit rien du reste.", "limite", []),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    blocs = UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+    juges = [json.loads(texte) for kind, texte in blocs if kind == "segment"]
+    lisibles = [json.loads(texte) for kind, texte in blocs if kind == "contexte"]
+    assert [j["segment"] for j in juges] == [1]  # seul le `limite` a une position à juger
+    assert [c["texte"] for c in lisibles] == ["Le délai est de huit jours."]
+    assert "segment" not in lisibles[0]
+    # et l'ordre du texte affiché est conservé : le dérivé précède la phrase jugée
+    kinds = [kind for kind, _ in blocs if kind in {"segment", "contexte"}]
+    assert kinds == ["contexte", "segment"]
+
+
 async def test_un_segment_derive_dune_claim_rejetee_est_masque_sans_resurrection(mini: Index) -> None:
     """Claim rejetée ⇒ segment masqué par dérivation : un `soutenu=true` scripté (le défaut du
     harnais) ne le réaffiche pas, et la claim rejetée suit la relance existante."""
