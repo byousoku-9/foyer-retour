@@ -272,11 +272,21 @@ def _unite_primaire(block_id: str, *, kind: str, index: Index,
     demandé seulement ; le corps ajouté n'est jamais parcouru récursivement. Un titre sans corps
     non-titre ne forme aucune unité transmissible : `None` ordonne à l'appelant de le refuser et de
     publier la troncature.
+
+    **Et le cas symétrique, ajouté au tour 5 (C9) :** l'item d'une énumération emporte la phrase qui
+    l'ouvre (`Index.amorce_de_lenumeration`). Une feuille comme « Les fumées et les suies ; » n'est
+    pas plus citable seule qu'un titre — servie sans « La Compagnie assure les biens désignés,
+    contre les périls suivants : », elle a produit une affirmation que le vérificateur a rejetée
+    `non_soutenue`, le rédacteur ayant emprunté à une clause absente le membre qui manquait. Un seul
+    niveau, jamais récursif, exactement comme `unite_de_renvoi`. Rayon mesuré hors ligne : 287 nœuds
+    sur 751 pour le contrat AXA, 7 sur 274 pour Baloise, 0 pour le guide ; amorce médiane 13 mots
+    (AXA) et 17 (Baloise).
     """
     structure = index.unite_de_renvoi(block_id)
     if kind == "heading" and structure == [block_id]:
         return None
-    return list(dict.fromkeys((*structure, *dependances)))
+    amorce = index.amorce_de_lenumeration(block_id) if kind != "heading" else None
+    return list(dict.fromkeys((*( [amorce] if amorce else [] ), *structure, *dependances)))
 
 
 def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve: bool) -> list[str]:
@@ -408,10 +418,38 @@ def _premier_objet_json(texte: str) -> str | None:
     return None
 
 
+def part_du_mot_borne(index: Index | None, doc_id: str | None, *,
+                 part_max: float) -> Callable[[str], float] | None:
+    """La fréquence documentaire du document servi, **quand elle mesure quelque chose**.
+
+    Correctif du tour 5 (C8). `Dictionnaire` ne connaît aucun index — c'est bien ainsi : il décrit
+    un vocabulaire, pas un corpus chargé. La borne de fréquence lui est donc **injectée** par
+    l'appelant qui, lui, sait quel document est interrogé. Une recherche sans document (`doc_id`
+    nul) ne borne rien : aucune fréquence documentaire n'a de sens sur plusieurs documents à la
+    fois, exactement comme `utilisable_pour(None)` ne reconnaît aucun dictionnaire.
+
+    **Et un seuil en part n'est une mesure que si le document a de quoi la porter.** La plus fine
+    part qu'un document de `N` blocs sache exprimer vaut `1/N` : tant que `part_max × N` n'atteint
+    pas un bloc entier, « dépasser le seuil » et « figurer une seule fois dans le document » sont la
+    même chose, et la borne ne dirait plus « cette forme nomme le sujet » mais « cette forme
+    existe ». Elle s'abstient donc, et c'est le bon sens de l'abstention : une variante de
+    dictionnaire est une équivalence **écrite** (AD-5), pas une forme dérivée par le code comme les
+    variantes de nombre ; la refuser sans mesure désarmerait en silence le rappel qu'AD-5 apporte.
+    Sur le contrat servi — 1 400 blocs, seuil 1 % — la borne parle à partir de 14 blocs.
+    """
+    if index is None or doc_id is None or doc_id not in index.corpus.documents:
+        return None
+    blocs = len(index.corpus.documents[doc_id].blocks)
+    if part_max * blocs < 1:
+        return None
+    return lambda mot: index.part_des_blocs(mot, doc_id=doc_id)
+
+
 def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | None,
                        dictionary_ready: bool, index: Index | None = None,
                        doc_id: str | None = None,
-                       variante_max_part: float = 0.0) -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+                       variante_max_part: float = 0.0,
+                       dictionnaire_max_part: float = 0.0) -> list[tuple[int, dict[str, list[str]] | list[str]]]:
     """Le libellé de chaque facette rendu en requête d'index, **son rang conservé**.
 
     Les facettes ont été arrêtées par *comprendre*, avant tout retrieval (AD-4). Leur rang — la
@@ -433,7 +471,10 @@ def _mappings_facettes(facettes: Iterable[str], *, dictionnaire: Dictionnaire | 
             continue
         mapping: dict[str, list[str]] | list[str] = [libelle]
         if dictionary_ready and dictionnaire is not None:
-            mapping = dictionnaire.expand([libelle])
+            mapping = dictionnaire.expand([libelle],
+                                          part_du_mot=part_du_mot_borne(index, doc_id,
+                                                                   part_max=dictionnaire_max_part),
+                                          part_max=dictionnaire_max_part)
         if index is not None and doc_id is not None and variante_max_part > 0:
             # Les formes de nombre **s'ajoutent** aux variantes que le dictionnaire a déjà données,
             # canonique par canonique : le canonique reste ce qu'il était, et l'on n'éclate jamais
@@ -878,7 +919,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 return invalid()
             mapping: dict[str, list[str]] | list[str] = termes
             if dictionary_ready:
-                mapping = dictionnaire.expand(termes)
+                mapping = dictionnaire.expand(
+                    termes,
+                    part_du_mot=part_du_mot_borne(
+                        index, doc_id, part_max=settings.dictionnaire_variante_max_part),
+                    part_max=settings.dictionnaire_variante_max_part)
             if not mechanism:
                 mapping_effectif = ({canon: list(variantes) for canon, variantes in mapping.items()}
                                      if isinstance(mapping, dict) else list(mapping))
@@ -893,7 +938,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             run_reservations: list[tuple[str, str]] = []
             hits = index.chercher(mapping, limit=budget.search_limit + 1, doc_id=doc_id,
                                   question=canonical_question,
-                                  groupes_prioritaires=parsed.facettes,
+                                  groupes_prioritaires=[requete for _rang, requete
+                                                        in mappings_par_rang()],
                                   reservations_out=run_reservations)
             search_truncated = len(hits) > budget.search_limit
             if search_truncated:
@@ -1013,6 +1059,15 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             # l'ordre documentaire étant conservé à l'intérieur de chaque groupe (tri stable). Cet
             # ordre ne décide que **qui tient sous le budget** : le rendu, lui, retrouve plus bas
             # l'ordre documentaire de la fenêtre.
+            # **Correctif du tour 5 (C10) : la fenêtre est ce qui est dépensé, donc c'est elle qui
+            # se compte.** Le compteur du tour 4 n'additionnait que l'unité gardée du primaire
+            # réservé ; les frères qui entrent avec elle étaient admis par des `admit()` distincts
+            # et n'étaient attribués à personne. Mesuré : le check publiait « 99 tokens gardés pour
+            # 99 admis » quand la fenêtre réellement ouverte en faisait **1 022**. L'instrumentation
+            # ratait exactement le chiffre pour lequel elle avait été écrite, et un audit qui lui
+            # faisait confiance concluait que la réserve était bien calibrée.
+            rang_du_focus = (reserve_facettes[focus][0]
+                             if focus is not None and focus in reserve_facettes else None)
             ordre = _prioriser_focus(primary_ids, focus, reserve=focus_reserve)
             tete = ordre[:1] if (focus_reserve and ordre and ordre[0] == focus) else []
             admission_ids = [
@@ -1040,9 +1095,10 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     continue
                 reservee = reserve_facettes.get(item.block_id)
                 got = admit(unit, reserve=reservee is not None)
-                if reservee is not None and got:
-                    # C5 : honorer une réservation fait entrer **la fenêtre**, pas la seule unité
-                    # gardée. C'est cette dépense-là qu'aucun compteur ne voyait.
+                if reservee is not None and got and reservee[0] != rang_du_focus:
+                    # Une seconde réservation qui se trouve dans la fenêtre d'une autre n'a pas payé
+                    # l'ouverture : elle ne porte que son unité. La fenêtre est comptée une fois,
+                    # là où elle a été ouverte.
                     tokens_admis_par_rang[reservee[0]] = (
                         tokens_admis_par_rang.get(reservee[0], 0) + cout_des_blocs(got))
                 if item.block_id in got:
@@ -1059,6 +1115,11 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                             candidate for candidate in dependencies
                             if candidate in admitted_set and candidate not in decision_dependencies)
                 newly.extend(got)
+            if rang_du_focus is not None and newly:
+                # L'ouverture a eu lieu **pour** cette réservation : tout ce qui est entré avec elle
+                # est la dépense qu'elle a ordonnée, l'unité gardée comme ses voisins.
+                tokens_admis_par_rang[rang_du_focus] = (
+                    tokens_admis_par_rang.get(rang_du_focus, 0) + cout_des_blocs(newly))
             if newly:
                 # `admit()` a déjà pris sa décision dans l'ordre prioritaire. Pour le rendu, les
                 # membres présents dans la fenêtre retrouvent l'ordre documentaire ; les autres
@@ -1156,7 +1217,8 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         """
         return _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
                                   dictionary_ready=dictionary_ready, index=index, doc_id=doc_id,
-                                  variante_max_part=settings.facette_variante_max_part)
+                                  variante_max_part=settings.facette_variante_max_part,
+                                  dictionnaire_max_part=settings.dictionnaire_variante_max_part)
 
     def classement_des_facettes() -> Callable[[dict[str, list[str]] | list[str]],
                                               list[ScoredHit]]:
@@ -1492,7 +1554,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                     # navigateur choisit — et une unité gardée qu'on ne pourrait pas honorer
                     # retirerait du budget sans rien rendre. La facette repartira par la passe de
                     # couverture, sous les bornes ordinaires, ou sera dite bornée.
-                    break
+                    #
+                    # **Correctif du tour 5 (C7) : la borne refuse ce candidat-ci, pas la facette.**
+                    # Le `break` lisait « cette unité ne tient pas sous la part » comme « cette
+                    # sous-question n'a rien à garder », alors que le commentaire ci-dessus ne
+                    # justifie que la borne. Mesuré : une sous-question dont la tête pesait 3 360
+                    # tokens abandonnait tout, et le quatrième candidat de son **propre** classement
+                    # — la clause juste, à 41 tokens — n'était jamais gardé ; il a été refusé en fin
+                    # d'étape faute de 3 tokens. La borne, elle, ne bouge pas : au plus une unité par
+                    # facette, sous la même part, dans le même classement gardé, et si aucun candidat
+                    # n'y tient la facette ne garde toujours rien.
+                    continue
                 reserve_facettes[hit.clause_uid] = (rang, unite)
                 break
 
@@ -1927,13 +1999,17 @@ async def retrouver_outils(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
             name="faq", ok=True,
             detail=f"{len(faq_candidates)} nœud(s) candidat(s) traité(s) selon l'ordre configuré"))
     if dictionary_searched_terms:
-        searched_expanded = dictionnaire.expand(dictionary_searched_terms)
+        borne = {"part_du_mot": part_du_mot_borne(
+                     index, doc_id, part_max=settings.dictionnaire_variante_max_part),
+                 "part_max": settings.dictionnaire_variante_max_part}
+        searched_expanded = dictionnaire.expand(dictionary_searched_terms, **borne)
         base = {forme(t) for t in dictionary_searched_terms} - {""}
         touches = sum(1 for variantes in searched_expanded.values()
                       if any(v and v not in base for v in variantes))
         step.checks.append(CheckResult(
             name="dictionnaire", ok=True,
-            detail=f"{dictionnaire.variants_count(dictionary_searched_terms)} variante(s) ajoutée(s) "
+            detail=f"{dictionnaire.variants_count(dictionary_searched_terms, **borne)} "
+                   f"variante(s) ajoutée(s) "
                    f"à {touches} terme(s)"))
     return result, step
 
@@ -2284,6 +2360,15 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
     dictionary_ready = False
     expanded_search: dict[str, list[str]] | None = None
     hits: list[ScoredHit] = []
+    # C6 : la variante déterministe réserve avec la **même** requête que la variante outils. Elle
+    # est relue à l'emploi, comme `mappings_par_rang` là-bas, parce que `dictionary_ready` dépend de
+    # l'ordre déclaré des mécanismes et non de l'ordre où le code se trouve écrit.
+    def mappings_deterministes() -> list[tuple[int, dict[str, list[str]] | list[str]]]:
+        return _mappings_facettes(
+            parsed.facettes, dictionnaire=dictionnaire, dictionary_ready=dictionary_ready,
+            index=index, doc_id=doc_id,
+            variante_max_part=settings.facette_variante_max_part,
+            dictionnaire_max_part=settings.dictionnaire_variante_max_part)
     # Nœuds candidats par phase puis, à l'intérieur de chaque phase, dans l'ordre propre de la
     # source. Il n'y a aucun retri global des hits documentaires.
     nodes: list[str] = []
@@ -2297,14 +2382,18 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
                 faq_nodes, index=index, best_hit_by_node=best_hit))
         elif mechanism == "sommaire" and terms:
             if dictionary_ready:
-                expanded_search = dictionnaire.expand(terms)
+                expanded_search = dictionnaire.expand(
+                    terms,
+                    part_du_mot=part_du_mot_borne(
+                        index, doc_id, part_max=settings.dictionnaire_variante_max_part),
+                    part_max=settings.dictionnaire_variante_max_part)
             cherches: dict[str, list[str]] | list[str] = expanded_search or terms
             phase_reservations: list[tuple[str, str]] = []
             phase_hits = index.chercher(
                 cherches, limit=budget.search_limit, doc_id=doc_id,
                 question=canonical_question,
                 kinds_prioritaires=kinds_prioritaires,
-                groupes_prioritaires=parsed.facettes,
+                groupes_prioritaires=[requete for _rang, requete in mappings_deterministes()],
                 reservations_out=phase_reservations)
             reserved_candidates.extend(
                 reservation for reservation in phase_reservations
@@ -2597,7 +2686,11 @@ def retrouver_deterministe(parsed: ParsedQuestion, *, corpus: Corpus, index: Ind
         # comme une contradiction. Un terme est « touché » s'il apporte au moins une forme que la
         # question ne cherchait pas déjà.
         base = {forme(t) for t in terms} - {""}
-        ajoutees = dictionnaire.variants_count(terms)
+        ajoutees = dictionnaire.variants_count(
+            terms,
+            part_du_mot=part_du_mot_borne(
+                index, doc_id, part_max=settings.dictionnaire_variante_max_part),
+            part_max=settings.dictionnaire_variante_max_part)
         touches = sum(1 for variantes in expanded_search.values()
                       if any(v and v not in base for v in variantes))
         step.checks.append(CheckResult(
@@ -2813,7 +2906,8 @@ def couvrir_facettes(parsed: ParsedQuestion, *, retrieval: RetrievalResult, corp
                         and "dictionnaire" in settings.retrieval_mechanisms())
     mappings = _mappings_facettes(parsed.facettes, dictionnaire=dictionnaire,
                                   dictionary_ready=dictionary_ready, index=index, doc_id=doc_id,
-                                  variante_max_part=settings.facette_variante_max_part)
+                                  variante_max_part=settings.facette_variante_max_part,
+                                  dictionnaire_max_part=settings.dictionnaire_variante_max_part)
     if len(_mappings_dedupes(mappings)) < FACETTES_MIN_POUR_COUVERTURE:
         # Même seuil que la phase `outils`, et le résultat est rendu **intact** : ni bloc, ni
         # couverture, ni check. Une facette unique laisse la chaîne exactement où elle était.

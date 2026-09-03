@@ -367,6 +367,36 @@ class Index:
                 return [block_id, candidate]
         return [block_id]
 
+    def amorce_de_lenumeration(self, block_id: str) -> str | None:
+        """La phrase qui **ouvre** l'énumération dont ce bloc est l'item, ou `None`.
+
+        Correctif du tour 5 (C9), et c'est le cas **symétrique** de `unite_de_renvoi`. Celle-ci
+        traite déjà « un titre seul situe une fiche mais ne porte généralement pas la règle à
+        citer » : un `heading` emporte son premier corps non-titre. Le miroir manquait — une feuille
+        qui **est** l'item d'une énumération n'emportait pas la phrase qui l'introduit, alors qu'elle
+        n'est pas plus citable seule qu'un titre.
+
+        Mesuré sur le contrat servi : `a3.1.1.1.5` ne porte que `p34:11`, « 3.1.1.1.5 Les fumées et
+        les suies ; ». Son nœud parent `a3.1.1.1` porte `p34:6`, « La Compagnie assure les biens
+        désignés, contre les périls suivants : ». Servi seul, l'item a produit une affirmation
+        rejetée `non_soutenue` — le rédacteur avait emprunté à une clause absente le membre qui
+        manquait ; servi **avec** son amorce, il a produit quatre affirmations retenues sur quatre.
+
+        Deux bornes, les mêmes que `unite_de_renvoi` : **un seul niveau**, jamais récursif, et
+        seulement quand le nœud n'a **aucun autre bloc citable** que celui-là — un nœud qui porte
+        ses voisins n'est pas un item, il est une section. L'amorce n'est jamais un titre : le code
+        ne fabrique pas une unité à partir d'un titre, ici comme là-bas.
+        """
+        entry = self._by_block[block_id]
+        _doc_id, directs = self._nodes[entry.node_id]
+        if directs != [block_id]:
+            return None
+        parent_id = self._node_parents.get(entry.node_id)
+        if parent_id is None:
+            return None
+        return next((candidate for candidate in reversed(self._nodes[parent_id][1])
+                     if self._by_block[candidate].block.kind != "heading"), None)
+
     def part_des_blocs(self, mot: str, *, doc_id: str) -> float:
         """Quelle **part des blocs** du document porte ce mot **normalisé** : 0 s'il n'y est pas.
 
@@ -396,7 +426,8 @@ class Index:
                  question: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None,
                  kinds_confirmes: Iterable[str] | None = None,
-                 groupes_prioritaires: Iterable[str] | None = None,
+                 groupes_prioritaires: Iterable[str | dict[str, list[str]] | list[str]]
+                 | None = None,
                  reservations_out: list[tuple[str, str]] | None = None,
                  ) -> list[ScoredHit]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
@@ -434,7 +465,9 @@ class Index:
         `limit` ; son défaut `None` laisse donc tous les appels historiques strictement inchangés.
 
         `groupes_prioritaires` préserve, avant `limit`, au plus un candidat pleinement couvert par
-        libellé, de préférence dans un nœud encore non réservé. Cette diversification reste contenue
+        sous-question, de préférence dans un nœud encore non réservé. Chaque entrée est **la requête
+        de la sous-question** — un libellé nu, ou le mapping `{canonique: [variantes]}` que l'étape
+        construit déjà pour son propre classement (correctif du tour 5, C6). Cette diversification reste contenue
         dans les hits de `termes` : une facette réordonne le rappel, elle n'ajoute aucun document.
         Si `reservations_out` est fourni, le même classement y expose les réservations qui survivent
         à `limit`, dans leur ordre. L'appelant peut ainsi les rendre effectives sans second classement.
@@ -450,14 +483,30 @@ class Index:
         mapping = termes if isinstance(termes, dict) else {t: [] for t in termes}
 
         def groupes(mapping_: dict[str, list[str]]) -> list[list[frozenset[str]]]:
+            # **Un groupe est son ensemble de formes, pas la clé qui l'a demandé** (correctif du
+            # tour 5, C8). La déduplication ne portait que sur la forme du canonique, c'est-à-dire
+            # sur le terme de la question. Trois termes synonymes que le dictionnaire ramène au
+            # **même** groupe produisaient donc trois groupes identiques, et un bloc couvert par une
+            # seule de leurs formes marquait `full_matches = 3` : la seule chose que ce score doit
+            # dire — combien de canoniques distincts ce bloc satisfait entièrement — devenait un
+            # compte de synonymes. Mesuré sur un dictionnaire simulé aux bornes du prompt contrat :
+            # `p50:18`, une exclusion de responsabilité civile immeuble sans rapport avec le
+            # sinistre, remontait rang 1 avec `full = 3` là où le même bloc vaut `full = 1`.
+            #
+            # La déduplication par canonique **reste**, en plus : deux clés qui se normalisent
+            # identiquement désignaient déjà un seul groupe, et l'ajout n'en retire aucun. Sans
+            # dictionnaire, chaque terme sort seul et les deux règles coïncident — `question_uid`
+            # ne bouge pas, et c'est ce qu'un témoin de non-régression fixe.
             resultat: list[list[frozenset[str]]] = []
             seen_canon: set[str] = set()
+            seen_forms: set[frozenset[frozenset[str]]] = set()
             for canon, variants in mapping_.items():
                 forms = {frozenset(words(normalize(v))) for v in (canon, *variants)} - {frozenset()}
                 canon_form = " ".join(words(normalize(canon)))
-                if not forms or canon_form in seen_canon:
+                if not forms or canon_form in seen_canon or frozenset(forms) in seen_forms:
                     continue
                 seen_canon.add(canon_form)
+                seen_forms.add(frozenset(forms))
                 resultat.append(sorted(forms, key=lambda form: tuple(sorted(form))))
             return resultat
 
@@ -519,7 +568,7 @@ class Index:
         if groupes_prioritaires is None:
             return classement[:limit]
         if isinstance(groupes_prioritaires, str):
-            raise TypeError("groupes_prioritaires : liste de libellés attendue, pas une chaîne")
+            raise TypeError("groupes_prioritaires : liste de requêtes attendue, pas une chaîne")
 
         # Chaque facette réserve d'abord la meilleure **règle décisionnelle confirmée** de son
         # propre classement quand il en existe une. Les thèmes et doublons complètent ensuite le
@@ -527,10 +576,26 @@ class Index:
         # sous-question utile.
         reserves: list[tuple[str, str]] = []
         noeuds_reserves: set[str] = set()
-        for libelle in groupes_prioritaires:
-            groupes_facette = groupes({libelle: []})
+        for demande in groupes_prioritaires:
+            # Une **seule** requête de sous-question pour toute la chaîne (correctif du tour 5, C6).
+            # L'étape construisait déjà la sienne — libellé **et** variantes de nombre, gardée par
+            # `full_matches > 0` depuis R1 — et réservait ici une seconde fois, sur le libellé nu et
+            # sans aucune garde. Deux requêtes, deux critères, et c'était celui **sans** garde qui
+            # dépensait les ouvertures : mesuré sur trois runs, il a ouvert des exclusions générales
+            # et un nœud « pertes indirectes » à 1 405 tokens — 40 % du budget de lecture — pendant
+            # que la clause de la sous-question, à 41 tokens, était refusée faute de place.
+            requete = ({demande: []} if isinstance(demande, str)
+                       else demande if isinstance(demande, dict)
+                       else {valeur: [] for valeur in demande})
+            groupes_facette = groupes(requete)
             if not groupes_facette:
                 continue
+            # La seconde branche reste **l'ancien critère**, et elle garde donc son ancienne entrée :
+            # la couverture pleine du **libellé**, jamais celle d'une variante. Un corpus sans clause
+            # typée — un guide — se comporte exactement comme avant, ce qui est la promesse écrite
+            # du tour 2 ; élargir là ne corrigerait aucun écart mesuré et déplacerait une lecture
+            # que rien n'a mesurée.
+            canonique = frozenset(words(normalize(next(iter(requete)))))
             # Une facette diversifie les candidats de la recherche principale ; elle n'ajoute
             # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe — c'est
             # la contrainte `classement_ids`, et elle ne bouge pas.
@@ -557,14 +622,19 @@ class Index:
             classement_ids = {hit.clause_uid for hit in classement}
             propres = [item for item in classer(groupes_facette, question_uid_=facette_uid)
                        if item.clause_uid in classement_ids]
+            # **La même garde que R1, sur la même branche.** « La meilleure règle décisionnelle
+            # confirmée » se lisait sans exiger qu'elle corresponde entièrement à quoi que ce soit :
+            # un recouvrement partiel de mots fréquents suffisait à réserver, et à ouvrir. R1 avait
+            # fermé les quatre appelants du classement mémoïsé ; ce cinquième consommateur vit dans
+            # une autre couche et n'avait jamais reçu la règle.
             candidats = [
                 item for item in propres
-                if self._by_block[item.clause_uid].block.kind in KINDS_DECISIONNELS
+                if item.score.full_matches > 0
+                and self._by_block[item.clause_uid].block.kind in KINDS_DECISIONNELS
                 and self._by_block[item.clause_uid].block.kind_confirmed
             ] or [
                 item for item in propres
-                if any(form <= self._by_block[item.clause_uid].tokens
-                       for form in groupes_facette[0])
+                if canonique and canonique <= self._by_block[item.clause_uid].tokens
             ]
             if not candidats:
                 continue

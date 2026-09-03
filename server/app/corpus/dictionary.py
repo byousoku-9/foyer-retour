@@ -42,6 +42,7 @@ optimisation, il n'empêche jamais de servir et ne lève jamais au démarrage. �
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -135,7 +136,9 @@ class Dictionnaire:
         """AD-5, par requête : signé, décrivant le corpus servi, **et** appliqué à son document."""
         return self.utilisable_pour(doc_id) and self.validated
 
-    def expand(self, termes: list[str]) -> dict[str, list[str]]:
+    def expand(self, termes: list[str], *,
+               part_du_mot: Callable[[str], float] | None = None,
+               part_max: float = 0.0) -> dict[str, list[str]]:
         """`{terme de la question: [variantes ajoutées]}` — la forme qu'`Index.chercher` accepte.
 
         Les **clés restent les termes de la question**, jamais les canoniques du dictionnaire : AD-4
@@ -149,15 +152,39 @@ class Dictionnaire:
 
         Une forme partagée par deux canoniques élargit vers **les deux** (revue Codex 2.1, I1) —
         voir `load_dictionary`.
+
+        **`part_du_mot` borne les variantes d'un seul mot** (correctif du tour 5, C8). Le
+        dictionnaire ne sait rien du document qu'on interroge ; l'appelant, lui, dispose de la
+        fréquence documentaire que l'index compte déjà, et c'est la même garde que la requête de
+        facette applique depuis le tour 3 à ses formes de nombre : une forme d'un mot que le
+        document porte partout est pleinement couverte par des dizaines de blocs et rend
+        `full_matches` inerte. Une variante de plusieurs mots n'est jamais bornée — une phrase
+        entièrement couverte dit quelque chose quelle que soit la fréquence de ses mots isolés.
+        Sans `part_du_mot`, rien n'est retiré : les appelants qui n'interrogent pas un document
+        servi se comportent exactement comme avant.
         """
         sortie: dict[str, list[str]] = {}
         for terme in termes:
             cle = forme(terme)
             groupe = self._groupes.get(cle, ()) if self.utilisable else ()
-            sortie[terme] = [f for f in groupe if f != cle]
+            sortie[terme] = [f for f in groupe
+                             if f != cle and not self._trop_frequente(f, part_du_mot, part_max)]
         return sortie
 
-    def variants_count(self, termes: list[str]) -> int:
+    @staticmethod
+    def _trop_frequente(variante: str, part_du_mot: Callable[[str], float] | None,
+                        part_max: float) -> bool:
+        """La variante est-elle un mot que le document porte trop souvent pour qu'il désigne ?"""
+        if part_du_mot is None or not variante or " " in variante:
+            return False
+        try:
+            return part_du_mot(variante) > part_max
+        except KeyError:  # pragma: no cover — document servi, garanti par l'appelant
+            return False
+
+    def variants_count(self, termes: list[str], *,
+                       part_du_mot: Callable[[str], float] | None = None,
+                       part_max: float = 0.0) -> int:
         """Nombre de formes **ajoutées** effectivement cherchées (AD-4), jamais leur liste.
 
         Distinctes et hors des termes de la question : deux termes qui partagent une variante ne la
@@ -165,7 +192,8 @@ class Dictionnaire:
         """
         base = {forme(t) for t in termes} - {""}
         ajoutees: set[str] = set()
-        for variantes in self.expand(termes).values():
+        for variantes in self.expand(termes, part_du_mot=part_du_mot,
+                                     part_max=part_max).values():
             ajoutees |= {v for v in variantes if v and v not in base}
         return len(ajoutees)
 

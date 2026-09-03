@@ -36,6 +36,7 @@ from server.app.steps.retrouver import (
     _mappings_facettes,
     OUTILS_RECHERCHE,
     _score_positif,
+    part_du_mot_borne,
     retrouver_deterministe,
     retrouver_full_context,
     retrouver_outils,
@@ -4568,19 +4569,40 @@ def _corpus_a_facette_phrase() -> tuple[Corpus, list[str]]:
     return corpus, facettes
 
 
-def test_une_facette_ecrite_en_phrase_reserve_sa_regle_decisionnelle() -> None:
-    """R3 — la couverture pleine du libellé était le mauvais critère, et elle ne réservait rien."""
+def test_une_facette_sans_correspondance_pleine_ne_reserve_plus_rien() -> None:
+    """C6, tour 5 — la réservation de l'index obéit à la garde de R1, comme celle de l'étape.
+
+    R3 (tour 2) avait ouvert cette branche typée parce qu'aucune facette ne réservait jamais rien :
+    une sous-question est une phrase, et exiger qu'un même bloc porte tous ses mots n'arrivait
+    jamais. Mais « la meilleure règle décisionnelle confirmée » se lisait alors **sans** exiger
+    qu'elle corresponde entièrement à quoi que ce soit, si bien qu'un recouvrement partiel de mots
+    fréquents suffisait à réserver — et à ouvrir. R1 (tour 3) a fermé ce chemin dans le classement
+    mémoïsé de l'étape ; ce cinquième consommateur vivait dans une autre couche et ne l'avait
+    jamais reçu. Mesuré sur trois runs : il a ouvert des exclusions générales et un nœud « pertes
+    indirectes » à 1 405 tokens — 40 % du budget — pendant que la clause de la sous-question, à
+    41 tokens, était refusée faute de place.
+
+    Une facette sans correspondance pleine ne réserve donc plus rien **des deux côtés**, et c'est
+    l'invariant : une seule requête, une seule garde, un seul classement.
+    """
     corpus, facettes = _corpus_a_facette_phrase()
     index = Index(corpus)
     reservations: list[tuple[str, str]] = []
+    ((_rang, requete),) = _mappings_facettes(
+        facettes, dictionnaire=None, dictionary_ready=False, index=index, doc_id="d",
+        variante_max_part=_s().facette_variante_max_part)
 
     hits = index.chercher(["vitrage", "bien désigné"], limit=5, doc_id="d",
-                          question=" ".join(facettes), groupes_prioritaires=facettes,
+                          question=" ".join(facettes), groupes_prioritaires=[requete],
                           reservations_out=reservations)
 
-    assert [block_id for block_id, _node_id in reservations] == ["d:p1:1"], (
-        "la sous-question doit réserver la règle décisionnelle confirmée, pas son voisin lexical")
-    assert hits[0].clause_uid == "d:p1:1"
+    assert reservations == []
+    # L'autre mécanisme dit exactement la même chose de la même sous-question.
+    assert retrouver._classement_par_facette(
+        index=index, doc_id="d", question=" ".join(facettes),
+        kinds_confirmes=KINDS_FONDATEURS, limit=5)(requete) == []
+    # Le classement global, lui, ne bouge pas : la réservation réordonne, elle ne filtre rien.
+    assert [hit.clause_uid for hit in hits] == ["d:p1:1", "d:p2:1"]
 
 
 def test_sans_clause_typee_la_reservation_garde_son_critere_historique() -> None:
@@ -4887,3 +4909,297 @@ async def test_une_forme_absente_du_document_ne_peut_jamais_etre_en_tete() -> No
     for facette in result.facettes:
         if facette.forme_gagnante is not None:
             assert facette.part_des_blocs > 0, facette
+
+
+# --- Correctif du tour 5 (C8) : une variante d'un mot ne devient pas un plein partout -------------
+
+
+def test_une_variante_dun_mot_frequent_ne_devient_pas_un_plein_partout() -> None:
+    """La garde de fréquence des formes de nombre, appliquée aux variantes écrites du dictionnaire.
+
+    Le raisonnement est celui du tour 3, mot pour mot : une forme d'un seul mot que le document
+    porte partout est pleinement couverte par des dizaines de blocs, et `full_matches` — sur lequel
+    toute la sélection par sous-question repose depuis R1 — redevient inerte. Une variante de
+    plusieurs mots n'est jamais bornée : une phrase entièrement couverte dit quelque chose quelle
+    que soit la fréquence de ses mots pris un à un.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    part_max = _s().dictionnaire_variante_max_part
+    # Mesuré sur le contrat servi : « incendie » nomme le sujet, « fumees » désigne une clause.
+    assert index.part_des_blocs("incendie", doc_id=doc_id) > part_max
+    assert 0 < index.part_des_blocs("fumees", doc_id=doc_id) <= part_max
+
+    dictionnaire = Dictionnaire(
+        charge=True, corpus_ok=True, doc_id=doc_id,
+        _groupes={"sinistre du foyer": ("sinistre du foyer", "incendie", "fumees",
+                                        "action subite de la chaleur")},
+        _canoniques={"sinistre du foyer": ("sinistre du foyer",)})
+    borne = {"part_du_mot": part_du_mot_borne(index, doc_id, part_max=part_max),
+             "part_max": part_max}
+    assert dictionnaire.expand(["sinistre du foyer"], **borne) == {
+        "sinistre du foyer": ["fumees", "action subite de la chaleur"]}
+    # Le compte publié dit ce qui a été cherché, donc il porte la même borne.
+    assert dictionnaire.variants_count(["sinistre du foyer"], **borne) == 2
+    assert dictionnaire.variants_count(["sinistre du foyer"]) == 3
+
+
+def test_sur_un_document_trop_court_la_borne_de_frequence_sabstient() -> None:
+    """Un seuil en part n'est une mesure que si le document a de quoi la porter.
+
+    La plus fine part qu'un document de `N` blocs sache exprimer vaut `1/N`. Tant que le seuil ne
+    vaut pas un bloc entier, « dépasser le seuil » et « figurer dans le document » sont la même
+    chose, et la borne dirait « cette forme existe » au lieu de « cette forme nomme le sujet ». Elle
+    s'abstient — et l'abstention est le bon sens : une variante de dictionnaire est une équivalence
+    **écrite** (AD-5), pas une forme dérivée par le code, et la refuser sans mesure désarmerait en
+    silence le rappel qu'AD-5 apporte.
+    """
+    corpus, _parsee = _corpus_a_recouvrement_partiel()
+    index = Index(corpus)
+    petit = len(corpus.documents["d"].blocks)
+    assert petit * _s().dictionnaire_variante_max_part < 1
+    assert part_du_mot_borne(index, "d", part_max=_s().dictionnaire_variante_max_part) is None
+    # Et la mesure existe pourtant : c'est bien l'abstention qui est décidée, pas une absence.
+    assert index.part_des_blocs("dommages", doc_id="d") > 0
+
+
+def test_les_deux_reservations_designent_le_meme_bloc_pour_une_meme_sous_question() -> None:
+    """C6 — l'invariant, et il était faux trois fois sur trois sur le contrat servi.
+
+    Deux mécanismes réservaient par sous-question : celui de l'index, sur le **libellé brut** et
+    sans aucune garde, qui **ouvre un nœud** et dépense ; celui de l'étape, sur le libellé **et ses
+    variantes de nombre**, gardé par `full_matches > 0`, qui ne dépense rien. Ils ne s'accordaient
+    pas — et c'est le premier qui payait. Une seule requête, une seule garde : ils désignent
+    maintenant le même bloc, ou rien.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    libelles = ["dommages liés au bris de la vitre de l'insert",
+                "dommages liés au noircissement par la fumée",
+                "les dommages causés par la fumée au salon sont-ils couverts"]
+    question = " ".join(libelles)
+    mappings = _mappings_facettes(libelles, dictionnaire=None, dictionary_ready=False,
+                                  index=index, doc_id=doc_id,
+                                  variante_max_part=_s().facette_variante_max_part)
+    classement = retrouver._classement_par_facette(
+        index=index, doc_id=doc_id, question=question,
+        kinds_confirmes=KINDS_FONDATEURS, limit=20)
+
+    designations = []
+    for _rang, requete in mappings:
+        reservations: list[tuple[str, str]] = []
+        index.chercher(["bris de glace", "insert de cheminée", "dégâts des fumées",
+                        "fumées et suies"],
+                       limit=20, doc_id=doc_id, question=question,
+                       groupes_prioritaires=[requete], reservations_out=reservations)
+        tete = classement(requete)
+        designations.append(([block_id for block_id, _node in reservations],
+                             [hit.clause_uid for hit in tete[:1]]))
+
+    for par_lindex, par_letape in designations:
+        assert par_lindex == par_letape, designations
+    # Et ce ne sont pas trois listes vides : l'invariant porte sur des réservations réelles.
+    assert [par_lindex for par_lindex, _ in designations] == [
+        [f"{doc_id}:p38:1"], [f"{doc_id}:p34:11"], [f"{doc_id}:p34:11"]]
+
+
+def _corpus_ou_la_variante_decide() -> tuple[Corpus, list[str]]:
+    """Un document assez long pour qu'une part mesure quelque chose, et une seule règle typée.
+
+    Le libellé de la sous-question écrit « vitrage » au singulier ; la règle écrit « vitrages ». Sur
+    120 blocs, la variante de nombre pèse 0,83 % — sous le plafond — et c'est **elle seule** qui
+    donne à la règle une correspondance pleine. Le libellé nu n'en donne aucune.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages du bien désigné sont pris en charge par le contrat.")
+    remplissage = [Block(block_id=f"d:p2:{i}", loc="p2", seq=i,
+                         text=f"Disposition générale numéro {i} du contrat.")
+                   for i in range(1, 120)]
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]), ("reste", remplissage))
+    return corpus, ["quel vitrage du bien désigné est pris en charge"]
+
+
+async def test_la_reservation_de_letape_emploie_la_requete_de_la_sous_question() -> None:
+    """C6 au point d'appel : *retrouver* réserve avec **sa** requête, pas avec le libellé nu.
+
+    L'invariant ne tient que si les deux mécanismes partent de la même requête. Le témoin le vérifie
+    là où cela se décide — la recherche du navigateur — et sur un document assez long pour que la
+    variante de nombre survive à sa borne de fréquence : avec le libellé seul, aucune correspondance
+    pleine, donc aucune réservation et la règle n'est jamais ouverte.
+    """
+    corpus, facettes = _corpus_ou_la_variante_decide()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["bien désigné", "disposition"]),
+                      _tool("ouvrir_noeud", "t2", node_id="reste", focus_block_id="d:p2:1")),
+    ], corpus=corpus, parsed=_parsed(["bien désigné"], facettes=[*facettes, "seconde branche"]),
+        budget=_budget(max_opens=2, node_window=1, search_limit=20, max_blocks=4, max_tokens=6000))
+
+    # `kinds_suffisants` nul éteint la réservation de l'étape et sa passe de couverture : le seul
+    # chemin par lequel la règle peut entrer est la réservation de **l'index**, honorée par
+    # `complete_reservations`. Et le navigateur n'a ouvert que le remplissage.
+    assert result.opened_block_ids == ["d:p2:1", "d:p1:1"]
+
+
+def test_la_variante_deterministe_reserve_avec_la_meme_requete() -> None:
+    """C6 — la même règle dans les deux variantes de *retrouver*, et pour la même raison.
+
+    Le repli déterministe du sinistre réservait lui aussi sur le libellé nu. Une seule requête de
+    sous-question vaut pour toute la chaîne, sans quoi la variante de repli lirait autre chose que
+    celle qu'elle remplace.
+    """
+    corpus, facettes = _corpus_ou_la_variante_decide()
+    # Les termes ordinaires classent le remplissage **devant** la règle (deux pleins contre un) :
+    # avec un seul nœud ouvrable, seule la réservation par sous-question peut la faire lire.
+    result, _step = _run(_parsed(["contrat", "disposition"], facettes=facettes),
+                         corpus, Index(corpus),
+                         _budget(max_opens=1, node_window=1, max_blocks=1, max_tokens=6000),
+                         doc_id="d")
+    assert result.opened_block_ids == ["d:p1:1"]
+
+
+def _corpus_a_tete_trop_grosse() -> tuple[Corpus, list[str]]:
+    """Deux règles pour une même sous-question : la première ne tient pas sous la part, l'autre si."""
+    tete = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                 text="Les vitrages assurés bénéficient de la garantie.", refs=["d:p9:1"])
+    lourd = Block(block_id="d:p9:1", loc="p9", seq=1,
+                  text=" ".join(f"clause annexe numéro {i} sans rapport" for i in range(1, 60)))
+    petite = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                   text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("tete", [tete]), ("lourd", [lourd]), ("petite", [petite]))
+    return corpus, ["vitrages assurés"]
+
+
+async def test_une_facette_dont_la_tete_ne_tient_pas_garde_le_candidat_suivant() -> None:
+    """C7 — la borne refuse **ce candidat-ci**, elle n'abandonne pas la sous-question.
+
+    Le `break` lisait « cette unité ne tient pas sous la part » comme « cette sous-question n'a rien
+    à garder ». Mesuré sur un run réel : une sous-question dont la tête pesait 3 360 tokens
+    abandonnait tout, et le quatrième candidat de son propre classement — la clause juste, à
+    41 tokens — n'était jamais gardé ; il a été refusé en fin d'étape faute de **3 tokens**.
+    """
+    corpus, facettes = _corpus_a_tete_trop_grosse()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus, parsed=_parsed(["vitrages assurés"], facettes=[*facettes, "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=20, max_blocks=6, max_tokens=200),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    assert "d:p2:1" in result.opened_block_ids
+    ((rang, gardes),) = [(f.rang, f.tokens_reserves) for f in result.facettes if f.rang == 0]
+    assert rang == 0 and gardes > 0
+
+
+async def test_une_facette_dont_aucun_candidat_ne_tient_ne_garde_toujours_rien() -> None:
+    """La borne n'est pas contournée : la contrepartie du témoin précédent, et elle est verte des deux côtés."""
+    corpus, facettes = _corpus_a_tete_trop_grosse()
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus, parsed=_parsed(["vitrages assurés"], facettes=[*facettes, "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=1, search_limit=20, max_blocks=6, max_tokens=60),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    # La sous-question a bien deux candidats et la lecture a bien eu lieu : ce qui manque est la
+    # réservation, refusée parce qu'aucune des deux unités ne tient sous la part.
+    ((candidats, gardes),) = [(f.candidats, f.tokens_reserves)
+                              for f in result.facettes if f.rang == 0]
+    assert candidats == 2 and gardes == 0
+
+
+# --- Correctif du tour 5 (C9) : l'item d'une énumération voyage avec sa phrase d'amorce ----------
+
+
+def test_lunite_dun_item_denumeration_emporte_la_phrase_qui_louvre() -> None:
+    """C9 — mesuré sur le contrat servi, sur le cas qui a produit le rejet.
+
+    `a3.1.1.1.5` ne porte que `p34:11`, « Les fumées et les suies ; ». Son parent `a3.1.1.1` porte
+    `p34:6`, « La Compagnie assure les biens désignés, contre les périls suivants : ». Servie seule,
+    la feuille a produit une affirmation rejetée `non_soutenue` — le rédacteur avait emprunté à une
+    clause absente le membre qui manquait ; servie avec son amorce, quatre affirmations retenues sur
+    quatre. Une clause dont le nœud porte ses voisins n'est pas un item : elle reste seule.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    document = index.corpus.documents[doc_id]
+    unite = retrouver._unite_reservable(
+        f"{doc_id}:p34:11", block=document.block, index=index, terms=["fumées et suies"],
+        doc_id=doc_id, cohorte=[], budget=_budget(), settings=_s(), related_cache={})
+    assert unite == [f"{doc_id}:p34:6", f"{doc_id}:p34:11"]
+    # `p39:9` vit dans un nœud à trois blocs citables : ce n'est pas un item, aucune amorce ne
+    # s'ajoute — ses dépendances directes, elles, restent ce qu'elles étaient.
+    assert index.amorce_de_lenumeration(f"{doc_id}:p39:9") is None
+    assert retrouver._unite_reservable(
+        f"{doc_id}:p39:9", block=document.block, index=index, terms=["bris de vitrages"],
+        doc_id=doc_id, cohorte=[], budget=_budget(), settings=_s(),
+        related_cache={})[0] == f"{doc_id}:p39:9"
+
+
+def test_un_noeud_feuille_dont_le_parent_na_quun_titre_reste_seul() -> None:
+    """La borne : le code ne fabrique jamais une unité à partir d'un titre, ici comme pour un renvoi."""
+    titre = Block(block_id="d:p1:1", kind="heading", loc="p1", seq=1, text="Article premier")
+    item = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                 text="Les fumées et les suies ;")
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e",
+        nodes=[Node(node_id="root", items=[NodeRef(node_id="parent")]),
+               Node(node_id="parent", items=[BlockRef(block_id=titre.block_id),
+                                             NodeRef(node_id="item")]),
+               Node(node_id="item", items=[BlockRef(block_id=item.block_id)])],
+        blocks=[titre, item])}, summaries={"d": "root"})
+    index = Index(corpus)
+    assert index.amorce_de_lenumeration("d:p2:1") is None
+    assert retrouver._unite_reservable(
+        "d:p2:1", block=corpus.documents["d"].block, index=index, terms=["fumées"], doc_id="d",
+        cohorte=[], budget=_budget(), settings=_s(), related_cache={}) == ["d:p2:1"]
+
+
+# --- Correctif du tour 5 (C10) : le compteur publie la fenêtre, puisque c'est elle qu'on dépense ---
+
+
+async def test_une_reservation_honoree_publie_la_fenetre_et_pas_la_seule_unite() -> None:
+    """C10 — le compteur du tour 4 ratait exactement le chiffre pour lequel il avait été écrit.
+
+    Il n'additionnait que l'unité gardée du primaire réservé ; les frères qui entrent avec elle sont
+    admis par des `admit()` distincts et n'étaient attribués à personne. Mesuré sur un run réel :
+    « 99 token(s) gardé(s) pour 99 admis », quand la fenêtre réellement ouverte en faisait 1 022 —
+    et un audit qui lui faisait confiance concluait que la réserve était bien calibrée.
+    """
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    frere = Block(block_id="d:p1:2", loc="p1", seq=2,
+                  text="Le présent article précise les modalités applicables aux biens désignés.")
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle, frere]), ("seule", [autre]))
+    result, step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés"], facettes=["vitrages assurés", "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=5, search_limit=20, max_blocks=6, max_tokens=400),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    # La réservation ne gardait que la règle ; la fenêtre a fait entrer son frère avec elle.
+    assert "d:p1:2" in result.opened_block_ids
+    assert admis > gardes > 0
+    selection = next(c for c in step.checks if c.name == "selection_par_facette")
+    assert f"{gardes} token(s) gardé(s) pour {admis} admis" in selection.detail
+
+
+async def test_une_reservation_dans_un_noeud_singleton_publie_autant_quelle_gardait() -> None:
+    """La contrepartie : quand la fenêtre ne porte que l'unité gardée, les deux nombres coïncident."""
+    regle = Block(block_id="d:p1:1", kind="garantie", kind_source="manual", loc="p1", seq=1,
+                  text="Les vitrages assurés bénéficient de la garantie.")
+    autre = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                  text="Les vitrages assurés sont pris en charge.")
+    corpus = _corpus_neutre_par_noeuds(("regle", [regle]), ("seule", [autre]))
+    result, _step, _fake, _rb = await _run_outils([
+        _tool_message(_tool("chercher", "t1", termes=["vitrages assurés"])),
+    ], corpus=corpus,
+        parsed=_parsed(["vitrages assurés"], facettes=["vitrages assurés", "seconde branche"]),
+        budget=_budget(max_opens=3, node_window=5, search_limit=20, max_blocks=6, max_tokens=400),
+        kinds_suffisants=KINDS_FONDATEURS)
+
+    ((gardes, admis),) = [(f.tokens_reserves, f.tokens_admis)
+                          for f in result.facettes if f.rang == 0]
+    assert gardes > 0 and admis == gardes

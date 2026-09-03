@@ -62,6 +62,7 @@ from server.app.steps.comprendre import comprendre
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import restituer
 from server.app.steps.retrouver import (
+    part_du_mot_borne,
     retrouver_deterministe,
     retrouver_full_context,
     retrouver_outils,
@@ -114,7 +115,8 @@ def _intention_expliquee(intent: str, question_resolue: str, dictionnaire: Any) 
 
 
 def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: Any,
-             dictionnaire: Any = None) -> AbsenceProof:
+             dictionnaire: Any = None, index: Any = None,
+             variante_max_part: float = 0.0) -> AbsenceProof:
     """Preuve d'absence (AD-4) : ce qui a été cherché, jamais les variantes ni les déclencheurs.
 
     `terms_searched` porte les **canoniques**, littéralement comme AD-4 les nomme
@@ -139,7 +141,13 @@ def _absence(kind: str, parsed: ParsedQuestion | None, *, doc_id: str, corpus: A
     elargi = dictionnaire is not None and dictionnaire.utilisable_pour(doc_id)
     return AbsenceProof(kind=kind,
                         terms_searched=dictionnaire.canoniser(termes) if elargi else termes,
-                        variants_count=dictionnaire.variants_count(termes) if elargi else 0,
+                        # C8 : le compte dit ce qui a **été cherché**, donc il porte la même borne
+                        # de fréquence que la recherche elle-même (AD-4).
+                        variants_count=(dictionnaire.variants_count(
+                            termes,
+                            part_du_mot=part_du_mot_borne(index, doc_id,
+                                                          part_max=variante_max_part),
+                            part_max=variante_max_part) if elargi else 0),
                         blocks_scanned=len(document.blocks) if document is not None else 0,
                         documents=[doc_id] if document is not None else [])
 
@@ -278,7 +286,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # *restituer* ne dépense rien : un dépassement y est nommé, pas payé (correctif C1).
         echeance("restituer")
         answer, step = restituer(language=language, lang_fallback=lang_fallback,
-                                 reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus,
+                                 reason=_absence(kind, parsed, doc_id=doc_id, corpus=corpus, index=index,
+                                                 variante_max_part=settings.dictionnaire_variante_max_part,
                                                  dictionnaire=dictionnaire),
                                  clarification=clarification)
         noter_depassement(step)
@@ -434,7 +443,12 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         if (not hors_perimetre_desarme and termes and dictionnaire is not None
                 and dictionnaire.court_circuit_pour(doc_id)):
             echeance("court-circuit zéro hit")  # comme avant chaque étape (AD-1/AD-9)
-            if not index.chercher(dictionnaire.expand(termes), limit=1, doc_id=doc_id) \
+            expansion = dictionnaire.expand(
+                termes,
+                part_du_mot=part_du_mot_borne(
+                    index, doc_id, part_max=settings.dictionnaire_variante_max_part),
+                part_max=settings.dictionnaire_variante_max_part)
+            if not index.chercher(expansion, limit=1, doc_id=doc_id) \
                     and not index.definitions(termes, doc_id=doc_id):
                 return refuser("zero_hit", parsed, language=parsed.language,
                                lang_fallback=parsed.lang_fallback)
@@ -663,7 +677,8 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
             answer, step_restituer = restituer(
                 language=parsed.language, lang_fallback=parsed.lang_fallback,
                 verification=verification,
-                reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus,
+                reason=_absence("claims_rejetes", parsed, doc_id=doc_id, corpus=corpus, index=index,
+                                variante_max_part=settings.dictionnaire_variante_max_part,
                                 dictionnaire=dictionnaire))
         else:
             answer, step_restituer = restituer(

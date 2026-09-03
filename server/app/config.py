@@ -419,6 +419,21 @@ class Settings(BaseSettings):
     # `suies` 0,07 %, `bris` 0,57 % — contre `liés` 1,36 %, `dommage` 2,9 %, `dommages` 8,9 %. 1 %
     # sépare les deux familles avec de la marge des deux côtés. `[HYPOTHÈSE]`, à régler aux témoins.
     facette_variante_max_part: float = Field(0.01, gt=0, le=1)
+    # Correctif du tour 5 (C8), **le seuil frère du précédent, et il en est bien un**. Le raisonnement
+    # est mot pour mot celui de `facette_variante_max_part` : une forme d'**un seul mot** que le
+    # document porte partout est pleinement couverte par des dizaines de blocs, et le `full_matches`
+    # sur lequel toute la sélection par sous-question repose depuis R1 redevient inerte. La seule
+    # différence est la provenance de la forme — dérivée par le code là-bas, **écrite dans le
+    # dictionnaire** ici — et c'est précisément pourquoi les deux ne peuvent pas partager un champ :
+    # la règle de nombre est calibrée par trois tours de mesure et ne doit plus bouger, tandis que la
+    # largeur d'un dictionnaire qui n'a jamais encore été généré se réglera sur les premiers runs.
+    #
+    # Une variante de **plusieurs** mots n'est pas concernée : une phrase entièrement couverte par un
+    # bloc dit quelque chose, quelle que soit la fréquence de ses mots pris un à un. Mesuré sur le
+    # contrat servi : `fumee` 0,07 % — un unique bloc, et c'est `p50:18`, le faux positif fondateur —
+    # contre `incendie` 1,21 %. Même valeur de départ que la règle de nombre, pour la même raison et
+    # sur la même échelle. `[HYPOTHÈSE]`, à régler au premier dictionnaire réellement généré.
+    dictionnaire_variante_max_part: float = Field(0.01, gt=0, le=1)
     node_window: int = Field(30, ge=1)
     search_limit: int = Field(20, ge=1)
     # Story 3.3, revue indépendante I3 : une garantie ne peut aspirer qu'un nombre borné de clauses

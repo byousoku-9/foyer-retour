@@ -952,3 +952,57 @@ def test_le_repli_dextrait_de_lindex_est_le_seuil_que_la_configuration_publie() 
     assert "summary_page_size" not in seuils  # remplacé par un budget, plus une taille constante
     with pytest.raises(ValueError, match="excerpt_max_chars"):
         Index(Corpus(), excerpt_max_chars=0)
+
+
+# --- Correctif du tour 5 (C8) : un groupe est son ensemble de formes, pas la clé qui l'a demandé ---
+
+
+def _doc_de_textes(textes: list[str], doc_id: str = "d") -> Document:
+    blocks = [Block(block_id=f"{doc_id}:p1:{i}", text=texte, loc="p1", seq=i)
+              for i, texte in enumerate(textes, 1)]
+    nodes = [Node(node_id="root", items=[NodeRef(node_id="n")]),
+             Node(node_id="n", items=[BlockRef(block_id=b.block_id) for b in blocks])]
+    return Document(doc_id=doc_id, kind="guide", title="t", edition="e", nodes=nodes, blocks=blocks)
+
+
+def test_trois_termes_du_meme_groupe_ne_comptent_quun_seul_plein() -> None:
+    """`full_matches` compte des canoniques distincts, pas des synonymes de la question.
+
+    La déduplication ne portait que sur la forme du **canonique**, c'est-à-dire sur le terme que la
+    question a employé. Trois termes que le dictionnaire ramène au même groupe produisaient donc
+    trois groupes identiques, et un bloc couvert par une seule de leurs formes marquait `full = 3`.
+    Mesuré sur un dictionnaire simulé aux bornes du prompt contrat : `p50:18`, une exclusion de
+    responsabilité civile immeuble sans rapport avec le sinistre, remontait rang 1 avec `full = 3`.
+    """
+    corpus = Corpus(documents={"d": _doc_de_textes(
+        ["Les dommages causés par la fumée sont exclus.",
+         "La garantie couvre les fumées et les suies.",
+         "Un texte sans rapport."])})
+    index = Index(corpus)
+    groupe = ["fumee", "fumees", "enfumage"]
+    # Le dictionnaire ramène les trois termes au même groupe : mêmes formes, clés différentes.
+    hits = index.chercher({terme: [f for f in groupe if f != terme] for terme in groupe},
+                          limit=5, doc_id="d")
+    assert [hit.score.full_matches for hit in hits] == [1, 1]
+    # Et le même bloc, demandé par un seul des trois termes, vaut exactement autant.
+    seul = index.chercher({"fumee": []}, limit=5, doc_id="d")
+    assert seul[0].clause_uid == hits[0].clause_uid
+    assert seul[0].score.full_matches == hits[0].score.full_matches == 1
+
+
+def test_sans_dictionnaire_le_question_uid_de_trois_termes_ne_bouge_pas() -> None:
+    """Témoin de non-régression : la déduplication ajoutée ne touche aucune requête sans dictionnaire.
+
+    `question_uid` entre dans `result_uid`, qui voyage dans le payload rendu au navigateur : le
+    faire bouger changerait le corps des requêtes suivantes et invaliderait les fixtures
+    enregistrées. Sans dictionnaire, chaque terme sort seul, les trois ensembles de formes sont
+    distincts, et la règle par ensemble coïncide exactement avec la règle par canonique. La valeur
+    est donc fixée en clair : elle ne doit changer qu'avec une décision, jamais avec un correctif.
+    """
+    corpus = Corpus(documents={"d": _doc_de_textes(
+        ["Les dommages causés par la fumée sont exclus.",
+         "La garantie couvre les fumées et les suies."])})
+    hits = Index(corpus).chercher(["fumee", "suies", "garantie"], limit=5, doc_id="d",
+                                  question="la fumée est-elle couverte")
+    assert hits and hits[0].score.question_uid == (
+        "question-v1:3967a9f0f93f11a203c8d80dedc52fa508535e8d6909776e019d4e03bb2c2d38")
