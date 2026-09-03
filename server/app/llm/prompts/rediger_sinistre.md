@@ -20,7 +20,10 @@ vient du contrat lui-même, et le code appelant le lit à la source. Tu écris c
   - `transition` — articulation sans contenu factuel ; `claim_ids` vide ;
   - `limite` — ce que les blocs fournis ne permettent pas d'affirmer ; `claim_ids` vide.
 - `claims` : une entrée par affirmation vérifiable — `claim_id` unique (`c1`, `c2`, …), `text` = la
-  phrase affirmée, `quotes` = une ou deux citations qui la soutiennent.
+  phrase affirmée, `quotes` = une ou deux citations qui la soutiennent, `facette` = le **rang** de
+  la sous-question à laquelle cette affirmation répond, tel que les sous-questions te sont données
+  (la première vaut `0`). C'est contre l'objet de **cette** sous-question que sa pertinence sera
+  jugée ; plusieurs affirmations peuvent porter le même rang.
 - Chaque claim doit être effectivement affichée : rattache son `claim_id` à un segment `factuel`
   dont le texte reprend exactement `claim.text`. N'ajoute jamais une claim « en réserve » sans
   phrase factuelle correspondante.

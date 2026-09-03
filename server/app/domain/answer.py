@@ -105,6 +105,20 @@ class Claim(DomainModel):
     claim_id: str
     text: str
     quotes: list[Quote] = Field(min_length=1)  # une quote par bloc
+    # Story 5.6 (L1b) — le **rang** de la sous-question à laquelle cette affirmation répond, dans
+    # les `facettes` que *comprendre* a arrêtées (AD-4) et que la demande transmet numérotées.
+    #
+    # Il vit sur la claim, et pas seulement dans la table de couverture que *vérifier* rend après
+    # coup, parce que deux décisions le lisent **avant** : « une claim par sous-question » ne se
+    # vérifie que si la claim dit laquelle, et la pertinence se juge contre l'objet de *sa*
+    # sous-question, pas contre la question entière. Mesuré le 03/09/2026 sur G1 : la sous-question
+    # « que prévoir pour s'installer » avait bien sa claim, un paragraphe de cinq phrases sur deux
+    # fiches, rejeté d'un bloc — la réponse est sortie sans elle, sans que rien ne l'ait vu venir.
+    #
+    # `None` est la valeur normale partout où aucune sous-question n'a été transmise (la variante
+    # de rédaction du guide hors navigation) ; un rang hors de `facettes` est une sortie de modèle
+    # comme une autre, recoupée par l'étape qui sait ce qu'elle a envoyé (AD-15), jamais ici.
+    facette: int | None = None
 
     @property
     def preuve(self) -> frozenset[tuple[str, str]]:
@@ -238,7 +252,7 @@ class AnswerDraft(DomainModel):
         canon = {
             "segments": [{"text": plat(s.text), "kind": s.kind, "claim_ids": list(s.claim_ids)}
                          for s in self.segments],
-            "claims": [{"claim_id": plat(c.claim_id), "text": plat(c.text),
+            "claims": [{"claim_id": plat(c.claim_id), "text": plat(c.text), "facette": c.facette,
                         "quotes": [{"block_id": plat(q.block_id), "quote": plat(q.quote)} for q in c.quotes]}
                        for c in self.claims],
         }

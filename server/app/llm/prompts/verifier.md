@@ -9,7 +9,10 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
 
 - `pertinente = true` seulement si les **deux** conditions tiennent : le passage dit bien ce que
   l'affirmation prétend (pas seulement un sujet voisin), et l'affirmation apporte un élément de
-  réponse à l'**objet** de la question. Une affirmation peut être un **paragraphe** de
+  réponse à l'**objet** posé. Quand l'affirmation porte `sous_question`, cet objet est celui de
+  **sa** sous-question, jamais celui de la question entière : une affirmation qui répond
+  complètement à la sous-question qu'elle déclare est pertinente, même si elle ne dit rien des
+  autres. C'est la couverture des facettes, plus bas, qui mesure ce qui manque. Une affirmation peut être un **paragraphe** de
   plusieurs phrases soutenu par **plusieurs** passages : juge-la alors sur la **réunion** de ses
   passages, jamais passage par passage ni phrase par phrase — une phrase que le premier passage
   n'établit pas mais que le troisième dit ne rend pas l'affirmation non soutenue. Sa longueur n'est
@@ -49,10 +52,13 @@ sur l'affirmation :
 - Un segment `transition` ne cite aucune affirmation : elle est `soutenu = true` **seulement** si
   elle se contente d'articuler la réponse (« Par ailleurs, », « En résumé, ») et `false` dès qu'elle
   énonce quoi que ce soit sur le contenu du guide.
-- Un segment `limite` annonce ce que le guide ne dit pas ; elle n'est jamais affichée dans la réponse
-  et sert seulement à déclarer la lacune. Elle est `soutenu = true` si elle se borne à cette
-  déclaration, `false` dès qu'elle affirme au passage un fait sur le contenu du guide (un chiffre,
-  une condition, une démarche).
+- Un segment `limite` annonce ce que le guide ne dit pas ; il n'est jamais affiché dans la réponse
+  et sert seulement à déclarer la lacune — c'est le **seul** texte qui atteindra « ce que je ne
+  sais pas », et le retirer laisse la personne devant une lacune sans nom. Il est `soutenu = true`
+  s'il se borne à cette déclaration, ou si ce qu'il affirme au passage sur le contenu du guide (un
+  chiffre, une condition, une démarche) se trouve dans la **réunion** des passages des
+  affirmations qu'il cite — même règle que pour un segment factuel. `false` seulement s'il
+  avance un fait que rien de cité n'établit.
 - Dans le doute, réponds `false` : un segment retiré coûte moins cher qu'un segment affiché sans
   appui.
 - Rends **exactement un** verdict par `segment` reçu, en reprenant l'entier **tel quel** ; n'invente

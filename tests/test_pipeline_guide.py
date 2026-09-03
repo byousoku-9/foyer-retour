@@ -818,7 +818,8 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
     verifier = next(s for s in trace.steps if s.name == "verifier")
-    assert [c.name for c in verifier.checks if not c.ok] == ["citations", "relance_abandonnee"]
+    assert [c.name for c in verifier.checks if not c.ok] == [
+        "claims_par_facette", "citations", "relance_abandonnee"]
     assert "timeout" in verifier.checks[-1].detail
 
 

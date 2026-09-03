@@ -4239,3 +4239,54 @@ section 4) ; coût attendu ≈ 3 €.
 Le **cas bougie a été réenregistré vert avant la coupure** : le refus conservateur tient, la porte
 de qualification ouverte par ce tour ne l'affaiblit pas. C'est la mesure qui comptait ; seul le
 fichier a été perdu en restaurant le répertoire.
+
+## Story 5.6 (L1b) — les trois écarts du prototype, repris à la cause (3 septembre 2026)
+
+Rejeux sur serveur local `127.0.0.1:8878` (`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, clé lue
+dans `.env`) : S2 une fois (0,9685 €), G1 deux fois (0,5195 € puis 0,1098 €). Total **1,60 €**,
+le majorant annoncé. Détail complet, texte servi, claims et conformité :
+`automation/runs/20260903-lisibilite/proto/lecture.md`, section « L1b ».
+
+| cas | ce que le rejeu établit |
+|---|---|
+| S2 | `sous_conditions` inchangé, `missing.faits: []` — la question « Fait à établir auprès du client : rupture, fissure ou débordement » a disparu, et le verdict ne glisse pas vers `couvert` |
+| G1 (2ᵉ rejeu) | deux facettes, deux claims (une par sous-question, `claims_par_facette` 2/2), **zéro rejet**, huit passages sur quatre fiches, et la ligne « côté France » servie dans « ce que je ne sais pas » |
+
+Le premier rejeu de G1 est conforme mais maigre (deux fiches ouvertes, 3 415 tokens lus sur 12 000)
+là où le second en ouvre quatre : c'est une variance de **navigation**, mesurée et différée
+(`target_story: 5.7`), pas un effet des correctifs — les trois propriétés demandées tiennent dans
+les deux rejeux.
+
+### Dette déclarée (story 5.6, L1b) : les trois gates à relancer
+
+Trois consignes de rédaction, celle du contrôle et deux couches de code changent : `pipeline_digest`
+passe de `bfa7aaed…` à `f4dc6da4…`, `prompts_digest` de `a90e344c…` à `4968c7d3…`. AD-7 sert donc
+les trois documents avec l'alerte `gate_perime` tant que le re-gate live n'est pas fait. La dette de
+L1 est reconduite sur le digest que les gates portent encore — aucun gate n'a été relancé ici, et
+`data/.publie` n'a pas été touché.
+
+- gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section « Dette déclarée :
+gates à relancer par l'orchestrateur » plus haut.
+
+### Fixture du cas bougie : réenregistrée, et **rouge** — ce qu'elle mesure
+
+La fixture `test_sinistre_live` a été réenregistrée (0,6 €, réseau revenu le 03/09 au soir). Le
+verdict conservateur tient — `verdict.value ∈ {sous_conditions, ne_tranche_pas}` passe, « au regard
+des conditions générales seules » aussi — mais l'assertion « le client est interrogé sur la nature
+subite/soudaine » échoue : la seule affirmation qui citait la garantie `p34:12` a été **rejetée**
+`non_soutenue`, parce qu'elle écrivait la proposition de qualification sur un qualificatif du
+lexique (« … est un dégât occasionné par un événement soudain résultant de l'action subite de la
+chaleur »), ce que `naviguer_sinistre.md` interdit depuis L1. Le rejet est juste et conservateur ;
+ce qu'il coûte est la question au gestionnaire, qui partait de cette clause.
+
+Les deux verrous de la porte de qualification de L1b ont tenu sur ce cas — le libellé porte trois
+qualificatifs du lexique, et la claim était de toute façon rejetée. Une répétition de chaque côté ne
+dit pas si le tirage de L1b diffère de celui de L1 : la cause est déférée
+(`une-garantie-rejetee-emporte-les-qualites-quelle-exigeait-du-client`, `target_story: 5.7`).
+
+**Sept fixtures restent à réenregistrer** (`test_pipeline_live`, les six de `test_langues_live`) :
+mêmes commandes qu'en L1, coût attendu ≈ 2,4 €.

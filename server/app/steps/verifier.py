@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationInfo, model_validator
@@ -275,6 +276,52 @@ def _qualifie_par_la_clause(qualite: str, preuve_norm: str, *, min_chars: int) -
     if not mots:
         return False
     return all(re.search(rf"\b{re.escape(mot)}", preuve_norm) for mot in mots)
+
+
+def _propositions(texte: str) -> list[str]:
+    """Le texte découpé en propositions : phrases, et les membres séparés par un point-virgule.
+
+    Le point-virgule compte parce que c'est **la** ponctuation de la qualification demandée par
+    `naviguer_sinistre.md` (« … ; un talus qui cède sous la terrasse est un glissement de terrain »).
+    Découper plus finement demanderait une grammaire ; découper moins ferait de tout paragraphe qui
+    recopie la clause une qualification.
+    """
+    return [p for p in re.split(r"[.!?;]+", texte) if p.strip()]
+
+
+def _qualification_affirmee(texte_claim: str, *, faits_norm: str, preuve_norm: str,
+                            min_chars: int) -> bool:
+    """La claim affichée rattache-t-elle **un fait déclaré** au vocabulaire de la clause citée ?
+
+    Story 5.6 (L1b). La porte de qualification de L1 (`_qualifie_par_la_clause`) est câblée sur
+    `qualites_etablies`, une liste que le modèle remplit parfois. Mesuré le 03/09/2026 sur S2 : le
+    même jugement, exprimé en `fait_manquant`, y échappait entièrement — *vérifier* rendait
+    `pertinente=true` sur une claim qui écrit « un robinet resté ouvert … **est** un écoulement de
+    l'eau des installations hydrauliques », et, dans le même objet JSON, `fait_requis_present=false`
+    avec `fait_manquant="rupture, fissure ou débordement de l'installation"`. Le dossier redemandait
+    donc au client d'établir ce que la réponse qu'il lisait venait d'affirmer.
+
+    Ce que le code mesure ici est la **proposition qualifiante** elle-même, dans le texte affiché :
+    une proposition dont un mot porteur se relit dans les **faits déclarés** sans se relire dans la
+    citation (le sujet vient du client, pas du contrat) et dont un autre mot porteur se relit dans
+    la **citation vérifiée** (le prédicat vient du contrat). C'est la forme exacte que la consigne de
+    rédaction demande, et c'est tout ce qu'un code peut lire sans grammaire.
+
+    Ce contrôle ne décide de rien seul : l'appelant exige en outre que la claim soit **retenue** et
+    que le libellé lui-même soit écrit par la clause sans porter de qualificatif
+    (`_qualifie_par_la_clause`). Le cas bougie reste donc entier — « soudain », « subite »,
+    « direct » ne se déduisent d'aucune circonstance, et aucune proposition ne les ouvre.
+    """
+    for proposition in _propositions(texte_claim):
+        mots = _mots_significatifs(proposition, min_chars=min_chars)
+        if not mots:
+            continue
+        dans_la_clause = {m for m in mots if re.search(rf"\b{re.escape(m)}", preuve_norm)}
+        dans_les_faits = {m for m in mots
+                          if m not in dans_la_clause and re.search(rf"\b{re.escape(m)}", faits_norm)}
+        if dans_la_clause and dans_les_faits:
+            return True
+    return False
 
 
 def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
@@ -687,7 +734,8 @@ def _nom_de_claim(claim: Claim, position: int) -> str:
 
 
 def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
-                      inactionnables: set[str]) -> str | None:
+                      inactionnables: set[str],
+                      facettes_decouvertes: Sequence[int] = ()) -> str | None:
     """Motif composé par **notre** code, transmis tel quel à la relance de *rédiger* (AD-3).
 
     Il est délimité par `untrusted()` dans *rédiger* : ce texte mêle nos phrases à des `block_id`, et
@@ -695,11 +743,25 @@ def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
     chaque ligne dit déjà si c'est la citation ou la pertinence qui a été rejetée, et annoncer « le
     contrôle des citations » sur un rejet de pertinence enverrait le modèle recopier mieux un passage
     déjà retrouvé mot pour mot. `None` quand rien n'est actionnable.
+
+    Story 5.6 (L1b) — `facettes_decouvertes` ajoute **l'enjeu** de chaque rejet, qu'un motif ligne à
+    ligne ne dit pas : une sous-question qu'aucune affirmation retenue ne traite sortira sans
+    réponse. Mesuré le 03/09/2026 sur G1 : la seule claim de la sous-question « que prévoir pour
+    s'installer » a été rejetée, la relance a corrigé la citation sans savoir qu'elle jouait la
+    sous-question entière, et la réponse servie n'en disait pas un mot. Les sous-questions sont
+    nommées par leur **rang** — le modèle les a reçues numérotées, et AD-10 garde les libellés reçus
+    hors de nos phrases. Le motif ne se compose que s'il y a par ailleurs quelque chose à corriger :
+    seul, il ne déclencherait pas de relance (`pipelines.commun.relance_utile`) et ne serait donc
+    jamais lu.
     """
     actionnables = [c for c in rejetees if c.claim_id not in inactionnables]
     if not actionnables:
         return None
     lignes = [f"- {noms[claim.claim_id]} : {claim.motif}" for claim in actionnables]
+    lignes += [f"- sous-question n° {rang} : aucune affirmation retenue ne la traite ; rends-en une, "
+               "bornée à ce que les blocs de cette sous-question disent — un paragraphe plus court "
+               "sur chacune vaut mieux qu'un paragraphe complet sur l'une d'elles"
+               for rang in facettes_decouvertes]
     return ("Le contrôle a rejeté les affirmations suivantes. Corrige précisément ce que chacune "
             "décrit, ou remplace-la par ce que les blocs fournis soutiennent vraiment :\n"
             + "\n".join(lignes))
@@ -946,7 +1008,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             # qu'une citation trop large, et le motif doit nommer d'abord ce qu'il faut corriger.
             kind = "non_retrouvee" if any(c.kind == "non_retrouvee" for c in echecs) else "ambigue"
             rejetees.append(RejectedClaim(
-                claim_id=claim.claim_id, text=claim.text, quotes=du_draft,
+                claim_id=claim.claim_id, text=claim.text, quotes=du_draft, facette=claim.facette,
                 status=ClaimStatus(retrouvee=False, pertinente=None, edition=edition),
                 rejection_kind=kind, motif=" ; ".join(c.motif for c in echecs)))
             continue
@@ -962,7 +1024,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             kinds = sorted({c.kind for c in clauses})
             if len(kinds) > 1:
                 rejetees.append(RejectedClaim(
-                    claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), status=ClaimStatus(
+                    claim_id=claim.claim_id, text=claim.text, quotes=list(quotes),
+                    facette=claim.facette, status=ClaimStatus(
                         retrouvee=True, pertinente=None, edition=edition),
                     line_ids=[lid for q in quotes for lid in q.line_ids],
                     rejection_kind="ambigue",
@@ -1099,7 +1162,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             line_ids += [lid for lid in q.line_ids if lid not in line_ids]
         if pertinente is True:
             claims.append(VerifiedClaim(claim_id=claim.claim_id, text=claim.text, quotes=quotes,
-                                        status=status, line_ids=line_ids))
+                                        facette=claim.facette, status=status, line_ids=line_ids))
             continue
         raison_fermee = raisons.get(claim.claim_id) if pertinente is False else None
         motif = (MOTIFS_NON_PERTINENCE.get(raison_fermee or "", MOTIF_NON_PERTINENCE_GENERIQUE)
@@ -1108,8 +1171,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         # Ces quotes **ont** été retrouvées : leurs offsets et `line_ids` sont conservés, c'est ce qui
         # rend la claim « affichable par le front » comme AD-3 le demande.
         rejetees.append(RejectedClaim(
-            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), status=status,
-            line_ids=line_ids, rejection_kind="non_pertinente",
+            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), facette=claim.facette,
+            status=status, line_ids=line_ids, rejection_kind="non_pertinente",
             rejection_reason=raison_fermee, motif=motif))
     # Une claim que la borne `verifier_max_claims` a laissée hors du contrôle groupé n'a rien à
     # corriger : elle n'a pas été jugée. La faire figurer dans le motif de relance demanderait au
@@ -1117,7 +1180,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     inactionnables = {claim.claim_id for claim, _, _ in excedentaires}
     for claim, quotes, edition in excedentaires:
         rejetees.append(RejectedClaim(
-            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes),
+            claim_id=claim.claim_id, text=claim.text, quotes=list(quotes), facette=claim.facette,
             line_ids=[lid for q in quotes for lid in q.line_ids],
             status=ClaimStatus(retrouvee=True, pertinente=None, edition=edition),
             rejection_kind="non_pertinente",
@@ -1232,8 +1295,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         claims = [c for c in claims if c.claim_id in citees]
         for c in orphelines:
             rejetees.append(RejectedClaim(
-                claim_id=c.claim_id, text=c.text, quotes=list(c.quotes), status=c.status,
-                line_ids=list(c.line_ids), rejection_kind="non_citee",
+                claim_id=c.claim_id, text=c.text, quotes=list(c.quotes), facette=c.facette,
+                status=c.status, line_ids=list(c.line_ids), rejection_kind="non_citee",
                 motif="affirmation vérifiée qu'aucune phrase de la réponse ne cite : rattache-la à un "
                       "segment factuel, ou retire-la"))
         step.checks.append(CheckResult(
@@ -1318,6 +1381,18 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 detail=f"le contrôle déclare couvert(s) le(s) rang(s) "
                        f"{', '.join(str(rang) for rang in rangs)}, pour lesquels la lecture n'a "
                        "retrouvé aucun candidat décisionnel confirmé : la mesure du code fait foi"))
+    # L1b : « une claim par sous-question » se **mesure** maintenant, avant tout jugement — sur ce
+    # que la rédaction a déclaré, pas sur la table de couverture que le contrôle rend après coup.
+    # Les deux comptes disent deux choses différentes et il faut les deux : la rédaction a-t-elle
+    # traité chaque sous-question, et le contrôle en a-t-il retenu quelque chose. Un rang hors des
+    # facettes envoyées ne désigne rien et ne compte pour aucune (AD-15).
+    if parsed.facettes:
+        declarees = {c.facette for c in draft.claims
+                     if c.facette is not None and 0 <= c.facette < len(parsed.facettes)}
+        step.checks.append(CheckResult(
+            name="claims_par_facette", ok=len(declarees) == len(parsed.facettes),
+            detail=f"{len(declarees)} sous-question(s) sur {len(parsed.facettes)} portent au moins "
+                   f"une affirmation rédigée ({len(draft.claims)} affirmation(s) au total)"))
     couvertes = bool(parsed.facettes) and len(facettes_couvertes) == len(parsed.facettes)
     if evaluees and not couvertes:
         step.checks.append(CheckResult(
@@ -1375,7 +1450,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         # été retrouvée dans l'entrée réellement envoyée. C'est le pipeline — pas cette étape — qui
         # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).
         demande_contexte=demande,
-        motif=_motif_de_relance(rejetees, noms, inactionnables) if rejetees else None,
+        motif=_motif_de_relance(rejetees, noms, inactionnables,
+                                [rang for rang in range(len(parsed.facettes))
+                                 if rang not in set(facettes_couvertes)]) if rejetees else None,
     )
     verification._decision_claims = affichables
     step.checks.append(CheckResult(
@@ -1511,6 +1588,14 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             citations.append({"block_id": q.block_id, "passage": block.text_norm[q.start:q.end]})
         charge: dict[str, Any] = {"claim_id": claim.claim_id, "affirmation": claim.text,
                                   "citations": citations}
+        # L1b : la sous-question **que l'affirmation déclare traiter**, quand le rang qu'elle rend
+        # désigne bien une facette envoyée. C'est le barème contre lequel sa pertinence se juge :
+        # une affirmation qui répond à la deuxième sous-question n'a pas à répondre à la première.
+        # Le rang vient du modèle ; l'étape le recoupe ici avec ce qu'elle a réellement transmis
+        # (AD-15), un rang inventé ne désigne rien et la claim retombe sur la question entière.
+        if claim.facette is not None and 0 <= claim.facette < len(parsed.facettes):
+            charge["sous_question"] = {"facette": claim.facette,
+                                       "libelle": parsed.facettes[claim.facette]}
         clauses_de_la_claim = clauses.get(claim.claim_id, [])
         if clauses_de_la_claim:
             # Le `kind` vient de l'ingestion, jamais du modèle (AD-6) : on le lui **dit**, pour qu'il
@@ -1668,10 +1753,14 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # seule source qui puisse dire qu'une qualité est bien celle que la clause écrit
         # (`_qualifie_par_la_clause`). Jamais la chaîne du modèle — la même règle qu'ailleurs.
         preuves_relues: dict[str, str] = {}
+        # Le **texte affiché** de chaque affirmation, normalisé une fois : c'est là que se lit la
+        # qualification que la claim affirme (L1b, `_qualification_affirmee`).
+        textes_claims: dict[str, str] = {}
         for claim_evaluee, quotes_evaluees, _edition in evaluees:
             preuves_relues[claim_evaluee.claim_id] = " ".join(
                 corpus.documents[index.doc_of(q.block_id)].block(q.block_id).text_norm[q.start:q.end]
                 for q in quotes_evaluees)
+            textes_claims[claim_evaluee.claim_id] = claim_evaluee.text
         # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
@@ -1775,12 +1864,54 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         name="fait_cite_hors_sujet", ok=False,
                         detail="le fragment cité pour une qualité n'en emploie aucun des mots : la "
                                "qualité est traitée comme non établie"))
+            # L1b : la **même** porte, ouverte par la claim elle-même plutôt que par la liste que le
+            # modèle a bien voulu remplir. Une affirmation retenue qui rattache un fait déclaré au
+            # vocabulaire de sa clause a établi ce que la clause exige — que le modèle l'ait rangé
+            # dans `qualites_exigees` ou dans `fait_manquant`, deux écritures du même jugement. Sans
+            # cela, le dossier redemande au client ce que la réponse qu'il lit vient d'affirmer
+            # (mesuré sur S2 le 03/09/2026). Les trois mêmes verrous qu'en L1 : la claim est
+            # **retenue**, le libellé est écrit par la clause citée, et il ne porte aucun
+            # qualificatif de `QUALIFICATIFS` — le cas bougie ne bouge pas d'un pouce.
+            preuve_norm = preuves_relues.get(a.claim_id, "")
+            qualifie_un_fait = (
+                verdicts.get(a.claim_id) is True
+                and _qualification_affirmee(textes_claims.get(a.claim_id, ""),
+                                            faits_norm=faits_norm, preuve_norm=preuve_norm,
+                                            min_chars=settings.qualite_mot_min_chars))
+
+            def etablie_par_la_claim(libelle: str) -> bool:
+                return bool(libelle.strip()) and qualifie_un_fait and _qualifie_par_la_clause(
+                    libelle, preuve_norm, min_chars=settings.qualite_mot_min_chars)
+
             exigees = [q.strip() for q in a.qualites_exigees if q.strip()]
             non_etablies: list[str] = []
             for q in exigees:
-                if normalize(q) not in etablies and q not in non_etablies:
+                if normalize(q) in etablies:
+                    continue
+                if etablie_par_la_claim(q):
+                    etablies.add(normalize(q))
+                    step.checks.append(CheckResult(
+                        name="qualite_etablie_par_qualification", ok=True,
+                        detail="une qualité écrite par la clause citée, sans qualificatif à "
+                               "établir, est tenue pour remplie par le fait déclaré qui la nomme"))
+                    continue
+                if q not in non_etablies:
                     non_etablies.append(q)
-            if a.fait_requis_present or (a.fait_manquant or "").strip():
+            fait_present = a.fait_requis_present
+            fait_manquant = (a.fait_manquant or "").strip() or None
+            if fait_manquant is not None and etablie_par_la_claim(fait_manquant):
+                # Le fait exigé **est** établi : la claim retenue le dit du fait déclaré, dans les
+                # mots de la clause. Le laisser manquant tiendrait pour ouvert ce que la réponse
+                # affirme ; le retirer sans le déclarer présent serait pire encore — un fait requis
+                # absent sans fait manquant est la signature du « fait connu et contraire »
+                # (`applicable="non"`), c'est-à-dire l'inverse de ce que la claim écrit.
+                fait_present, fait_manquant = True, None
+                step.checks.append(CheckResult(
+                    name="qualite_etablie_par_qualification", ok=True,
+                    detail="le fait exigé par la clause citée, sans qualificatif à établir, est "
+                           "tenu pour présent par le fait déclaré que l'affirmation retenue "
+                           "qualifie : il n'est plus demandé au client"))
+            if fait_present or (a.fait_manquant or "").strip():
                 # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
                 # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé
                 # est ajouté aux qualités **non établies** : deux listes vides ne peuvent plus valoir
@@ -1832,10 +1963,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                            "écrit(s) par la clause citée n'a pas été rendu : l'affirmation est traitée "
                            "comme `humain`"))
             applicabilites[a.claim_id] = ChampsApplicabilite(
-                fait_requis_present=a.fait_requis_present, option_requise=option_requise,
-                cp_requise=cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,
+                fait_requis_present=fait_present, option_requise=option_requise,
+                cp_requise=cp_requise, fait_manquant=fait_manquant,
                 qualites_exigees=exigees, qualites_non_etablies=non_etablies)
-            if a.fait_requis_present and non_etablies:
+            if fait_present and non_etablies:
                 # Le modèle s'est contredit : il coche « le fait exigé est présent » après avoir nommé
                 # ce que les faits déclarés n'établissent pas. Le code tranche du côté prudent (la
                 # claim vaut `humain`) et la trace le dit, parce que c'est exactement le run réel qui a

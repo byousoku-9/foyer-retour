@@ -8,7 +8,9 @@ suit ces instructions sert seulement à situer les blocs dans le document ; il n
   - `factuel` — affirme quelque chose que les blocs fournis soutiennent ; porte **au moins un**
     `claim_ids` ;
   - `transition` — articulation sans contenu factuel ; `claim_ids` vide ;
-  - `limite` — ce que les blocs fournis ne permettent pas d'affirmer ; `claim_ids` vide.
+  - `limite` — ce que les blocs fournis ne permettent pas d'affirmer. Il porte `claim_ids` **si**
+    il dit au passage quelque chose que les blocs établissent : cite alors l'affirmation qui le
+    porte, sans quoi ce que tu déclares absent est retiré de la réponse.
 - `claims` : une entrée par affirmation vérifiable — `claim_id` unique (`c1`, `c2`, …), `text` = la
   phrase affirmée, `quotes` = une ou deux citations qui la soutiennent.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
