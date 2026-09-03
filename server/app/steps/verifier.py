@@ -277,6 +277,52 @@ def _qualifie_par_la_clause(qualite: str, preuve_norm: str, *, min_chars: int) -
     return all(re.search(rf"\b{re.escape(mot)}", preuve_norm) for mot in mots)
 
 
+def _propositions(texte: str) -> list[str]:
+    """Le texte découpé en propositions : phrases, et les membres séparés par un point-virgule.
+
+    Le point-virgule compte parce que c'est **la** ponctuation de la qualification demandée par
+    `naviguer_sinistre.md` (« … ; un talus qui cède sous la terrasse est un glissement de terrain »).
+    Découper plus finement demanderait une grammaire ; découper moins ferait de tout paragraphe qui
+    recopie la clause une qualification.
+    """
+    return [p for p in re.split(r"[.!?;]+", texte) if p.strip()]
+
+
+def _qualification_affirmee(texte_claim: str, *, faits_norm: str, preuve_norm: str,
+                            min_chars: int) -> bool:
+    """La claim affichée rattache-t-elle **un fait déclaré** au vocabulaire de la clause citée ?
+
+    Story 5.6 (L1b). La porte de qualification de L1 (`_qualifie_par_la_clause`) est câblée sur
+    `qualites_etablies`, une liste que le modèle remplit parfois. Mesuré le 03/09/2026 sur S2 : le
+    même jugement, exprimé en `fait_manquant`, y échappait entièrement — *vérifier* rendait
+    `pertinente=true` sur une claim qui écrit « un robinet resté ouvert … **est** un écoulement de
+    l'eau des installations hydrauliques », et, dans le même objet JSON, `fait_requis_present=false`
+    avec `fait_manquant="rupture, fissure ou débordement de l'installation"`. Le dossier redemandait
+    donc au client d'établir ce que la réponse qu'il lisait venait d'affirmer.
+
+    Ce que le code mesure ici est la **proposition qualifiante** elle-même, dans le texte affiché :
+    une proposition dont un mot porteur se relit dans les **faits déclarés** sans se relire dans la
+    citation (le sujet vient du client, pas du contrat) et dont un autre mot porteur se relit dans
+    la **citation vérifiée** (le prédicat vient du contrat). C'est la forme exacte que la consigne de
+    rédaction demande, et c'est tout ce qu'un code peut lire sans grammaire.
+
+    Ce contrôle ne décide de rien seul : l'appelant exige en outre que la claim soit **retenue** et
+    que le libellé lui-même soit écrit par la clause sans porter de qualificatif
+    (`_qualifie_par_la_clause`). Le cas bougie reste donc entier — « soudain », « subite »,
+    « direct » ne se déduisent d'aucune circonstance, et aucune proposition ne les ouvre.
+    """
+    for proposition in _propositions(texte_claim):
+        mots = _mots_significatifs(proposition, min_chars=min_chars)
+        if not mots:
+            continue
+        dans_la_clause = {m for m in mots if re.search(rf"\b{re.escape(m)}", preuve_norm)}
+        dans_les_faits = {m for m in mots
+                          if m not in dans_la_clause and re.search(rf"\b{re.escape(m)}", faits_norm)}
+        if dans_la_clause and dans_les_faits:
+            return True
+    return False
+
+
 def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
     """Les qualités que **le texte de la clause** exige et que le modèle n'a pas nommées (B3, tour 3).
 
@@ -1668,10 +1714,14 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # seule source qui puisse dire qu'une qualité est bien celle que la clause écrit
         # (`_qualifie_par_la_clause`). Jamais la chaîne du modèle — la même règle qu'ailleurs.
         preuves_relues: dict[str, str] = {}
+        # Le **texte affiché** de chaque affirmation, normalisé une fois : c'est là que se lit la
+        # qualification que la claim affirme (L1b, `_qualification_affirmee`).
+        textes_claims: dict[str, str] = {}
         for claim_evaluee, quotes_evaluees, _edition in evaluees:
             preuves_relues[claim_evaluee.claim_id] = " ".join(
                 corpus.documents[index.doc_of(q.block_id)].block(q.block_id).text_norm[q.start:q.end]
                 for q in quotes_evaluees)
+            textes_claims[claim_evaluee.claim_id] = claim_evaluee.text
         # Les faits déclarés, normalisés une fois : c'est le seul texte contre lequel une qualité
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
@@ -1775,12 +1825,54 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         name="fait_cite_hors_sujet", ok=False,
                         detail="le fragment cité pour une qualité n'en emploie aucun des mots : la "
                                "qualité est traitée comme non établie"))
+            # L1b : la **même** porte, ouverte par la claim elle-même plutôt que par la liste que le
+            # modèle a bien voulu remplir. Une affirmation retenue qui rattache un fait déclaré au
+            # vocabulaire de sa clause a établi ce que la clause exige — que le modèle l'ait rangé
+            # dans `qualites_exigees` ou dans `fait_manquant`, deux écritures du même jugement. Sans
+            # cela, le dossier redemande au client ce que la réponse qu'il lit vient d'affirmer
+            # (mesuré sur S2 le 03/09/2026). Les trois mêmes verrous qu'en L1 : la claim est
+            # **retenue**, le libellé est écrit par la clause citée, et il ne porte aucun
+            # qualificatif de `QUALIFICATIFS` — le cas bougie ne bouge pas d'un pouce.
+            preuve_norm = preuves_relues.get(a.claim_id, "")
+            qualifie_un_fait = (
+                verdicts.get(a.claim_id) is True
+                and _qualification_affirmee(textes_claims.get(a.claim_id, ""),
+                                            faits_norm=faits_norm, preuve_norm=preuve_norm,
+                                            min_chars=settings.qualite_mot_min_chars))
+
+            def etablie_par_la_claim(libelle: str) -> bool:
+                return bool(libelle.strip()) and qualifie_un_fait and _qualifie_par_la_clause(
+                    libelle, preuve_norm, min_chars=settings.qualite_mot_min_chars)
+
             exigees = [q.strip() for q in a.qualites_exigees if q.strip()]
             non_etablies: list[str] = []
             for q in exigees:
-                if normalize(q) not in etablies and q not in non_etablies:
+                if normalize(q) in etablies:
+                    continue
+                if etablie_par_la_claim(q):
+                    etablies.add(normalize(q))
+                    step.checks.append(CheckResult(
+                        name="qualite_etablie_par_qualification", ok=True,
+                        detail="une qualité écrite par la clause citée, sans qualificatif à "
+                               "établir, est tenue pour remplie par le fait déclaré qui la nomme"))
+                    continue
+                if q not in non_etablies:
                     non_etablies.append(q)
-            if a.fait_requis_present or (a.fait_manquant or "").strip():
+            fait_present = a.fait_requis_present
+            fait_manquant = (a.fait_manquant or "").strip() or None
+            if fait_manquant is not None and etablie_par_la_claim(fait_manquant):
+                # Le fait exigé **est** établi : la claim retenue le dit du fait déclaré, dans les
+                # mots de la clause. Le laisser manquant tiendrait pour ouvert ce que la réponse
+                # affirme ; le retirer sans le déclarer présent serait pire encore — un fait requis
+                # absent sans fait manquant est la signature du « fait connu et contraire »
+                # (`applicable="non"`), c'est-à-dire l'inverse de ce que la claim écrit.
+                fait_present, fait_manquant = True, None
+                step.checks.append(CheckResult(
+                    name="qualite_etablie_par_qualification", ok=True,
+                    detail="le fait exigé par la clause citée, sans qualificatif à établir, est "
+                           "tenu pour présent par le fait déclaré que l'affirmation retenue "
+                           "qualifie : il n'est plus demandé au client"))
+            if fait_present or (a.fait_manquant or "").strip():
                 # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
                 # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé
                 # est ajouté aux qualités **non établies** : deux listes vides ne peuvent plus valoir
@@ -1832,10 +1924,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                            "écrit(s) par la clause citée n'a pas été rendu : l'affirmation est traitée "
                            "comme `humain`"))
             applicabilites[a.claim_id] = ChampsApplicabilite(
-                fait_requis_present=a.fait_requis_present, option_requise=option_requise,
-                cp_requise=cp_requise, fait_manquant=(a.fait_manquant or "").strip() or None,
+                fait_requis_present=fait_present, option_requise=option_requise,
+                cp_requise=cp_requise, fait_manquant=fait_manquant,
                 qualites_exigees=exigees, qualites_non_etablies=non_etablies)
-            if a.fait_requis_present and non_etablies:
+            if fait_present and non_etablies:
                 # Le modèle s'est contredit : il coche « le fait exigé est présent » après avoir nommé
                 # ce que les faits déclarés n'établissent pas. Le code tranche du côté prudent (la
                 # claim vaut `humain`) et la trace le dit, parce que c'est exactement le run réel qui a
