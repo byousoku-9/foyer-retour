@@ -4225,9 +4225,17 @@ digest.
 Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section « Dette déclarée :
 gates à relancer par l'orchestrateur » plus haut.
 
-### Fixtures live réenregistrées
+### Fixtures live à réenregistrer (bloqué le 03/09 à 22:30 : réseau)
 
 Les prompts de navigation et de vérification changent, et le sommaire du contrat AXA porte
 désormais la ligne de son nœud racine : toute fixture dont la requête traverse l'un des deux est
-invalidée par construction (la clé est le hash des messages). Réenregistrées une par une, avec la
-clé, sur cette révision — la liste est dans la passation L1.
+invalidée par construction (la clé est le hash des messages). Huit sont concernées —
+`test_sinistre_live` (cas bougie), `test_pipeline_live` (phrase soutenue) et les six de
+`test_langues_live` — et restent en `FixtureMissing` : `api.anthropic.com` est devenu injoignable
+depuis le poste au milieu des enregistrements. Les commandes de reprise, une par fixture, sont dans
+la passation L1 (`_bmad-output/implementation-artifacts/passation-story-5-6-l1-2026-09-03.md`,
+section 4) ; coût attendu ≈ 3 €.
+
+Le **cas bougie a été réenregistré vert avant la coupure** : le refus conservateur tient, la porte
+de qualification ouverte par ce tour ne l'affaiblit pas. C'est la mesure qui comptait ; seul le
+fichier a été perdu en restaurant le répertoire.
