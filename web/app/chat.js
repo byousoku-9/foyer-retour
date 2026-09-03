@@ -826,6 +826,7 @@ window.CHAT = (function () {
     fait_cite_hors_sujet: "un fragment cité pour une qualité n'en emploie aucun mot",
     fait_cite_introuvable: "une qualité dite établie ne cite aucun fragment des faits déclarés",
     faits_compris_hors_borne: "des faits compris dépassent leur borne",
+    hors_objet_incoherent: "une affirmation dite hors de l'objet de la question porte une applicabilité qui vise ce cas, ou répond à une sous-question : le motif est écarté",
     hors_perimetre_desarme: "refus hors périmètre désarmé : la liste des rubriques était tronquée",
     intention_expliquee: "intention rendue par le modèle, et déclencheurs qui la confirment",
     lecture_partielle: "lecture bornée sans affirmation retenue : ce qui a été lu est chiffré, aucune absence n'est affirmée",

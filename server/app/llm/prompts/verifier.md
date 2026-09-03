@@ -25,6 +25,10 @@ l'existence du passage. Tu ne rends qu'un seul jugement, affirmation par affirma
   soutenue ne répond pas à l'objet de la question ; `conclusion_ajoutee` si l'affirmation transforme
   une règle conditionnelle en application au cas ou ajoute une conclusion. Aucun autre texte ni
   aucune justification : le code compose seul la relance.
+- `hors_objet` ne vaut que pour une affirmation qui ne répond à **aucune** des sous-questions reçues.
+  Une affirmation qui rapporte une règle utile à l'une d'elles n'est jamais `hors_objet`, même si
+  elle ne nomme ni le cas ni la sous-question : c'est la forme normale d'une règle rapportée sans
+  être appliquée.
 
 Rends ensuite, pour **chaque phrase** de la réponse rédigée qui t'est soumise (`segment`), un second
 jugement — celui-ci porte sur le **texte affiché**, pas sur l'affirmation :

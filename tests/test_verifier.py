@@ -799,6 +799,30 @@ async def test_un_segment_byte_identique_a_sa_claim_retenue_est_affiche_sans_sec
     assert "Le délai" not in check.detail  # AD-10 : des comptes, jamais le texte
 
 
+async def test_un_segment_derive_voyage_en_contexte_lisible_sans_position_a_juger(
+        mini: Index) -> None:
+    """Le contrôle lit des affirmations atomiques ; la rédaction écrit un texte enchaîné.
+
+    Les dérivés sont transmis dans l'ordre du texte affiché, mais comme **contexte** : ils ne portent
+    aucune position, `a_juger` ne bouge pas (aucun bloc `segment` pour eux) et 4.2a-bis tient — un
+    texte, un seul jugement. Sans cela, une claim qui suit une autre perd son antécédent en route.
+    """
+    draft = _draft_libre(
+        ("Le délai est de huit jours.", "factuel", ["c1"]),
+        ("Le guide ne dit rien du reste.", "limite", []),
+        claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", QUOTE_HUIT_JOURS)])])
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    blocs = UNTRUSTED.findall(fake.requests[0]["messages"][0]["content"])
+    juges = [json.loads(texte) for kind, texte in blocs if kind == "segment"]
+    lisibles = [json.loads(texte) for kind, texte in blocs if kind == "contexte"]
+    assert [j["segment"] for j in juges] == [1]  # seul le `limite` a une position à juger
+    assert [c["texte"] for c in lisibles] == ["Le délai est de huit jours."]
+    assert "segment" not in lisibles[0]
+    # et l'ordre du texte affiché est conservé : le dérivé précède la phrase jugée
+    kinds = [kind for kind, _ in blocs if kind in {"segment", "contexte"}]
+    assert kinds == ["contexte", "segment"]
+
+
 async def test_un_segment_derive_dune_claim_rejetee_est_masque_sans_resurrection(mini: Index) -> None:
     """Claim rejetée ⇒ segment masqué par dérivation : un `soutenu=true` scripté (le défaut du
     harnais) ne le réaffiche pas, et la claim rejetée suit la relance existante."""
@@ -1300,6 +1324,66 @@ async def test_a_supported_conditional_clause_stays_relevant_when_its_quality_is
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
     prompt = fake.requests[0]["system"][0]["text"]
     assert "sépare toujours l'objet\ncontractuel" in prompt and "conclusion_ajoutee" in prompt
+
+
+async def test_un_hors_objet_dementi_par_ses_propres_champs_types_est_ecarte(
+        contrat: Index) -> None:
+    """La forme exacte mesurée sur un run réel : `hors_objet` **et** une applicabilité qui vise le cas.
+
+    Le modèle a écrit dans le même objet JSON « cette clause vise ce sinistre et il n'y manque qu'une
+    qualité » et « cette affirmation ne répond pas à l'objet de la question ». Le prompt tranche déjà
+    (« Rends alors `pertinente = true` ») ; le code fait respecter cette invariante, sans juger la
+    pertinence lui-même. La claim récupérée ne devient jamais un « oui » : ses qualités restent non
+    établies, donc `humain`.
+    """
+    draft = _draft(("c1", "Le contrat couvre les dégâts causés par l'action subite de la chaleur.",
+                    [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", False, False, False, SOUDAIN, [SUBITE, SOUDAIN], []),
+                                        verdicts=[("c1", False)], raisons={"c1": "hors_objet"})])
+    assert [c.claim_id for c in v.claims] == ["c1"] and v.rejected_claims == []
+    assert v.claims[0].status.pertinente is True
+    assert v.claims[0].status.applicable == "humain"
+    assert any(c.name == "hors_objet_incoherent" and not c.ok for c in step.checks)
+    # La relance ne peut plus reprocher un motif que le code vient d'écarter.
+    assert v.motif is None or "hors de l'objet de la question" not in v.motif
+
+
+async def test_un_hors_objet_a_listes_vides_et_sans_fait_manquant_reste_rejete(
+        contrat: Index) -> None:
+    """La contrepartie, mesurée : c'est la signature du « périmètre contraire », où le motif tient.
+
+    Rien dans cette sortie ne dit que la clause vise le cas — le prompt exige justement cette forme-là
+    pour ce motif. Le recoupement doit donc la laisser intacte : il est chirurgical, pas une amnistie
+    générale de `hors_objet`.
+    """
+    draft = _draft(("c1", "Le contrat exclut les dégâts au bâtiment sous les extensions désignées.",
+                    [("cg:p1:2", Q_EXCLUSION)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", False, False, False, None, [], []),
+                                        verdicts=[("c1", False)], raisons={"c1": "hors_objet"})])
+    assert v.claims == [] and v.rejected_claims[0].status.pertinente is False
+    assert "hors de l'objet de la question" in v.rejected_claims[0].motif
+    assert not [c for c in step.checks if c.name == "hors_objet_incoherent"]
+
+
+@pytest.mark.parametrize("entree, facettes", [
+    # Chacune des trois branches, seule : retirer l'une du code rougit exactement une ligne d'ici.
+    (("c1", False, False, False, SOUDAIN, [], []), [[]]),          # le seul fait manquant
+    (("c1", False, False, False, None, [SUBITE], []), [[]]),       # la seule qualité exigée
+    (("c1", False, False, False, None, [], []), [["c1"]]),         # le seul rangement en facette
+])
+async def test_chaque_branche_du_recoupement_hors_objet_ecarte_le_motif_a_elle_seule(
+        contrat: Index, entree: tuple, facettes: list[list[str]]) -> None:
+    draft = _draft(("c1", "Le contrat couvre les dégâts causés par l'action subite de la chaleur.",
+                    [("cg:p1:1", Q_GARANTIE)]))
+    sortie = _applicabilite(entree, verdicts=[("c1", False)], raisons={"c1": "hors_objet"})
+    charge = json.loads(sortie["content"][0]["text"])
+    charge["facettes"] = [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)]
+    sortie["content"][0]["text"] = json.dumps(charge)
+    v, step, _fake = await _verifier_sinistre(contrat, draft, [sortie])
+    assert [c.claim_id for c in v.claims] == ["c1"]
+    assert any(c.name == "hors_objet_incoherent" and not c.ok for c in step.checks)
 
 
 async def test_wording_that_says_the_clause_applies_is_rejected_with_a_typed_retry(

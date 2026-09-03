@@ -757,6 +757,13 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     a_juger = [(i, s) for i, s in enumerate(draft.segments)
                if i not in derives
                and s.text.strip() and (s.kind != "factuel" or (set(s.claim_ids) & citables))]
+    # Le contrôle lit des affirmations **atomiques** là où la rédaction écrit un texte enchaîné : une
+    # claim dont le sujet renvoie à la précédente perd son antécédent en route. Les segments dérivés
+    # sont donc transmis comme **contexte lisible**, pour que la suite du texte affiché se voie —
+    # jamais pour en obtenir un verdict : `a_juger` ne bouge pas, et 4.2a-bis tient entier (un texte,
+    # un seul jugement). Ces segments ne portent aucun octet nouveau — ils sont byte-identiques, sous
+    # `normalize()`, à des claims déjà soumises ; ce qu'ils ajoutent est l'ordre de lecture.
+    contexte = [(i, s) for i, s in enumerate(draft.segments) if i in derives]
     verdicts: dict[str, bool] = {}
     couverture: dict[int, list[str]] = {}
     soutiens: dict[int, bool] = {}
@@ -774,7 +781,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
              demande_refusee) = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
-                clauses=clauses_par_claim, fournis=fournis)
+                clauses=clauses_par_claim, fournis=fournis, contexte=contexte)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
@@ -1174,6 +1181,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       faits: Faits | None = None,
                       clauses: dict[str, list[ClauseCitee]] | None = None,
                       fournis: set[str] | None = None,
+                      contexte: list[tuple[int, AnswerSegment]] | None = None,
                       ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
                                  dict[str, ChampsApplicabilite], DemandeContexte | None, bool]:
     """L'unique appel `reason` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
@@ -1232,12 +1240,22 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             charge["clause"] = clauses_de_la_claim[0].kind
             charge["clause_confirmee"] = clauses_de_la_claim[0].kind_confirmed
         parts.append(untrusted("claim", json.dumps(charge, ensure_ascii=False)))
-    for position, segment in segments:
+    juges = {position for position, _ in segments}
+    for position, segment in sorted([*segments, *(contexte or [])], key=lambda paire: paire[0]):
         # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est
         # bien le texte **affiché** qui est soumis, pas `Claim.text` : le premier peut dire autre
         # chose que le second, et c'est le premier que l'utilisateur lit (revue Codex 1.5, tour 2, B1).
-        parts.append(untrusted("segment", json.dumps(
-            {"segment": position, "kind": segment.kind, "texte": segment.text,
+        if position in juges:
+            parts.append(untrusted("segment", json.dumps(
+                {"segment": position, "kind": segment.kind, "texte": segment.text,
+                 "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
+            continue
+        # Un segment dérivé, dans l'ordre du texte affiché : il n'a **pas** de position à juger, et
+        # n'en porte donc pas. Le seul verdict de cet octet est celui de la claim dont il est la
+        # copie ; ce bloc rend seulement l'enchaînement lisible, pour qu'une affirmation qui suit
+        # une autre garde son antécédent sous les yeux du contrôle.
+        parts.append(untrusted("contexte", json.dumps(
+            {"kind": segment.kind, "texte": segment.text,
              "claim_ids": list(segment.claim_ids)}, ensure_ascii=False)))
     content = "\n\n".join(parts)
     trusted_line_uids = tuple(dict.fromkeys(
@@ -1494,6 +1512,33 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     name="qualite_exigee_non_etablie", ok=False,
                     detail=f"{len(non_etablies)} qualité(s) exigée(s) par une clause citée ne sont pas "
                            "établies par les faits déclarés : l'affirmation est traitée comme `humain`"))
+
+    # Le prompt énonce déjà l'invariante que ce recoupement fait respecter : nommer un fait manquant
+    # ou une qualité exigée, c'est avoir jugé que la clause **vise** le cas ; ranger une affirmation
+    # dans une sous-question, c'est dire qu'elle y répond. Écrire cela et rendre `hors_objet` dans le
+    # même objet JSON est une contradiction interne, lisible sans rien connaître du fond — c'est
+    # exactement la sortie mesurée sur un run réel, où la clause décisive du dossier a été écartée
+    # pour un motif que ses propres champs typés démentaient.
+    #
+    # Seul recoupement du fichier qui **rouvre** un verdict au lieu de le fermer : il ne juge pas la
+    # pertinence, il retire un motif que la sortie contredit. Le filet reste tendu en aval — la claim
+    # récupérée garde ses qualités non établies, donc vaut `humain`, jamais un « oui » — et une claim
+    # vraiment étrangère au passage cité reste écartée par `non_soutenue`, que rien ici ne touche.
+    rangees = {cid for ids in couverture.values() for cid in ids}
+    for cid in [c for c, pertinente in verdicts.items() if pertinente is False]:
+        if raisons.get(cid) != "hors_objet":
+            continue
+        champs = applicabilites.get(cid)
+        vise_le_cas = champs is not None and bool(champs.fait_manquant or champs.qualites_exigees)
+        if not vise_le_cas and cid not in rangees:
+            continue
+        verdicts[cid] = True
+        raisons.pop(cid, None)
+        step.checks.append(CheckResult(
+            name="hors_objet_incoherent", ok=False,
+            detail="une affirmation déclarée hors de l'objet de la question porte une applicabilité "
+                   "qui dit que sa clause vise ce cas, ou est rangée dans une sous-question : le "
+                   "motif est écarté"))
 
     demande, demande_refusee = _demande_de_contexte(
         result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
