@@ -60,7 +60,9 @@ def test_defaults_match_spine_hypotheses() -> None:
     # Story 5.6 T11 : l'effort du **seul** tour terminal. Mesuré à 0 token de réflexion sur
     # les trois runs A16 de `f858a28`, alors que c'est l'unique appel qui choisit les
     # clauses citées. Les tours d'outils gardent le défaut de leur palier.
-    assert s.navigation_draft_effort == "high"
+    # Repli du 03/09 12:11 : `high` a saturé 3 072 tokens de réflexion sans JSON (503) ; `medium`
+    # est l'effort mesuré sans troncature sur la matinée.
+    assert s.navigation_draft_effort == "medium"
     assert s.draft_max_claims == 6 and s.draft_max_segments == 9
     assert s.retrouver_outils_tier == "reason"
     assert (s.comprendre_tier, s.rediger_tier, s.verifier_tier) == (

@@ -1580,7 +1580,13 @@ class Settings(BaseSettings):
     #
     # Il ne s'applique qu'à l'appel terminal. Les tours d'outils gardent le défaut de leur palier :
     # ils ouvrent des nœuds, ils ne choisissent pas de clause, et ils réfléchissent déjà.
-    navigation_draft_effort: Literal["low", "medium", "high"] = "high"
+    # **Mesure du 03/09/2026 12:11 (série A16 sur `a4de6a7`) : à `high`, le tour terminal du run 1 a
+    # saturé ses 3 072 tokens en réflexion sans rendre un caractère de JSON — 503 `llm_parse`.** Le
+    # repli écrit ci-dessus s'applique : `medium`, l'effort auquel ce tour a tourné sur toute la
+    # matinée (une vingtaine de tours terminaux, 0 à 355 tokens de réflexion, aucune troncature à
+    # 3 072). Le levier contre l'omission d'une clause lue est l'inventaire des blocs décisionnels
+    # ouverts que le code compose dans le message terminal (T11), pas l'effort.
+    navigation_draft_effort: Literal["low", "medium", "high"] = "medium"
     # --- Story 5.6 (T5, 03/09/2026) : les deux caches de la facture ----------
     # Décision de Lancelot du 03/09, sur les deux chiffres mesurés par le prototype de navigation :
     # une première requête après expiration du préfixe paie ≈ 0,28 € d'écriture de cache, contre
