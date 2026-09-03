@@ -272,11 +272,21 @@ def _unite_primaire(block_id: str, *, kind: str, index: Index,
     demandé seulement ; le corps ajouté n'est jamais parcouru récursivement. Un titre sans corps
     non-titre ne forme aucune unité transmissible : `None` ordonne à l'appelant de le refuser et de
     publier la troncature.
+
+    **Et le cas symétrique, ajouté au tour 5 (C9) :** l'item d'une énumération emporte la phrase qui
+    l'ouvre (`Index.amorce_de_lenumeration`). Une feuille comme « Les fumées et les suies ; » n'est
+    pas plus citable seule qu'un titre — servie sans « La Compagnie assure les biens désignés,
+    contre les périls suivants : », elle a produit une affirmation que le vérificateur a rejetée
+    `non_soutenue`, le rédacteur ayant emprunté à une clause absente le membre qui manquait. Un seul
+    niveau, jamais récursif, exactement comme `unite_de_renvoi`. Rayon mesuré hors ligne : 287 nœuds
+    sur 751 pour le contrat AXA, 7 sur 274 pour Baloise, 0 pour le guide ; amorce médiane 13 mots
+    (AXA) et 17 (Baloise).
     """
     structure = index.unite_de_renvoi(block_id)
     if kind == "heading" and structure == [block_id]:
         return None
-    return list(dict.fromkeys((*structure, *dependances)))
+    amorce = index.amorce_de_lenumeration(block_id) if kind != "heading" else None
+    return list(dict.fromkeys((*( [amorce] if amorce else [] ), *structure, *dependances)))
 
 
 def _prioriser_focus(block_ids: Iterable[str], focus_id: str | None, *, reserve: bool) -> list[str]:

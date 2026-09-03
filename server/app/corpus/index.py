@@ -367,6 +367,36 @@ class Index:
                 return [block_id, candidate]
         return [block_id]
 
+    def amorce_de_lenumeration(self, block_id: str) -> str | None:
+        """La phrase qui **ouvre** l'énumération dont ce bloc est l'item, ou `None`.
+
+        Correctif du tour 5 (C9), et c'est le cas **symétrique** de `unite_de_renvoi`. Celle-ci
+        traite déjà « un titre seul situe une fiche mais ne porte généralement pas la règle à
+        citer » : un `heading` emporte son premier corps non-titre. Le miroir manquait — une feuille
+        qui **est** l'item d'une énumération n'emportait pas la phrase qui l'introduit, alors qu'elle
+        n'est pas plus citable seule qu'un titre.
+
+        Mesuré sur le contrat servi : `a3.1.1.1.5` ne porte que `p34:11`, « 3.1.1.1.5 Les fumées et
+        les suies ; ». Son nœud parent `a3.1.1.1` porte `p34:6`, « La Compagnie assure les biens
+        désignés, contre les périls suivants : ». Servi seul, l'item a produit une affirmation
+        rejetée `non_soutenue` — le rédacteur avait emprunté à une clause absente le membre qui
+        manquait ; servi **avec** son amorce, il a produit quatre affirmations retenues sur quatre.
+
+        Deux bornes, les mêmes que `unite_de_renvoi` : **un seul niveau**, jamais récursif, et
+        seulement quand le nœud n'a **aucun autre bloc citable** que celui-là — un nœud qui porte
+        ses voisins n'est pas un item, il est une section. L'amorce n'est jamais un titre : le code
+        ne fabrique pas une unité à partir d'un titre, ici comme là-bas.
+        """
+        entry = self._by_block[block_id]
+        _doc_id, directs = self._nodes[entry.node_id]
+        if directs != [block_id]:
+            return None
+        parent_id = self._node_parents.get(entry.node_id)
+        if parent_id is None:
+            return None
+        return next((candidate for candidate in reversed(self._nodes[parent_id][1])
+                     if self._by_block[candidate].block.kind != "heading"), None)
+
     def part_des_blocs(self, mot: str, *, doc_id: str) -> float:
         """Quelle **part des blocs** du document porte ce mot **normalisé** : 0 s'il n'y est pas.
 

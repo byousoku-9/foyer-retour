@@ -5103,3 +5103,50 @@ async def test_une_facette_dont_aucun_candidat_ne_tient_ne_garde_toujours_rien()
     ((candidats, gardes),) = [(f.candidats, f.tokens_reserves)
                               for f in result.facettes if f.rang == 0]
     assert candidats == 2 and gardes == 0
+
+
+# --- Correctif du tour 5 (C9) : l'item d'une énumération voyage avec sa phrase d'amorce ----------
+
+
+def test_lunite_dun_item_denumeration_emporte_la_phrase_qui_louvre() -> None:
+    """C9 — mesuré sur le contrat servi, sur le cas qui a produit le rejet.
+
+    `a3.1.1.1.5` ne porte que `p34:11`, « Les fumées et les suies ; ». Son parent `a3.1.1.1` porte
+    `p34:6`, « La Compagnie assure les biens désignés, contre les périls suivants : ». Servie seule,
+    la feuille a produit une affirmation rejetée `non_soutenue` — le rédacteur avait emprunté à une
+    clause absente le membre qui manquait ; servie avec son amorce, quatre affirmations retenues sur
+    quatre. Une clause dont le nœud porte ses voisins n'est pas un item : elle reste seule.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    doc_id = "axa-lu-optihome-2017"
+    document = index.corpus.documents[doc_id]
+    unite = retrouver._unite_reservable(
+        f"{doc_id}:p34:11", block=document.block, index=index, terms=["fumées et suies"],
+        doc_id=doc_id, cohorte=[], budget=_budget(), settings=_s(), related_cache={})
+    assert unite == [f"{doc_id}:p34:6", f"{doc_id}:p34:11"]
+    # `p39:9` vit dans un nœud à trois blocs citables : ce n'est pas un item, aucune amorce ne
+    # s'ajoute — ses dépendances directes, elles, restent ce qu'elles étaient.
+    assert index.amorce_de_lenumeration(f"{doc_id}:p39:9") is None
+    assert retrouver._unite_reservable(
+        f"{doc_id}:p39:9", block=document.block, index=index, terms=["bris de vitrages"],
+        doc_id=doc_id, cohorte=[], budget=_budget(), settings=_s(),
+        related_cache={})[0] == f"{doc_id}:p39:9"
+
+
+def test_un_noeud_feuille_dont_le_parent_na_quun_titre_reste_seul() -> None:
+    """La borne : le code ne fabrique jamais une unité à partir d'un titre, ici comme pour un renvoi."""
+    titre = Block(block_id="d:p1:1", kind="heading", loc="p1", seq=1, text="Article premier")
+    item = Block(block_id="d:p2:1", kind="garantie", kind_source="manual", loc="p2", seq=1,
+                 text="Les fumées et les suies ;")
+    corpus = Corpus(documents={"d": Document(
+        doc_id="d", kind="contrat", title="t", edition="e",
+        nodes=[Node(node_id="root", items=[NodeRef(node_id="parent")]),
+               Node(node_id="parent", items=[BlockRef(block_id=titre.block_id),
+                                             NodeRef(node_id="item")]),
+               Node(node_id="item", items=[BlockRef(block_id=item.block_id)])],
+        blocks=[titre, item])}, summaries={"d": "root"})
+    index = Index(corpus)
+    assert index.amorce_de_lenumeration("d:p2:1") is None
+    assert retrouver._unite_reservable(
+        "d:p2:1", block=corpus.documents["d"].block, index=index, terms=["fumées"], doc_id="d",
+        cohorte=[], budget=_budget(), settings=_s(), related_cache={}) == ["d:p2:1"]
