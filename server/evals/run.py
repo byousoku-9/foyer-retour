@@ -804,6 +804,11 @@ class Resultat:
     opened_block_ids: list[str] = field(default_factory=list)
     steps: list[dict[str, Any]] = field(default_factory=list)
     proofs: list[dict[str, Any]] = field(default_factory=list)
+    # Story 5.6 T16 : le pendant de `proofs` du côté des claims **écartées** — bloc et raison du
+    # rejet. Sans lui, un écart « blocs attendus non cités » ne disait pas si le bloc n'avait jamais
+    # été cité ou si sa citation avait été rejetée, et par quel contrôle ; le rapport figé taisait
+    # précisément ce qu'il fallait lire (voir `_rejets`).
+    rejected_claims: list[dict[str, Any]] = field(default_factory=list)
     # Story 4.5 : le prédicat décisionnel de `juger` (4.2a), **conservé** au lieu d'être jeté après
     # l'écart. C'est ce qui rend mesurable la stabilité de la claim décisionnelle entre répétitions
     # (`stabilite_claim_decisionnelle`) : sans lui, la seule chose qu'un run savait dire était
@@ -993,6 +998,34 @@ def _preuves(answer: Answer, index: Index) -> list[dict[str, Any]]:
                 "kind_confirmed": bool(bloc.kind_confirmed),
             })
     return sorted(preuves, key=lambda p: (p["doc_id"] or "", p["block_id"], p["quote_hash"] or ""))
+
+
+def _rejets(answer: Answer) -> list[dict[str, Any]]:
+    """Ce que le pipeline a **écarté** : `{claim_id, block_ids, rejection_kind, rejection_reason}`.
+
+    Story 5.6 T16 — l'observabilité qui manquait. `answer.rejected_claims` existait, voyageait de
+    *vérifier* à *restituer* et était publié par la route (AD-3 : les claims rejetées sont
+    conservées) ; le rapport d'éval, seul artefact **figé** d'une campagne, ne le sérialisait nulle
+    part. Un écart « blocs attendus non cités » était donc indiscernable d'un abandon silencieux :
+    la preuve du diagnostic n'existait que dans la réponse HTTP, jetée avec le run. Il a fallu
+    rejouer un run entier pour apprendre qu'une citation avait été rejetée `non_retrouvee` — c'est
+    ce coût que cette projection supprime.
+
+    Le bloc et la raison, rien de plus : les deux seules choses qu'un rouge de stabilité a besoin de
+    nommer. `rejection_kind` et `rejection_reason` sont des vocabulaires fermés du **code** ;
+    `claim_id` et `block_ids` sont déjà publiés par `claims` et `proofs`, donc aucune surface
+    nouvelle (AD-15). Le `motif` en est absent : c'est une phrase adressée au modèle dans la
+    relance, pas une mesure.
+    """
+    rejets: list[dict[str, Any]] = []
+    for claim in answer.rejected_claims:
+        rejets.append({
+            "claim_id": claim.claim_id,
+            "block_ids": sorted({q.block_id for q in claim.quotes}),
+            "rejection_kind": claim.rejection_kind,
+            "rejection_reason": claim.rejection_reason,
+        })
+    return sorted(rejets, key=lambda r: (r["claim_id"], r["rejection_kind"]))
 
 
 def predicat_decisionnel(answer: Answer, index: Index) -> bool:
@@ -1779,6 +1812,7 @@ async def executer(cas: list[Cas], ctx: Contexte, *, max_cost_eur: float,
                             opened_block_ids=_blocs_ouverts(trace),
                             steps=_etapes(trace),
                             proofs=_preuves(answer, ctx.index),
+                            rejected_claims=_rejets(answer),
                             decision_claim=predicat_decisionnel(answer, ctx.index))
             resultats.append(resultat)
             _ligne(resultat, sortie, repeat=repeat)
@@ -2418,6 +2452,10 @@ def construire_rapport(resultats: list[Resultat], cas: list[Cas], *, cases_dir: 
                 "verdict": r.verdict,
                 "claims": r.claims,
                 "proofs": r.proofs,
+                # Le pendant de `proofs` : ce que le pipeline a écarté, avec son bloc et sa raison.
+                # C'est ce qui rend un écart « blocs attendus non cités » lisible depuis le rapport
+                # figé, au lieu d'exiger de rejouer le run pour relire la réponse HTTP (T16).
+                "rejected_claims": r.rejected_claims,
                 "opened_block_ids": r.opened_block_ids,
                 # « Blocs attendus ∈ blocs lus » : la preuve que le rappel a réellement présenté
                 # les blocs attendus au modèle, publiée par exécution (spec 4.2b, Code Map). La
