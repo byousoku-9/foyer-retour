@@ -292,11 +292,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche la plus contraignante de toute l'installation : il faut l'engager avant même de chercher un logement.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Trois voies coexistent (école publique, écoles européennes/internationales, établissements privés), et il faut vérifier la disponibilité de la section linguistique visée, pas seulement de l'établissement, car les places les plus recherchées se remplissent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire : sans déclaration à la commune, pas de certificat de résidence, donc pas d'inscription scolaire possible.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez à demander à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"La rentrée se situe au début du mois de septembre, ce qui donne un cadre pour anticiper ces démarches.\",\"kind\":\"transition\"},{\"text\":\"Les blocs fournis ne détaillent pas les délais précis ni les documents exacts exigés par chaque type d'établissement au-delà de ce qui est mentionné ici.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte, à engager avant la recherche de logement.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Il faut vérifier la disponibilité de la section linguistique visée, les places partant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"}]},{\"claim_id\":\"c3\",\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire\"},{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire\"}]},{\"claim_id\":\"c4\",\"text\":\"Demander avant de partir un certificat de radiation et les bulletins des dernières années à l'école d'origine.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"L'inscription scolaire est la démarche prioritaire de l'installation : elle doit être engagée avant même la recherche de logement, car les places dans les sections les plus demandées se remplissent parfois un an à l'avance.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Avant l'inscription scolaire elle-même, il faut d'abord s'enregistrer à la commune, cette étape précédant généralement la démarche scolaire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Cette chaîne administrative se retrouve aussi côté commune : sans la déclaration initiale, le certificat de résidence n'est pas délivré, et donc l'inscription scolaire ne peut pas se faire.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Avant de quitter votre pays d'origine, pensez également à demander à l'école actuelle un certificat de radiation ainsi que les bulletins des dernières années, documents presque toujours exigés et bien plus difficiles à récupérer une fois installé.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Enfin, la rentrée se situe au début du mois de septembre, ce qui donne un repère pour planifier ces démarches en amont.\",\"kind\":\"transition\"},{\"text\":\"Les blocs fournis ne précisent pas de délai exact ni de formulaire spécifique à utiliser pour la déclaration à la commune ou pour la demande d'inscription scolaire elle-même.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"L'inscription scolaire est la démarche la plus longue et contrainte, à engager avant même la recherche de logement, les places dans les sections recherchées partant parfois un an à l'avance.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"}]},{\"claim_id\":\"c2\",\"text\":\"L'inscription à la commune précède généralement l'inscription scolaire.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"}]},{\"claim_id\":\"c3\",\"text\":\"Sans déclaration à la commune, pas de certificat de résidence, et donc pas d'inscription scolaire possible.\",\"quotes\":[{\"block_id\":\"lux-guide:fadministration:8\",\"quote\":\"sans déclaration à la commune, pas de certificat de résidence, donc pas de chèque-service ni d'inscription scolaire.\"}]},{\"claim_id\":\"c4\",\"text\":\"Il faut demander à l'école d'origine un certificat de radiation et les bulletins des dernières années avant de partir.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNiuARYoggZWKhsR3z9",
+      "id": "msg_011Cefcy5BCZP776WVsMQG4J",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -312,7 +312,7 @@
         "cache_read_input_tokens": 6799,
         "inference_geo": "global",
         "input_tokens": 2851,
-        "output_tokens": 1103,
+        "output_tokens": 1118,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -490,17 +490,12 @@
     "response": {
       "content": [
         {
-          "signature": "EoIECpABCBEYAipALjXupPKzevUEpCuNA2Bc/kwr7OGE3KkQreRclcQD7Mz9r21npln7aBN/hMsyy5SZstQIbxMhThCgVoMnExgSejIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAda84tQGEgxdCpltMOqSkKMteN8aDMa445QWFmXDuvNIDyIw4BfsMtbtXNH9Duwxb52AN3n3QO/uf2uHCBKBuChQWIxibT9iF+un6WZqNKGuy936Kp4CWqdGQtDlKgGfldt+VWTB3LjOnLGRCWAuSYxM9qoiq17/8UaBRcNTWpSERyz08A5Y2KKV/T2caDEXB1h31lV+OHbzc5zuZW4ky72jG6qlFuS79LcTjFjxMemoGfqIfEr1EVt30DWId3EHe9frGuXBUeBX7ON+XIsBsPd6FRO7HR1F8qiaDrUVsFH4ID/rUcO4Ev7eA0FFI1ks+H/E512RTrOmmU66sT1jNgMTSuZLjicRfT91W4igxVCE0YucucX+lgSEOSiMiFksLpcGegqX0Tir7QYPfepWe6BQ4hIbichslvr+kjc40OLDYvKxe2KbLkY0ZYjXiDiUVCDr0Me8SOK3G0apm2qWCJrqzFb6aRJpdKryw4a739TTa2IabxgB",
-          "thinking": "",
-          "type": "thinking"
-        },
-        {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"rentrée scolaire\",\"scolarisation\",\"école\"],\"themes\":[],\"facettes\":[\"démarches à faire avant la rentrée scolaire pour les enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Quelles démarches dois-je faire avant la rentrée pour mes enfants ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"scolarisation\",\"inscription scolaire\",\"rentrée scolaire\",\"enfants\"],\"themes\":[],\"facettes\":[\"démarches à faire avant la rentrée pour les enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNidfGigH5W6fmWd4gB",
+      "id": "msg_011Cefcxjhg9FaFeP1HAFdaz",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -516,9 +511,56 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 94,
-        "output_tokens": 259,
+        "output_tokens": 157,
         "output_tokens_details": {
-          "thinking_tokens": 98
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:8f2b7cfdeb8feb93": {
+    "certificate": {
+      "messages_sha256": "989924f6252683fb6d8678b5d7a61c8b20efc762a8c79cff8c9039b77c7c1560",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:8f2b7cfdeb8feb93",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":false,\"raison\":\"non_soutenue\"},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c4\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c2\",\"c3\",\"c4\"]}],\"segments\":[{\"segment\":0,\"soutenu\":false},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":true},{\"segment\":4,\"soutenu\":false},{\"segment\":5,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefcysD9pwenGmBgb6zGV",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 1508,
+        "output_tokens": 1250,
+        "output_tokens_details": {
+          "thinking_tokens": 1006
         },
         "service_tier": "standard"
       }

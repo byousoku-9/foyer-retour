@@ -693,11 +693,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le sinistre survenu le 2026-08-01 dans le salon du domicile assuré est-il couvert par les conditions générales du contrat, sachant qu'une bougie allumée posée sur une table basse est tombée sur le canapé et que le mobilier de salon a brûlé partiellement, sans embrasement ni commencement d'incendie, ni flammes propagées, ni dégât au bâtiment ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât par brûlure\",\"incendie\",\"commencement d'incendie\",\"canapé\"],\"themes\":[],\"facettes\":[\"Le contrat garantit-il ce dommage par brûlure sans commencement d'incendie ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du mobilier par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé\",\"moment\":\"2026-08-01\"}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le mobilier de salon (canapé) est-il couvert alors qu'une bougie allumée posée sur une table basse est tombée dessus et a brûlé une partie du canapé, sans embrasement ni commencement d'incendie, sans flammes propagées ni dégât au bâtiment ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât par brûlure\",\"bougie\",\"incendie\",\"commencement d'incendie\"],\"themes\":[],\"facettes\":[\"Le contrat couvre-t-il un dommage par brûlure sans incendie caractérisé ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure d'une partie du canapé causée par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé\",\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNmAJoijKjvd5ZjECar",
+      "id": "msg_011Cefd1yhdTJWcpgaSrnTJL",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -713,7 +713,7 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 249,
-        "output_tokens": 359,
+        "output_tokens": 320,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -992,6 +992,48 @@
       }
     }
   },
+  "claude-sonnet-5:7b17d266f71bb04b": {
+    "certificate": {
+      "messages_sha256": "95c65c731ec081c3b722d8f4a705c2d3eb5127ba8b2f315904a3044bfbfcd459",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "0a5063978735600bb16689551fadda735fa4e22b5fd08c268819586e0393896c",
+      "system_sha256": "eecfd5b41ed805b2e42dff1b2eaa581e167819a8ea5fff647079fa5968920527",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:7b17d266f71bb04b",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant du contact direct et immédiat avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant du contact direct et immédiat avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}]}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cefd2wctjCorwABY6DLR4",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 50023,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 50023,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2151,
+        "output_tokens": 367,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:a5cae049b7d14312": {
     "request": "claude-sonnet-5:a5cae049b7d14312",
     "response": {
@@ -1031,6 +1073,47 @@
       }
     }
   },
+  "claude-sonnet-5:a608fa8a278330b8": {
+    "certificate": {
+      "messages_sha256": "a9edf3f2f576be41151fa2157a4fa15e8ea6a7560c9d4e65484ac94a37c24229",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "ea7367e15337fcf732defe0ce493e33f317cfff6eb32a43ab95308ed120373a1",
+      "tools_sha256": "dd53e3dc85a8af38b7e6c6567a0b53f2df15849f811eee3f0aefe5208455659d",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:a608fa8a278330b8",
+    "response": {
+      "content": [
+        {
+          "text": "```json\n{\"sufficient\":true,\"result_uid\":\"result-v1:7f9cd8e56e6f916e924e92a63feb44c488ef620ba8ebc98ec9cdd1409cdae08a\",\"facettes\":[{\"facette\":0,\"result_uid\":\"result-v1:7f9cd8e56e6f916e924e92a63feb44c488ef620ba8ebc98ec9cdd1409cdae08a\"}]}\n```",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cefd2nD6eJUCfZXvvTv8u",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 17642,
+        "inference_geo": "global",
+        "input_tokens": 11558,
+        "output_tokens": 149,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:c1d7a881cfd7fd44": {
     "certificate": {
       "messages_sha256": "9f27daef63b279c5e066f35d19a24e4f127fae54e0147c743e6bdc3555edad60",
@@ -1065,6 +1148,60 @@
         "inference_geo": "global",
         "input_tokens": 11367,
         "output_tokens": 134,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:c3a0c272f189ddfc": {
+    "certificate": {
+      "messages_sha256": "b353660b06018a77a53774c421b4d08531c56e35679e19964b2992ac048d4e04",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "ea7367e15337fcf732defe0ce493e33f317cfff6eb32a43ab95308ed120373a1",
+      "tools_sha256": "dd53e3dc85a8af38b7e6c6567a0b53f2df15849f811eee3f0aefe5208455659d",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:c3a0c272f189ddfc",
+    "response": {
+      "content": [
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01HMvsDVd86Kr8YKEKh4jHJE",
+          "input": {
+            "termes": [
+              "dégât par brûlure",
+              "bougie",
+              "incendie",
+              "commencement d'incendie",
+              "événement soudain"
+            ]
+          },
+          "name": "chercher",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cefd2L7TkCM4swSJ2wGRi",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 17642,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 17642,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 419,
+        "output_tokens": 85,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1214,6 +1351,59 @@
       }
     }
   },
+  "claude-sonnet-5:ce684369662642d5": {
+    "certificate": {
+      "messages_sha256": "75ea1006017066a0495157492a64180dfe7f4c951070e2385602ffb9491f89e2",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "ea7367e15337fcf732defe0ce493e33f317cfff6eb32a43ab95308ed120373a1",
+      "tools_sha256": "dd53e3dc85a8af38b7e6c6567a0b53f2df15849f811eee3f0aefe5208455659d",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:ce684369662642d5",
+    "response": {
+      "content": [
+        {
+          "signature": "EqYDCpABCBEYAipA+QaIyGWQyYNyoHn0ldjUm6aJvOUERMNznfsdqIzDAe21F1uNuranD1vh6mO2xiU+wBNNjrnYftODn60ql3BP/TIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdGU49QGEgzq4mD8aqojG4GTZEUaDB01WZdeje1Ex31XvCIw7NwnOQHOQrZuX703T3kEchaR5otv5G4IN+ywTGHpxssvSsz1YSUgNlE+hb191neVKsIBH8/oEwuKSekHpI7HWy20WmJwK8GW+oWzrcV1Cw7FzgCXzoC7k6e1YfGZgDnvD/Vg/X5LyHjb0GNUjphFSI41PmC4iyYqQDqXD76oDFb2YYg4msT0lRK4I34baTEC+wFusTXMa1u/3pyW7NTfnad3P07eSA+e1g+TNfbAQdYBeUHgBuOK9nx8KVmk5IFrlUzJl6IPfJZPYALQdajGjQb2S8kJzijPt8k7+G2PIzRrGYI3recy0ih8KAeoj4B4D209SB8YAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_014fZGYc4W3LptQqcpMnXWsp",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1.6"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cefd2VWGG2CNEgC51SJvZ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 17642,
+        "inference_geo": "global",
+        "input_tokens": 10708,
+        "output_tokens": 169,
+        "output_tokens_details": {
+          "thinking_tokens": 90
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:d5594d7f77fdc151": {
     "certificate": {
       "messages_sha256": "7db500c59ab4771c85175ee70a2db69c0e784d1ea293107f1dd5f45413995129",
@@ -1342,6 +1532,53 @@
         "output_tokens": 830,
         "output_tokens_details": {
           "thinking_tokens": 417
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:f73927ee28cad483": {
+    "certificate": {
+      "messages_sha256": "4119f61142684142565d208da1828bfb41777cb7d74e45c1a62dee72d6f999cb",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "df010e1b47f46a386815ef3b25a7de2cdc8abc64d448649eee1f12cf4979eb6b",
+      "system_sha256": "df381ad66b7314d46dac925ced1241fe1bb838c4dbcfd525f41f6d27d4c3f454",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:f73927ee28cad483",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"contact direct et immédiat avec foyer ou substance incandescente\"],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cefd3Ji9yh3Je8m8JifXg",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13247,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 13247,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 630,
+        "output_tokens": 1020,
+        "output_tokens_details": {
+          "thinking_tokens": 817
         },
         "service_tier": "standard"
       }

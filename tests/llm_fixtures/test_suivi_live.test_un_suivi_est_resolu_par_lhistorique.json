@@ -74,17 +74,17 @@
     "response": {
       "content": [
         {
-          "signature": "EpoGCpABCBEYAipAxLCPgXMyI2xALaF9pZiuegn9tj2qXzrWlhvVF3PCDdtl7xj3GvOdbGse1Vp4c2gUHGj8XqTv1/BSaMbxceiDSzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAa294tQGEgxOBbRTQtKLw/xIoqkaDL4oN6vrjSMbp2QRgCIwQ4jTqx5odAiLNAdPWMqcalQVVcGwPZ9IKjgg5ZGZ2o2npuBrXw+uB3ErS64RBS9+KrYEodCyhKyYstiaheJNnECLJ86nxjb8oGNCvukvZRgI93DVBUlVixsXqedXlXALivI5J1cayEv7pclcxyRgKZZMCbE0u81LnHs2k/jO00jgmi4eUErl82weFBH4PVUtWn8usway/CmwUSZLgtgnDierG1jMDuKT7Ey9AiZUjTPZNw76QUkqO9W2AsEDuCV53p6orj1HgXbZUwwwDkdCUQSYU5YOLNYPeYetz3+ibI+x+HwILDxKOCSjeciahZ1D115Ry1/Elsvgs/7pU96csa8St9kJsWRxgZJJegxRB0j7bw1cJIxVgoGfbIUwxvs6nxMrDo/UO/0TUbFSBLNcaXF/P+xBCQIijHQsw4V8r29urbeCEwV6qC7lYkA73logwU28nFyqduMiE4I6kNm6W6CXpq053eB0Mkr+OXZ7PEc7znhi3F73+4DqYS0scN3yCkCk5uP+Zbl6DzheWE2DYy2iS/2D9PIMxV6dNcOH89bCmuPZFcdLX4x1ogVM4vbH+XOTGmbt5pXVsy9+MFANFqvxbMsHDE2vNxkXI6ToNvb/xITzPj6s4zOgSoIQIygiRLZbkw7JmBjrhqzKQSCB+UgXUOBYwQdv60yZMs3nHUzK7FcbaJpeklc66g419w3qLyipkKwyCTip8lD9GCVCO5yxQTxOhSd2PUssGwirFjEKox7Yf7IRAxiR9tNDSlh7YYeY4+qj9pT42JJm0+3JBfCeVWDaanYEbqCSTNT0q9xndvbh+99TXiAYAQ==",
+          "signature": "Ev4GCpABCBEYAipA6Rsv9ngi2BIbMGT/SQjfWRIFbwAKI4U2Wf/JX4UStEvc+kiQErZgr+PlbSsulmJhwD0T331OcHWrSjCoSqalazIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAf+U49QGEgwMTnfcngRf+2xx9WkaDDbG4UjTrBXSuntnNCIw6HlTtOJQoZ3zfOX9ek9+kEWS0DjkpO3ANIcS2JjaHM6/yFbIwVGiqQwXEzHYejhxKpoFfcetcF8FvFVsoafwQOq7Eyh6ir94OCbct7wL0UQUNQkHfT2XRqvD/WGmdpTavrasqR+JvzJDE6S38LMwF5RorePmYc1bhHke2infzu9CpkHgS84grGfUGkJU+Ri3EZY3l9UfMcqgjk3faIuGQmYhBGyio0AHOKe5ys5p3CQXJmYz3pZ4ztnXXgKEDJBXv0pEkuaM0vOOseZAcvOi2xnuRB9wPrVnHEd6hl+z7XLli5pE46h2NbZxnnameOFMa5kt+ExZa5h3knWt5Kpdc1lC0Hp2sWc+FB1BbpgbOzNggiRUHi5kz3lSjp8zSTEQYqcurgb1wETaZTi/QrygKbfzDPVwUMTcxPhf4FaSpWDen0+kisKYm35B+ji/G74Cu49NTlX3lLuAEX588OPyc92RDUJ6UPqvN1ODdFUGX92n/NimOeJasuStVD3xYDTFui+ZxFWLYzI7FklGYKDRZIM7xgTmhee2MrM1hNyXvkfF7svBV7ZuJwqEogsfg7ZnhJt6KcYHZtgBLyFggBHCpfTI7va9etuQ8lnCHywGTyDwWSBFL2byq7pWSypPntoeFF+M1XEIHAMOiTXlXv6LAJvxxPveU098K1js6eTbd2nRIaIWE5tTq7pAE5HYyYRp10RNkqQVw+XioQ7UquvPdaNFVTz3KQMib/WSgr8ODw2csWn8P/KgOmiueKJD1POrvk9KtPK0+Dh2dqAO4sRIA3AeCHkEZmDFTrRgdteX1mkCpvpNEGHrZ195xkc44qMv1T7MVy9jFPOWJ8Rjxfxp/RSivTsNPYyVEgEkOHV3qYUOYjSNa+7RSXqylwwex3ytw3Xk0ERb2VrAOI/c540GI1Zf3GuvHGDKI/r+WLNN53nzz5mjCA25uOxlwz0JGAE=",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quelles démarches dois-je effectuer pour ma voiture en arrivant au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"immatriculation véhicule\",\"permis de conduire\",\"assurance véhicule\"],\"themes\":[],\"facettes\":[\"démarches pour la voiture en arrivant\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quelles démarches pour ma voiture en arrivant au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"immatriculation véhicule\",\"permis de conduire\",\"assurance véhicule\"],\"themes\":[],\"facettes\":[\"démarches pour la voiture à l'arrivée\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNpqJRd3FyaozTu1fpr",
+      "id": "msg_011Cefd5rh4MYemDNPYBTEAn",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -100,9 +100,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 199,
-        "output_tokens": 377,
+        "output_tokens": 388,
         "output_tokens_details": {
-          "thinking_tokens": 216
+          "thinking_tokens": 233
         },
         "service_tier": "standard"
       }

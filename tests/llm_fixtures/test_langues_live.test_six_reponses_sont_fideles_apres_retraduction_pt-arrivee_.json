@@ -470,6 +470,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:712d8f6d37f37283": {
+    "certificate": {
+      "messages_sha256": "446e95ca8698f4a88d11743229626819a8a2bbf0e05e9cc1978ca5b1551f313a",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:712d8f6d37f37283",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefcpkULbtMPAuhG6rQhc",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 730,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:7d59a2b4dd0baad5": {
     "request": "claude-haiku-4-5-20251001:7d59a2b4dd0baad5",
     "response": {
@@ -845,7 +884,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CefNXX4b4tTHEK3yVb4DS",
+      "id": "msg_011Cefcodpi6SDBH2Z86MtKQ",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1035,11 +1074,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"segments\":[{\"text\":\"Tem oito dias após a mudança para efetuar a declaração de chegada na comuna.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Essa declaração é essencial, pois é a partir dela que se obtém o certificado de residência e o matrícula, necessários para as etapas seguintes.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Recomenda-se marcar a consulta online antes mesmo de ter as chaves do imóvel.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para se declarar à comuna é de oito dias após o emenagement.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à la suite.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
+          "text": "{\"segments\":[{\"text\":\"Tem de fazer a declaração de chegada na comuna no prazo de oito dias após a mudança para a casa.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Essa declaração é essencial, pois é a partir dela que se obtêm o certificado de residência e o número de matrícula, indispensáveis para as etapas seguintes (segurança social, banco, escola).\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"É aconselhável marcar a hora online antes mesmo de ter as chaves da casa.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"O prazo para se declarar na comuna é de oito dias após o início da ocupação do alojamento.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Dans les huit jours suivant l'emménagement.\"}]},{\"claim_id\":\"c2\",\"text\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Cette déclaration produit le certificat de résidence et le matricule, indispensables à toute la suite.\"}]},{\"claim_id\":\"c3\",\"text\":\"Il est conseillé de prendre rendez-vous en ligne avant même d'avoir les clés.\",\"quotes\":[{\"block_id\":\"lux-guide:q12:2\",\"quote\":\"Prenez rendez-vous en ligne avant même d'avoir les clés.\"}]}]}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNXjFZX5obqdHfdJQ4C",
+      "id": "msg_011CefcorjM4U9VZgbh2i6Kn",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1055,7 +1094,7 @@
         "cache_read_input_tokens": 6799,
         "inference_geo": "global",
         "input_tokens": 2922,
-        "output_tokens": 513,
+        "output_tokens": 543,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1322,6 +1361,53 @@
         "output_tokens": 506,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d09365c0851abb8f": {
+    "certificate": {
+      "messages_sha256": "3dcad67379232c2bc444a9c5f8ff9a3dd0b947f30fc548ffbfc920aa4fc9bb47",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "724625127a57e02e1a8d5a60e4223b92865999f9e03ad3441824a021c5096a62",
+      "system_sha256": "9eba9bd0aa769a391a30f2e66a3c70030f231502aff1857065e17a257d278ead",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:d09365c0851abb8f",
+    "response": {
+      "content": [
+        {
+          "signature": "EucGCpABCBEYAipABKZ1+VPHsv2Qy5a1/XQlHNgRVOt0Umk7WrotjvcHB+p8Vd7u1p+qHhhDtmD+YlU+KPm5rJuRcnaOPdudBpnP4jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAa2T49QGEgxJXxIzCjMaG2ds4mwaDE8dYPypcNtqzKeFqSIwHmGuOCNNFju7b7boB9l2tZ5BvHFkG9MwyviGADHkYsOTX/qgYtXAytV2glR6EiBcKoMFcoko8EJqsuheZrmim5FEH93Jua/GrKOu0Em6Hr3vDt6jDZXXFL+1QtxU8AkAm7j6MwXzbsziNJf8XP7MI43p9ERNZJpllUxwnpXAUWUpz77X3Q2ssgNtzpZ6gNFjAwE9S2nY/mMe1iI0tzPe3dw0XHSPpfxpVW8pYwen8H9e2cm2ezbKxYvA58kq08q76z/6Mn93YEkZE/Crlbrg2Es5RsXvAoTjq3G6SwncauBLwvQFJcQjyD9YxFStcWi+3r+jsdwsnueyzkkmAV5zBo6BehooLRtoLijspFIkAfWBop4sGpFuxfO/LLLZdn7cFu1f2csBjQXV9sFfb33GY7Dm74/DjE/wo7Cu9MwWJnhP9q3sY7HpDb20an3GrmE8My0rS2P6weHWYA+heYGo9wXwsfTewwg1pzQ+LubxnVR0ahLtozZW899feZmK+ew33cnu0U61Q9zBP3Uqd+jgaIxWW9GCpzVFO5HAC25GMpqK724wel5uuslW1oNPhl38p+ugqpZ5J/mNzGlYL/OPrVBgtXzY6dVhHxXvSScVwwqUNumdU9elVz7O/YIZVP9+/mgkIMxxiGZQVQHzewFL7x/d6FVSHwLJOkSTzcmhFH+AzPnq8Gk141aVtUjhBrQDZzDwTjxyArBS5Vhy6aYXII0WSd8enMY8fOdnJBiVuKRrC4f/syjlcZ/w9Ng4uOptoEQV+IBCmeK/AvGiTwLDMPcS2W6pMm9uEwcyHZNhA2DrY7WFf5v42zdIqZSmpWMWO+VeeTzPoS8wB8n04iAqDKmBUwHArVoF9XmzTIgyB1PLCE9C5Dkz0SyAOe9fOfV/lWgygfS+76btE4RHTcoB1AUqfzYByRgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"hors_objet\"},{\"claim_id\":\"c3\",\"pertinente\":false,\"raison\":\"hors_objet\"}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":false},{\"segment\":2,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CefcpJiXzmStvejJy8rUa",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3913,
+        "inference_geo": "global",
+        "input_tokens": 792,
+        "output_tokens": 399,
+        "output_tokens_details": {
+          "thinking_tokens": 225
         },
         "service_tier": "standard"
       }

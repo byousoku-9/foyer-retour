@@ -74,17 +74,17 @@
     "response": {
       "content": [
         {
-          "signature": "EuYECpABCBEYAipAdg3q+3Y+ztEPdLS5I6RGZr6Gt363wYceRzmDJ57f/9BUYXRgZJhAoVnvi85BMUs7n2GR9vtALT2XxEOGuz00DzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbW94tQGEgz1TOn1yBHHRBUTDZIaDDcWKPeRUFTlNe65sCIwdc/XVQGLtg8ltI9Wlvi8tixwHVopI0NmgiOC7yPLflvaxGU0TmE7PHJKyEWvob11KoIDyOnjQms0CJRMsIZ3K63qutIzeudueaayV5cpsj5DbpMckA5wo7ycg+skKeUL+9OtsthcXP1LLf5//oghXPu0Q1c5Z3KLpD5yYgLO2flxLfiAhg90b0JgtEqKu8usPYTpqOrRTLSHscRLQzZpyyS7vOb4+A7JdGL7dRYH9WXm2mu0IXeFwsCCHHV1xM359ahZKm7tWrgRZurcMA+u9143ngRKI7AYhsxdiW/qah3M/xOCUsohnYXm86JtL7QHAiEhpQloMqfcnl0Vo4PNYC3jiyoeM/15F/BguZBZVQ2WpZ3GYAurTYO3tnC5/ZjGx4kBBnBGJw/Vh7CTUJWt8ZzwQRHwWVH1zQWXcL6KfeOjTqOAJyJKlEKPaQBh4zl/Khr5Tr78DkmHiqnRC7jFZCse7JJgbVb4t8+UDZIrvz413m8OO31jFi20lwsTPIgtnFi89EPDM+77VvEH3BsaSrBrF7OD2bORX0ci3vpLtqnn4q6du1EOF1PSfwoNEoN++XuRg2wYAQ==",
+          "signature": "EqYHCpABCBEYAipAsIVv8pstM6npoQd5kLjw9Q4fMhS6ON+gqqgYGz8XluOzKi1Bmd/uCzilxE+S1bDNE9eI8FQtr2FBHxq6bfsvsDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYiV49QGEgz2AmY3S4V1B8/fxuMaDCeK9lZYNfejwg6mlSIwWXNsfLMdQ5yasZiJ+hXQRbOm8fpaY67NEUUIiRMnPKsEd4HrgMGUBmPH3NyIgDkbKsIFtktKzvnUhiNF4dzZbLHvN/5qyc08/bkeLr7uArXfv0osVhARKgcnDPYj8sch5cJHoQFM16xURfSJQ+Tmpt+fy/WI9mMY5ecEqmVmjnON7bmHd9pXAakeNMdpJmosuAzZjxwAtTxw9jod/GHIM3p4xxQCTwimnHbtyYK6a7O0z4gb5fJLWNwca1XjjMsWom3Ua5kbbpsOceUzRkpEh1nPehQUXjZO/UuobsL9L32Z/shqlupgZ41H3T2EB82beNZhOmSyFgFGBKHWMaj62UI+maTm3ir1IjR87uTXyKozWK4cvIT2VrqZY/2JI9omA3to25RcEMq++9MF+hDsD0fOfl+HUBlkITFzjrl8Bav4WA5QiAELOpzGyHMQfhL2vgaImfYrauA1BexC/vv95jhe4QFkLksaUOvRD5gYLsF4jZ+YaHDY8UKEHuDTif/0Q8voSn9ND/8bjqFeNFjmaHddT+87RBnmCDSH0wX10338+/7NbACV60Zsi3M2xF7ymJKom2PcUBX77EQX4BxSxHkSZzwtISZTd2Yg3TK7vRfiOk4/aE7oGyH8/SsIDE++xjvVt1RVeRlJwnMZ9msuDS5pseuRbeIz0VVKy1cQHssa9G8sFfMMpnTHrnZj361QREi/reIxV/Uc/ebIPXwjVcu9VreFDVbgsaln1EJc6w/yaHD8SNgyuw7Xgnxj5X8SHENXH637Uczc6Ccn+JL+rf3nWs502s/4qkhz1/JE+BHJAVeF8ClAN09TKnKaSuFCMisIL+8Hd2Kfm8/bPD67xxNq/YmtV3679H3sD/erjbshY2DTWa2+WPOVayVinay2tmwzGCOX+fuqn0ueDcZi9lh9WmaS3WPb/JSw5pVm7z0eJhbKvd/XHclh1KYmuYVucLZHfZ/cWSX3Bd7tSPc2XqDcG77ySoJpLIF5apHvFyDLlRU+7hgB",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Quand faut-il faire la démarche concernant le permis de conduire ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"permis de conduire\",\"échange permis\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour la démarche du permis de conduire\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Dans quel délai dois-je effectuer la démarche pour mon permis de conduire ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"permis de conduire\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour le permis de conduire\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNqXCH9JVZ69yPrAi3h",
+      "id": "msg_011Cefd6XZ9pz79LiwyUFhkK",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -100,9 +100,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 175,
-        "output_tokens": 280,
+        "output_tokens": 396,
         "output_tokens_details": {
-          "thinking_tokens": 140
+          "thinking_tokens": 259
         },
         "service_tier": "standard"
       }

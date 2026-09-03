@@ -44,11 +44,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"huit premiers jours\",\"déclaration d'arrivée\",\"installation au Luxembourg\",\"conseil fiscal première année\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année d'installation\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"premiers jours\",\"déclaration d'arrivée\",\"conseil fiscal première année\",\"administration\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"Que prévoir pour la première année après son arrivée au Luxembourg ?\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CefNkpNW9TqwqTbARwpDN",
+      "id": "msg_011Cefd1QFURue1jwY1ECNby",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -64,7 +64,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 163,
-        "output_tokens": 186,
+        "output_tokens": 189,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
