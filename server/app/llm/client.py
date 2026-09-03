@@ -527,6 +527,7 @@ class LlmClient:
         thinking: dict[str, Any] | None = None,
         prompt_cache: bool = True,
         trusted_line_uids: tuple[str, ...] = (),
+        validation_context: dict[str, Any] | None = None,
     ) -> LlmResult[T]:
         """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide.
 
@@ -540,6 +541,17 @@ class LlmClient:
         de messages, que nous ne posons nulle part, en dépend). C'est ce qui permet de **fermer les
         outils** sur un tour sans réécrire le préfixe caché de la conversation — retirer `tools`,
         lui, le réécrirait en entier.
+
+        `validation_context` est passé tel quel aux validateurs pydantic du modèle de sortie
+        (`ValidationInfo.context`). Il permet à une étape d'exiger de sa sortie une propriété que le
+        JSON Schema ne sait pas dire — la **totalité** d'une liste rendue face à ce qui a été soumis,
+        typiquement. Il n'entre ni dans le corps de la requête, ni dans la clé de cache, ni dans
+        `model_json_schema()` : le préfixe caché, `prompts_digest` et les fixtures restent intacts.
+        Un manquement qu'il révèle compose le même motif et déclenche le même `parse_retry` borné
+        qu'une erreur de schéma. Il n'a en revanche pas la même issue : si le rejeu ne le corrige pas
+        et que la réponse reste conforme au schéma **envoyé**, elle est rendue telle quelle plutôt
+        que levée. Le fournisseur n'a jamais reçu cet invariant ; l'étape qui l'a posé est la seule à
+        savoir s'il vaut un repli ou un échec, et c'est elle qui en décide.
         """
         settings = self._settings
         max_tokens = max_tokens or settings.llm_max_output_tokens
@@ -670,6 +682,9 @@ class LlmClient:
             text = _text_of(message)
             problem: str | None = None
             hard_problem = False
+            # Une réponse qui ne manque **que** l'invariant de contexte : conforme au schéma envoyé,
+            # donc exploitable si le rejeu ne la corrige pas (voir plus bas).
+            hors_contexte: T | None = None
             if message.stop_reason == "refusal":
                 problem = "le modèle a refusé de répondre (stop_reason=refusal)"
                 hard_problem = True
@@ -681,9 +696,20 @@ class LlmClient:
                 problem = f"réponse tronquée (stop_reason=max_tokens, max_tokens={max_tokens})"
             else:
                 try:
-                    parsed = adapter.validate_json(text)
+                    parsed = adapter.validate_json(text, context=validation_context)
                 except pydantic.ValidationError as exc:
                     problem = f"réponse non conforme au schéma : {self._validation_motive(exc, champs)}"
+                    if validation_context is not None:
+                        # Un invariant de contexte est une **exigence adressée au modèle**, pas une
+                        # contrainte de forme : le fournisseur ne l'a jamais reçue, puisqu'il ne voit
+                        # que `model_json_schema()`. Il vaut donc un rejeu — jamais une panne de la
+                        # requête. Si la réponse est par ailleurs conforme au schéma envoyé, on la
+                        # garde sous le coude : c'est l'étape qui a posé l'invariant qui sait quoi
+                        # faire d'une réponse incomplète, et elle a déjà son repli (T15).
+                        try:
+                            hors_contexte = adapter.validate_json(text)
+                        except pydantic.ValidationError:
+                            hors_contexte = None
             # Après validation locale, le sink API ne garde que la projection sûre. Un sink exact
             # hors ligne explicitement injecté conserve aussi une réponse invalide et sa classe.
             projection = self._audit_call(
@@ -708,6 +734,12 @@ class LlmClient:
             can_retry = (not retried and budget.attempts < budget.max_attempts
                          and budget.remaining() > settings.llm_retry_margin_s)
             if not can_retry:
+                if hors_contexte is not None:
+                    # Le rejeu n'a pas suffi : la réponse repart telle qu'elle est, et l'étape
+                    # applique son repli. Elle n'est **pas** cachée — figer une réponse qui n'a pas
+                    # satisfait ce qui lui était demandé la resservirait indéfiniment. `parse_retry`,
+                    # déjà posé avec le motif qui nomme ce qui manque, est la trace de ce chemin.
+                    return LlmResult(parsed=hors_contexte, usage=usage, call=call)
                 raise LlmParse(problem, stop_reason=message.stop_reason)
             retried = True
             step.checks.append(CheckResult(name="parse_retry", ok=False, detail=problem))

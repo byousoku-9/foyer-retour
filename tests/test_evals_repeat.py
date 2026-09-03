@@ -552,6 +552,53 @@ def test_la_stabilite_sinistre_exige_la_preuve_attendue_et_le_verdict_admissible
     assert "signatures divergentes entre répétitions" in detail["raisons"]
 
 
+def test_le_jeu_b_congelateur_redevient_stable_quand_la_garantie_fondatrice_est_jugee() -> None:
+    """Rejeu hors ligne du cas instable du gate Baloise du 03/09 (T15), tel que `.audit/` le porte.
+
+    Blocs cités par les claims retenues, mesurés : rép.1 et rép.2 portent la garantie fondatrice
+    `p21:4` et rendent `sous_conditions` ; rép.3 la perd — le contrôle groupé n'avait rendu aucun
+    verdict pour la claim qui la citait — et rend `ne_tranche_pas`. Les trois verdicts sont admis par
+    l'oracle : seule la règle (b) de la stabilité voit le défaut, et elle le voit. Vert-après : la
+    même rép.3 avec la claim jugée porte `p21:4` et `sous_conditions`.
+
+    Le plancher ne bouge pas : c'est le système qui est corrigé, pas le témoin.
+    """
+    mesures = {1: (("p21:4", "p21:5", "p21:7", "p21:9", "p12:10", "p12:11", "p12:14"),
+                   "sous_conditions"),
+               2: (("p21:4", "p21:5", "p21:7", "p21:9"), "sous_conditions"),
+               3: (("p21:5", "p21:9", "p15:4"), "ne_tranche_pas")}
+
+    def _repetitions(mesures: dict[int, tuple[tuple[str, ...], str]]) -> list[runner.Resultat]:
+        return [_resultat_sinistre(rang, verdict=verdict, hash_preuve=f"borne-{rang}",
+                                   blocs=tuple(f"contrat-test:{b}" for b in blocs),
+                                   expected_block_ids=())
+                for rang, (blocs, verdict) in sorted(mesures.items())]
+
+    # Les deux autres cas du gate vertical Baloise étaient stables : `ne_tranche_pas` ×3.
+    stables = [runner.Resultat(id=case_id, suite="sinistre:contrat-test", label="bonne_reponse",
+                               variant=runner.DEFAUT_PAR_SUITE["sinistre"], found=True,
+                               verdict="ne_tranche_pas", repetition=rang, doc_id="contrat-test",
+                               expected_block_ids=[], proofs=[_preuve("contrat-test:p12:6")])
+               for case_id in ("b-autre-1", "b-autre-2") for rang in (1, 2, 3)]
+    cas = [_cas_sinistre_stabilite().model_copy(update={"id": case_id})
+           for case_id in ("s-stable", "b-autre-1", "b-autre-2")]
+
+    # Rouge-avant : la signature diverge, le cas est instable, et le gate mesure 2 cas sur 3.
+    agregat = runner.agreger_stabilite(_repetitions(mesures) + stables, cas, repeat=3)
+    detail = agregat["cases"]["s-stable"]
+    assert detail["stable"] is False
+    assert "signatures divergentes entre répétitions" in detail["raisons"]
+    assert runner._taux_stabilite(agregat, "sinistre") == (0.6667, 3)
+
+    # Vert-après : la claim qui cite `p21:4` a reçu son verdict, la table AD-6 la relit, et la
+    # troisième répétition retombe sur le verdict des deux premières.
+    reparee = {**mesures, 3: (("p21:4", "p21:5", "p21:9", "p15:4"), "sous_conditions")}
+    agregat = runner.agreger_stabilite(_repetitions(reparee) + stables, cas, repeat=3)
+    detail = agregat["cases"]["s-stable"]
+    assert detail["stable"] is True and detail["raisons"] == []
+    assert runner._taux_stabilite(agregat, "sinistre") == (1.0, 3)
+
+
 def test_les_trois_repetitions_axa_deviennent_stables_sans_perdre_la_propriete() -> None:
     """Témoin rouge-avant / vert-après, sur la forme mesurée au gate AXA vertical du 03/09.
 

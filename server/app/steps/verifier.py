@@ -48,7 +48,7 @@ import re
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationInfo, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from server.app.config import Settings
@@ -170,6 +170,45 @@ class SortieVerifier(BaseModel):
     verdicts: list[VerdictPertinence]
     facettes: list[FacettePertinence] = []
     segments: list[VerdictSegment] = []
+
+    @model_validator(mode="after")
+    def _totalite_des_verdicts(self, info: ValidationInfo) -> "SortieVerifier":
+        """Un verdict par affirmation soumise — invariant de **schéma**, pas de prompt (T15).
+
+        Le prompt le demande déjà mot pour mot (« Rends exactement un verdict par `claim_id` reçu »),
+        et le gate Baloise du 03/09 a mesuré qu'un prompt ne garantit rien : sur `b-congelateur`, le
+        contrôle groupé a rendu un `verdicts[]` **partiel** deux fois de suite, la claim qui citait la
+        garantie fondatrice `p21:4` n'a reçu aucun verdict, le code l'a écartée en silence, et la
+        table AD-6 n'ayant plus de garantie à lire a rendu `ne_tranche_pas` là où les deux autres
+        répétitions rendaient `sous_conditions`. Une sortie non totale n'est donc pas une décision :
+        c'est une réponse incomplète, et une réponse incomplète est une réponse invalide.
+
+        Ce contrôle vit ici et pas dans le JSON Schema parce qu'un `model_validator` n'apparaît pas
+        dans `model_json_schema()` : le schéma envoyé au fournisseur, l'empreinte de préfixe cachée,
+        `prompts_digest` et les fixtures live sont inchangés. Il ne s'arme que **sous contexte** —
+        l'étape qui sait ce qu'elle a soumis le fournit ; toute autre validation (tests unitaires,
+        rejeu d'une entrée de cache) garde exactement le comportement d'avant.
+
+        La totalité est une **couverture**, pas une égalité : un `claim_id` inventé ne décide déjà
+        rien en aval (`_pertinence`), et le faire échouer ici punirait la réponse pour un défaut qui
+        n'en est pas un pour nous. Seuls les identifiants soumis et non jugés sont nommés.
+
+        AD-15 : le motif part dans `StepTrace.checks` et dans la relance. Les `claim_id` viennent du
+        modèle (*rédiger* les a produits) — ils ne sont donc nommés que par `_nom_de_claim_id`, qui
+        n'en laisse passer que ce qui ressemble à un identifiant et donne sa position au reste.
+        """
+        attendus = (info.context or {}).get("claim_ids") if isinstance(info.context, dict) else None
+        if not attendus:
+            return self
+        rendus = {v.claim_id for v in self.verdicts}
+        manquants = [_nom_de_claim_id(cid, position)
+                     for position, cid in enumerate(attendus, start=1) if cid not in rendus]
+        if manquants:
+            raise ValueError(
+                f"verdicts incomplets : {len(manquants)} affirmation(s) sur {len(attendus)} sans "
+                f"verdict de pertinence ({', '.join(manquants)}) — rends exactement un verdict par "
+                "claim_id reçu, y compris pour celles que tu juges non pertinentes")
+        return self
 
 
 # Les mots qui nomment la **catégorie** d'une qualité, jamais la qualité elle-même : les retrouver
@@ -529,9 +568,14 @@ def _bloc_connu(index: Any, block_id: str) -> bool:
     return True
 
 
+def _nom_de_claim_id(claim_id: str, position: int) -> str:
+    """Comment nommer un `claim_id` dans un motif : lui-même s'il est plausible, sa position sinon."""
+    return claim_id if _CLAIM_ID.match(claim_id) else f"claim n° {position}"
+
+
 def _nom_de_claim(claim: Claim, position: int) -> str:
     """Comment nommer la claim dans un motif : son `claim_id` s'il est plausible, sa position sinon."""
-    return claim.claim_id if _CLAIM_ID.match(claim.claim_id) else f"claim n° {position}"
+    return _nom_de_claim_id(claim.claim_id, position)
 
 
 def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
@@ -1301,7 +1345,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                                     effort=(EFFORT_PAR_PROMPT.get("verifier_sinistre")
                                             if sinistre and MODEL_CAPS[model_for(step.tier)]["effort"]
                                             else None),
-                                    trusted_line_uids=trusted_line_uids)
+                                    trusted_line_uids=trusted_line_uids,
+                                    # Ce que nous avons soumis : `SortieVerifier` s'en sert pour exiger
+                                    # la totalité des verdicts. Aucun appel de plus (AD-9) — c'est le
+                                    # `parse_retry` déjà borné du client qui rejoue **le même** appel.
+                                    validation_context={
+                                        "claim_ids": [claim.claim_id for claim, _, _ in evaluees]})
     except PipelineError as exc:
         # AD-10/AD-16 (revue Codex 1.5, tour 2, B5) : l'appel a pu être facturé — `step.calls` le
         # porte, `budget` aussi. Sans ce rattachement, le pipeline ne peut pas distinguer un appel

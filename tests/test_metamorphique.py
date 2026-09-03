@@ -88,6 +88,40 @@ def test_le_verdict_est_invariant_sous_permutation_des_identifiants() -> None:
     assert sorted(v1.ask_client) == sorted(v2.ask_client)
 
 
+def test_retirer_un_verdict_ne_change_jamais_le_verdict_en_silence() -> None:
+    """Garde T15 : à claims, champs typés et corpus identiques, perdre le verdict d'une clause
+    fondatrice **change** la décision — donc ce silence ne peut jamais être traité comme une décision.
+
+    C'est la moitié domaine de l'invariant de totalité posé sur `SortieVerifier` : elle établit la
+    prémisse — la perte n'est pas neutre — et l'invariance de cette non-neutralité sous permutation
+    des identifiants prouve qu'elle tient du **typage** de la clause, pas de son `block_id`. L'autre
+    moitié — « soit le rejeu la récupère, soit l'étape est rouge » — vit dans `tests/test_verifier.py`,
+    là où l'étape et son `parse_retry` existent.
+
+    La forme est celle mesurée au gate Baloise du 03/09 sur `b-congelateur` : garantie fondatrice
+    subordonnée aux conditions particulières ⇒ `sous_conditions` ; la même sans elle ⇒ `ne_tranche_pas`.
+    """
+    def _dossier() -> list[ClaimJugee]:
+        return [
+            ClaimJugee(claim_id="c-garantie",
+                       clauses=[_clause("garantie", block_id="doc-neutre:p3:1")],
+                       champs=_champs(True, cp=True)),
+            ClaimJugee(claim_id="c-exclusion",
+                       clauses=[_clause("exclusion", block_id="doc-neutre:p7:2",
+                                        node_id="n-annexe", socle=False, portee={"n-annexe"})],
+                       champs=_champs(False)),
+        ]
+
+    def _sans_la_garantie(claims: list[ClaimJugee]) -> list[ClaimJugee]:
+        """Ce que faisait le code d'avant d'une claim sans verdict : elle sort de la table."""
+        return [c for c in claims if not c.claim_id.endswith("c-garantie")]
+
+    for prefixe, pages in (("", 0), ("autre", 40), ("miroir", 11)):
+        claims = _dossier() if not prefixe else _permuter(_dossier(), prefixe=prefixe, pages=pages)
+        assert decider(claims, ask_client_max=8).value == "sous_conditions"
+        assert decider(_sans_la_garantie(claims), ask_client_max=8).value == "ne_tranche_pas"
+
+
 def test_lapplicabilite_est_invariante_sous_permutation() -> None:
     original = _corpus_synthetique()
     permute = _permuter(_corpus_synthetique(), prefixe="miroir", pages=11)
