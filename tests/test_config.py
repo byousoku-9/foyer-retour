@@ -691,12 +691,18 @@ def test_la_borne_du_verificateur_sinistre_reserve_la_reflexion_quelle_paie() ->
     #
     # **T1d, 03/09/2026 : les deux termes sont relus sur l'audit complet, et le premier change de
     # nature.** À `low`, les 27 appels non tronqués de `a16-t1b/llm-calls.jsonl` donnent au pire
-    # 2 932 tokens de réflexion et 738 de JSON (à cinq affirmations). À `medium` — l'effort servi —
+    # 2 932 tokens de réflexion et 738 de JSON (à cinq affirmations) — et c'est de nouveau l'effort
+    # servi depuis T10. À `medium`,
     # les deux seuls appels de `a16-t1c/llm-calls.jsonl` ont **saturé** leur plafond : 4 096 et
     # 4 095 tokens de réflexion pour 4 096 de sortie, zéro JSON rendu. La mesure est **censurée** :
     # elle dit « au moins 4 096 », pas combien. Ce témoin retient donc le plancher qu'elle prouve —
     # une réserve qui ne le couvre pas ne peut que tronquer — sans prétendre qu'il majore quoi que
     # ce soit ; c'est le commentaire de `verifier_thinking_reserve_tokens` qui porte le pari.
+    #
+    # **T10 : l'effort servi est redescendu à `low`, et ce plancher est conservé tel quel.** Il ne
+    # décrit plus l'appel qu'on fait ; il décrit ce que la réserve doit pouvoir absorber si l'effort
+    # remontait, et il est la contrainte la plus serrée que la mesure ait jamais prouvée. La borne
+    # large qu'il impose est exactement ce que `verifier_thinking_reserve_tokens` assume.
     REFLEXION_MESUREE = 4096
     JSON_MESURE = 738
     assert s.verifier_thinking_reserve_tokens >= REFLEXION_MESUREE, (
@@ -754,11 +760,13 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     réponses A16 du pipeline intégré (`.../a16-t1b/a16-r{1,2,3}.json`) donnent celles de *comprendre*
     et du tour terminal.
 
-    **Le terme de *vérifier* n'est pas un maximum mesuré, et c'est délibéré (T1c).** L'effort de cet
-    appel vient de repasser à `medium` : sa sortie sur cette chaîne n'a jamais été mesurée à cet
-    effort, et les 3 130 tokens relevés à `low` majorent un appel qu'on ne fait plus. Le seul
-    majorant honnête est le plafond réellement envoyé, `verifier_sinistre_max_tokens` — donc le
-    témoin le lit sur la configuration, au lieu de figer un nombre que la prochaine mesure démentira.
+    **Le terme de *vérifier* n'est pas un maximum mesuré, et c'est délibéré.** Le témoin lit le
+    plafond réellement envoyé, `verifier_sinistre_max_tokens`, au lieu de figer un nombre que la
+    prochaine mesure démentira — c'était vrai quand l'effort de cet appel était `medium` et que sa
+    sortie n'avait jamais été mesurée à cet effort (T1c) ; ça l'est encore depuis qu'il est
+    redescendu à `low` (T10), où le plafond est conservé comme **borne large** au-dessus d'une
+    dépense mesurée à 2 492 tokens. Un plafond qui majore largement la mesure majore la durée à
+    couvrir : la deadline reste dérivée contre lui, jamais contre le pari du jour.
 
     Le témoin est écrit contre la **cible du spine** (8 tours), et non contre le plafond du code :
     la deadline doit couvrir le chemin que l'architecture rend légitime. La seconde assertion tient
@@ -792,8 +800,8 @@ def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:
     LATENCE_PAR_APPEL_S = 2.0
 
     s = Settings(_env_file=None, anthropic_api_key="")
-    # Le seul terme lu sur la configuration, pour la raison dite dans la docstring : à `medium`, la
-    # sortie de *vérifier* n'est pas mesurée, et son plafond est ce qui la borne.
+    # Le seul terme lu sur la configuration, pour la raison dite dans la docstring : le plafond
+    # envoyé borne la sortie de *vérifier*, et il la majore largement depuis le retour à `low`.
     VERIFIER = s.verifier_sinistre_max_tokens
     assert s.navigation_max_llm_turns <= TOURS_CIBLE_AD1, (
         f"navigation_max_llm_turns ({s.navigation_max_llm_turns}) dépasse la cible d'AD-1 "

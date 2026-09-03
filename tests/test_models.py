@@ -96,13 +96,16 @@ def test_aucune_surface_active_nattribue_un_appel_servi_au_tier_micro() -> None:
 
 
 def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
-    # Une seule dérogation depuis T1c (03/09/2026) : la rédaction sinistre transcrit des clauses
-    # déjà retrouvées. *Vérifier* est **revenu au défaut de son palier** — la dérogation `low` lui
-    # coûtait un jugement contradictoire sur A16 (voir `llm/models.py`), et un effort abaissé n'est
-    # tenable que sur une étape qui n'a rien à décider.
-    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low"}
-    # La conséquence, épinglée ici parce que c'est elle qui compte : l'appel part à l'effort du tier.
-    assert "verifier_sinistre" not in models.EFFORT_PAR_PROMPT
+    # Deux dérogations depuis T10 (03/09/2026) : la rédaction sinistre transcrit des clauses déjà
+    # retrouvées, et le vérificateur sinistre est **redescendu à `low`** — à `medium`, la mesure
+    # non censurée d'A16 sur `28366ad` montre une réflexion qui sature son plafond de 6 144 sans
+    # rendre de JSON, pour 120 s et 0,18 € par vérification (voir `llm/models.py`). Le mode d'échec
+    # qui avait fait remonter l'effort à T1c est désormais constaté par le code
+    # (`hors_objet_incoherent`, T1f), pas acheté en profondeur de réflexion.
+    assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low",
+                                                         "verifier_sinistre": "low"}
+    # La conséquence, épinglée ici parce que c'est elle qui compte : l'appel ne part **pas** à
+    # l'effort du tier, qui reste `medium` pour les autres prompts du palier.
     assert models.EFFORT[models.STEP_TIERS["verifier"]] == "medium"
 
 

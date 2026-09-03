@@ -90,6 +90,23 @@ EFFORT_PAR_PROMPT: dict[str, str] = {
     # Si un appel sature encore 6 144, le repli est de revenir à `low` — où la dépense est mesurée,
     # non censurée — et non d'ajouter un palier de plus. Voir `config.py`,
     # `verifier_thinking_reserve_tokens`.
+    #
+    # **T10, 03/09/2026 : un appel a saturé 6 144, et le repli annoncé s'applique.** Mesure A16 sur
+    # `28366ad` (`automation/runs/20260902-structure-index/a16-final1/a16-r1.json`, trace complète) :
+    # la première vérification consomme **6 144 tokens de réflexion sans rendre un caractère de
+    # JSON** — troncature, donc retry —, puis 4 994 et 5 057. Une vérification coûte là **120 s et
+    # 0,18 €**, sur une chaîne dont la deadline entière vaut 290 s. La condition posée à T1d est
+    # remplie mot pour mot : la mesure a dit que cette tâche n'a pas de plafond de réflexion à cet
+    # effort, et le repli est `low`, pas un palier de plus.
+    #
+    # **Ce qui rend `low` tenable aujourd'hui et ne l'était pas à T1c.** Le mode d'échec qui avait
+    # fait remonter l'effort — une sortie qui rejette une claim en `hors_objet` tout en remplissant,
+    # dans le même objet, une applicabilité qui la traite comme au sujet — n'est plus payé au tarif
+    # de la réflexion : il est **constaté par le code**, par le recoupement `hors_objet_incoherent`
+    # ajouté en T1f. Un jugement qui se contredit d'un champ à l'autre est désormais attrapé là où
+    # il se voit, pas évité en achetant de la profondeur. Et la dépense de `low` est mesurée, non
+    # censurée : ≤ 2 500 tokens de réflexion sur la campagne d'hier.
+    "verifier_sinistre": "low",
 }
 
 

@@ -647,6 +647,28 @@ class Settings(BaseSettings):
     # mesurée, non censurée, et majorée par 3 665.
     # `[HYPOTHÈSE]` — n = **1 cas** (le témoin bougie), deux essais. La campagne `--repeat 3` doit
     # rendre une réflexion **non saturée** avant que ce nombre cesse d'être un pari.
+    #
+    # **T10, 03/09/2026 : la campagne a rendu la mesure non censurée qu'on attendait, et elle a
+    # tranché contre `medium`.** Sur `28366ad` (`a16-final1/a16-r1.json`), la première vérification
+    # a saturé les 6 144 — 6 144 tokens de réflexion, zéro JSON —, puis les deux appels suivants ont
+    # rendu 4 994 et 5 057. Le repli annoncé ci-dessus s'applique : l'effort de cet appel repasse à
+    # `low` (`llm/models.EFFORT_PAR_PROMPT`).
+    #
+    # **Ce que la réserve vaut à `low`, mesuré et non censuré** : 2 492 tokens de réflexion au pire
+    # de la campagne d'hier (1 859 / 2 492 / 1 668), 2 932 au pire des 27 appels non tronqués de
+    # l'audit T1b. La règle du palier — majorer le pire mesuré de 25 % — prescrit donc 2 492 × 1,25
+    # = **3 115**, et 3 665 si l'on majore le pire historique. Avec 1 024 de contrat JSON, la borne
+    # dérivée vaut **4 139**.
+    #
+    # **Le plafond reste pourtant à 6 144, et c'est délibéré.** Un plafond n'est pas une
+    # réservation : sur `max_tokens`, rien n'est facturé qui n'est pas dépensé, et la seule chose
+    # qu'une borne large coûte est la durée qu'il faudrait pour l'écrire — durée qui est déjà
+    # couverte (`llm_timeout_s` 78 s ≥ 6 144 / 85 + 5 = 77,3 s ; `deadline_s` 290 s ≥ 289,0 s rendus
+    # par le témoin de la chaîne, inchangé puisque son seul terme lu sur la configuration ne bouge
+    # pas). Le descendre à 4 139 n'achèterait donc rien, et rouvrirait la troncature — celle-là même
+    # qui a coûté un retry à `low` sur un appel de l'audit T1b — pour la queue lourde de cette
+    # tâche. 5 120 majore de **75 %** le pire jamais mesuré à `low` : c'est la borne de sûreté, pas
+    # la dérivation.
     verifier_thinking_reserve_tokens: int = Field(5120, ge=0)
 
     @property
