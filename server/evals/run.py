@@ -3279,6 +3279,10 @@ async def _executer_puis_fermer(cas: list[Cas], ctx: Contexte, *, gate: str | No
 
 
 def _parser() -> argparse.ArgumentParser:
+    # Import local, comme celui de `run_comparison` plus bas : le parseur ne doit pas faire de la
+    # matrice une dépendance d'import du harness.
+    from server.evals.baselines import VARIANTS as BASELINE_VARIANTS
+
     p = argparse.ArgumentParser(
         prog="python -m server.evals.run",
         description="Harness reproductible des questions-témoins (AD-14) : cache, budget et rapports.")
@@ -3297,8 +3301,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--variant", choices=VARIANTES_LIVREES,
                    help="variante (défaut : " + ", ".join(
                        f"{suite} → {defaut}" for suite, defaut in DEFAUT_PAR_SUITE.items()) + ")")
+    # L'ensemble exact est **lu** sur `baselines.VARIANTS`, jamais recopié : la matrice et son aide
+    # ne peuvent pas diverger, et une variante retirée cesse d'être proposée à l'opérateur le jour
+    # où elle est retirée.
     p.add_argument("--compare",
-                   help="matrice 4.4 : deterministe,outils,full_context (ensemble exact)")
+                   help="matrice 4.4 : " + ",".join(BASELINE_VARIANTS) + " (ensemble exact)")
     p.add_argument("--tiers", help="profil retrieval : reason (ensemble exact)")
     p.add_argument("--gate", metavar="DOC_ID",
                    help="écrire `manifest.gate` pour ce document depuis la suite qui le sert")
