@@ -140,7 +140,7 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 100.0) -> RequestBudget:
+def _budget(deadline_s: float = 300.0) -> RequestBudget:
     """Le plafond d'appels par défaut du fichier.
 
     Huit, et non plus six, depuis que le chemin servi est la navigation par le modèle (amendement
@@ -148,8 +148,23 @@ def _budget(deadline_s: float = 100.0) -> RequestBudget:
     tours de lecture (2), l'ébauche (1), le contrôle (1), puis la relance d'AD-3 et sa vérification
     (2) — sept appels. Le plafond n'est pas ce qui est mesuré ici ; les témoins qui l'éprouvent
     posent le leur, chiffré sur la chaîne qu'ils veulent arrêter.
+
+    **0,30 € et non 0,20 depuis T1d (03/09/2026), pour la même raison : ce plafond n'est pas la
+    propriété.** `estimate_cost` compte la sortie **à `max_tokens`**, et le pré-contrôle refuse
+    avant l'appel ; relever le plafond du vérificateur sinistre de 4 096 à 6 144 tokens majore donc
+    l'estimation de la chaîne d'environ 0,02 €, ce qui suffisait à faire refuser à 0,20 € des
+    chaînes que ces témoins veulent voir **aboutir** (0,0164 engagés + 0,190 estimés). Le plafond
+    servi, lui, vaut `max_cost_eur_per_request` (0,75 €) et garde toute sa marge.
+
+    **La deadline par défaut passe de 100 s à 300 s, et pour une raison de même nature.** Avant
+    chaque appel, `timeout_for_call()` et les gardes de second cycle refusent de partir quand le
+    temps restant ne suffit pas à écrire `max_tokens` (`duree_majoree_pour`) : à 6 144 tokens, cela
+    fait 77,3 s pour le seul vérificateur sinistre, et la chaîne d'AD-3 le paie **deux** fois. Sous
+    100 s, ces témoins n'arrêtaient plus la chaîne sur ce qu'ils mesurent mais sur un manque de
+    temps — script non consommé, `Timeout` avant l'appel. 300 s est la valeur servie (`deadline_s`,
+    290 s) arrondie au-dessus ; les témoins qui éprouvent la deadline posent la leur.
     """
-    return RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.20)
+    return RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.30)
 
 
 def _comprendre(intent: str = "question", *, terms: list[str] | None = None,
@@ -2192,7 +2207,12 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
     sans marge »), la réponse vérifiée est servie, et elle n'est pas donnée pour complète — avec une
     phrase qui dit pourquoi.
     """
-    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
+    # Ce qui arrête la relance ici est le **plafond d'appels** (5), pas l'euro : le plafond de coût
+    # doit seulement laisser passer les cinq appels. 0,20 € ne le faisait plus depuis que le
+    # vérificateur sinistre est estimé à 6 144 tokens de sortie (T1d) — il refusait le **cinquième**
+    # appel, donc la vérification que ce témoin veut voir aboutir, et la relance n'était plus
+    # abandonnée pour la raison mesurée.
+    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.30)
     answer, trace, fake = await _run(index, [
         _comprendre(), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, False, False, False, None))], budget=budget)

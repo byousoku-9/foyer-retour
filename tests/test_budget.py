@@ -203,15 +203,17 @@ def test_relever_la_deadline_ne_rallonge_aucune_requete() -> None:
     from server.app.config import Settings
 
     settings = Settings(_env_file=None, anthropic_api_key="")
-    ANCIENNE = 55.0
+    # 250 depuis T1d : c'est la deadline d'avant ce tour, et il faut qu'elle **dépasse** le plafond
+    # par appel (78 s) pour que les deux côtés accordent bien le même temps. 55 était l'ancienne
+    # valeur de `llm_timeout_s`, pas une deadline, et elle bornait désormais le côté « étroit ».
+    ANCIENNE = 250.0
     # Au départ, les deux accordent exactement le même temps à un appel : le plafond par appel.
     for deadline in (ANCIENNE, settings.deadline_s):
         budget = RequestBudget(deadline_s=deadline, max_attempts=settings.max_llm_attempts,
                                max_cost_eur=1.0)
-        # `approx` et non l'égalité : depuis le correctif du tour 3, `llm_timeout_s` vaut 55, soit
-        # exactement l'ancienne deadline comparée ici — l'horloge monotone a déjà avancé de
-        # quelques microsecondes quand le budget est construit. Ce que le témoin tient est que le
-        # plafond par appel est le même des deux côtés, pas la milliseconde.
+        # `approx` et non l'égalité : l'horloge monotone a déjà avancé de quelques microsecondes
+        # quand le budget est construit. Ce que le témoin tient est que le plafond par appel est le
+        # même des deux côtés, pas la milliseconde.
         assert budget.timeout_for_call(settings.llm_timeout_s) == pytest.approx(
             settings.llm_timeout_s, abs=0.01)
 
@@ -226,9 +228,13 @@ def test_relever_la_deadline_ne_rallonge_aucune_requete() -> None:
         large._t0 -= consomme   # type: ignore[attr-defined]
         assert large.timeout_for_call(settings.llm_timeout_s) >= \
             etroit.timeout_for_call(settings.llm_timeout_s)
-    # À 60 s consommées, l'ancienne deadline refusait déjà (restant négatif) là où la nouvelle
-    # accorde encore un appel entier : c'est exactement le 503 nominal que le relèvement supprime.
-    epuise = RequestBudget(deadline_s=ANCIENNE, max_attempts=1, max_cost_eur=1.0)
+    # À 60 s consommées, une deadline courte refuse déjà (restant négatif) là où la servie accorde
+    # encore un appel entier : c'est exactement le 503 nominal que le relèvement supprime. La valeur
+    # est **écrite ici** et non reprise d'`ANCIENNE` depuis T1d : les deux rôles ont divergé —
+    # `ANCIENNE` doit dépasser le plafond par appel (78 s) pour que la boucle ci-dessus compare des
+    # timeouts égaux, celle-ci doit être épuisée par 60 s consommées.
+    COURTE = 55.0
+    epuise = RequestBudget(deadline_s=COURTE, max_attempts=1, max_cost_eur=1.0)
     epuise._t0 -= 60.0  # type: ignore[attr-defined]
     tenu = RequestBudget(deadline_s=settings.deadline_s, max_attempts=1, max_cost_eur=1.0)
     tenu._t0 -= 60.0    # type: ignore[attr-defined]

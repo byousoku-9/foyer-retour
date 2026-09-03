@@ -33,8 +33,8 @@ def test_defaults_match_spine_hypotheses() -> None:
     # `client_abort_margin_s` : 65 depuis T1c — l'ordre d'AD-11 (client 315 s > Cloud Run 300 s >
     # serveur 250 s) la dicte ; elle ne se choisit plus « un peu au-dessus de la deadline », elle est
     # le **reste** entre la patience du client et la deadline serveur.
-    assert s.deadline_s == 250 and s.llm_timeout_s == 55
-    assert s.client_abort_margin_s == 65
+    assert s.deadline_s == 290 and s.llm_timeout_s == 78
+    assert s.client_abort_margin_s == 25
     assert s.deadline_s + s.client_abort_margin_s == 315
     assert s.raison_publiable_max_chars == RAISON_PUBLIABLE_MAX_DEFAULT == 500
     assert s.quote_min_chars == 25 and s.quote_min_ratio == 0.6
@@ -93,9 +93,14 @@ def test_defaults_match_spine_hypotheses() -> None:
     # sur `navigation_draft_max_claims` (6 affirmations × 161 tokens, le pire mesuré, ≈ 968), la réserve sur
     # le retour de cet appel à l'effort `medium` du palier. La somme retrouve **exactement** le
     # plafond du client, comme au tour 2 : le contrôle de cohérence mord, et c'est voulu.
+    # Re-dérivé le 03/09/2026 (T1d) sur ce que l'audit de T1c a mesuré — le contrat JSON sur les 27
+    # appels non tronqués de T1b (droite affine, 791 à six affirmations ; enveloppe, 904), la
+    # réserve sur les deux appels `medium` qui ont **saturé** leur plafond (mesure censurée à
+    # 4 096, majorée de 25 %). La somme vaut de nouveau exactement le plafond du client, qui monte
+    # avec elle : c'est ce qui force `llm_timeout_s` et `deadline_s` à être re-dérivées ensemble.
     assert s.verifier_sinistre_json_tokens == 1024
-    assert s.verifier_thinking_reserve_tokens == 3072
-    assert s.verifier_sinistre_max_tokens == 4096 <= s.llm_max_output_tokens
+    assert s.verifier_thinking_reserve_tokens == 5120
+    assert s.verifier_sinistre_max_tokens == 6144 <= s.llm_max_output_tokens
     assert s.fait_manquant_max_chars == 200 and s.ask_client_max == 8
     assert s.pdf_highlight_max_lines == 40 and s.pdf_highlight_max_blocks == 10
     assert s.pdf_render_concurrency == 2 and s.pdf_render_queue_timeout_s == 2.0
@@ -680,8 +685,17 @@ def test_la_borne_du_verificateur_sinistre_reserve_la_reflexion_quelle_paie() ->
     s = Settings(_env_file=None, anthropic_api_key="")
     # Maximum observé sur les appels audités du vérificateur sinistre. Il valait 1 904 au tour 2 ;
     # l'audit du tour 3 le corrige à 2 394 — la réserve d'alors était **déjà** dépassée.
-    REFLEXION_MESUREE = 2394
-    JSON_MESURE = 510
+    #
+    # **T1d, 03/09/2026 : les deux termes sont relus sur l'audit complet, et le premier change de
+    # nature.** À `low`, les 27 appels non tronqués de `a16-t1b/llm-calls.jsonl` donnent au pire
+    # 2 932 tokens de réflexion et 738 de JSON (à cinq affirmations). À `medium` — l'effort servi —
+    # les deux seuls appels de `a16-t1c/llm-calls.jsonl` ont **saturé** leur plafond : 4 096 et
+    # 4 095 tokens de réflexion pour 4 096 de sortie, zéro JSON rendu. La mesure est **censurée** :
+    # elle dit « au moins 4 096 », pas combien. Ce témoin retient donc le plancher qu'elle prouve —
+    # une réserve qui ne le couvre pas ne peut que tronquer — sans prétendre qu'il majore quoi que
+    # ce soit ; c'est le commentaire de `verifier_thinking_reserve_tokens` qui porte le pari.
+    REFLEXION_MESUREE = 4096
+    JSON_MESURE = 738
     assert s.verifier_thinking_reserve_tokens >= REFLEXION_MESUREE, (
         "la réserve doit couvrir la réflexion mesurée, sinon elle rogne sur le JSON")
     assert s.verifier_sinistre_json_tokens >= JSON_MESURE
@@ -689,7 +703,7 @@ def test_la_borne_du_verificateur_sinistre_reserve_la_reflexion_quelle_paie() ->
             == s.verifier_sinistre_json_tokens + s.verifier_thinking_reserve_tokens)
     # Le contrôle de cohérence mord : la somme ne peut plus dépasser le plafond du client en silence.
     with pytest.raises(ValidationError, match="verifier_sinistre_max_tokens"):
-        Settings(_env_file=None, anthropic_api_key="", verifier_thinking_reserve_tokens=3500)
+        Settings(_env_file=None, anthropic_api_key="", verifier_thinking_reserve_tokens=5500)
 
 
 def test_le_delai_dappel_laisse_ecrire_la_plus_longue_sortie_detape() -> None:
@@ -716,8 +730,8 @@ def test_le_delai_dappel_laisse_ecrire_la_plus_longue_sortie_detape() -> None:
     with pytest.raises(ValidationError, match="ne laisse pas écrire"):
         # Le plafond du client relevé **et** une étape qui le remplit : la borne par étape passe,
         # c'est bien le temps d'écriture qui refuse.
-        Settings(_env_file=None, anthropic_api_key="", llm_max_output_tokens=6000,
-                 rediger_max_tokens=6000)
+        Settings(_env_file=None, anthropic_api_key="", llm_max_output_tokens=7000,
+                 rediger_max_tokens=7000)
 
 
 def test_la_deadline_couvre_la_chaine_de_navigation_par_le_modele() -> None:

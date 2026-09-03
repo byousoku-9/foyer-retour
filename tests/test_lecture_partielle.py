@@ -142,7 +142,10 @@ def _settings_sinistre(prefixe: str, **kw) -> Settings:
 
 
 def _budget() -> RequestBudget:
-    return RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=0.20)
+    # 300 s et 0,30 € depuis T1d : le plafond de sortie du vérificateur sinistre passe à 6 144
+    # tokens, que `estimate_cost` facture au majorant et que `exiger_le_temps_decrire` exige de
+    # pouvoir écrire (77,3 s). Ni l'euro ni la seconde ne sont ce que ce fichier mesure.
+    return RequestBudget(deadline_s=300.0, max_attempts=6, max_cost_eur=0.30)
 
 
 def _comprendre(*, question_resolue: str = QUESTION_INITIALE, terms: list[str] | None = None,

@@ -29,10 +29,15 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 100.0, max_attempts: int = 4, max_cost: float = 0.10) -> RequestBudget:
+def _budget(deadline_s: float = 100.0, max_attempts: int = 4, max_cost: float = 0.25) -> RequestBudget:
     """100 s, la deadline servie : depuis le correctif du tour 4, un appel dont la durée majorée
     dépasse le temps restant est refusé **avant** l'envoi, et 30 s ne laissaient pas écrire les
-    4 096 tokens que ces témoins demandent — le budget serait devenu le sujet de chaque test."""
+    4 096 tokens que ces témoins demandent — le budget serait devenu le sujet de chaque test.
+
+    **0,25 € et non 0,10 depuis T1d (03/09/2026)**, par le même raisonnement porté sur l'euro :
+    `llm_max_output_tokens` passe à 6 144, un appel sans plafond propre le reçoit, et `estimate_cost`
+    compte la sortie à `max_tokens` — au tarif `ingest`, cela fait 0,142 € estimés, refusés à
+    0,10 €. Ce que ces témoins mesurent est la **forme** de la requête, pas le plafond de coût."""
     return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=max_cost)
 
 
@@ -135,7 +140,7 @@ async def test_request_shape_micro_no_effort_temperature_zero() -> None:
     assert req["output_config"]["format"]["type"] == "json_schema"
     assert req["output_config"]["format"]["schema"]["required"] == ["mot"]
     assert req["max_tokens"] == _settings().llm_max_output_tokens
-    # `min(llm_timeout_s, restant)` : le plafond par appel vaut 55 s depuis le tour 3, et le
+    # `min(llm_timeout_s, restant)` : le plafond par appel vaut 78 s depuis T1d, et le
     # budget du témoin en laisse 100 — c'est donc le plafond qui borne.
     assert 0 < req["timeout"] <= _settings().llm_timeout_s
     assert "tools" not in req
@@ -183,7 +188,10 @@ async def test_timeout_is_capped_by_remaining_deadline() -> None:
     plafonnement du délai, pas ce refus.
     """
     client, fake = _client([fake_message(model=HAIKU)])
-    await _call(client, budget=_budget(deadline_s=60))
+    # `max_tokens` explicite depuis T1d : sans lui, l'appel prend le repli `llm_max_output_tokens`
+    # (6 144), dont l'écriture majorée demande 77,3 s — plus que les 60 s de ce budget, si bien que
+    # le refus d'avant-envoi précédait le plafonnement qu'on veut voir. 1 024 tokens demandent 17,0 s.
+    await _call(client, budget=_budget(deadline_s=60), max_tokens=1024)
     assert fake.requests[0]["timeout"] <= 60
 
 
@@ -776,14 +784,14 @@ def test_new_budget_takes_the_active_settings_and_never_extends_the_deadline() -
     pouvoir en demander moins ; lui laisser en demander **plus** offrirait, depuis l'extérieur du
     serveur, un contournement de la deadline par requête.
     """
-    # 70 et non 55 : depuis le correctif du tour 3, `llm_timeout_s` vaut 55, et une deadline
-    # égale au délai d'appel est refusée par `Settings` — ce que ce témoin ne mesure pas.
-    settings = _settings(deadline_s=70.0, max_llm_attempts=6, max_cost_eur_per_request=0.10)
+    # 100 et non 70 : depuis T1d, `llm_timeout_s` vaut 78, et une deadline **inférieure** au délai
+    # d'appel est refusée par `Settings` — ce que ce témoin ne mesure pas.
+    settings = _settings(deadline_s=100.0, max_llm_attempts=6, max_cost_eur_per_request=0.10)
     client, _fake = _client([], settings)
     defaut = client.new_budget()
-    assert defaut.deadline_s == 70.0
+    assert defaut.deadline_s == 100.0
     assert defaut.max_attempts == 6 and defaut.max_cost_eur == 0.10
     # une valeur plus petite passe telle quelle
     assert client.new_budget(deadline_s=12.0).deadline_s == 12.0
     # une valeur plus grande est ramenée au plafond du réglage
-    assert client.new_budget(deadline_s=600.0).deadline_s == 70.0
+    assert client.new_budget(deadline_s=600.0).deadline_s == 100.0

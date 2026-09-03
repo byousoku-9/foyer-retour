@@ -261,8 +261,18 @@ class _BudgetQuiSepuise(RequestBudget):
         return 100.0 if self._restants > 0 else 1.0
 
 
-def _budget(*, max_attempts: int = 6, deadline_s: float = 100.0) -> RequestBudget:
-    return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=0.20)
+def _budget(*, max_attempts: int = 6, deadline_s: float = 300.0) -> RequestBudget:
+    """L'échafaudage de ce fichier : ni le coût ni la deadline ne sont ce qu'on y mesure.
+
+    **0,30 € et 300 s depuis T1d (03/09/2026)**, et pour la même cause tous les deux : le plafond de
+    sortie du vérificateur sinistre passe à 6 144 tokens. `estimate_cost` compte la sortie **à
+    `max_tokens`** et refuse avant l'appel, donc 0,20 € ne laissait plus passer la vérification ;
+    `exiger_le_temps_decrire` refuse de partir quand le restant ne couvre pas
+    `duree_majoree_pour(max_tokens)` — 77,3 s pour ce seul appel —, donc 100 s ne laissaient plus
+    tourner une chaîne qui en fait deux. Les témoins qui éprouvent l'une ou l'autre borne posent la
+    leur ; ceux-ci mesurent la demande de contexte.
+    """
+    return RequestBudget(deadline_s=deadline_s, max_attempts=max_attempts, max_cost_eur=0.30)
 
 
 def _comprendre(corpus: CorpusNeutre) -> dict:
