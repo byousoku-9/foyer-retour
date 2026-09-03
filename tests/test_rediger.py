@@ -19,7 +19,7 @@ from server.app.corpus.racine import _lecture_interne_sans_racine
 from server.app.domain.answer import AnswerDraft, Claim, Quote
 from server.app.domain.errors import ErrorCode, LlmParse
 from server.app.domain.question import ParsedQuestion, Turn
-from server.app.domain.retrieval import RetrievalResult
+from server.app.domain.retrieval import FacetteCouverture, RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
@@ -43,9 +43,16 @@ UNTRUSTED = re.compile(r'<untrusted kind="([a-z0-9_]+)">\n(.*?)\n</untrusted>', 
 def test_le_prompt_sinistre_prefere_le_passage_complet_sans_claim_de_remplissage() -> None:
     prompt = render_prompt("rediger_sinistre", quote_min_chars=20, quote_max_chars=250,
                            draft_max_segments=8, draft_max_claims=6)
-    assert "réunit à lui seul les éléments contractuels utiles" in prompt
+    assert "réunit à lui seul\n  les éléments contractuels utiles" in prompt
     assert "une claim concise" in prompt
-    assert "d'une définition, d'un titre ou d'une table des matières" in prompt
+    assert "d'une **définition**, d'un **titre** ou d'une **table des\n  matières**" in prompt
+    # Correctif du tour 7 (G2) : la concision ne vaut que pour une **même** règle redite, et chaque
+    # sous-question réclame chaque clause décisionnelle qui la vise.
+    assert "Chaque sous-question, chaque clause décisionnelle qui la vise" in prompt
+    assert "ce sont **deux** claims, jamais une" in prompt
+    assert "l'absence d'un\n  événement que la question écarte" in prompt
+    assert "elle ne t'autorise jamais à laisser de côté une seconde clause décisionnelle" in prompt
+    assert "Une sous-question\n  sans aucune claim est le pire résultat possible" in prompt
     assert "compare la RC d'un tiers au contrat du déclarant" in prompt
     assert "Les plafonds et\n  la définition du mobilier ne répondent pas" in prompt
     assert "Chaque claim doit être effectivement affichée" in prompt
@@ -737,3 +744,37 @@ async def test_un_extrait_introuvable_nest_pas_fusionne_mais_laisse_a_verifier(
 
     assert len(draft.claims[0].quotes) == 2
     assert not [c for c in step.checks if c.name == "quotes_fusionnees"]
+
+
+async def test_chaque_sous_question_porte_les_blocs_decisionnels_que_le_code_lui_a_mesures(
+        mini_index: Index) -> None:
+    """Correctif du tour 7 (G2) — AD-1 dans sa forme la plus simple : le code mesure, le modèle rédige.
+
+    *retrouver* publie déjà, par rang, les blocs décisionnels confirmés **transmis** que le
+    classement de cette sous-question a proposés — c'est la mesure qui alimente
+    `facettes_retrouvees` et la couverture de *vérifier*. Le rédacteur devait pourtant redécouvrir
+    lui-même quels blocs concernaient quelle sous-question. Mesuré sur trois runs : les blocs
+    étaient bien tous transmis, et deux des trois ébauches ont laissé une sous-question sans la
+    clause qui la vise.
+
+    Ce sont des `block_id`, déjà présents dans le message : ni texte de clause, ni jugement.
+    """
+    doc = mini_index.corpus.documents["lux-guide"]
+    blocs = ["lux-guide:farrivee:3", "lux-guide:fbail_test:3"]
+    retrieval = RetrievalResult(
+        blocs=[doc.block(b) for b in blocs], opened_block_ids=list(blocs),
+        facettes=[FacetteCouverture(rang=0, block_ids=(blocs[0],), candidats=1),
+                  FacetteCouverture(rang=1, block_ids=(), candidats=0)])
+    client, fake = _client([fake_message(text=_draft(), model=SONNET)])
+
+    await rediger(_parsed(facettes=["les appareils", "les denrées"]), retrieval, [],
+                  client=client, budget=_budget(), index=mini_index, doc_id="lux-guide",
+                  settings=_settings(), prompt="rediger_sinistre")
+
+    (req,) = fake.requests
+    facettes = [json.loads(t) for kind, t in UNTRUSTED.findall(req["messages"][0]["content"])
+                if kind == "facette"]
+    assert facettes == [
+        {"facette": 0, "libelle": "les appareils", "blocs_decisionnels_transmis": [blocs[0]]},
+        {"facette": 1, "libelle": "les denrées", "blocs_decisionnels_transmis": []},
+    ]
