@@ -743,7 +743,7 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
                   if request["max_tokens"] == settings.rediger_max_tokens]
     assert len(redactions) == 2
     premiere_consigne = redactions[0]["messages"][-1]["content"]
-    assert "Plan de sortie concis : 1 facette(s)" in premiere_consigne
+    assert "Plan de sortie : 1 sous-question(s)" in premiere_consigne
     assert f"Définitions applicables à rendre vérifiables : {DOC_ID}:p1:4" in premiere_consigne
     consigne_relance = redactions[1]["messages"][-1]["content"]
     assert "règle conditionnelle que le passage énonce" in consigne_relance

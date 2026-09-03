@@ -266,14 +266,29 @@ async def rediger(parsed: ParsedQuestion, retrieval: RetrievalResult, historique
         # quatre claims et plusieurs transitions jusqu'à `max_tokens`, puis recommencer. Le nombre
         # ci-dessous vient du contrat `ParsedQuestion` de la requête — ce n'est ni un nouveau seuil,
         # ni une déduction depuis le texte. La consigne vit dans le message dynamique pour garder le
-        # préfixe cacheable byte-identique, et demande seulement d'éviter les redites entre facettes.
-        tail += (f"\nPlan de sortie concis : {len(parsed.facettes)} facette(s) ont déjà été "
-                 "extraites, et elles te sont données ci-dessus, numérotées. Traite **chacune** au "
-                 "plus une fois, dès les premiers segments, avec seulement les claims directement "
-                 "nécessaires. Pour chaque clause utile, rends une claim d'une seule phrase courte "
-                 "et la plus courte quote contiguë qui la soutient ; n'énumère pas les autres items "
-                 "d'une liste contractuelle. N'ajoute ni transition, ni reformulation de contexte, "
-                 "ni segment limite si les claims factuelles suffisent.")
+        # préfixe cacheable byte-identique.
+        #
+        # **Correctif du tour 7b (H2) : ce plan contredisait le préfixe, et c'est lui que le modèle
+        # a suivi.** Il demandait « seulement les claims directement nécessaires » et « n'énumère pas
+        # les autres items d'une liste contractuelle » — écrit contre la paraphrase d'une liste, mais
+        # lu, à juste titre, comme une consigne d'omission. Mesuré sur trois runs : la clause qui
+        # répond au cas est le sixième item d'une énumération de périls dont le cinquième était déjà
+        # cité ; elle sautait **par construction**, et la règle du préfixe — une claim par clause
+        # décisionnelle qui vise les faits — n'avait aucune chance contre une consigne placée plus
+        # près de la sortie.
+        #
+        # Le plan porte donc désormais cette règle, et la concision y retrouve son sens : une phrase
+        # courte et la quote la plus courte qui la soutient, **jamais moins de clauses**.
+        tail += (f"\nPlan de sortie : {len(parsed.facettes)} sous-question(s) ont déjà été "
+                 "extraites, et elles te sont données ci-dessus, numérotées. Traite **chacune**, "
+                 "dès les premiers segments. Pour chaque sous-question, rends une claim par clause "
+                 "décisionnelle fournie dont le texte vise les faits énoncés dans la question — deux "
+                 "clauses qui visent le même dommage par des chemins différents font deux claims. "
+                 "Un item d'énumération dont le texte vise ces faits **est** une telle clause : "
+                 "traite-le comme les autres, et ne le tiens pas pour un doublon de l'item voisin. "
+                 "La concision porte sur la **forme**, jamais sur le nombre de clauses : une phrase "
+                 "courte, la plus courte quote contiguë qui la soutient, et ni transition, ni "
+                 "reformulation de contexte, ni segment limite si les claims factuelles suffisent.")
         fondatrices_confirmees: list[str] = []
         for bloc in retrieval.blocs:
             if bloc.kind not in KINDS_FONDATEURS or not bloc.kind_confirmed:

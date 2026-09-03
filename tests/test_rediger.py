@@ -353,11 +353,23 @@ async def test_sinistre_donne_les_facettes_au_redacteur_et_pas_seulement_leur_no
     assert req["output_config"]["effort"] == "low"
     content = req["messages"][0]["content"]
     outside = UNTRUSTED.sub("", content)
-    assert "Plan de sortie concis : 2 facette(s)" in outside
-    assert "Traite **chacune** au plus une fois" in outside
-    assert "une claim d'une seule phrase courte" in outside
+    # **Correctif du tour 7b (H2) : le plan porte la règle du préfixe, et plus rien qui pousse à
+    # omettre.** « seulement les claims directement nécessaires » et « n'énumère pas les autres items
+    # d'une liste contractuelle » étaient écrits contre la paraphrase d'une liste ; ils se lisaient
+    # comme une consigne d'omission, et c'est ce plan — plus près de la sortie que le préfixe — que
+    # le modèle a suivi. Mesuré sur trois runs : la clause qui répond au cas est le sixième item
+    # d'une énumération dont le cinquième était déjà cité ; elle sautait par construction.
+    assert "Plan de sortie : 2 sous-question(s)" in outside
+    assert "Traite **chacune**, dès les premiers segments" in outside
+    assert "une claim par clause décisionnelle fournie dont le texte vise les faits" in outside
+    assert "deux clauses qui visent le même dommage par des chemins différents font deux" in outside
+    assert "Un item d'énumération dont le texte vise ces faits **est** une telle clause" in outside
+    assert "La concision porte sur la **forme**, jamais sur le nombre de clauses" in outside
     assert "la plus courte quote contiguë qui la soutient" in outside
-    assert "n'énumère pas les autres items d'une liste contractuelle" in outside
+    # Ce qui a disparu, et qui est la cause mesurée : rien ne pousse plus à en rendre moins.
+    for incitation in ("n'énumère pas les autres items", "seulement les claims directement",
+                       "au plus une fois"):
+        assert incitation not in outside, incitation
     # Les libellés sont transmis, et **uniquement** dans un bloc délimité : jamais en clair.
     assert "les appareils" not in outside and "les denrées" not in outside
     assert '<untrusted kind="facette">' in content
