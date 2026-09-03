@@ -72,8 +72,8 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
     # (`p21:4`, la garantie fondatrice) — durcissement, pas affaiblissement ; le `cases_hash`
     # du gate suit.
     assert gate["cases_hash"] == "0bdd3a6bc6ff598583d50ac881065f08f05e2b7e84b8cd988e8139274ce7903a"
-    assert gate["pipeline_digest"] == "23699bbe105930b1afc47c03e422a1983a7104e600e6c79839c89757941f3c9e"
-    assert gate["prompts_digest"] == "4b8a3fce5e59e0a0978973b14bc78fa5c3891534493c61d70e632ee8fa3d1d45"
+    assert gate["pipeline_digest"] == "cb19f22348ded7c8b859fe6099eebeb8ddff61cc003676e88ec6d018550cd7ff"
+    assert gate["prompts_digest"] == "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727"
     assert gate["model_ids"] == {
         "ingest": "claude-opus-5",
         "reason": "claude-sonnet-5",
