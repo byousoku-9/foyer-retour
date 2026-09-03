@@ -397,6 +397,8 @@
     renvoi_cp_non_enumere: "la clause renvoie aux conditions particulières ou à une option, ce que la lecture n'avait pas rendu",
     quotes_fusionnees: "deux extraits d'un même bloc réunis en un seul passage",
     amorce_jointe: "la phrase qui ouvre une énumération a été jointe à l'item cité",
+    segment_orphelin_joint: "une phrase sans antécédent a été jointe à la précédente",
+    claims_par_facette: "les sous-questions qui portent au moins une affirmation rédigée",
     blocs_decisionnels_ecartes: "des clauses lues ont été écartées par la rédaction, avec leur motif",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
     raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
