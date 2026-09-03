@@ -309,8 +309,9 @@ def _appels_de(audit: MemoryAuditSink, etape: str) -> list[dict[str, Any]]:
     (`ExactLlmAuditEvent.step`, que le client recopie du `StepTrace` de l'appelant) **et** le corps
     parti sur le fil. Depuis l'amendement AD-1 du 03/09/2026, ni le rang dans `fake.requests` ni la
     valeur du plafond de sortie ne désignent plus une étape : l'ébauche servie est le tour terminal
-    de la conversation de navigation, un tour de lecture de plus décale tous les rangs, et
-    `navigation_rediger_max_tokens` vaut exactement `verifier_max_tokens`.
+    de la conversation de navigation, un tour de lecture de plus décale tous les rangs, et deux
+    étapes peuvent partager le même plafond — `navigation_rediger_max_tokens` a valu exactement
+    `verifier_max_tokens` jusqu'à T13, et rien n'interdit qu'une re-dérivation les recolle.
     """
     return [event.request for event in audit.events if event.step == etape]
 

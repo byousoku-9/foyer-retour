@@ -56,12 +56,15 @@ def test_defaults_match_spine_hypotheses() -> None:
     # pipeline intégré — et les champs `draft_*` qui doivent la couvrir, puisque la fusion de
     # relance de `pipelines/sinistre.py` s'y borne sans savoir quel étage a rédigé.
     assert s.navigation_draft_max_claims == 6 and s.navigation_draft_max_segments == 9
-    assert s.navigation_rediger_max_tokens == 3072
+    # Story 5.6 T13 : re-dérivé sur le gate Baloise du 03/09 13 h 14 — 3 200 de contrat JSON
+    # (pire mesuré 2 558, majoré de 25 %) et 1 856 de réserve, ce que la deadline laisse.
+    assert s.navigation_rediger_max_tokens == 5056
     # Story 5.6 T11 : l'effort du **seul** tour terminal. Mesuré à 0 token de réflexion sur
     # les trois runs A16 de `f858a28`, alors que c'est l'unique appel qui choisit les
     # clauses citées. Les tours d'outils gardent le défaut de leur palier.
     # Repli du 03/09 12:11 : `high` a saturé 3 072 tokens de réflexion sans JSON (503) ; `medium`
-    # est l'effort mesuré sans troncature sur la matinée.
+    # est l'effort mesuré sans troncature sur la matinée. T13 : `medium` tronque aussi sur les
+    # ébauches Baloise, et c'est le plafond qui a été relevé — la marche suivante reste `low`.
     assert s.navigation_draft_effort == "medium"
     assert s.draft_max_claims == 6 and s.draft_max_segments == 9
     assert s.retrouver_outils_tier == "reason"

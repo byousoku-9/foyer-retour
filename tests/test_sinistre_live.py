@@ -191,7 +191,7 @@ def _demarrages_de_rediger(audit: MemoryAuditSink) -> int:
     `StepTrace` de l'appelant (`ExactLlmAuditEvent.step`) : un appel refusé au préflight n'y entre
     pas, ce qui est exactement la propriété que ce helper doit rendre. Le plafond de sortie, lui, ne
     désigne plus rien depuis l'amendement AD-1 du 03/09/2026 : l'ébauche servie est le tour terminal
-    de la navigation, et son plafond (`navigation_rediger_max_tokens`) est aussi celui de
+    de la navigation, et son plafond (`navigation_rediger_max_tokens`) a valu jusqu'à T13 celui de
     *vérifier* — quand `rediger_max_tokens`, lui, n'est plus envoyé par aucun appel de cette chaîne.
     """
     return sum(1 for event in audit.events if event.step == "rediger")
@@ -288,8 +288,8 @@ async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
 
     # La propriété visée n'est ni un rang dans la liste des requêtes, ni un identifiant de modèle,
     # ni une valeur de plafond (deux étapes peuvent partager le même tier, un rang bouge dès qu'un
-    # tour de navigation est ajouté, et `navigation_rediger_max_tokens` vaut désormais
-    # `verifier_max_tokens`) : c'est le **démarrage de *rédiger***, que seule l'étape désigne.
+    # tour de navigation est ajouté, et `navigation_rediger_max_tokens` a valu `verifier_max_tokens`
+    # jusqu'à T13) : c'est le **démarrage de *rédiger***, que seule l'étape désigne.
     redactions = [p for p in preflights if p.etape == "rediger"]
     # **Au moins un** démarrage, et c'est le premier que l'AC décrit : la relance d'AD-3 est un
     # chemin normal, pas un incident, et exiger `== 1` ferait rougir ce test sur une chaîne

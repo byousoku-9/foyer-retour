@@ -486,7 +486,7 @@ async def test_lebauche_de_navigation_tient_six_claims_avec_son_articulation_et_
     assert f"au plus {settings.navigation_draft_max_segments} segments et " \
            f"{settings.navigation_draft_max_claims} claims" in prefixe
     # Et le tour terminal part sous le plafond dérivé pour lui, pas sous celui de *rédiger*.
-    assert fake.requests[-1]["max_tokens"] == settings.navigation_rediger_max_tokens == 3072
+    assert fake.requests[-1]["max_tokens"] == settings.navigation_rediger_max_tokens == 5056
 
 
 async def test_la_borne_de_claims_de_la_navigation_mord_toujours_quand_on_labaisse() -> None:

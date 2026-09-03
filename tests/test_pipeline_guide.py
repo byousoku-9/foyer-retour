@@ -86,11 +86,19 @@ def _settings(**kw) -> Settings:
     return Settings(_env_file=None, anthropic_api_key="", **kw)
 
 
-def _budget(deadline_s: float = 100.0) -> RequestBudget:
+def _budget(deadline_s: float = 300.0) -> RequestBudget:
     """Le plafond confortable des scénarios qui n'éprouvent pas le plafond lui-même.
 
     Huit appels : *comprendre*, les deux tours de lecture du modèle, *rédiger*, *vérifier*, puis les
     deux appels de la relance d'AD-3. Les témoins qui mesurent une borne la posent, eux, en clair.
+
+    **300 s et non 100 depuis T13 (03/09/2026), et ce n'est pas un assouplissement** : le contrôle
+    de marge d'AD-1 exige, avant de démarrer la relance, ce que son cycle va **écrire** — depuis
+    que `navigation_rediger_max_tokens` vaut 5 056, cela fait 105,6 s au débit minoré. À 100 s,
+    « confortable » était devenu « sous le cycle de relance », et des témoins qui n'éprouvent pas
+    la deadline auraient mesuré son refus. Les témoins qui, eux, éprouvent la marge posent leur
+    deadline en clair, chiffrée sur le cycle qu'ils veulent arrêter (300 s est aussi le confortable
+    de `test_pipeline_sinistre.py`).
     """
     return RequestBudget(deadline_s=deadline_s, max_attempts=8, max_cost_eur=0.20)
 
@@ -165,8 +173,9 @@ def _plafond_envoye_par(audit: MemoryAuditSink, etape: str) -> int:
     (`ExactLlmAuditEvent.step`, que le client recopie du `StepTrace` de l'appelant) **et** le corps
     parti sur le fil. Depuis l'amendement AD-1 du 03/09/2026, ni le rang dans `fake.requests` ni la
     valeur du plafond ne désignent plus une étape : l'ébauche servie est le tour terminal de la
-    conversation de navigation, un tour de lecture de plus décale tous les rangs, et
-    `navigation_rediger_max_tokens` vaut exactement `verifier_max_tokens`.
+    conversation de navigation, un tour de lecture de plus décale tous les rangs, et deux étapes
+    peuvent partager le même plafond — `navigation_rediger_max_tokens` a valu exactement
+    `verifier_max_tokens` jusqu'à T13, et rien n'interdit qu'une re-dérivation les recolle.
     """
     plafonds = {int(event.request["max_tokens"]) for event in audit.events if event.step == etape}
     assert len(plafonds) == 1, (f"étape {etape!r} : {len(plafonds)} plafond(s) relevé(s) "
@@ -732,7 +741,7 @@ async def test_the_relevance_retry_can_be_switched_on_by_configuration(index: In
 async def test_an_unaffordable_retry_serves_the_verified_answer_instead_of_a_503(index: Index) -> None:
     """NFR4 : la relance est une tentative d'amélioration. Refusée faute de budget, elle ne doit pas
     emporter une réponse déjà vérifiée — et la trace le dit."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)  # la chaîne, pas la relance
+    budget = RequestBudget(deadline_s=300.0, max_attempts=5, max_cost_eur=0.20)  # la chaîne, pas la relance
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
@@ -749,7 +758,7 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
     draft relancé mais non vérifié. Avec la place pour un seul, démarrer *rédiger* serait payer un
     appel `reason` dont rien ne pourrait sortir (NFR4). Mesuré en live (revue Codex 1.5, tour 3) :
     le plafond par défaut coupait pile entre les deux, et la question ressortait en 503."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=6, max_cost_eur=0.20)  # 5 + 1 : pas les deux
+    budget = RequestBudget(deadline_s=300.0, max_attempts=6, max_cost_eur=0.20)  # 5 + 1 : pas les deux
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
@@ -768,7 +777,7 @@ async def test_a_second_verification_that_never_starts_keeps_the_verified_answer
     plafond de coût atteint *après* une relance rédigée n'est pas un appel raté, c'est un appel qui
     n'a jamais démarré. Le compteur de référence est donc ré-armé après chaque appel réussi (revue
     Codex 1.5, tour 3) — sans quoi la réponse déjà vérifiée partait en 503."""
-    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=100.0, max_attempts=8, max_cost_eur=10.0), 6)
+    budget = _ferme_le_budget_apres(RequestBudget(deadline_s=300.0, max_attempts=8, max_cost_eur=10.0), 6)
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True)), _rediger(BONNE, BONNE_2)],
                                      budget=budget)
@@ -798,10 +807,13 @@ def _ferme_le_budget_apres(budget: RequestBudget, appels: int) -> RequestBudget:
 
 async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: Index) -> None:
     """AD-1 : « aucun retry ne démarre sans marge » — le retry ne démarre pas, la requête garde sa réponse."""
-    # 50 s : de quoi écrire chacun des appels de la chaîne (le plus long en demande 41,1 au débit
-    # minoré) mais pas le **cycle** de relance, qui en demande 70,2 — depuis le correctif du tour 4,
-    # c'est ce que le cycle va écrire qui décide, pas une marge fixe.
-    budget = RequestBudget(deadline_s=50.0, max_attempts=6, max_cost_eur=0.20)
+    # 80 s : de quoi écrire chacun des appels de la chaîne pris isolément (le plus long est le tour
+    # terminal, 64,5 s au débit minoré depuis T13) mais pas le **cycle** de relance, qui en demande
+    # 105,6 (64,5 pour le tour terminal relancé, 41,1 pour sa vérification) — depuis le correctif du
+    # tour 4, c'est ce que le cycle va écrire qui décide, pas une marge fixe. 50 s ne tenait plus la
+    # propriété : le contrôle par étape fermait la porte devant l'ébauche elle-même, et le témoin
+    # n'aurait plus rien dit du **retry**.
+    budget = RequestBudget(deadline_s=80.0, max_attempts=6, max_cost_eur=0.20)
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and answer.found is True
@@ -811,7 +823,7 @@ async def test_a_retry_without_margin_never_starts_and_keeps_the_answer(index: I
 
 
 async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_error(index: Index) -> None:
-    budget = RequestBudget(deadline_s=100.0, max_attempts=4, max_cost_eur=0.20)  # comprendre + lecture + rediger
+    budget = RequestBudget(deadline_s=300.0, max_attempts=4, max_cost_eur=0.20)  # comprendre + lecture + rediger
     answer, trace, fake = await _run(index, [_comprendre(), *_lecture(F1, F2), _rediger(MAUVAISE)], budget=budget)
     assert fake.remaining_script == 0
     assert answer.found is False and answer.reason is not None
@@ -863,7 +875,7 @@ async def test_a_provider_failure_on_the_retry_is_terminal_too(index: Index) -> 
 async def test_a_retry_whose_call_never_started_keeps_the_verified_answer(index: Index) -> None:
     """La contrepartie : plafond d'appels atteint, rien n'a été facturé, la réponse acquise reste due
     (AD-1 « aucun retry ne démarre sans marge », étendu aux euros par AD-4)."""
-    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
+    budget = RequestBudget(deadline_s=300.0, max_attempts=5, max_cost_eur=0.20)
     answer, trace, fake = await _run(
         index, [_comprendre(), *_lecture(F1, F2), _rediger(BONNE, MAUVAISE),
                 _verdicts(("c1", True))], budget=budget)
@@ -906,7 +918,7 @@ async def test_a_max_tokens_draft_is_retried_under_the_output_cap(index: Index) 
 async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
     """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
     settings = _settings()  # rien ne borne la lecture ici : la seule troncature est la relance
-    budget = RequestBudget(deadline_s=100.0, max_attempts=5, max_cost_eur=0.20)
+    budget = RequestBudget(deadline_s=300.0, max_attempts=5, max_cost_eur=0.20)
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]), *_lecture(F1, F2),
                                                _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
                                        settings=settings, budget=budget)
@@ -1012,7 +1024,10 @@ class _BudgetQuiExpire(RequestBudget):
     """
 
     def __init__(self, apres_appels: int) -> None:
-        super().__init__(deadline_s=100.0, max_attempts=8, max_cost_eur=0.10)
+        # Le coût n'est pas la propriété : 0,30 € depuis T13, parce que `estimate_cost` compte la
+        # sortie **à `max_tokens`** et que le tour terminal en envoie 5 056 — à 0,10 € la chaîne
+        # était refusée par le budget avant que la deadline factice ait pu fermer sa porte.
+        super().__init__(deadline_s=300.0, max_attempts=8, max_cost_eur=0.30)
         self._restants = apres_appels
 
     def note_call(self, usage) -> None:
@@ -1020,7 +1035,7 @@ class _BudgetQuiExpire(RequestBudget):
         self._restants -= 1
 
     def remaining(self) -> float:
-        return 100.0 if self._restants > 0 else -1.0
+        return 300.0 if self._restants > 0 else -1.0
 
 
 @pytest.mark.parametrize("appels, etape", [(1, "retrouver"), (4, "verifier")])
@@ -2170,10 +2185,11 @@ async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
 
     async def majorant_de_verifier(plafond: int) -> float:
         # Le préflight de *vérifier* se désigne par son **étape**, jamais par la valeur de son
-        # plafond : depuis l'amendement AD-1 du 03/09/2026, `navigation_rediger_max_tokens` (3 072)
-        # et `verifier_max_tokens` (3 072) sont égaux, et sélectionner par `tokens == plafond`
-        # ramassait aussi le tour terminal de la navigation — un appel plus cher, qui gonflait le
-        # delta mesuré de 0,0283 € à 0,0316 €.
+        # plafond : `navigation_rediger_max_tokens` et `verifier_max_tokens` ont valu 3 072 tous
+        # les deux entre l'amendement AD-1 du 03/09/2026 et T13, et sélectionner par
+        # `tokens == plafond` ramassait alors aussi le tour terminal de la navigation — un appel
+        # plus cher, qui gonflait le delta mesuré de 0,0283 € à 0,0316 €. Que les deux plafonds
+        # aient divergé ne rend pas la sélection par valeur plus juste : c'est l'étape qui désigne.
         reglages = _settings(verifier_max_tokens=plafond)
         preflights = await _preflights_de_la_chaine(index, reglages, monkeypatch)
         return max(p.majorant for p in preflights if p.etape == "verifier")
