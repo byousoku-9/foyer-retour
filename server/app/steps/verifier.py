@@ -710,8 +710,14 @@ def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
 # guide ne doit pas recevoir une consigne formulée pour le sinistre.
 MOTIFS_NON_PERTINENCE: dict[str, str] = {
     "non_soutenue": (
-        "citation non soutenue : reformule l'affirmation pour ne rapporter que ce que le passage "
-        "cité établit"
+        # Story 5.6 (L1) : « reformule » se lisait « écris autre chose », et sur une affirmation qui
+        # tient en un paragraphe le modèle relançait plus long — mesuré le 03/09/2026, la seconde
+        # ébauche ajoutait une phrase de plus et retombait sur le même rejet, la réponse sortant en
+        # refus « aucune affirmation retenue ». Le geste juste est de **retrancher** : le motif le
+        # dit maintenant, et il vaut pour une phrase comme pour un paragraphe.
+        "citation non soutenue : retire de l'affirmation tout ce que les passages cités ne disent "
+        "pas, ou joins le passage qui le dit — n'ajoute rien, une affirmation plus courte vaut "
+        "mieux qu'une affirmation rejetée"
     ),
     "hors_objet": (
         "affirmation hors de l'objet de la question : appuie-toi sur un passage qui répond à "

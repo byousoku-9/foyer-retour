@@ -40,7 +40,10 @@ ANNEXE_TITLE = "# Choix et limites mesurées\n"
 # réponse ». La synthèse est bornée à environ deux pages ; le fait qui a décidé la séparation — trois
 # déploiements refusés à la promotion, job « verifier » vert, `gate_perime` sur les trois documents —
 # et la règle de classement se consignent ici. Rien n'a été retiré ni réécrit.
-ANNEXE_SHA256 = "9835fa056a90d0662a6fd4182ff6566df9676f0cc4c31aa60f6d21c3f0b70de1"
+# 03/09/2026 (L1) : le registre reçoit les deux limites que la forme lisible rend visibles —
+# pas de question libre sur un sinistre en cours, pas de complément web. Rien n'a été retiré
+# ni réécrit, et la synthèse de deux pages ne bouge pas.
+ANNEXE_SHA256 = "f0413f6694c14d278c0bbe9195e573a0ae266352219c80e9b1a01a3500511478"
 
 
 def _document() -> str:

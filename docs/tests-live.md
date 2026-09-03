@@ -4180,3 +4180,54 @@ Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section 
 gates à relancer par l'orchestrateur » plus haut.
 
 **Dette soldée le 03/09/2026 à 20:05** (orchestrateur, `S = 5d5b340`, campagnes `epic5-gate-<doc>-9`, ancrage `epic5-final-anchor-10` sur `g-luxtrust-prix` 3/3) : Baloise 9/9 (2,12 €), AXA 3/3 (0,37 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=1a072112…` (celui de l'image). Générations `data/.publie/{a,b}` commises ensemble (`1a797e6`) ; certificat Baloise ré-épinglé sur ce digest.
+
+---
+
+## Story 5.6 — tour L1 (lisibilité du moteur), 3 septembre 2026
+
+Rejeux des trois questions posées en prod par Lancelot ce soir-là, sur un serveur local
+(`ALLOW_UNGATED=true`, `ENV=dev`, port 8878, corpus réel, clé lue dans `.env`). Le cache de réponses
+n'a joué sur aucun appel : les trois documents portent `gate_perime` depuis le changement
+d'empreintes, et `composantes_de_cle` refuse alors d'écrire comme de lire. Réponses brutes et
+lecture détaillée : `automation/runs/20260903-lisibilite/proto/`.
+
+| cas | question | tours | coût du tour retenu | verdict / issue | claims retenues | rejets |
+|---|---|---|---|---|---|---|
+| S1 | AXA — déjections d'un animal sur le canapé | 3 | 0,6477 € | `ne_tranche_pas` | `p5:3`+`p5:5` (liste des garanties), `p34:12` (clause voisine) | 0 sur 2 |
+| S2 | AXA — robinet oublié, parquet décollé, voisin inondé | 4 | 0,7534 € | `sous_conditions` | `p37:11` (condition de souscription), `p37:13`+`p37:14`, `p49:9` (recours des tiers), `p47:8`, `p50:15`+`p50:18` | 0 sur 5 |
+| G1 | guide — s'installer et emménager, démarches FR/LU | 2 | 0,6084 € | réponse servie, `complete=false` | 1 claim, 9 passages (8 du corps des fiches) | 1 sur 2 |
+
+Coût total des rejeux : **5,90 €** (majorant annoncé : 3 × 0,60 €). Le dépassement est assumé et
+motivé : le deuxième tour a fait apparaître une régression de sûreté — un `couvert` sur les deux cas
+sinistre, causé par une consigne de périmètre trop permissive — qui ne pouvait pas être laissée en
+l'état, et le quatrième tour de S2 a vérifié le correctif de la condition d'applicabilité.
+
+Ce que les rejeux établissent, cas par cas : S1 cite la liste des garanties du contrat (p. 5,
+désormais atteignable) et une clause voisine qui montre la limite, sans aucun inventaire de ce qui
+n'a pas été lu ; S2 rend `sous_conditions` en citant la condition de souscription `3.1.4`, l'étendue
+`3.1.4.1`, le recours des tiers `3.1.9.10` pour le voisin, et affirme la qualification du robinet au
+lieu de la demander ; G1 rend un paragraphe explicatif adossé au **corps** des fiches et non à leur
+résumé. Écarts résiduels : S2 conserve une question redondante sur le débordement, et G1 ne couvre
+qu'une des deux sous-questions (voir la passation L1).
+
+### Dette déclarée (story 5.6, L1) : les trois gates à relancer
+
+Les consignes de rédaction, la table des seuils et deux couches de code changent — `pipeline_digest`
+passe de `1a072112…` à `bfa7aaed…`, `prompts_digest` à `a90e344c…`. AD-7 sert donc les trois
+documents avec l'alerte `gate_perime` tant que le re-gate live n'est pas fait ; la dette est
+épinglée sur le digest que les gates portent encore, et l'excuse tombe dès qu'un gate change de
+digest.
+
+- gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section « Dette déclarée :
+gates à relancer par l'orchestrateur » plus haut.
+
+### Fixtures live réenregistrées
+
+Les prompts de navigation et de vérification changent, et le sommaire du contrat AXA porte
+désormais la ligne de son nœud racine : toute fixture dont la requête traverse l'un des deux est
+invalidée par construction (la clé est le hash des messages). Réenregistrées une par une, avec la
+clé, sur cette révision — la liste est dans la passation L1.

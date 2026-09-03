@@ -398,7 +398,7 @@ async def test_an_absent_or_unknown_rejection_reason_uses_the_strict_code_fallba
 
 async def test_each_closed_rejection_reason_composes_a_specialized_retry_in_code(mini: Index) -> None:
     attendus = {
-        "non_soutenue": "ne rapporter que ce que le passage cité établit",
+        "non_soutenue": "retire de l'affirmation tout ce que les passages cités ne disent pas",
         "hors_objet": "hors de l'objet de la question",
         "conclusion_ajoutee": "règle conditionnelle que le passage énonce",
     }
@@ -792,7 +792,7 @@ async def test_two_closed_rejection_reasons_use_the_generic_motive(mini: Index) 
     v, step, _fake = await _verifier(mini, draft, [sortie])
     motif = v.rejected_claims[0].motif
     assert "citation non pertinente" in motif
-    assert "ne rapporter que ce que le passage cité établit" not in motif
+    assert "retire de l'affirmation tout ce que les passages cités ne disent pas" not in motif
     assert "hors de l'objet de la question" not in motif
     assert any(c.name == "verdict_contradictoire" and not c.ok for c in step.checks)
 
@@ -1643,7 +1643,7 @@ async def test_un_item_incomplet_sans_passage_operateur_tombe_non_soutenue(
             raisons={"c1": "non_soutenue"})])
     assert v.claims == []
     assert v.rejected_claims[0].status.pertinente is False
-    assert "ne rapporter que ce que le passage cité établit" in v.rejected_claims[0].motif
+    assert "retire de l'affirmation tout ce que les passages cités ne disent pas" in v.rejected_claims[0].motif
     content = fake.requests[0]["messages"][0]["content"]
     assert '"clause": "garantie"' in content
     assert '"clause_confirmee": false' in content
@@ -1669,8 +1669,8 @@ async def test_a_quote_missing_the_claimed_operator_is_rejected_as_non_soutenue(
     assert v.claims == [] and v.found is False
     (rejet,) = v.rejected_claims
     assert rejet.rejection_kind == "non_pertinente" and rejet.status.pertinente is False
-    assert "ne rapporter que ce que le passage cité établit" in rejet.motif
-    assert v.motif is not None and "ne rapporter que ce que le passage cité établit" in v.motif
+    assert "retire de l'affirmation tout ce que les passages cités ne disent pas" in rejet.motif
+    assert v.motif is not None and "retire de l'affirmation tout ce que les passages cités ne disent pas" in v.motif
 
 
 async def test_the_model_never_returns_a_verdict_field(contrat: Index) -> None:

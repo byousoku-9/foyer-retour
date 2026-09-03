@@ -124,8 +124,14 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
     # `Settings`/`STEP_TIERS`, jamais recopiée : un oracle qui épingle un tier en littéral cesse de
     # mesurer AD-9 dès que la configuration bouge, et se met à mentir sans rougir.
     etapes = [s.name for s in trace.steps]
-    assert etapes[:5] == ["comprendre", "retrouver", "rediger", "verifier", "restituer"]
-    for step in trace.steps[:5]:
+    # Les premières apparitions, dans l'ordre : la relance d'AD-3 peut insérer un second couple
+    # `rediger`/`verifier` entre le premier et *restituer*, et c'est un chemin nominal, pas un
+    # accident. Épingler les cinq **positions** faisait dépendre l'invariant d'ordre d'une propriété
+    # incidente de la fixture — le jour où le modèle rédige une ébauche que le contrôle relance, un
+    # témoin d'ordre rougissait pour une raison qui n'est pas l'ordre.
+    assert list(dict.fromkeys(etapes)) == ["comprendre", "retrouver", "rediger", "verifier",
+                                           "restituer"]
+    for step in trace.steps:
         if step.name in ("retrouver", "rediger"):
             # Les deux étapes que la navigation porte dans **une** conversation : leur étage est
             # `navigation_tier`, lu sur la configuration comme le reste (AD-9, Convention Seuils).
@@ -138,8 +144,9 @@ async def test_every_displayed_sentence_is_backed_by_a_verified_quote(index: Ind
     assert retrouver.calls, "aucun tour de navigation : le modèle n'a rien lu lui-même"
     assert retrouver.opened_block_ids
     assert {q.block_id for c in answer.claims for q in c.quotes} <= set(retrouver.opened_block_ids)
-    verifier = next(s for s in trace.steps if s.name == "verifier")
-    assert len(verifier.calls) == 1  # AD-4 : **un seul** appel groupé de pertinence
+    # AD-4 : **un seul** appel groupé de pertinence — par vérification, relance comprise.
+    assert [len(s.calls) for s in trace.steps if s.name == "verifier"] == [
+        1 for s in trace.steps if s.name == "verifier"]
     # NFR4 : la chaîne entière — vérification comprise — tient sous le plafond par requête
     assert budget.cost_eur < settings.max_cost_eur_per_request
     assert trace.total_cost_eur == pytest.approx(budget.cost_eur, abs=1e-4)

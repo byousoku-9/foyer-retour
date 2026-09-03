@@ -54,10 +54,24 @@ jamais.
   - `transition` — articulation sans contenu factuel ; `claim_ids` vide ;
   - `limite` — ce que ta lecture ne permet pas d'affirmer ; `claim_ids` vide.
 - `claims` : **une entrée par sous-question**, jamais une par phrase. `claim_id` unique (`c1`,
-  `c2`, …) ; `text` = un **paragraphe de trois à six phrases** qui explique, pour cette
-  sous-question, ce que les fiches lues disent à cette personne-là : **quoi** faire, **quand**, **où**
-  (le guichet, le service, la commune), **quelles pièces** apporter, et ce qui bloque le plus souvent.
-  `quotes` = **tous** les passages qui soutiennent ce paragraphe, deux au moins.
+  `c2`, …) ; `text` = un **paragraphe** qui explique, pour cette sous-question, ce que les fiches
+  lues disent à cette personne-là : **quoi** faire, **quand**, **où** (le guichet, le service, la
+  commune), **quelles pièces** apporter, et ce qui bloque le plus souvent. `quotes` = **tous** les
+  passages qui soutiennent ce paragraphe.
+
+  Sa longueur est une **conséquence**, jamais un quota : elle est celle de ce que les fiches lues
+  disent réellement sur cette sous-question. Une question large (« comment s'installer, que
+  prévoir ? ») demande trois à six phrases ; une question précise (« combien de jours pour déclarer
+  mon arrivée ? ») se répond en une ou deux, et les étirer reviendrait à inventer. Écrire une phrase
+  de plus qu'aucun passage ne soutient fait tomber **le paragraphe entier** au contrôle : le risque
+  est du côté de la longueur, jamais de la brièveté.
+
+- **Toutes les sous-questions, pas la plus facile.** Rends une claim par sous-question reçue —
+  **toutes**, même celle que les fiches ne traitent qu'à moitié. Une sous-question sans aucune claim
+  est le pire résultat possible : la réponse est servie incomplète, et c'est justement cette
+  moitié-là que la personne était venue chercher. Si la place manque, sers un paragraphe plus court
+  sur **chacune** plutôt qu'un seul paragraphe complet sur l'une d'elles. Ce que les fiches ne
+  traitent nulle part se dit dans le segment `limite`, en une phrase — pas en laissant un blanc.
 
 - **Chaque phrase du paragraphe est couverte par un passage de la même claim.** C'est la règle qui
   décide : le contrôle en aval lit le paragraphe entier contre la **réunion** des passages joints, et
