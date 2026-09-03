@@ -145,6 +145,9 @@ function aplatirVue(vue) {
   return [vue].concat((vue.enfants || []).flatMap(aplatirVue));
 }
 
+/** La première classe d'un nœud : `.appui appui-ecarte` se relève comme `appui`. */
+function premiereClasse(n) { return String((n && n.cls) || "").split(" ")[0]; }
+
 function textesDe(vue, cls) {
   return aplatirVue(vue).filter((n) => n.cls === cls).map((n) => n.texte);
 }
@@ -694,24 +697,30 @@ async function main() {
         .map((n) => n.enfants.map((e) => e.texte)),
       paquet: plat.filter((n) => n.cls === "paquet").flatMap((n) => aplatirVue(n).map((x) => x.texte))
         .filter((t) => t),
+      pieces: textesDe(vue, "pieces-ligne"),
+      statuts: textesDe(vue, "appui-statut"),
       ask: plat.filter((n) => n.cls === "ask-liste")
         .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
       escalate: plat.filter((n) => n.cls === "escalate-liste")
         .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
-      clauses: plat.filter((n) => n.cls === "clause").map((n) => ({
-        quote: aplatirVue(n).filter((x) => x.cls === "cl-q").map((x) => x.texte)[0],
+      clauses: plat.filter((n) => premiereClasse(n) === "appui").map((n) => ({
+        quote: aplatirVue(n).filter((x) => premiereClasse(x) === "appui-texte")
+          .flatMap((x) => (x.texte === undefined ? aplatirVue(x).map((y) => y.texte) : [x.texte]))
+          .filter((t) => t !== undefined).join(""),
         meta: aplatirVue(n)
-          .filter((x) => x.cls && x.cls.indexOf("cl-") === 0 && x.cls !== "cl-q" && x.cls !== "cl-meta")
+          .filter((x) => x.cls && /^appui-(chemin|page|kind|doute)$/.test(x.cls))
           .map((x) => x.texte),
       })),
-      affirmations: textesDe(vue, "aff-txt"),
+      affirmations: textesDe(vue, "appui-clair"),
       rejetees: plat.filter((n) => n.cls === "rejetee")
         .map((n) => aplatirVue(n).map((x) => x.texte).filter((t) => t)),
-      rejetees_titre: plat.filter((n) => n.cls === "rejetees")
-        .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "h3").map((e) => e.texte)),
+      rejetees_titre: plat.filter((n) => premiereClasse(n) === "rejetees")
+        .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "summary").map((e) => e.texte)),
+      rejetees_tag: plat.filter((n) => premiereClasse(n) === "rejetees").map((n) => n.tag),
       rejetees_note: textesDe(vue, "rejetees-note"),
       inconnu: plat.filter((n) => n.cls === "inconnu-liste")
         .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
+      inconnu_ligne: textesDe(vue, "inconnu-ligne"),
       degrade: textesDe(vue, "degrade"),
       trace_tags: plat.filter((n) => n.cls === "trace").map((n) => n.tag),
       trace: resumerTrace(vue),
@@ -721,6 +730,18 @@ async function main() {
       etat_phrase: textesDe(vue, "etat-phrase"),
       // La quote d'une claim rejetée ne doit **jamais** apparaître, nulle part dans l'arbre.
       texte_entier: texteEntier(vue),
+      // Story 5.6 (L2) : les quatre blocs, dans l'ordre, et le fait qu'aucun ne soit replié.
+      blocs: (vue.enfants || []).map((n) => n.cls),
+      blocs_titres: plat.filter((n) => n.cls === "bloc-titre")
+        .map((n) => (n.enfants || []).map((e) => e.texte).join(" ")),
+      reponse_phrase: textesDe(vue, "reponse-phrase"),
+      reponse_suite: textesDe(vue, "reponse-suite"),
+      gardefous: plat.filter((n) => premiereClasse(n) === "gf").map((n) => n.texte),
+      dossier_tag: plat.filter((n) => premiereClasse(n) === "dossier").map((n) => n.tag),
+      dossier_titre: plat.filter((n) => premiereClasse(n) === "dossier")
+        .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "summary").map((e) => e.texte)),
+      // Les questions décisives sont dans le bloc 3, une seule fois dans tout l'arbre.
+      questions: plat.filter((n) => n.cls === "conv-selection-question").length,
     };
 
     // Appariement impossible : la page le dit, et affiche une liste plate.
@@ -729,11 +750,11 @@ async function main() {
     const vueCassee = SINISTRE.vueVerdict(casse);
     cas.verdict_degrade = {
       degrade: textesDe(vueCassee, "degrade"),
-      clauses: aplatirVue(vueCassee).filter((n) => n.cls === "clause").length,
-      affirmations: textesDe(vueCassee, "aff-txt"),
+      clauses: aplatirVue(vueCassee).filter((n) => premiereClasse(n) === "appui").length,
+      affirmations: textesDe(vueCassee, "appui-clair"),
       // D6 : « une liste plate de citations **avec leurs statuts** ». Le mode dégradé serait le
       // dernier endroit où taire l'applicabilité d'une clause et la réserve de son édition.
-      statuts: textesDe(vueCassee, "cl-statut"),
+      statuts: textesDe(vueCassee, "appui-statut"),
     };
 
     // Un bloc cité par **deux** affirmations aux statuts différents : en mode dégradé, la page ne
@@ -744,9 +765,9 @@ async function main() {
     const vueAmbigue = SINISTRE.vueVerdict(ambigu);
     cas.verdict_statut_ambigu = {
       appariement: SINISTRE.clausesParClaim(ambigu.answer, ambigu.sources),
-      statuts: textesDe(vueAmbigue, "cl-statut"),
+      statuts: textesDe(vueAmbigue, "appui-statut"),
       degrade: textesDe(vueAmbigue, "degrade"),
-      clauses: aplatirVue(vueAmbigue).filter((n) => n.cls === "clause").length,
+      clauses: aplatirVue(vueAmbigue).filter((n) => premiereClasse(n) === "appui").length,
       // La fonction pure, appelée directement sur les deux formes.
       statut_pour_bloc_partage: SINISTRE.statutDeBloc(ambigu.answer, "cg-mini:p9:2"),
       statut_pour_bloc_unique: SINISTRE.statutDeBloc(reponseVerdict().answer, "cg-mini:p9:2"),
@@ -761,7 +782,7 @@ async function main() {
     cas.verdict_refus = {
       badge: aplatirVue(vueRefus).filter((n) => n.cls && n.cls.indexOf("badge") === 0)
         .map((n) => ({ cls: n.cls, texte: n.texte })),
-      clauses: aplatirVue(vueRefus).filter((n) => n.cls === "clause").length,
+      clauses: aplatirVue(vueRefus).filter((n) => premiereClasse(n) === "appui").length,
       faits_compris: aplatirVue(vueRefus).filter((n) => n.cls === "fc-ligne")
         .map((n) => n.enfants.map((e) => e.texte)),
       analyse: textesDe(vueRefus, "analyse-txt"),
@@ -773,12 +794,12 @@ async function main() {
     const vueClarif = SINISTRE.vueVerdict(reponseClarification());
     cas.verdict_clarification = {
       question: textesDe(vueClarif, "clarif-q"),
-      titre: aplatirVue(vueClarif).filter((n) => n.cls === "clarif")
+      titre: aplatirVue(vueClarif).filter((n) => premiereClasse(n) === "clarif")
         .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "h3").map((e) => e.texte)),
       badge: aplatirVue(vueClarif).filter((n) => n.cls && n.cls.indexOf("badge") === 0)
         .map((n) => n.texte),
       faits_compris: aplatirVue(vueClarif).filter((n) => n.cls === "fc-ligne").length,
-      clauses: aplatirVue(vueClarif).filter((n) => n.cls === "clause").length,
+      clauses: aplatirVue(vueClarif).filter((n) => premiereClasse(n) === "appui").length,
     };
 
     // Story 4.2f : la lecture partielle — badge, phrase, compteurs, clauses écartées, et surtout
@@ -793,7 +814,8 @@ async function main() {
       lecture: textesDe(vueLecture, "lecture-partielle"),
       inconnu: platLecture.filter((n) => n.cls === "inconnu-liste")
         .flatMap((n) => (n.enfants || []).map((e) => e.texte)),
-      clauses: platLecture.filter((n) => n.cls === "clause").length,
+      inconnu_ligne: textesDe(vueLecture, "inconnu-ligne"),
+      clauses: platLecture.filter((n) => premiereClasse(n) === "appui").length,
       rejetees: platLecture.filter((n) => n.cls === "rejetee")
         .map((n) => aplatirVue(n).map((x) => x.texte).filter((t) => t)),
       etat: platLecture.filter((n) => (n.cls || "").split(" ")[0] === "etat").map((n) => n.cls),
@@ -905,8 +927,10 @@ async function main() {
       etat: aplatirVue(vueRefus).filter((n) => (n.cls || "").split(" ")[0] === "etat")
         .map((n) => ({ cls: n.cls, texte: n.texte })),
       phrase: textesDe(vueRefus, "etat-phrase"),
-      // L'ordre de lecture : la preuve avant le pied, le pied avant la trace.
-      ordre: (SINISTRE.vueVerdict(reponseRefus()).enfants || []).map((n) => n.cls),
+      // L'ordre de lecture : la preuve avant le pied, le pied avant la trace. À plat, parce que
+      // les trois vivent désormais dans le bloc « Garde-fous » et après lui, pas à la racine.
+      ordre: aplatirVue(SINISTRE.vueVerdict(reponseRefus())).map(premiereClasse),
+      blocs: (SINISTRE.vueVerdict(reponseRefus()).enfants || []).map((n) => n.cls),
     };
 
     // Une clarification : `AD-4` pose que « rien n'a été cherché ». Aucune preuve chiffrée, et la
@@ -1064,7 +1088,7 @@ async function main() {
     cas.dom = {
       badge: peint.querySelector(".badge").textContent,
       badge_cls: peint.querySelector(".badge").className,
-      citation: peint.querySelector(".cl-q").textContent,
+      citation: peint.querySelector(".appui-texte").textContent,
       fait_compris: peint.querySelectorAll(".fc-val").map((n) => n.textContent)[0],
       // Aucun bouton : la page ne propose aucune action de repli (AD-16).
       boutons: aplatir(arbre).filter((n) => n.tag === "button").length,
@@ -1083,7 +1107,7 @@ async function main() {
                      elements.resultat);
     cas.dom_apres_erreur = {
       badges: elements.resultat.querySelectorAll(".badge").length,
-      clauses: elements.resultat.querySelectorAll(".clause").length,
+      clauses: elements.resultat.querySelectorAll(".appui").length,
       portees: elements.resultat.querySelectorAll(".portee").length,
       texte: elements.resultat.textContent,
       boutons: elements.resultat.querySelectorAll("button").length,

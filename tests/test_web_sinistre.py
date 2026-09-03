@@ -498,7 +498,7 @@ def test_les_identifiants_de_lignes_sont_encodes_dans_lurl(cas: dict[str, Any]) 
 def test_une_image_indisponible_conserve_verdict_et_source_publique(cas: dict[str, Any]) -> None:
     echec = cas["lecteur_en_echec"]
     assert "indisponible" in echec["statut"]
-    assert echec["badge"] == "sous conditions"
+    assert echec["badge"] == "Sous conditions"
     assert echec["source"] == "https://example.invalid/cg.pdf"
     assert echec["image_cachee"] is True
 
@@ -557,10 +557,15 @@ def test_lappariement_abandonne_se_dit_et_ne_retire_rien(cas: dict[str, Any]) ->
 # --- AD-6 / AC : ce que la page affiche ----------------------------------
 
 def test_le_badge_et_la_portee_sont_en_tete(cas: dict[str, Any]) -> None:
-    """AC : le badge du verdict et la mention de portée, tous deux posés par `textContent`."""
+    """AC : le badge du verdict et la mention de portée, tous deux posés par `textContent`.
+
+    Story 5.6 (L2) : le libellé est celui qu'un assuré lit — « Sous conditions », pas la valeur du
+    domaine. La classe, elle, reste la valeur : c'est elle qui porte la couleur sémantique, et un
+    test de contraste s'y adosse.
+    """
     badge = cas["verdict"]["badge"]
     assert len(badge) == 1
-    assert badge[0]["texte"] == "sous conditions"
+    assert badge[0]["texte"] == "Sous conditions"
     assert badge[0]["cls"] == "badge verdict-sous_conditions"
     assert cas["verdict"]["portee"] == [
         "au regard des conditions générales seules — verdict non validé par un expert assurance"]
@@ -616,11 +621,17 @@ def test_les_faits_compris_sont_affiches_champ_par_champ(cas: dict[str, Any]) ->
 
 
 def test_le_paquet_manquant_est_annonce_et_reclame(cas: dict[str, Any]) -> None:
-    """AD-6 : `MissingPackage` accompagne **toujours** le verdict, et alimente `ask_client`."""
-    paquet = " ".join(cas["verdict"]["paquet"])
+    """AD-6 : `MissingPackage` accompagne **toujours** le verdict, et alimente `ask_client`.
+
+    Story 5.6 (L2) : les quatre pièces non lues tiennent en **une ligne** grise, et les faits que
+    les clauses exigent gardent leur section — ce sont deux choses différentes, l'une est une
+    limite constante du service, l'autre une lacune de ce dossier-ci.
+    """
+    pieces = " ".join(cas["verdict"]["pieces"])
     for piece in ("conditions particulières", "options souscrites", "avenants", "date d'effet"):
-        assert piece in paquet
-    assert "caractère subit de l'action de la chaleur" in paquet
+        assert piece in pieces
+    assert len(cas["verdict"]["pieces"]) == 1, "les pièces non lues tiennent en une seule ligne"
+    assert "caractère subit de l'action de la chaleur" in " ".join(cas["verdict"]["paquet"])
     assert cas["verdict"]["ask"] == [
         "Le contrat porte-t-il l'option correspondante ?",
         "Le caractère subit de l'action de la chaleur est-il établi ?"]
@@ -632,17 +643,20 @@ def test_chaque_clause_affiche_son_type_sa_page_et_ses_statuts(cas: dict[str, An
     clauses = cas["verdict"]["clauses"]
     assert len(clauses) == 2
     assert clauses[0]["quote"].startswith("« événement soudain")
-    assert clauses[0]["meta"][0] == "garantie"
-    assert clauses[0]["meta"][1] == "page 9"
-    assert "applicabilité à confirmer par un humain" in clauses[0]["meta"][2]
-    assert "actualité non vérifiée" in clauses[0]["meta"][2]
+    # Story 5.6 (L2) : l'entête d'une clause se lit chemin › page › type. Sans `chemin` publié par
+    # le moteur et sans `trace.blocs` pour le résoudre, elle commence à la page.
+    assert clauses[0]["meta"][0] == "page 9"
+    assert clauses[0]["meta"][1] == "garantie"
+    statut = cas["verdict"]["statuts"][0]
+    assert "applicabilité à confirmer par un humain" in statut
+    assert "actualité non vérifiée" in statut
 
 
 def test_un_typage_non_confirme_est_dit(cas: dict[str, Any]) -> None:
     """D5 : un `kind` non confirmé vaut `applicable="humain"` — l'afficher sans le dire mentirait."""
     condition = cas["verdict"]["clauses"][1]
-    assert condition["meta"][0] == "condition"
-    assert condition["meta"][1] == "typage non confirmé"
+    assert condition["meta"][1] == "condition"
+    assert condition["meta"][2] == "typage non confirmé"
 
 
 def test_chaque_clause_est_placee_sous_laffirmation_quelle_soutient(cas: dict[str, Any]) -> None:
@@ -674,6 +688,9 @@ def test_le_titre_des_affirmations_ecartees_vaut_pour_les_quatre_kinds(cas: dict
     """
     titre = cas["verdict"]["rejetees_titre"]
     assert titre == ["Affirmations écartées par la vérification"]
+    # Story 5.6 (L2) : elles restent consultables **derrière** les garde-fous, dépliables, et plus
+    # jamais au-dessus de la réponse.
+    assert cas["verdict"]["rejetees_tag"] == ["details"]
     note = cas["verdict"]["rejetees_note"][0]
     assert "non retrouvée" not in note and "n'a pas été retrouvée" not in note
     assert "écartées" in note
@@ -687,7 +704,11 @@ def test_les_quatre_motifs_de_rejet_ont_une_phrase_en_francais(cas: dict[str, An
 
 
 def test_ce_que_je_ne_sais_pas_est_affiche(cas: dict[str, Any]) -> None:
-    assert cas["verdict"]["inconnu"] == ["La franchise applicable n'est pas dite."]
+    """Story 5.6 (L2) : une seule inconnue tient en **une ligne** sous la réponse ; au-delà, la
+    liste reste compacte, jamais tronquée."""
+    assert cas["verdict"]["inconnu"] == []
+    assert cas["verdict"]["inconnu_ligne"] == [
+        "Ce que je ne sais pas : La franchise applicable n'est pas dite."]
 
 
 def test_la_trace_est_depliable_et_porte_la_reference_les_etapes_et_le_cout(cas: dict[str, Any]) -> None:
@@ -916,7 +937,7 @@ def test_la_clarification_est_affichee_avec_sa_question(cas: dict[str, Any]) -> 
     assert releve["question"] == ["De quel bien parlez-vous : le mobilier, ou le bâtiment ?"]
     assert releve["titre"] == ["Une précision, pour chercher au bon endroit"]
     # AD-16 : même là, un verdict est porté — un refus sinistre n'est jamais vide.
-    assert releve["badge"] == ["ne tranche pas"]
+    assert releve["badge"] == ["Pas de clause qui s'applique"]
     assert releve["clauses"] == 0
     # AD-5 : `ClarificationRequise` n'a pas de portée. Rien n'est inventé pour remplir la section.
     assert releve["faits_compris"] == 0
@@ -940,7 +961,8 @@ def test_un_corps_de_documents_illisible_nest_pas_un_service_vide(cas: dict[str,
 def test_un_refus_affiche_ne_tranche_pas_sa_portee_et_les_faits_compris(cas: dict[str, Any]) -> None:
     """AD-16 : un refus sinistre **porte** un verdict — sans lui la page n'aurait qu'une absence."""
     refus = cas["verdict_refus"]
-    assert refus["badge"] == [{"cls": "badge verdict-ne_tranche_pas", "texte": "ne tranche pas"}]
+    assert refus["badge"] == [
+        {"cls": "badge verdict-ne_tranche_pas", "texte": "Pas de clause qui s'applique"}]
     assert refus["clauses"] == 0
     assert refus["portee"] == [
         "au regard des conditions générales seules — verdict non validé par un expert assurance"]
@@ -1171,7 +1193,7 @@ def test_tout_ce_qui_vient_du_serveur_est_pose_par_textcontent(cas: dict[str, An
     dom = cas["dom"]
     assert dom["citation"] == "« <script>alert(1)</script> action subite »"
     assert dom["fait_compris"] == "<img onerror=alert(1)>"
-    assert dom["badge"] == "sous conditions"
+    assert dom["badge"] == "Sous conditions"
     assert dom["badge_cls"] == "badge verdict-sous_conditions"
 
 
@@ -1182,7 +1204,9 @@ def test_la_page_ne_peint_aucun_bouton_dans_le_resultat(cas: dict[str, Any]) -> 
 
 def test_la_trace_est_un_details_natif(cas: dict[str, Any]) -> None:
     assert cas["dom"]["details"] >= 2
-    assert cas["dom"]["summary"] == "Ce que disent les clauses retenues"
+    # Story 5.6 (L2) : le premier `<details>` de la carte est celui des affirmations écartées, en
+    # queue du bloc « Garde-fous ». Plus rien n'est replié **au-dessus** de la réponse.
+    assert cas["dom"]["summary"] == "Affirmations écartées par la vérification"
 
 
 def test_rien_du_sinistre_natteint_le_navigateur(cas: dict[str, Any]) -> None:
@@ -1276,7 +1300,7 @@ def test_la_soumission_poste_la_saisie_et_peint_le_verdict(cas: dict[str, Any]) 
     corps = cas["soumission"]["corps"]
     assert corps["doc_id"] == "cg-mini"
     assert corps["faits"]["description"] == "Une bougie allumée est tombée sur le canapé."
-    assert cas["soumission"]["badge"] == "sous conditions"
+    assert cas["soumission"]["badge"] == "Sous conditions"
     assert cas["soumission"]["cartes"] == 1
 
 
@@ -1439,6 +1463,9 @@ def test_toute_classe_composee_par_le_script_est_stylee_dans_la_page(page: str) 
         # paragraphes et fragments dont la mise en forme vient de leur conteneur
         "analyse-txt", "clarif-q", "cl-page", "cl-statut", "err-txt", "fc-val", "pq-txt",
         "source-lien",
+        # Story 5.6 (L2) : `appui-extrait` est une variante de `.appui-texte`, `bloc-manques` et
+        # `bloc-gardefous` n'ont que la règle commune `.bloc`, `dossier` que `.details-preuves`.
+        "appui-extrait", "bloc-manques", "bloc-gardefous", "dossier",
     }
     for classe in sorted(composees - structurelles):
         assert re.search(rf"[.#][\w -]*\b{re.escape(classe)}\b[^{{]*\{{", page), (
@@ -1566,7 +1593,8 @@ def test_une_lecture_partielle_affiche_son_chiffre_et_ses_clauses_ecartees(
     jamais pu être atteint sous troncature : la page ne recevait qu'un 503.
     """
     vu = cas["verdict_lecture_partielle"]
-    assert vu["badge"] == [{"cls": "badge verdict-ne_tranche_pas", "texte": "ne tranche pas"}]
+    assert vu["badge"] == [
+        {"cls": "badge verdict-ne_tranche_pas", "texte": "Pas de clause qui s'applique"}]
     assert vu["clauses"] == 0
     assert vu["preuve"] == []  # aucune absence du contrat n'est affirmée
     assert vu["lecture"] == [
@@ -1574,7 +1602,7 @@ def test_une_lecture_partielle_affiche_son_chiffre_et_ses_clauses_ecartees(
         "— le reste n'a pas été lu, et rien n'en est affirmé"]
     assert vu["etat"] == ["etat etat-lecture-partielle"]
     assert vu["etat_texte"] == ["lecture partielle"]
-    assert vu["inconnu"] and vu["faits_compris"] == [["Bien concerné", "mobilier de salon"]]
+    assert vu["inconnu_ligne"] and vu["faits_compris"] == [["Bien concerné", "mobilier de salon"]]
     # La clause écartée est enfin montrée — avec son motif, jamais avec sa citation (AD-3/D7).
     assert vu["rejetees"] == [["Une clause que la vérification a écartée.",
                                "citation introuvable dans le contrat", "non_retrouvee"]]

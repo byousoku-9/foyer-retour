@@ -125,6 +125,10 @@ class Noeud {
 
   focus() { this.ownerDocument.actif = this; }
 
+  // `HTMLElement.click()` : le seul moyen, sans navigateur, qu'un gestionnaire posé sur un parent
+  // déclenche celui d'un bouton qu'il a trouvé (la carte de clause de la page sinistre le fait).
+  click() { this.declencher("click", { target: this }); }
+
   /** Tous les descendants, en ordre document. */
   descendants() {
     return this.childNodes.flatMap((n) => (n.estTexte ? [n] : [n, ...n.descendants()]));

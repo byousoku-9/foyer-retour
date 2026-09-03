@@ -138,18 +138,37 @@
 
   // ---------- textes composés ----------
 
-  // AD-6 : les quatre valeurs, et rien d'autre. Une valeur inconnue n'est **pas** traduite en
-  // « ne tranche pas » : le serveur aurait rendu quelque chose que ce contrat ne prévoit pas, et
-  // l'afficher comme un verdict connu serait le dégradé silencieux qu'AD-16 interdit. Elle se dit.
+  // AD-6 : les quatre valeurs de `VerdictValue` (`domain/verdict.py:29`), et rien d'autre. Une
+  // valeur inconnue n'est **pas** traduite en « ne tranche pas » : le serveur aurait rendu quelque
+  // chose que ce contrat ne prévoit pas, et l'afficher comme un verdict connu serait le dégradé
+  // silencieux qu'AD-16 interdit. Elle se dit.
+  //
+  // Story 5.6 (L2) : les libellés sont ceux qu'un assuré lit, pas les identifiants du domaine.
+  // « non_couvert » se dit « Exclu » — le mot du contrat —, et « ne_tranche_pas » se dit de deux
+  // façons parce qu'il recouvre deux situations que l'utilisateur ne confond jamais : aucune clause
+  // retenue (« Pas de clause qui s'applique », la lecture a abouti et le contrat ne prévoit rien)
+  // et des clauses retenues sur lesquelles la table AD-6 ne conclut pas (« Je ne peux pas
+  // trancher »). Aucune valeur brute ne reste à l'écran.
   var VERDICTS = {
-    couvert: "couvert",
-    non_couvert: "non couvert",
-    sous_conditions: "sous conditions",
-    ne_tranche_pas: "ne tranche pas"
+    couvert: "Couvert",
+    non_couvert: "Exclu",
+    sous_conditions: "Sous conditions",
+    ne_tranche_pas: "Je ne peux pas trancher"
   };
+  var NE_TRANCHE_PAS_SANS_CLAUSE = "Pas de clause qui s'applique";
 
-  function libelleVerdict(value) {
+  /**
+   * Le libellé d'un verdict. `sansClause` distingue les deux « ne tranche pas ».
+   *
+   * Il vaut `true` quand **aucune affirmation n'a été retenue** — pas quand `sources[]` est vide :
+   * une claim retenue dont l'appariement a échoué reste une claim retenue, et dire « pas de clause
+   * qui s'applique » sous des clauses affichées serait un mensonge d'affichage.
+   */
+  function libelleVerdict(value, sansClause) {
     var v = String(value || "");
+    if (v === "ne_tranche_pas" && sansClause === true) {
+      return { cle: v, texte: NE_TRANCHE_PAS_SANS_CLAUSE };
+    }
     if (Object.prototype.hasOwnProperty.call(VERDICTS, v)) {
       return { cle: v, texte: VERDICTS[v] };
     }
@@ -603,21 +622,280 @@
     };
   }
 
+  // ---------- retrouver la citation dans son paragraphe (story 5.6, L2) ----------
+  //
+  // Le bloc 2 affiche le **paragraphe entier** (`ClauseSource.texte_bloc`) avec la partie citée
+  // surlignée. La `quote` est ré-extraite du corpus par le serveur aux offsets prouvés (AD-3) :
+  // elle est donc bien une sous-chaîne de son bloc — mais pas forcément **caractère pour
+  // caractère** sur le fil, où passent des apostrophes typographiques, des espaces insécables et
+  // des retours à la ligne que la mise en page du PDF a semés. Chercher `indexOf(quote)` échouait
+  // sur des paragraphes où la citation est pourtant là.
+  //
+  // La recherche se fait donc sur une **carte normalisée** : chaque caractère de la source produit
+  // exactement un caractère normalisé (apostrophes et guillemets ramenés à l'ASCII, tirets longs
+  // ramenés au trait d'union, toute suite d'espaces ramenée à un espace, minuscules), et un index
+  // renvoie chaque position normalisée à sa position d'origine. Le surlignage porte donc sur le
+  // texte **original**, jamais sur une copie retouchée. Si la citation reste introuvable, la page
+  // affiche la quote seule : elle ne fabrique aucun surlignage approximatif.
+  var EQUIVALENTS = {
+    "‘": "'", "’": "'", "ʼ": "'", "′": "'", "´": "'", "`": "'",
+    "“": "\"", "”": "\"", "„": "\"", "«": "\"", "»": "\"",
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-",
+    "−": "-", "…": "…"
+  };
+
+  /** Un caractère normalisé, **toujours** de longueur 1 : l'index de position en dépend. */
+  function normaliserCaractere(c) {
+    var n = Object.prototype.hasOwnProperty.call(EQUIVALENTS, c) ? EQUIVALENTS[c] : c;
+    var bas = n.toLocaleLowerCase();
+    // `İ` (U+0130) se minuscule en deux points de code : le garder tel quel préserve la bijection
+    // dont l'index a besoin, au prix d'une insensibilité à la casse en moins sur ce seul caractère.
+    return bas.length === 1 ? bas : n;
+  }
+
+  /** `{texte, index}` : le texte normalisé, et la position d'origine de chacun de ses caractères. */
+  function carteNormalisee(brut) {
+    var s = String(brut === undefined || brut === null ? "" : brut);
+    var texte = "";
+    var index = [];
+    var espacePrecedent = false;
+    for (var i = 0; i < s.length; i++) {
+      var c = normaliserCaractere(s.charAt(i));
+      if (/\s/.test(c)) {
+        if (espacePrecedent) continue;  // une suite d'espaces vaut un espace
+        c = " ";
+        espacePrecedent = true;
+      } else {
+        espacePrecedent = false;
+      }
+      texte += c;
+      index.push(i);
+    }
+    index.push(s.length);
+    return { texte: texte, index: index };
+  }
+
+  /** Les bornes de `aiguille` dans `texte`, en coordonnées **d'origine**, ou `null`. */
+  function trouverPassage(texte, aiguille) {
+    var cible = carteNormalisee(aiguille).texte.trim();
+    if (!cible) return null;
+    var source = carteNormalisee(texte);
+    var p = source.texte.indexOf(cible);
+    if (p < 0) return null;
+    return { debut: source.index[p], fin: source.index[p + cible.length] };
+  }
+
+  /** Le texte, coupé en trois nœuds dont celui du milieu est `<mark>`. Les vides sont omis. */
+  function texteSurligne(texte, bornes, classeMarque) {
+    var s = String(texte || "");
+    var parts = [
+      noeud("span", null, s.slice(0, bornes.debut)),
+      noeud("mark", classeMarque, s.slice(bornes.debut, bornes.fin)),
+      noeud("span", null, s.slice(bornes.fin))
+    ];
+    return parts.filter(function (n) { return n.texte !== ""; });
+  }
+
+  // Le paragraphe entier est affiché **par défaut** : c'est ce qui permet de juger une clause. Un
+  // bloc très long (une énumération de définitions, une liste d'exclusions) noierait pourtant la
+  // phrase qui décide, et un écran qu'on ne lit pas ne vaut pas mieux qu'un écran replié. Au-delà
+  // de ce seuil, la page montre la phrase citée avec **une** phrase avant et **une** après, et
+  // offre le paragraphe entier au clic — dépliage à la demande, jamais l'inverse (aucun contenu ne
+  // se referme sous le lecteur).
+  var BLOC_LONG_CARACTERES = 600;
+
+  /** Les bornes des phrases de `texte` : `[{debut, fin}]`, couvrant tout le texte. */
+  function bornesPhrases(texte) {
+    var s = String(texte || "");
+    var out = [];
+    var debut = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charAt(i);
+      if (c !== "." && c !== "!" && c !== "?" && c !== "…" && c !== ";" && c !== "\n") continue;
+      // La fin d'une phrase est le dernier signe d'une suite (« … ! », « ?! »), suivie d'un blanc
+      // ou de la fin du texte : « 3.1.4.1 » et « n° 2 » ne coupent donc pas une phrase en deux.
+      var j = i;
+      while (j + 1 < s.length && ".!?…;".indexOf(s.charAt(j + 1)) !== -1) j++;
+      if (j + 1 < s.length && !/\s/.test(s.charAt(j + 1))) continue;
+      out.push({ debut: debut, fin: j + 1 });
+      var k = j + 1;
+      while (k < s.length && /\s/.test(s.charAt(k))) k++;
+      debut = k;
+      i = k - 1;
+    }
+    if (debut < s.length) out.push({ debut: debut, fin: s.length });
+    return out;
+  }
+
+  /** Les bornes de l'extrait « une phrase avant, la citation, une phrase après ». */
+  function extraitAutour(texte, bornes) {
+    var phrases = bornesPhrases(texte);
+    if (!phrases.length) return { debut: 0, fin: String(texte || "").length };
+    var premiere = -1;
+    var derniere = -1;
+    for (var i = 0; i < phrases.length; i++) {
+      if (phrases[i].fin > bornes.debut && phrases[i].debut < bornes.fin) {
+        if (premiere < 0) premiere = i;
+        derniere = i;
+      }
+    }
+    if (premiere < 0) return { debut: 0, fin: String(texte || "").length };
+    var a = Math.max(0, premiere - 1);
+    var b = Math.min(phrases.length - 1, derniere + 1);
+    return { debut: phrases[a].debut, fin: phrases[b].fin };
+  }
+
+  /** Les phrases du texte, groupées par paquets d'au plus `taille` phrases. */
+  function paragraphes(texte, taille) {
+    var s = String(texte || "");
+    var phrases = bornesPhrases(s).map(function (b) { return s.slice(b.debut, b.fin).trim(); })
+      .filter(function (t) { return t; });
+    var out = [];
+    for (var i = 0; i < phrases.length; i += taille) {
+      out.push(phrases.slice(i, i + taille).join(" "));
+    }
+    return out;
+  }
+
   // ---------- les vues ----------
 
-  function vueAttente() {
+  // ---------- l'attente, habillée (story 5.6, L2) ----------
+  //
+  // Une soumission coûte de vingt secondes à une minute. La page affichait une phrase et rien ne
+  // bougeait : un écran figé se lit comme un écran cassé. Elle affiche désormais les trois étapes
+  // du travail réel, celle en cours marquée, un chronomètre, et l'ordre de grandeur attendu.
+  //
+  // Deux sources d'avancement, dans cet ordre :
+  //   1. le flux `POST /api/v1/sinistre/progression` (SSE), qui dit l'étape que le serveur exécute ;
+  //   2. à défaut, l'**estimation** par le temps écoulé sur les durées ci-dessous.
+  //
+  // Les durées sont des estimations mesurées sur les tours live consignés dans `docs/tests-live.md`
+  // (21 à 47 s au total). Elles ne pilotent rien d'autre que l'apparence de la barre : aucune
+  // décision, aucun abandon, aucun message ne s'y adosse — la borne d'abandon reste `abandonMs()`,
+  // lue sur les seuils du serveur.
+  var ETAPES_SINISTRE = [
+    { nom: "comprendre", libelle: "Je lis le contrat", ms: 14000 },
+    { nom: "rediger", libelle: "J'écris la réponse", ms: 22000 },
+    { nom: "verifier", libelle: "Je vérifie chaque citation", ms: 16000 }
+  ];
+
+  // La durée annoncée à l'utilisateur. `/sante` ne publie aucun seuil de durée **typique** — les
+  // seuils qu'il publie sont des bornes (`deadline_s`) et non des attentes —, donc la phrase se
+  // compose sur cette constante, qui est la somme des estimations ci-dessus arrondie.
+  var DUREE_ANNONCEE_S = 60;
+
+  function dureeTotaleEstimee() {
+    return ETAPES_SINISTRE.reduce(function (t, e) { return t + e.ms; }, 0);
+  }
+
+  function chrono(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return m + ":" + (r < 10 ? "0" + r : String(r));
+  }
+
+  /**
+   * L'état de la barre après `msEcoule` millisecondes, sans aucun événement du serveur.
+   *
+   * Le rang estimé n'est **jamais** annoncé comme un fait du serveur : la dernière étape reste « en
+   * cours » indéfiniment plutôt que d'afficher un travail terminé qui ne l'est pas.
+   */
+  function rangEstime(msEcoule) {
+    var cumul = 0;
+    for (var i = 0; i < ETAPES_SINISTRE.length; i++) {
+      cumul += ETAPES_SINISTRE[i].ms;
+      if (msEcoule < cumul) return i;
+    }
+    return ETAPES_SINISTRE.length - 1;
+  }
+
+  /**
+   * La vue d'attente : les étapes, le chronomètre, la phrase de durée.
+   *
+   * `etat` = `{rang, total, libelles, msEcoule, serveur}`. `serveur` dit si l'avancement vient du
+   * flux ou d'une estimation, et l'écran le **dit** : une barre qui avance toute seule ne doit pas
+   * se faire passer pour une mesure.
+   */
+  function vueAttente(etat) {
+    var e = etat || {};
+    var libelles = tableau(e.libelles).length
+      ? tableau(e.libelles).map(String)
+      : ETAPES_SINISTRE.map(function (x) { return x.libelle; });
+    var rang = typeof e.rang === "number" && isFinite(e.rang) ? e.rang : 0;
+    var etapes = libelles.map(function (libelle, i) {
+      var cle = i < rang ? "faite" : (i === rang ? "encours" : "attente");
+      return noeud("li", "prog-etape prog-" + cle, null, [
+        noeud("span", "prog-puce", "", null, { "aria-hidden": "true" }),
+        noeud("span", "prog-libelle", libelle),
+        // L'état de chaque étape est écrit en toutes lettres : la puce colorée ne le porte pas
+        // seule, et un lecteur d'écran entend « terminé », « en cours », « à venir ».
+        noeud("span", "prog-etat",
+              cle === "faite" ? "terminé" : (cle === "encours" ? "en cours" : "à venir"))
+      ]);
+    });
     return noeud("div", "carte attente", null, [
-      noeud("p", null, "Je cherche les clauses du contrat, puis je vérifie chaque citation mot pour " +
-        "mot avant d'afficher quoi que ce soit…"),
-      // Ni « quatre appels » ni « une dizaine de secondes » n'étaient vrais (revue 1.9, tour 2) :
-      // la relance d'AD-3 ajoute un second *rédiger* **et** une seconde vérification (plafond
-      // nominal : cinq appels, plus le retry de parse du client), et toutes les mesures live
-      // tiennent entre 21 et 27 secondes, une à 47. Ce texte s'affiche à chaque soumission ; il
-      // annonce donc un ordre de grandeur mesuré, et pas un compte que le pipeline peut dépasser.
-      noeud("p", "attente-note",
-        "Plusieurs appels au modèle s'enchaînent, et une vérification peut en relancer un : "
-        + "comptez de vingt secondes à une minute.")
+      noeud("ol", "prog", null, etapes),
+      noeud("div", "prog-pied", null, [
+        noeud("span", "prog-chrono", chrono(e.msEcoule || 0)),
+        noeud("span", "attente-note", e.serveur
+          ? "Le serveur annonce l'étape en cours ; comptez environ " + DUREE_ANNONCEE_S +
+            " secondes en tout."
+          : "Plusieurs appels au modèle s'enchaînent, et une vérification peut en relancer un : " +
+            "comptez environ " + DUREE_ANNONCEE_S + " secondes. L'avancement ci-dessus est estimé " +
+            "sur le temps écoulé.")
+      ])
     ]);
+  }
+
+  /**
+   * Peint l'attente et la tient à jour jusqu'au résultat.
+   *
+   * Rend `{etape, fin}` : `etape(evt)` prend un événement `etape` du flux, `fin()` arrête tout.
+   * Aucun état global — un second envoi crée un second minuteur, et le premier est arrêté par
+   * l'appelant avant de repeindre.
+   */
+  function suivreAttente(hote) {
+    var debut = Date.now();
+    var etat = { rang: 0, libelles: null, msEcoule: 0, serveur: false };
+    var minuteur = null;
+
+    function peindreEtat() {
+      etat.msEcoule = Date.now() - debut;
+      if (!etat.serveur) etat.rang = rangEstime(etat.msEcoule);
+      peindre(vueAttente(etat), hote);
+    }
+
+    peindreEtat();
+    if (typeof setInterval === "function") {
+      minuteur = setInterval(peindreEtat, 1000);
+    }
+
+    return {
+      etape: function (evt) {
+        var e = evt || {};
+        if (typeof e.rang === "number" && isFinite(e.rang) && e.rang >= 0) {
+          etat.serveur = true;
+          etat.rang = Math.floor(e.rang);
+        }
+        if (typeof e.total === "number" && isFinite(e.total) && e.total > 0 &&
+            typeof e.libelle === "string" && e.libelle) {
+          // Le serveur nomme ses propres étapes : la barre suit ses libellés dès qu'elle les a
+          // tous, et garde les siens tant que le flux n'en a annoncé qu'une partie.
+          var total = Math.floor(e.total);
+          if (!etat.libelles || etat.libelles.length !== total) {
+            etat.libelles = ETAPES_SINISTRE.map(function (x) { return x.libelle; }).slice(0, total);
+            while (etat.libelles.length < total) etat.libelles.push("Étape " + (etat.libelles.length + 1));
+          }
+          if (etat.rang < total) etat.libelles[etat.rang] = e.libelle;
+        }
+        peindreEtat();
+      },
+      fin: function () {
+        if (minuteur !== null && typeof clearInterval === "function") clearInterval(minuteur);
+        minuteur = null;
+      }
+    };
   }
 
   function vueAudits(documents, echec) {
@@ -715,41 +993,6 @@
     ];
   }
 
-  function clauseVue(src, status, contexte) {
-    var meta = [noeud("span", "cl-kind", libelleKind(src.kind))];
-    if (src.kind_confirmed === false) {
-      // AD-6 : un `kind` non confirmé plafonne le verdict. Afficher « garantie » sans le dire
-      // donnerait au lecteur une certitude que le pipeline n'a pas.
-      meta.push(noeud("span", "cl-doute", "typage non confirmé"));
-    }
-    if (typeof src.page === "number") meta.push(noeud("span", "cl-page", "page " + src.page));
-    var statut = statutTexte(status);
-    if (statut) meta.push(noeud("span", "cl-statut", statut));
-    var termesDecisifs = contexte && contexte.decisive;
-    var citation = tableau(termesDecisifs).length
-      ? noeud("blockquote", "cl-q", null, texteDecisif(src.quote, termesDecisifs))
-      : noeud("blockquote", "cl-q", "« " + String(src.quote || "") + " »");
-    var enfants = [
-      citation,
-      noeud("div", "cl-meta", null, meta)
-    ];
-    var c = contexte || {};
-    if (typeof c.doc_id === "string" && c.doc_id && typeof src.page === "number" &&
-        isFinite(src.page) && Math.floor(src.page) === src.page && src.page > 0) {
-      var attrs = {
-        "data-doc-id": c.doc_id,
-        "data-page": String(src.page),
-        "data-block-ids": JSON.stringify([String(src.block_id)]),
-        "data-line-ids": JSON.stringify(tableau(src.line_ids))
-      };
-      var source = lienHttp(c.source_url);
-      if (source) attrs["data-source-url"] = source;
-      enfants.push(noeud("button", "cl-ouvrir", "Voir la page " + src.page + " dans le PDF",
-                         null, attrs));
-    }
-    return noeud("div", "clause", null, enfants);
-  }
-
   // AD-4/D4 : « les faits compris » sont ce que *comprendre* a extrait des faits déclarés, pas la
   // description renvoyée en écho. C'est le seul endroit où l'utilisateur peut constater qu'il a été
   // mal compris — et c'est pour cela que l'AC l'exige.
@@ -815,8 +1058,47 @@
     return tableau(c.facts).filter(function (f) { return f && !exclus[f.event_id]; });
   }
 
-  function conversationVue(conversation) {
+  /**
+   * Les questions décisives et leur mécanique de réponse : sélection, Oui / Non / Ne sait pas,
+   * réponse libre. Extrait de `conversationVue()` sans rien changer à ses classes ni à ses
+   * `data-*` — c'est **le** mécanisme existant, déplacé, pas un second formulaire.
+   */
+  function questionsVue(conversation) {
+    var actives = tableau(conversation && conversation.questions).filter(function (q) {
+      return q && q.status === "active";
+    });
+    if (!actives.length) return null;
+    var selections = actives.map(function (q, index) {
+      return noeud("button", "conv-selection-question", String(q.text), null, {
+        "type": "button", "data-question-id": String(q.question_id),
+        "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false"
+      });
+    });
+    return section("conv-questions", "Prochaines questions décisives", [
+      noeud("div", "conv-liste-questions", null, selections),
+      noeud("p", "conv-provenance-exigence",
+            "Ces questions viennent des exigences des clauses ou des pièces du dossier ; " +
+            "vos réponses restent des faits du tour client."),
+      noeud("div", "conv-reponse-commune", null, [
+        noeud("p", "conv-question-contexte", String(actives[0].text), null,
+              { "data-selected-question-id": String(actives[0].question_id) }),
+        noeud("div", "conv-reponses", null, [
+          noeud("button", "conv-repondre", "Oui", null, { "type": "button", "data-value": "oui" }),
+          noeud("button", "conv-repondre", "Non", null, { "type": "button", "data-value": "non" }),
+          noeud("button", "conv-repondre", "Ne sait pas", null,
+                { "type": "button", "data-value": "inconnu" }),
+          noeud("input", "conv-reponse-libre", null, null,
+                { "type": "text", "maxlength": "500", "aria-label": "Réponse libre" }),
+          noeud("button", "conv-envoyer-libre", "Envoyer la réponse libre", null,
+                { "type": "button" })
+        ])
+      ])
+    ]);
+  }
+
+  function conversationVue(conversation, options) {
     if (!conversation) return null;
+    var opts = options || {};
     var remplaces = {};
     tableau(conversation.facts).forEach(function (f) {
       if (f && f.replaces_event_id) remplaces[f.replaces_event_id] = true;
@@ -858,34 +1140,13 @@
     var actives = tableau(conversation.questions).filter(function (q) {
       return q && q.status === "active";
     });
-    if (actives.length) {
-      var selections = actives.map(function (q, index) {
-        return noeud("button", "conv-selection-question", String(q.text), null, {
-          "type": "button", "data-question-id": String(q.question_id),
-          "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false"
-        });
-      });
-      enfants.push(section("conv-questions", "Prochaines questions décisives", [
-        noeud("div", "conv-liste-questions", null, selections),
-        noeud("p", "conv-provenance-exigence",
-              "Ces questions viennent des exigences des clauses ou des pièces du dossier ; " +
-              "vos réponses restent des faits du tour client."),
-        noeud("div", "conv-reponse-commune", null, [
-          noeud("p", "conv-question-contexte", String(actives[0].text), null,
-                { "data-selected-question-id": String(actives[0].question_id) }),
-          noeud("div", "conv-reponses", null, [
-            noeud("button", "conv-repondre", "Oui", null, { "type": "button", "data-value": "oui" }),
-            noeud("button", "conv-repondre", "Non", null, { "type": "button", "data-value": "non" }),
-            noeud("button", "conv-repondre", "Ne sait pas", null,
-                  { "type": "button", "data-value": "inconnu" }),
-            noeud("input", "conv-reponse-libre", null, null,
-                  { "type": "text", "maxlength": "500", "aria-label": "Réponse libre" }),
-            noeud("button", "conv-envoyer-libre", "Envoyer la réponse libre", null,
-                  { "type": "button" })
-          ])
-        ])
-      ]));
-    }
+    // Story 5.6 (L2) : les questions décisives ne vivent plus **dans** le dossier quand la page les
+    // a déjà posées en bloc 3 (« Ce qu'il me manque pour aller plus loin »). `questionsVue()` les
+    // compose seule, avec exactement les mêmes classes et les mêmes `data-*` : `brancherConversation`
+    // branche par sélecteur sur toute la racine peinte, donc il les trouve où qu'elles soient — mais
+    // les poser **deux fois** doublerait les boutons de réponse et le champ libre sous une seule
+    // question sélectionnée, donc l'appelant dit lequel des deux endroits les porte.
+    if (actives.length && !opts.sansQuestions) enfants.push(questionsVue(conversation));
 
     var historique = tableau(conversation.history).map(function (h) {
       var causes = tableau(h.causal_events).length
@@ -940,26 +1201,6 @@
     { cle: "avenants", libelle: "les avenants" },
     { cle: "date_effet", libelle: "la date d'effet" }
   ];
-
-  // AD-6 : `MissingPackage` accompagne **toujours** le verdict, y compris sous un « couvert ». C'est
-  // la mesure de ce que le verdict ne pouvait pas voir.
-  function paquetVue(missing) {
-    if (!missing) return null;
-    var absentes = PIECES.filter(function (p) { return missing[p.cle] !== false; })
-      .map(function (p) { return p.libelle; });
-    var faits = tableau(missing.faits).filter(function (f) { return String(f || "").trim(); });
-    if (!absentes.length && !faits.length) return null;
-    var enfants = [];
-    if (absentes.length) {
-      enfants.push(noeud("p", null, "Pièces du contrat non lues : " + absentes.join(", ") + "."));
-    }
-    if (faits.length) {
-      enfants.push(noeud("p", null, "Faits que les clauses citées exigent et que la description " +
-        "n'établit pas :"));
-      enfants.push(liste("paquet-faits", faits));
-    }
-    return section("paquet", "Ce qui manque au dossier", enfants);
-  }
 
   function estObjetPlat(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 
@@ -1131,110 +1372,392 @@
     return noeud("details", "trace", null, enfants);
   }
 
-  function vueVerdict(reponse, contexte) {
-    var r = reponse || {};
-    var a = r.answer || {};
-    var verdict = a.verdict || null;
-    var sources = tableau(r.sources);
-    var enfants = [];
-    var contexteClauses = Object.assign({}, contexte || {});
-    contexteClauses.decisive = tableau(r.conversation && r.conversation.history)
-      .reduce(function (out, h) {
-        tableau(h && h.decisive_terms).forEach(function (term) { out.push(term); });
-        return out;
-      }, []);
+  // ---------- les quatre blocs de la page (story 5.6, L2) ----------
+  //
+  // La page rendait un rapport : un badge, une raison, puis quatorze sections dans l'ordre où le
+  // contrat les publie, dont les deux qui portent la preuve — les clauses citées et le texte de la
+  // réponse — **repliées** dès qu'une conversation était ouverte. Un lecteur qui n'ouvre rien voyait
+  // « ne tranche pas », des questions, et la liste de ce qui n'avait pas été lu.
+  //
+  // L'ordre est désormais fixe et il n'y a plus rien de replié au-dessus de la réponse :
+  //
+  //   1. La réponse                          — ce que je conclus, et le verdict traduit ;
+  //   2. Sur quoi je m'appuie                — les clauses, paragraphe entier, citation surlignée ;
+  //   3. Ce qu'il me manque pour aller plus loin — les questions décisives, les pièces non lues ;
+  //   4. Garde-fous                          — ce qui a été relu, retiré, et par quoi c'est décidé.
+  //
+  // Ce qui explique **comment** la réponse a été faite reste consultable et vient après : le
+  // dossier conversationnel (« Dossier »), les affirmations écartées, la trace. Rien n'a disparu ;
+  // ce qui décide est passé devant ce qui documente.
 
-    var v = libelleVerdict(verdict && verdict.value);
+  /** Le titre d'un bloc : son numéro, puis son intitulé. */
+  function titreBloc(numero, texte) {
+    return noeud("h3", "bloc-titre", null, [
+      noeud("span", "bloc-num", String(numero), null, { "aria-hidden": "true" }),
+      noeud("span", "bloc-nom", texte)
+    ]);
+  }
+
+  function bloc(cls, numero, titre, enfants) {
+    var utiles = enfants.filter(Boolean);
+    if (!utiles.length) return null;
+    return noeud("section", "bloc " + cls, null, [titreBloc(numero, titre)].concat(utiles));
+  }
+
+  // --- bloc 1 : la réponse -------------------------------------------------
+
+  /**
+   * La réponse en clair : la première phrase en grand, puis l'explication.
+   *
+   * Le texte vient **entier** du serveur (AD-3 : il est composé des segments vérifiés) et la page
+   * ne recompose rien — elle le coupe en phrases pour lui donner une hiérarchie de lecture. Toutes
+   * les phrases restent affichées : les suivantes se groupent par trois, ce qui donne des
+   * paragraphes qui se lisent, sans jamais retrancher la fin d'une réponse longue.
+   */
+  function reponseVue(texte) {
+    var phrases = paragraphes(String(texte || ""), 1);
+    if (!phrases.length) return [];
+    var suite = paragraphes(phrases.slice(1).join(" "), 3);
+    return [noeud("p", "reponse-phrase", phrases[0])].concat(
+      suite.map(function (p) { return noeud("p", "reponse-suite", p); }));
+  }
+
+  function blocReponse(reponse, sansClause) {
+    var a = (reponse || {}).answer || {};
+    var verdict = a.verdict || null;
+    var v = libelleVerdict(verdict && verdict.value, sansClause);
+    var enfants = reponseVue(a.texte);
+
     enfants.push(noeud("div", "verdict-tete", null, [
       noeud("span", "badge verdict-" + v.cle, v.texte),
       noeud("span", "portee", PORTEE)
     ]));
-
+    // La raison composée par le serveur reste sous la pastille, en petit : c'est elle qui dit
+    // **pourquoi** la table AD-6 a conclu ainsi, et la retirer ferait du verdict une opinion.
     if (verdict && String(verdict.reason || "").trim()) {
       enfants.push(noeud("p", "verdict-raison", String(verdict.reason)));
     }
 
-    // Story 3.7 : l'essentiel suit immédiatement la décision. Les preuves historiques de 1.9
-    // restent plus bas et repliables ; le fil n'est conservé que dans cet objet en mémoire de page.
-    var conversation = conversationVue(r.conversation);
-    if (conversation) enfants.push(conversation);
-
-    // Le texte de la réponse est **rendu par le serveur** depuis les segments vérifiés (AD-3) : la
-    // page ne recompose rien, elle le pose.
-    if (String(a.texte || "").trim()) {
-      enfants.push(sectionRepliee("analyse", "Ce que disent les clauses retenues", [
-        noeud("p", "analyse-txt", String(a.texte))
+    // « Ce que je ne sais pas » : une ligne sous la réponse. Le tour moteur le rend en une phrase ;
+    // tant qu'il en rend plusieurs, la liste reste compacte plutôt que d'être tronquée.
+    var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
+    if (inconnus.length === 1) {
+      enfants.push(noeud("p", "inconnu-ligne", "Ce que je ne sais pas : " + String(inconnus[0])));
+    } else if (inconnus.length > 1) {
+      enfants.push(noeud("div", "inconnu", null, [
+        noeud("span", "inconnu-tete", "Ce que je ne sais pas"),
+        liste("inconnu-liste", inconnus)
       ]));
     }
+    return { vue: bloc("bloc-reponse", 1, "La réponse", enfants), inconnus: inconnus.length };
+  }
 
-    var compris = faitsComprisVue(a.faits_compris);
-    if (compris) enfants.push(compris);
+  // --- bloc 2 : sur quoi je m'appuie --------------------------------------
 
-    var paquet = paquetVue(verdict && verdict.missing);
-    if (paquet) enfants.push(paquet);
+  /** `block_id → titre`, tel que `trace.blocs` le résout. Repli du `chemin` du moteur. */
+  function titresDeBlocs(trace) {
+    var titres = Object.create(null);
+    tableau(trace && trace.blocs).forEach(function (b) {
+      if (estObjetPlat(b) && typeof b.block_id === "string" && typeof b.titre === "string") {
+        titres[b.block_id] = b.titre;
+      }
+    });
+    return titres;
+  }
 
-    var questions = tableau(verdict && verdict.ask_client)
-      .filter(function (q) { return String(q || "").trim(); });
-    if (questions.length && !r.conversation) {
-      enfants.push(section("ask", "Questions à poser au client", [liste("ask-liste", questions)]));
+  /**
+   * Les clauses à afficher, chacune avec l'affirmation qui la cite.
+   *
+   * Trois chemins, du plus sûr au plus pauvre, et jamais de rattachement deviné (D6) :
+   *   1. `sources[i].claim_id` — le moteur le publie : chaque clause **dit** qui la cite ;
+   *   2. l'appariement positionnel de `clausesParClaim()` — le contrat d'AD-11 seul ;
+   *   3. la liste plate, avec le seul statut que `statutDeBloc()` peut fixer sans deviner.
+   */
+  function appuisDe(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var sources = tableau(r.sources);
+    if (!sources.length) return { entrees: [], degrade: false, ambigus: 0 };
+
+    var claims = tableau(a.claims);
+    var parId = Object.create(null);
+    claims.forEach(function (c) {
+      if (c && typeof c.claim_id === "string") parId[c.claim_id] = c;
+    });
+    var tousIdentifies = sources.every(function (s) {
+      return s && typeof s.claim_id === "string" && s.claim_id &&
+        Object.prototype.hasOwnProperty.call(parId, s.claim_id);
+    });
+    if (tousIdentifies) {
+      return { degrade: false, ambigus: 0, entrees: sources.map(function (s) {
+        var c = parId[s.claim_id];
+        return { src: s, texte: String(c.text || ""), status: c.status || null };
+      }) };
+    }
+
+    var appariees = clausesParClaim(a, sources);
+    if (appariees) {
+      var entrees = [];
+      appariees.forEach(function (e) {
+        e.clauses.forEach(function (s) {
+          entrees.push({ src: s, texte: String(e.text || ""), status: e.status || null });
+        });
+      });
+      return { entrees: entrees, degrade: false, ambigus: 0 };
+    }
+
+    var ambigus = 0;
+    return { degrade: true, ambigus: sources.filter(function (s) {
+      return statutAmbigu(a, s.block_id);
+    }).length, entrees: sources.map(function (s) {
+      return { src: s, texte: "", status: statutDeBloc(a, s.block_id) };
+    }) };
+  }
+
+  /** Une clause dont la table a jugé qu'elle **ne s'applique pas** se lit en retrait. */
+  function appuiEcarte(entree) {
+    return !!(entree.status && entree.status.applicable === "non");
+  }
+
+  /** Le chemin d'une clause : `chemin` du moteur, sinon le titre du nœud lu dans `trace.blocs`. */
+  function cheminDe(src, titres) {
+    var chemin = tableau(src.chemin).map(function (t) { return String(t || "").trim(); })
+      .filter(function (t) { return t; });
+    if (chemin.length) return chemin.join(" › ");
+    var titre = titres[src.block_id];
+    return titre ? String(titre) : "";
+  }
+
+  /**
+   * Le corps d'une clause : le paragraphe entier, citation surlignée.
+   *
+   * Sans `texte_bloc`, ou quand la citation ne s'y retrouve pas malgré la normalisation, la page
+   * affiche **la quote seule** : elle ne surligne rien au jugé et n'invente aucun paragraphe.
+   */
+  function corpsClause(src, decisifs) {
+    var quote = String(src.quote || "");
+    var texteBloc = typeof src.texte_bloc === "string" ? src.texte_bloc : "";
+    // La citation seule, avec le terme décisif de la conversation surligné quand il y en a un
+    // (story 3.7) : c'est le repli tant que le moteur ne publie pas `texte_bloc`, et c'est aussi ce
+    // que la page affiche si la citation reste introuvable dans son paragraphe.
+    function seule() {
+      return tableau(decisifs).length
+        ? noeud("blockquote", "appui-texte", null, texteDecisif(quote, decisifs))
+        : noeud("blockquote", "appui-texte", "« " + quote + " »");
+    }
+    if (!texteBloc) return { enfants: [seule()], tronque: null };
+    var bornes = trouverPassage(texteBloc, quote);
+    if (!bornes) {
+      return { enfants: [seule(),
+                         noeud("p", "appui-note",
+                               "La citation n'a pas pu être localisée dans son paragraphe : " +
+                               "elle est donnée seule, sans surlignage inventé.")],
+               tronque: null };
+    }
+    var entier = noeud("blockquote", "appui-texte", null,
+                       texteSurligne(texteBloc, bornes, "appui-mark"));
+    if (texteBloc.length <= BLOC_LONG_CARACTERES) return { enfants: [entier], tronque: null };
+    var extrait = extraitAutour(texteBloc, bornes);
+    var court = texteBloc.slice(extrait.debut, extrait.fin);
+    var courtes = { debut: bornes.debut - extrait.debut, fin: bornes.fin - extrait.debut };
+    return {
+      enfants: [noeud("blockquote", "appui-texte appui-extrait", null,
+                      texteSurligne(court, courtes, "appui-mark")),
+                noeud("button", "appui-plus", "Voir le paragraphe entier")],
+      tronque: entier
+    };
+  }
+
+  function appuiVue(entree, titres, contexte) {
+    var src = entree.src || {};
+    var tete = [];
+    var chemin = cheminDe(src, titres);
+    if (chemin) tete.push(noeud("span", "appui-chemin", chemin));
+    if (typeof src.page === "number") tete.push(noeud("span", "appui-page", "page " + src.page));
+    tete.push(noeud("span", "appui-kind", libelleKind(src.kind)));
+    if (src.kind_confirmed === false) {
+      // AD-6 : un `kind` non confirmé plafonne le verdict. Le taire donnerait au lecteur une
+      // certitude que le pipeline n'a pas.
+      tete.push(noeud("span", "appui-doute", "typage non confirmé"));
+    }
+    var enfants = [noeud("div", "appui-tete", null, tete)];
+    var corps = corpsClause(src, (contexte || {}).decisive);
+    enfants = enfants.concat(corps.enfants);
+    // Posé **masqué**, pas absent : le paragraphe entier est déjà dans le document, et le
+    // bouton ne fait que le montrer — aucune recomposition, aucun aller-retour serveur.
+    if (corps.tronque) {
+      enfants.push(noeud("div", "appui-entier", null, [corps.tronque], { "hidden": "hidden" }));
+    }
+    if (entree.texte) enfants.push(noeud("p", "appui-clair", entree.texte));
+    var statut = statutTexte(entree.status);
+    if (statut) enfants.push(noeud("p", "appui-statut", statut));
+
+    var c = contexte || {};
+    if (typeof c.doc_id === "string" && c.doc_id && typeof src.page === "number" &&
+        isFinite(src.page) && Math.floor(src.page) === src.page && src.page > 0) {
+      var attrs = {
+        "data-doc-id": c.doc_id,
+        "data-page": String(src.page),
+        "data-block-ids": JSON.stringify([String(src.block_id)]),
+        "data-line-ids": JSON.stringify(tableau(src.line_ids))
+      };
+      var source = lienHttp(c.source_url);
+      if (source) attrs["data-source-url"] = source;
+      enfants.push(noeud("button", "cl-ouvrir", "Voir la page " + src.page + " dans le PDF",
+                         null, attrs));
+    }
+    return noeud("div", "appui" + (appuiEcarte(entree) ? " appui-ecarte" : ""), null, enfants);
+  }
+
+  function blocAppuis(reponse, appuis, contexte) {
+    if (!appuis.entrees.length) return null;
+    var titres = titresDeBlocs((reponse || {}).trace);
+    var corps = [];
+    if (appuis.degrade) {
+      corps.push(noeud("p", "degrade",
+        "Les clauses ci-dessous fondent ce verdict, mais je n'ai pas pu rattacher chacune à " +
+        "l'affirmation exacte qu'elle soutient : elles sont données ensemble."));
+    }
+    // Les clauses qui **s'appliquent** d'abord, celles que la table a écartées ensuite et en
+    // retrait : l'ordre de lecture suit la décision, pas l'ordre de publication.
+    var retenues = appuis.entrees.filter(function (e) { return !appuiEcarte(e); });
+    var ecartees = appuis.entrees.filter(appuiEcarte);
+    retenues.concat(ecartees).forEach(function (e) {
+      corps.push(appuiVue(e, titres, contexte));
+    });
+    if (appuis.ambigus) {
+      corps.push(noeud("p", "degrade",
+        (appuis.ambigus > 1
+          ? "Le statut de " + appuis.ambigus + " de ces clauses n'est pas affiché : plusieurs "
+          : "Le statut de l'une de ces clauses n'est pas affiché : plusieurs ") +
+        "affirmations la citent en n'en disant pas la même chose, et je ne devine pas " +
+        "laquelle s'applique ici."));
+    }
+    corps.push(noeud("p", "appui-aide",
+                     "Cliquer une clause ouvre la page du contrat, passage surligné."));
+    return bloc("bloc-appuis", 2, "Sur quoi je m'appuie", corps);
+  }
+
+  // --- bloc 3 : ce qu'il me manque ----------------------------------------
+
+  function blocManques(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var verdict = a.verdict || null;
+    var enfants = [];
+
+    if (a.clarification) {
+      enfants.push(section("clarif", "Une précision, pour chercher au bon endroit",
+                           [noeud("p", "clarif-q", String(a.clarification))]));
+    }
+
+    var questions = questionsVue(r.conversation);
+    if (questions) {
+      enfants.push(questions);
+    } else {
+      var demandes = tableau(verdict && verdict.ask_client)
+        .filter(function (q) { return String(q || "").trim(); });
+      if (demandes.length) {
+        enfants.push(section("ask", "Questions à poser au client", [liste("ask-liste", demandes)]));
+      }
+    }
+
+    var faits = tableau(verdict && verdict.missing && verdict.missing.faits)
+      .filter(function (f) { return String(f || "").trim(); });
+    if (faits.length) {
+      enfants.push(section("paquet", "Ce que les clauses exigent et que la description n'établit pas",
+                           [liste("paquet-faits", faits)]));
     }
 
     var escalade = tableau(verdict && verdict.escalate)
       .filter(function (q) { return String(q || "").trim(); });
     if (escalade.length) {
       enfants.push(section("escalate", "Points à faire trancher par un humain",
-        [liste("escalate-liste", escalade)]));
+                           [liste("escalate-liste", escalade)]));
     }
 
-    // Les clauses citées, rattachées à l'affirmation qu'elles soutiennent quand l'appariement
-    // retombe (D6) ; sinon une liste plate, et la page **le dit**.
-    var appariees = clausesParClaim(a, sources);
-    if (sources.length) {
-      var corps = [];
-      if (appariees) {
-        appariees.forEach(function (entree) {
-          if (!entree.clauses.length) return;
-          corps.push(noeud("div", "affirmation", null,
-            [noeud("p", "aff-txt", String(entree.text || ""))].concat(
-              entree.clauses.map(function (src) { return clauseVue(src, entree.status, contexteClauses); }))));
-        });
-      } else {
-        corps.push(noeud("p", "degrade",
-          "Les clauses ci-dessous fondent ce verdict, mais je n'ai pas pu rattacher chacune à " +
-          "l'affirmation exacte qu'elle soutient : elles sont données ensemble."));
-        // D6 : « avec leurs statuts ». Le mode dégradé serait le dernier endroit où taire
-        // l'applicabilité d'une clause et la réserve d'actualité de son édition.
-        var ambigus = 0;
-        sources.forEach(function (src) {
-          // Le compte ne porte que sur l'**ambiguïté** : une clause qu'aucune affirmation affichée
-          // ne cite n'a pas de statut à taire, elle n'en a pas.
-          if (statutAmbigu(a, src.block_id)) ambigus++;
-          corps.push(clauseVue(src, statutDeBloc(a, src.block_id), contexteClauses));
-        });
-        if (ambigus) {
-          corps.push(noeud("p", "degrade",
-            (ambigus > 1
-              ? "Le statut de " + ambigus + " de ces clauses n'est pas affiché : plusieurs "
-              : "Le statut de l'une de ces clauses n'est pas affiché : plusieurs ") +
-            "affirmations la citent en n'en disant pas la même chose, et je ne devine pas " +
-            "laquelle s'applique ici."));
-        }
-      }
-      enfants.push(r.conversation
-        ? sectionRepliee("clauses", "Clauses citées, relues dans le contrat", corps)
-        : section("clauses", "Clauses citées, relues dans le contrat", corps));
+    // AD-6 : `MissingPackage` accompagne **toujours** le verdict, y compris sous un « couvert ».
+    // C'est la mesure de ce que le verdict ne pouvait pas voir — une ligne, pas un formulaire.
+    var absentes = verdict && verdict.missing
+      ? PIECES.filter(function (p) { return verdict.missing[p.cle] !== false; })
+          .map(function (p) { return p.libelle; })
+      : [];
+    if (absentes.length) {
+      enfants.push(noeud("p", "pieces-ligne", "Pièces non lues : " + absentes.join(", ") + "."));
+    }
+    return bloc("bloc-manques", 3, "Ce qu'il me manque pour aller plus loin", enfants);
+  }
+
+  // --- bloc 4 : garde-fous -------------------------------------------------
+
+  /**
+   * Le nombre de phrases retirées de la réponse, ou `null` si rien ne le chiffre.
+   *
+   * *restituer* pose un `CheckResult` nommé `segments_retires` quand il retire des phrases dont
+   * plus aucune affirmation ne survit, et son `detail` commence par le compte. C'est aujourd'hui le
+   * **seul** porteur de ce nombre sur le fil : `answer.unknown` n'en porte que la phrase. Absence de
+   * contrôle ⇒ aucune phrase retirée, donc zéro ; contrôle présent mais détail non chiffré ⇒ `null`,
+   * et la page dit la chose sans le nombre plutôt que d'en inventer un. Une reprise différée demande
+   * au moteur de publier ce compteur typé.
+   */
+  function phrasesRetirees(trace) {
+    var vu = false;
+    var n = null;
+    tableau(trace && trace.steps).filter(estObjetPlat).forEach(function (s) {
+      tableau(s.checks).forEach(function (c) {
+        if (!estObjetPlat(c) || c.name !== "segments_retires") return;
+        vu = true;
+        var m = String(c.detail || "").match(/^\s*(\d+)\b/);
+        if (m) n = (n === null ? 0 : n) + parseInt(m[1], 10);
+      });
+    });
+    if (!vu) return 0;
+    return n;
+  }
+
+  function blocGardeFous(reponse, contexte) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var sources = tableau(r.sources);
+    var enfants = [];
+
+    enfants.push(noeud("p", "gf gf-ok",
+      pluriel(sources.length, "citation") + " relue" + (sources.length > 1 ? "s" : "") +
+      " mot pour mot dans le contrat"));
+
+    var retirees = phrasesRetirees(r.trace);
+    enfants.push(noeud("p", "gf gf-retire", retirees === null
+      ? "Des phrases ont été retirées : aucun passage ne les soutenait"
+      : pluriel(retirees, "phrase") + " retirée" + (retirees > 1 ? "s" : "") +
+        (retirees ? " : aucun passage ne les soutenait" : "")));
+
+    enfants.push(noeud("p", "gf gf-regle",
+      "Verdict calculé par des règles fixes, pas par le modèle · conditions générales seules · " +
+      "pas un avis d'expert"));
+
+    // M15 : la preuve chiffrée d'une absence, et son pendant sous lecture bornée (story 4.2f).
+    var preuve = preuveAbsence(a.reason);
+    if (preuve) enfants.push(noeud("p", "preuve", preuve));
+    var lecture = estObjet(a.lecture_partielle) ? lectureLue(a.lecture_partielle) : "";
+    if (lecture) enfants.push(noeud("p", "lecture-partielle", lecture));
+
+    // FR5 : le cadre des quatre états — « sûr », « partiel », « lecture partielle », « inconnu ».
+    if (a.found === true || a.reason || estObjet(a.lecture_partielle)) {
+      var etat = etatReponse(a);
+      enfants.push(noeud("div", "pied", null, [
+        noeud("span", "etat etat-" + etat.cle, etat.texte),
+        noeud("span", "etat-phrase",
+              phraseEtat(etat, { liste: (contexte || {}).inconnus > 0, preuve: !!preuve,
+                                 lecture: !!lecture }))
+      ]));
     }
 
-    // D7 : les clauses non retrouvées, **sans** leur citation — la quote d'une claim rejetée sur ses
-    // citations est restée la chaîne du modèle, et rien ne prouve qu'elle existe dans le contrat.
+    // D7 : les affirmations écartées restent consultables — **derrière** ce bloc, dépliables, et
+    // plus jamais au-dessus de la réponse. Leur citation n'est pas montrée : la quote d'une claim
+    // rejetée sur ses citations est restée la chaîne du modèle, et rien ne prouve qu'elle existe.
     var rejetees = tableau(a.rejected_claims).filter(function (c) { return c; });
     if (rejetees.length) {
-      // Le titre et la note valent pour **les quatre** `rejection_kind` d'AD-4 (revue 1.9) : dire
-      // « non retrouvées » les couvrait mal — `non_pertinente` désigne un passage bien réel, et
-      // `non_citee` une affirmation vérifiée qu'aucune phrase affichée ne reprend. Ce qui leur est
-      // commun, et seulement cela, c'est qu'elles ont été écartées et que leur citation n'est pas
-      // montrée (D7). Le motif exact est sur chaque ligne.
-      var vueRejetees = [
+      enfants.push(sectionRepliee("rejetees", "Affirmations écartées par la vérification", [
         noeud("p", "rejetees-note",
           "Le modèle a avancé ces affirmations ; les contrôles les ont écartées. Aucune de leurs " +
           "citations n'est affichée : le motif de chacune est donné en dessous."),
@@ -1242,73 +1765,65 @@
           return noeud("div", "rejetee", null, [
             noeud("p", "rej-txt", String(c.text || "")),
             noeud("p", "rej-motif", motifRejet(c.rejection_kind)),
-            // D7 demande « le motif du rejet en français **et** le kind du rejet » : le premier est
-            // la phrase ci-dessus, le second est la valeur typée du contrat, posée telle quelle.
-            // `RejectedClaim.motif`, lui, reste dehors : il est composé pour la **relance** de
-            // *rédiger* et cite des `block_id` qui, sur une claim `non_retrouvee`, sont ceux que le
-            // modèle a inventés — un identifiant non fiable sous un verdict n'apprend rien.
             noeud("p", "rej-kind", String(c.rejection_kind || ""))
           ]);
         }))
-      ];
-      enfants.push(r.conversation
-        ? sectionRepliee("rejetees", "Affirmations écartées par la vérification", vueRejetees)
-        : section("rejetees", "Affirmations écartées par la vérification", vueRejetees));
-    }
-
-    // M15 / reprise différée de 1.9 : la **preuve chiffrée** de l'absence. Le contrat la transporte
-    // depuis toujours (`answer.reason` est publié entier) et le guide l'affiche depuis 1.7 ; ici,
-    // seule la phrase composée par le serveur était rendue. « Rien trouvé sur 1 457 passages » et
-    // « rien n'a été cherché » sont deux refus différents, et l'omission les rendait
-    // indiscernables. `reason` absent ⇒ aucune preuve : rien n'est fabriqué (AD-16).
-    var preuve = preuveAbsence(a.reason);
-    if (preuve) enfants.push(noeud("p", "preuve", preuve));
-
-    // Story 4.2f : l'autre porteur d'un `found=false`, au même endroit et sous la même règle — le
-    // serveur écrit la phrase, la page ajoute le chiffre. Les deux sont exclusifs par le contrat.
-    var lecture = estObjet(a.lecture_partielle) ? lectureLue(a.lecture_partielle) : "";
-    if (lecture) enfants.push(noeud("p", "lecture-partielle", lecture));
-
-    var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
-    if (inconnus.length) {
-      enfants.push(section("inconnu", "Ce que je ne sais pas", [liste("inconnu-liste", inconnus)]));
-    }
-
-    if (a.clarification) {
-      enfants.push(section("clarif", "Une précision, pour chercher au bon endroit", [
-        noeud("p", "clarif-q", String(a.clarification))
       ]));
     }
+    return bloc("bloc-gardefous", 4, "Garde-fous", enfants);
+  }
 
-    // FR5 / reprise différée de 2.3, étendu par la story 4.2f : le cadre des états, celui-là même
-    // que le chat pose depuis 2.3 — « sûr », « partiel », « lecture partielle », « inconnu ». La page rendait déjà les phrases de lacune composées par le code, mais sans le
-    // badge ni la phrase qui les encadrent : la même donnée était rendue avec deux niveaux
-    // d'explicitation selon la page. Le badge d'état n'est pas le badge de **verdict** — l'un dit
-    // ce que le contrat prévoit, l'autre ce que la vérification a pu établir — et les deux se
-    // lisent : un « sous conditions » sur une réponse *partielle* est une réserve de plus.
-    //
-    // Il n'apparaît que si l'un des deux porteurs d'un `found=false` est là, ou si la réponse est
-    // trouvée, c'est-à-dire quand `found`/`complete` ont un sens complet : un corps sans porteur sur
-    // un `found=false` n'a pas été écrit par la route, et le badge dirait « inconnu » sur rien (M15).
-    //
-    // Story 4.2f : `answer.lecture_partielle` est le second porteur, et l'élargissement n'est pas
-    // cosmétique — sans lui, la seule réponse que ce chemin produise n'aurait ni badge, ni phrase
-    // d'état, et le bloc « Affirmations écartées par la vérification » écrit plus haut serait resté
-    // pour toujours inatteignable : sous troncature, la page ne recevait qu'un 503.
-    if (a.found === true || a.reason || estObjet(a.lecture_partielle)) {
-      var etat = etatReponse(a);
-      enfants.push(noeud("div", "pied", null, [
-        noeud("span", "etat etat-" + etat.cle, etat.texte),
-        noeud("span", "etat-phrase",
-              phraseEtat(etat, { liste: inconnus.length > 0, preuve: !!preuve,
-                                 lecture: !!lecture }))
+  // --- le dossier, après les quatre blocs ---------------------------------
+
+  function dossierVue(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var enfants = [];
+    var compris = faitsComprisVue(a.faits_compris);
+    if (compris) enfants.push(compris);
+    if (String(a.texte || "").trim()) {
+      enfants.push(section("analyse", "Ce que disent les clauses retenues", [
+        noeud("p", "analyse-txt", String(a.texte))
       ]));
     }
+    var conversation = conversationVue(r.conversation, { sansQuestions: true });
+    if (conversation) enfants.push(conversation);
+    if (!enfants.length) return null;
+    return sectionRepliee("dossier", "Dossier", enfants);
+  }
+
+  function vueVerdict(reponse, contexte) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var enfants = [];
+    var contexteClauses = Object.assign({}, contexte || {});
+    // Les termes que la conversation a rendus décisifs (story 3.7) : ils restent surlignés dans la
+    // citation seule, là où le paragraphe entier ne porte pas déjà son propre surlignage.
+    contexteClauses.decisive = tableau(r.conversation && r.conversation.history)
+      .reduce(function (out, h) {
+        tableau(h && h.decisive_terms).forEach(function (term) { out.push(term); });
+        return out;
+      }, []);
+
+    var appuis = appuisDe(r);
+    // « Pas de clause qui s'applique » se dit quand **aucune affirmation n'a été retenue**, pas
+    // quand la liste des clauses est vide : une claim retenue reste une claim retenue.
+    var reponseEtInconnus = blocReponse(r, tableau(a.claims).length === 0);
+    enfants.push(reponseEtInconnus.vue);
+    var appuisVue = blocAppuis(r, appuis, contexteClauses);
+    if (appuisVue) enfants.push(appuisVue);
+    var manques = blocManques(r);
+    if (manques) enfants.push(manques);
+    var gardeFous = blocGardeFous(r, { inconnus: reponseEtInconnus.inconnus });
+    if (gardeFous) enfants.push(gardeFous);
+
+    var dossier = dossierVue(r);
+    if (dossier) enfants.push(dossier);
 
     var trace = traceVue(r.trace);
     if (trace) enfants.push(trace);
 
-    return noeud("div", "carte resultat", null, enfants);
+    return noeud("div", "carte resultat", null, enfants.filter(Boolean));
   }
 
   // AD-16 : une erreur affiche l'erreur, sa référence de requête, et **rien d'autre**. Aucun bouton,
@@ -1483,6 +1998,16 @@
     exiger(ouNul(estNombre)(s.page), champ + ".page");
     exigerListe(s.line_ids, estChaine, champ + ".line_ids");
     exiger(estChaine(s.status), champ + ".status");
+    // Story 5.6 (L2) : les trois champs que le tour moteur ajoute — `texte_bloc` (le paragraphe
+    // entier d'où la citation est extraite), `chemin` (les titres du plus général au plus précis)
+    // et `claim_id` (l'affirmation qui cite ce bloc, sans passer par l'appariement positionnel de
+    // D6). Ils sont lus **quand ils sont là** : tant que le moteur ne les publie pas, la page
+    // affiche la quote seule et le titre du nœud lu dans `trace.blocs`. Absents, ils ne rendent
+    // donc rien illisible ; présents, ils sont typés comme le reste, parce qu'un `chemin` d'objets
+    // peindrait « [object Object] › [object Object] » au-dessus d'une clause.
+    if (s.texte_bloc !== undefined) exiger(ouNul(estChaine)(s.texte_bloc), champ + ".texte_bloc");
+    if (s.chemin !== undefined) exigerListe(s.chemin, estChaine, champ + ".chemin");
+    if (s.claim_id !== undefined) exiger(ouNul(estChaine)(s.claim_id), champ + ".claim_id");
   }
 
   // Une étape de la trace d'AD-10, telle que `traceVue()` la peint : « étape <name> · <tier> ·
@@ -1829,6 +2354,164 @@
     }).then(lireReponseConversation);
   }
 
+  // ---------- le flux de progression (story 5.6, L2) ----------
+  //
+  // `POST /api/v1/sinistre/progression` rend le **même** corps que la route classique, précédé des
+  // étapes que le serveur exécute, en SSE. La page le consomme quand il existe, et retombe sur la
+  // route classique quand il n'existe pas — ce qui est le cas tant que le tour moteur n'est pas
+  // livré, et le restera pour tout serveur plus ancien.
+  //
+  // **Un seul appel facturé par soumission.** La bascule vers la route classique n'a lieu que dans
+  // deux situations, et elle ne peut avoir lieu qu'une fois :
+  //   - la route de progression répond 404 ou 405 : elle n'existe pas, rien n'a tourné, rien n'a
+  //     coûté — l'appel classique qui suit est le premier et le seul ;
+  //   - le flux se coupe **avant** d'avoir livré son `resultat`.
+  // Dès qu'un `resultat` est arrivé, plus aucune requête n'est envoyée, quoi qu'il arrive ensuite au
+  // flux. Toute autre réponse (503, 429, 400…) est une erreur d'AD-16 : elle remonte telle quelle,
+  // sans repli — « aucun repli pour le sinistre ».
+
+  function decoupeurSSE() {
+    var reste = "";
+    return {
+      /** Rend les événements `{type, data}` complets contenus dans ce fragment. */
+      pousser: function (fragment) {
+        reste += String(fragment || "");
+        var out = [];
+        // Les trois fins de bloc que la spécification SSE admet.
+        var blocs = reste.split(/\r\n\r\n|\n\n|\r\r/);
+        reste = blocs.pop();
+        blocs.forEach(function (bloc) {
+          var type = "";
+          var donnees = [];
+          bloc.split(/\r\n|\n|\r/).forEach(function (l) {
+            if (l.charAt(0) === ":") return;  // commentaire de maintien en vie
+            var i = l.indexOf(":");
+            var champ = i < 0 ? l : l.slice(0, i);
+            var valeur = i < 0 ? "" : l.slice(i + 1).replace(/^ /, "");
+            if (champ === "event") type = valeur;
+            else if (champ === "data") donnees.push(valeur);
+          });
+          if (!donnees.length) return;
+          var brut = donnees.join("\n");
+          var charge = null;
+          try { charge = JSON.parse(brut); } catch (_) { charge = null; }
+          // Le nom de l'événement peut voyager en champ `event:` ou dans le corps : les deux formes
+          // sont lues, aucune n'est devinée quand ni l'une ni l'autre n'est là.
+          if (!type && charge && typeof charge.type === "string") type = charge.type;
+          out.push({ type: type, data: charge });
+        });
+        return out;
+      }
+    };
+  }
+
+  /** Le flux est-il consommable par ce navigateur ? Sinon la page prend la route classique. */
+  function fluxLisible(reponse) {
+    return !!(reponse && reponse.body && typeof reponse.body.getReader === "function" &&
+              typeof TextDecoder === "function");
+  }
+
+  /**
+   * Soumet via le flux de progression, en appelant `sur.etape` à chaque étape annoncée.
+   *
+   * Rend la réponse validée, ou rejette avec `{bascule: true}` pour dire à l'appelant — et à lui
+   * seul — que la route classique doit prendre le relais.
+   */
+  function soumettreProgression(saisie, sur) {
+    if (!enLigne()) {
+      return Promise.reject(erreurSinistre({ kind: "requete", code: "hors_ligne", statut: 0 }));
+    }
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    var options = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Sinistre-Conversation": "1",
+                 "Accept": "text/event-stream" },
+      body: JSON.stringify(corpsSinistre(saisie))
+    };
+    if (ctrl) options.signal = ctrl.signal;
+    var minuteur = ctrl ? setTimeout(function () { ctrl.abort(); }, abandonMs()) : null;
+    function finir() { if (minuteur !== null) clearTimeout(minuteur); minuteur = null; }
+    function bascule() { var e = new Error("bascule"); e.bascule = true; return e; }
+
+    return fetch(API_BASE + "/api/v1/sinistre/progression", options).then(function (r) {
+      // 404/405 : la route n'existe pas sur ce serveur. Rien n'a tourné, rien n'a coûté.
+      if (r.status === 404 || r.status === 405) { finir(); throw bascule(); }
+      if (!r.ok) {
+        return r.json().then(function (j) { return j; }, function () { return null; })
+          .then(function (j) { finir(); throw erreurHttp(r.status, r.headers, j); });
+      }
+      if (!fluxLisible(r)) { finir(); throw bascule(); }
+      var lecteur = r.body.getReader();
+      var decodeur = new TextDecoder("utf-8");
+      var decoupeur = decoupeurSSE();
+      var resultat = null;
+      var erreurServeur = null;
+
+      function traiter(evt) {
+        if (evt.type === "etape") {
+          if (typeof sur === "function") sur(evt.data || {});
+          return;
+        }
+        if (evt.type === "resultat" && evt.data) { resultat = evt.data; return; }
+        if (evt.type === "erreur" && evt.data) { erreurServeur = evt.data; }
+      }
+
+      function boucle() {
+        return lecteur.read().then(function (pas) {
+          if (pas && pas.value) decoupeur.pousser(decodeur.decode(pas.value, { stream: true }))
+            .forEach(traiter);
+          if (pas && pas.done) {
+            decoupeur.pousser(decodeur.decode()).forEach(traiter);
+            return null;
+          }
+          return boucle();
+        });
+      }
+
+      return boucle().then(function () {
+        finir();
+        // Un `resultat` reçu clôt la soumission : plus jamais de seconde requête, même si le flux
+        // s'est ensuite coupé. C'est **la** garde contre le double appel payant.
+        if (resultat) return lireReponseConversation(resultat);
+        if (erreurServeur) {
+          var err = erreurServeur.error || erreurServeur;
+          throw erreurSinistre({
+            kind: err && err.kind === "indisponible" ? "indisponible" : "requete",
+            code: typeof (err && err.code) === "string" ? err.code : "",
+            statut: 200,
+            request_id: typeof (err && err.request_id) === "string" ? err.request_id : ""
+          });
+        }
+        // Flux coupé avant le résultat : le serveur n'a rien livré, la route classique reprend.
+        throw bascule();
+      }, function (e) {
+        finir();
+        if (resultat) return lireReponseConversation(resultat);
+        if (e && e.nom === "ErreurSinistre") throw e;
+        throw bascule();
+      });
+    }, function () {
+      finir();
+      // Aucune réponse du tout : c'est le réseau, pas une route absente. Une bascule enverrait une
+      // seconde requête vers un serveur injoignable, sans rien y gagner.
+      throw erreurSinistre({
+        kind: "indisponible",
+        code: (ctrl && ctrl.signal.aborted) ? "timeout_client" : "reseau",
+        statut: 0
+      });
+    });
+  }
+
+  /**
+   * La soumission complète : le flux d'abord, la route classique en repli — **une seule fois**.
+   */
+  function soumettreAvecProgression(saisie, sur) {
+    return soumettreProgression(saisie, sur).catch(function (e) {
+      if (!(e && e.bascule)) throw e;
+      return soumettreConversation(saisie);
+    });
+  }
+
   function suivre(conversation, docId, action) {
     var corps = Object.assign({ doc_id: String(docId || ""), token: conversation.token }, action || {});
     return requete("/api/v1/sinistre/suivi", {
@@ -2045,6 +2728,43 @@
           line_ids: Array.isArray(line_ids) ? line_ids : [],
           source_url: bouton.getAttribute("data-source-url")
         }, bouton);
+      });
+    });
+  }
+
+  /**
+   * Les deux gestes du bloc 2 : déplier le paragraphe entier, et ouvrir la page du contrat.
+   *
+   * Le dépliage est **irréversible** dans la vue courante — le bouton disparaît avec l'extrait.
+   * Un contenu qui se referme sous le lecteur est exactement ce que cette refonte retire ; et le
+   * paragraphe entier est de toute façon reconstruit à chaque nouvelle réponse.
+   *
+   * La carte entière est cliquable, comme la maquette le montre, mais le bouton « Voir la page … »
+   * reste posé : c'est lui qui rend le geste atteignable au clavier et annonçable par un lecteur
+   * d'écran. Le clic sur la carte est donc ignoré dès qu'il vient d'une commande.
+   */
+  function brancherAppuis(racine) {
+    if (!racine || typeof racine.querySelectorAll !== "function") return;
+    racine.querySelectorAll(".appui-plus").forEach(function (bouton) {
+      bouton.addEventListener("click", function () {
+        var carte = bouton.closest ? bouton.closest(".appui") : null;
+        if (!carte) return;
+        var entier = carte.querySelector(".appui-entier");
+        var extrait = carte.querySelector(".appui-extrait");
+        if (entier) entier.removeAttribute("hidden");
+        if (extrait) extrait.setAttribute("hidden", "hidden");
+        bouton.setAttribute("hidden", "hidden");
+      });
+    });
+    racine.querySelectorAll(".appui").forEach(function (carte) {
+      var ouvrir = carte.querySelector(".cl-ouvrir");
+      if (!ouvrir) return;
+      carte.addEventListener("click", function (ev) {
+        var cible = ev && ev.target;
+        // Un clic sur une commande de la carte (le bouton lui-même, « Voir le paragraphe entier »)
+        // ne doit pas ouvrir le lecteur une seconde fois.
+        if (cible && typeof cible.closest === "function" && cible.closest("button")) return;
+        if (typeof ouvrir.click === "function") ouvrir.click();
       });
     });
   }
@@ -2329,10 +3049,14 @@
         }
         // Le verdict précédent quitte l'écran **avant** l'appel : sur une erreur, l'AC exige qu'il
         // n'y reste pas, et le plus simple est qu'il ne survive à aucune soumission.
-        peindre(vueAttente());
+        // La barre d'étapes remplace la phrase figée : elle se repeint chaque seconde et suit le
+        // flux de progression quand le serveur en sert un. `attente.fin()` arrête son minuteur sur
+        // **les deux** issues — sans quoi il repeindrait l'attente par-dessus le verdict.
+        var attente = suivreAttente(null);
         verrouiller(true);
-        soumettreConversation(saisie)
+        soumettreAvecProgression(saisie, attente.etape)
           .then(function (r) {
+            attente.fin();
             verrouiller(false);
             var source = tableau(vueForm.sources).filter(function (s) {
               return s && s.doc_id === saisie.doc_id;
@@ -2344,11 +3068,13 @@
             function afficher(valide) {
               var resultat = peindre(vueVerdict(valide, contexte));
               brancherLecteur(resultat);
+              brancherAppuis(resultat);
               brancherConversation(resultat, valide, contexte, afficher);
             }
             afficher(r);
           })
           .catch(function (e) {
+            attente.fin();
             verrouiller(false);
             peindre(vueErreur(e));
           });
@@ -2383,6 +3109,14 @@
     documents: documents,
     soumettre: soumettre,
     soumettreConversation: soumettreConversation,
+    soumettreProgression: soumettreProgression,
+    soumettreAvecProgression: soumettreAvecProgression,
+    decoupeurSSE: decoupeurSSE,
+    suivreAttente: suivreAttente,
+    rangEstime: rangEstime,
+    ETAPES: ETAPES_SINISTRE.map(function (e) { return { nom: e.nom, libelle: e.libelle, ms: e.ms }; }),
+    DUREE_ANNONCEE_S: DUREE_ANNONCEE_S,
+    dureeTotaleEstimee: dureeTotaleEstimee,
     suivre: suivre,
     conversationVue: conversationVue,
     dossierTexte: dossierTexte,
@@ -2404,6 +3138,16 @@
     manquant: manquant,
     statutDeBloc: statutDeBloc,
     statutAmbigu: statutAmbigu,
+    // Story 5.6 (L2) : la mécanique des quatre blocs, testable sans navigateur.
+    trouverPassage: trouverPassage,
+    bornesPhrases: bornesPhrases,
+    paragraphes: paragraphes,
+    appuisDe: appuisDe,
+    phrasesRetirees: phrasesRetirees,
+    questionsVue: questionsVue,
+    dossierVue: dossierVue,
+    brancherAppuis: brancherAppuis,
+    VERDICTS: VERDICTS,
     vueSource: vueSource,
     urlPage: urlPage,
     ouvrirLecteur: ouvrirLecteur,
