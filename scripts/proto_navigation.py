@@ -23,8 +23,11 @@ import asyncio
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
+
+from anthropic import AsyncAnthropic
 
 from server.app.config import get_settings
 from server.app.corpus.dictionary import Dictionnaire, load_dictionary
@@ -32,13 +35,14 @@ from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.document import Block, is_citable
-from server.app.domain.errors import PipelineError
-from server.app.domain.trace import StepTrace
+from server.app.domain.errors import BudgetExceeded, PipelineError
+from server.app.domain.trace import Usage
 from server.app.llm.audit import JsonlAuditSink
 from server.app.llm.budget import RequestBudget
-from server.app.llm.client import LlmClient
+from server.app.llm.audit import ExactLlmAuditEvent
+from server.app.llm.client import map_provider_error
 from server.app.llm.models import MODEL_CAPS, TIERS, Tier
-from server.app.llm.pricing import estimate_cost, estimate_tokens
+from server.app.llm.pricing import cost_from_usage, estimate_cost, estimate_tokens
 from server.app.llm.prompting import untrusted
 from server.app.steps.retrouver import (_premier_objet_json, _variantes_de_facette,
                                         part_du_mot_borne)
@@ -290,6 +294,83 @@ class Navigation:
         return rendu
 
 
+class Appelant:
+    """Un tour brut d'outils **avec réflexion adaptative** — ce que `tool_turn` ne sait pas envoyer.
+
+    Mesuré sur les quatre runs de la série (`automation/runs/.../proto-runs/`) : aucun paramètre
+    `thinking` n'était envoyé, et le tour **qui cite** n'a réfléchi sur aucun des quatre
+    (`thinking_tokens = 0`, contre 56 à 131 au tour de navigation). Le tour qui choisit quelles
+    clauses citer est précisément celui qui doit réfléchir. Sur Claude 5, l'adaptatif se demande :
+    `thinking: {"type": "adaptive"}`.
+
+    `LlmClient.tool_turn` ne prend ni `thinking` ni `effort` en paramètre et la mission interdit de
+    toucher `server/app` : le prototype compose donc son corps de requête. **Tout le reste est repris
+    tel quel** — majorant de préflight (`estimate_cost`), plafonds du `RequestBudget`, tarif réel
+    (`cost_from_usage` sur l'`usage` rendu), cache de préfixe au TTL du modèle, mapping total des
+    erreurs fournisseur (`map_provider_error`) et audit exact (`ExactLlmAuditEvent`). Rien de neuf
+    n'est inventé ici : seul le corps de la requête est assemblé sur place.
+    """
+
+    def __init__(self, *, settings: Any, model: str, tier: Tier, transport: Any,
+                 sink: JsonlAuditSink, budget: RequestBudget, effort: str | None) -> None:
+        self.settings, self.model, self.tier = settings, model, tier
+        self.transport, self.sink, self.budget = transport, sink, budget
+        self.effort = effort
+        self.run_uid = f"run:{uuid.uuid4()}"
+        self.tokens_reflexion: list[int] = []
+
+    def _prefixe(self, system_prefix: str) -> list[dict[str, Any]]:
+        cache: dict[str, Any] = {"type": "ephemeral"}
+        if MODEL_CAPS[self.model]["cache_ttl"] == "1h":
+            cache["ttl"] = "1h"
+        return [{"type": "text", "text": system_prefix, "cache_control": cache}]
+
+    async def tour(self, *, system_prefix: str, messages: list[dict[str, Any]],
+                   tools: list[dict[str, Any]], max_tokens: int) -> tuple[Any, Usage]:
+        settings, system = self.settings, self._prefixe(system_prefix)
+        corps: dict[str, Any] = {
+            "model": self.model, "max_tokens": max_tokens, "system": system,
+            "messages": messages, "tools": tools,
+            # Claude 5 : l'adaptatif est demandé explicitement, et `budget_tokens` est refusé (400).
+            "thinking": {"type": "adaptive"},
+        }
+        if MODEL_CAPS[self.model]["effort"] and self.effort:
+            corps["output_config"] = {"effort": self.effort}
+        estimation = estimate_cost(self.model, system, messages, max_tokens, settings, tools=tools,
+                                   prefix_cached=self.budget.prefix_seen(self.model))
+        if self.budget.cost_eur + estimation > self.budget.max_cost_eur:
+            raise BudgetExceeded(f"majorant de préflight : {self.budget.cost_eur:.4f} € engagés "
+                                 f"+ {estimation:.4f} € estimés > {self.budget.max_cost_eur:.4f} €")
+        self.budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
+                                            etape="proto_navigation")
+        self.budget.attempts += 1
+        try:
+            message = await self.transport.messages.create(
+                timeout=self.budget.timeout_for_call(settings.llm_timeout_s), **corps)
+        except Exception as exc:  # noqa: BLE001 — même mapping total que le client du dépôt
+            self._auditer(corps, None, error_class=type(exc).__name__)
+            raise map_provider_error(exc) from exc
+        usage = cost_from_usage(self.model, message.usage, settings.usd_eur)
+        self.budget.note_call(usage)
+        self.budget.note_prefix(self.model)
+        self.tokens_reflexion.append(_tokens_de_reflexion(message))
+        self._auditer(corps, message.to_dict())
+        return message, usage
+
+    def _auditer(self, request: dict[str, Any], response: dict[str, Any] | None,
+                 error_class: str | None = None) -> None:
+        self.sink.append(ExactLlmAuditEvent(
+            call_uid=f"call:{uuid.uuid4()}", run_uid=self.run_uid, artifact_uid="",
+            step="proto_navigation", tier=self.tier, model=self.model, cache_hit=False,
+            request=request, response=response, error_class=error_class))
+
+
+def _tokens_de_reflexion(message: Any) -> int:
+    """Les tokens de réflexion du tour, tels que le fournisseur les compte (0 si non publiés)."""
+    details = getattr(message.usage, "output_tokens_details", None)
+    return int(getattr(details, "thinking_tokens", 0) or 0)
+
+
 async def naviguer(cas: dict[str, Any], args: argparse.Namespace) -> int:
     settings = get_settings().model_copy(update={
         "deadline_s": args.deadline, "llm_timeout_s": min(args.deadline - 1.0, 600.0)})
@@ -323,9 +404,10 @@ async def naviguer(cas: dict[str, Any], args: argparse.Namespace) -> int:
     budget = RequestBudget(deadline_s=args.deadline, max_attempts=args.max_tours + 1,
                            max_cost_eur=args.max_cost + args.max_tours * majorant_appel)
     audit = JsonlAuditSink(Path(args.audit))
-    fake = _FauxAnthropic(_scenario_dry_run(corpus, doc_id)) if args.dry_run else None
-    client = LlmClient(settings, anthropic_client=fake, audit_sink=audit)
-    step = StepTrace(name="proto_navigation", tier=tier, prompt_cache=True)
+    transport = (_FauxAnthropic(_scenario_dry_run(corpus, doc_id)) if args.dry_run
+                 else AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=0))
+    appelant = Appelant(settings=settings, model=args.model, tier=tier, transport=transport,
+                        sink=audit, budget=budget, effort=args.effort)
     nav = Navigation(corpus=corpus, index=index, dictionnaire=dictionnaire, doc_id=doc_id,
                      settings=settings, budget_tokens=args.budget_tokens)
 
@@ -343,20 +425,20 @@ async def naviguer(cas: dict[str, Any], args: argparse.Namespace) -> int:
             break
         tours += 1
         try:
-            resultat = await client.tool_turn(
-                tier=tier, system_prefix=prefixe, messages=messages, tools=OUTILS,
-                budget=budget, step=step, max_tokens=args.max_tokens, prompt_cache=True)
+            message, usage = await appelant.tour(
+                system_prefix=prefixe, messages=messages, tools=OUTILS,
+                max_tokens=args.max_tokens)
         except PipelineError as exc:
             arret = f"{type(exc).__name__}: {exc}"
             break
-        message = resultat.message
         contenu = [b.model_dump(mode="json") if hasattr(b, "model_dump") else dict(b)
                    for b in message.content]
         messages = [*messages, {"role": "assistant", "content": contenu}]
         dernier_texte = "".join(b.get("text", "") for b in contenu if b.get("type") == "text")
         appels = [b for b in contenu if b.get("type") == "tool_use"]
         print(f"  tour {tours} — {message.stop_reason}, {len(appels)} appel(s) d'outil, "
-              f"{resultat.usage.cost_eur:.4f} €, lecture {nav.tokens_lus}/{args.budget_tokens} tokens")
+              f"{appelant.tokens_reflexion[-1]} tokens de réflexion, "
+              f"{usage.cost_eur:.4f} €, lecture {nav.tokens_lus}/{args.budget_tokens} tokens")
         if not appels:
             arret = arret or f"fin de tour ({message.stop_reason})"
             break
@@ -374,7 +456,7 @@ async def naviguer(cas: dict[str, Any], args: argparse.Namespace) -> int:
     duree = time.monotonic() - t0
     rapport = _rendre(dernier_texte, nav, corpus=corpus, doc_id=doc_id)
     _imprimer(rapport, cas=cas, nav=nav, budget=budget, duree=duree, tours=tours, arret=arret,
-              audit=args.audit)
+              audit=args.audit, reflexion=appelant.tokens_reflexion)
     return 0
 
 
@@ -406,7 +488,8 @@ def _rendre(texte: str, nav: Navigation, *, corpus: Corpus, doc_id: str) -> dict
 
 
 def _imprimer(rapport: dict[str, Any], *, cas: dict[str, Any], nav: Navigation,
-              budget: RequestBudget, duree: float, tours: int, arret: str, audit: str) -> None:
+              budget: RequestBudget, duree: float, tours: int, arret: str, audit: str,
+              reflexion: list[int]) -> None:
     print(f"\narrêt           : {arret or 'fin normale'}")
     if not rapport["lisible"]:
         print("verdict         : JSON terminal illisible")
@@ -434,6 +517,8 @@ def _imprimer(rapport: dict[str, Any], *, cas: dict[str, Any], nav: Navigation,
             print(f"  {'OK ' if atteint else 'MANQUE'} {' ou '.join(alternatives)}")
 
     print(f"\ntours           : {tours}")
+    print(f"réflexion       : {sum(reflexion)} tokens — "
+          f"{', '.join(f'tour {n + 1}: {t}' for n, t in enumerate(reflexion)) or '—'}")
     print(f"nœuds ouverts   : {len(nav.noeuds_ouverts)} — {', '.join(nav.noeuds_ouverts) or '—'}")
     print(f"blocs citables  : {len(nav.ouverts)}")
     print(f"recherches      : {len(nav.recherches)}")
@@ -513,6 +598,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--max-tours", type=int, default=8)
     parser.add_argument("--budget-tokens", type=int, default=12000)
     parser.add_argument("--max-tokens", type=int, default=16000)
+    parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
+                        default="medium", help="`output_config.effort` du tour")
     parser.add_argument("--max-cost", type=float, default=0.6, help="plafond de coût réel du run, €")
     parser.add_argument("--deadline", type=float, default=1800.0)
     parser.add_argument("--data", default="data")
