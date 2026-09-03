@@ -4178,3 +4178,5 @@ Autrement dit : après re-gate, `gate_perime` ne reviendra plus par les seuils.
 
 Commande inchangée (orchestrateur, HEAD figé, `--repeat 3`) : voir la section « Dette déclarée :
 gates à relancer par l'orchestrateur » plus haut.
+
+**Dette soldée le 03/09/2026 à 20:05** (orchestrateur, `S = 5d5b340`, campagnes `epic5-gate-<doc>-9`, ancrage `epic5-final-anchor-10` sur `g-luxtrust-prix` 3/3) : Baloise 9/9 (2,12 €), AXA 3/3 (0,37 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=1a072112…` (celui de l'image). Générations `data/.publie/{a,b}` commises ensemble (`1a797e6`) ; certificat Baloise ré-épinglé sur ce digest.
