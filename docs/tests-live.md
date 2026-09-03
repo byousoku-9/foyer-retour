@@ -4348,3 +4348,52 @@ courant : rien à ré-épingler, et il est vert.
 - gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+## Story 5.6 (L1d) — la phrase, et non le paragraphe, est l'unité du jugement (4 septembre 2026)
+
+Le point resté ouvert en L1c est fermé : `un-paragraphe-par-sous-question-tombe-dun-bloc-dans-le-guide`.
+Le contrôle rend désormais, pour une affirmation-paragraphe, les **rangs** de ses phrases que la
+réunion des passages joints ne soutient pas ; le code retire celles-là et **garde les autres**, avec
+leurs citations. Une affirmation dont aucune phrase ne tient reste rejetée `non_soutenue`, comme
+avant.
+
+### Fixtures live : huit réenregistrées, huit vertes — 0,68 €
+
+Toutes traversent le préfixe et le schéma de *vérifier*, tous deux touchés : elles étaient
+invalidées par construction. Une par une, avec la clé, chaque résultat lu.
+
+| fixture | coût du rejeu | ce que le rejeu établit |
+|---|---|---|
+| `test_pipeline_live.test_every_displayed_sentence_is_backed_by_a_verified_quote` | 0,1018 € | **vert au premier enregistrement.** `c1` sortait `non_soutenue` aux trois enregistrements de L1c ; elle sort maintenant retenue avec sa phrase de rang 0 retirée. Deux fiches sourcées, deux claims affichées |
+| `test_sinistre_live` (cas bougie) | 0,2101 € | vert, `ne_tranche_pas`, deux claims — **aucune** phrase retirée : une claim de sinistre n'en porte qu'une, et la règle ne change rien pour elle |
+| `test_langues_live[en-ecole]` | 0,0580 € | **vert.** C'était le second rouge de L1c : `found=False`, tout rejeté. Le paragraphe est maintenant retenu, deux de ses phrases retirées |
+| `test_langues_live[en-arrivee]` | 0,0431 € | vert, 1 phrase retirée |
+| `test_langues_live[de-arrivee]` | 0,0416 € | vert, 1 phrase retirée |
+| `test_langues_live[de-adem]` | 0,0551 € | vert, **aucune** phrase retirée — `complete=True`, la réponse entière est soutenue |
+| `test_langues_live[pt-arrivee]` | 0,1128 € | vert, 2 phrases retirées |
+| `test_langues_live[pt-ecole]` | 0,0630 € | vert, 1 phrase retirée |
+
+Le rejeu des six fixtures de langues montre que le correctif **resserre** aussi ce qui était vert :
+cinq des six réponses portaient jusqu'ici, dans un paragraphe jugé d'un bloc, une à deux phrases que
+les passages joints ne soutenaient pas. Elles ne sont plus affichées, et la lacune le dit dans la
+langue de la réponse (« I removed 3 sentences from my answer… », « Retirei 2 frases… »).
+
+### Suite hermétique
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run --no-cache pytest -q -p no:randomly -m "not evals
+and not etat_servi"` → **code de sortie 0**, `4148 passed, 6 skipped, 20 deselected`. `ruff check
+server tests` vert, `git diff --check` vert.
+
+### Dette déclarée (story 5.6, L1d) : les trois gates à relancer
+
+Le préfixe et le schéma de *vérifier*, une borne de configuration et deux couches de code changent :
+`pipeline_digest` passe de `465952f5…` à `f88d020c…`, `prompts_digest` de `9499a37b…` à `ca306d38…`.
+AD-7 sert donc les trois documents avec l'alerte `gate_perime` tant que le re-gate live n'est pas
+fait. La dette de L1, L1b et L1c est **reconduite** sur le digest que les gates portent encore —
+aucun gate n'a été relancé ici, et `data/.publie` n'a pas été touché. Le certificat Baloise
+(`tests/test_parsing_baloise.py`) épingle les empreintes de l'artefact de gate, pas celles du code
+courant : **rien à ré-épingler**, et il est vert dans la suite ci-dessus.
+
+- gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
