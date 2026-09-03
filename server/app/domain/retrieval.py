@@ -284,40 +284,20 @@ class FacetteCouverture(DomainModel):
 
 
 class RetrievalBudget(DomainModel):
-    """Borne toute l'étape : appels modèle, nœuds, blocs, tokens, définitions et renvois inclus."""
+    """Borne toute l'étape : nœuds, blocs, tokens, définitions et renvois inclus.
+
+    Amendement AD-1 du 03/09/2026, tâche T2 : `max_llm_turns` (le budget de tours de la variante
+    `outils`) et `profil_max_opens` (les places réservées aux nœuds du profil, story 2.3) sont
+    partis avec les variantes qui les lisaient. Une place réservée est une décision de code sur ce
+    que la rédaction verra, et c'est exactement ce que l'amendement refuse ; les tours de la
+    navigation servie sont bornés par `Settings.navigation_max_llm_turns`.
+    """
 
     max_opens: int
     node_window: int
     search_limit: int
-    # Ce plafond de sûreté appartient au budget lui-même : les tests, évals et appels directs ne
-    # passent pas nécessairement par `Settings`. La livraison 2.6 l'avait fixé à deux tours ; la
-    # mesure l'a rediscuté, comme son commentaire d'origine le prévoyait. **À deux tours, le
-    # verdict terminal est structurellement inatteignable** : le tour 0 cherche, le tour 1 ouvre, et
-    # les résultats du tour 1 ne sont jamais réinjectés — le navigateur ne voit donc jamais ce qu'il
-    # a ouvert, ne peut constater aucun manque, et ne rend aucun verdict. Les trois runs A16 le
-    # confirment : deux appels dans *retrouver*, suffisance toujours refusée, donc bandeau « je n'ai
-    # pas pu tout lire » sur une réponse parfaitement sourcée. Le troisième tour est celui de la
-    # conclusion ; ce qu'il peut ouvrir reste borné par `max_opens`, les blocs et les tokens.
-    max_llm_turns: int = Field(ge=1, le=3)
     max_blocks: int | None = None
     max_tokens: int | None = None
-    # Story 2.3 : les places réservées, **parmi** `max_opens`, aux nœuds que le profil désigne. Elle
-    # vit ici et non dans `Settings` (revue coordonnée 2.3, A4) : c'est `max_opens` qu'elle borne, et
-    # un appelant qui construit un budget réduit — évals, tests, mode économique — abaissait le quota
-    # sans abaisser la réserve, si bien que la réserve devenait le quota entier. Les deux nombres se
-    # lisent maintenant au même endroit, et le validateur ci-dessous interdit qu'ils se contredisent.
-    profil_max_opens: int = Field(0, ge=0)
-
-    @model_validator(mode="after")
-    def _la_reserve_ne_mange_pas_le_quota(self) -> RetrievalBudget:
-        if self.profil_max_opens >= self.max_opens:
-            # Une réserve égale au quota évincerait **tout** ce que la question a classé : le profil
-            # ne serait plus un ordre mais un filtre, ce que la story interdit explicitement.
-            raise ValueError(
-                f"profil_max_opens ({self.profil_max_opens}) doit rester strictement inférieur à "
-                f"max_opens ({self.max_opens}) : le profil ordonne, il ne remplace pas la question")
-        return self
-
 
 class RetrievalResult(DomainModel):
     blocs: list[Block] = Field(default_factory=list)

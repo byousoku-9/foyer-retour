@@ -57,7 +57,6 @@ from server.app.domain.question import ClarificationRequise, Faits, ParsedQuesti
 from server.app.domain.trace import (ETAPES_SANS_APPEL, CheckResult, StepTrace,
                                      Trace)
 from server.app.domain.verdict import (
-    KINDS_DECISIONNELS,
     KINDS_FONDATEURS,
     PORTEE,
     MissingPackage,
@@ -81,28 +80,21 @@ from server.app.pipelines.commun import (
 )
 from server.app.steps.comprendre import comprendre
 from server.app.steps.naviguer import Navigation
-from server.app.steps.rediger import rediger
 from server.app.steps.restituer import REGISTRE_SINISTRE, restituer
-from server.app.steps.retrouver import (couvrir_facettes, part_du_mot_borne,
-                                       retrouver_deterministe,
-                                        retrouver_outils, satisfaire_demande)
+from server.app.steps.retrouver import part_du_mot_borne, satisfaire_demande
 from server.app.steps.verifier import verifier
 
 PIPELINE = "sinistre"
-# AD-1, amendement du 25/08/2026 : « la navigation par outils est le mode par défaut de *retrouver* »,
-# et la variante `deterministe` (index + ouverture groupée) « devient la baseline de comparaison des
-# évals et le repli quand le budget de tours est épuisé ». Le sinistre sert donc la même variante que
-# le guide, par la **même** fonction d'étape (`steps.retrouver.retrouver_outils`) et le même repli.
-# Une variante inconnue reste refusée **avant** tout appel facturé plutôt que traitée comme l'une des
-# deux (AD-16 : jamais de dégradé silencieux).
-# **Amendement AD-1 du 03/09/2026.** La navigation par le modèle est le chemin servi : le modèle
-# reçoit le sommaire complet et quatre outils, puis rédige dans la **même** conversation
-# (`steps/naviguer.py`). Les deux variantes antérieures restent construites et testées — elles ne
-# sont plus servies —, et leur retrait est une tâche ultérieure de la story 5.6.
+# **Amendement AD-1 du 03/09/2026.** La navigation par le modèle est le chemin servi, et depuis la
+# tâche T2 de la story 5.6 c'est le **seul** : le modèle reçoit le sommaire complet et quatre outils,
+# puis rédige dans la même conversation (`steps/naviguer.py`). Les variantes `outils` et
+# `deterministe` ont été supprimées — elles portaient les passes de code qui choisissaient ce que la
+# rédaction verrait (réservation par facette, attribution lexicale, complétion par la couverture),
+# et l'amendement les refuse. Le paramètre `variant` survit parce qu'AD-11 le publie et qu'il nomme
+# le chemin servi ; une valeur inconnue reste refusée **avant** tout appel facturé (AD-16 : jamais de
+# dégradé silencieux).
 VARIANT = "navigation"
-VARIANT_OUTILS = "outils"
-VARIANT_DETERMINISTE = "deterministe"
-VARIANTES = frozenset({VARIANT, VARIANT_OUTILS, VARIANT_DETERMINISTE})
+VARIANTES = frozenset({VARIANT})
 
 # Ce que le refus d'un sinistre annonce, par `AbsenceProof.kind`. Composé par le **code**, comme les
 # phrases de `restituer.PHRASES_DE_REFUS` : aucune de ces situations n'est une lecture du contrat.
@@ -251,64 +243,35 @@ def _fondatrice_rejetee(verification: Verification, parsed: ParsedQuestion, *,
 
 
 
-def _fondatrices_omises(verification: Verification, retrieval: Any, settings: Settings,
-                        parsed: ParsedQuestion) -> list[str]:
-    """Blocs `garantie|exclusion` confirmés retrouvés dont aucune claim survivante ne cite un seul.
+def _fondatrices_omises(verification: Verification, retrieval: Any,
+                        settings: Settings) -> list[str]:
+    """Blocs `garantie|exclusion` confirmés **ouverts** dont aucune claim survivante ne cite un seul.
 
     Preuve finale 4.2a : la rédaction peut ne rendre qu'une définition et un segment limite —
-    aucun rejet, donc aucun motif, donc aucune relance — alors que le retrieval portait une clause
+    aucun rejet, donc aucun motif, donc aucune relance — alors que la lecture portait une clause
     décisionnelle confirmée. Le témoin d'AD-6 exige qu'une règle retrouvée soit rendue vérifiable,
     son applicabilité étant **calculée par le code** : une portée contraire vaut `applicable="non"`,
-    jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs du retrieval ; aucun
-    vocabulaire de la question n'entre dans la décision. La lecture est faite **par sous-question**
-    dès que la couverture par facette a été mesurée : une fondatrice citée pour l'une ne dit rien
-    de l'autre. Ce déclencheur est
-    complémentaire de `_fondatrice_rejetee` (clause citée mais rejetée) : il couvre la clause
-    jamais citée, que l'autre ne voit pas. L'adoption de la seconde vérification, elle, passe par
-    la dominance générique seule (revue Codex 4.2a, B3).
+    jamais une omission. Le `kind` vient de l'ingestion, relu sur les blocs que le modèle a ouverts ;
+    aucun vocabulaire de la question n'entre dans la décision. Ce déclencheur est complémentaire de
+    `_fondatrice_rejetee` (clause citée mais rejetée) : il couvre la clause jamais citée, que
+    l'autre ne voit pas. L'adoption de la seconde vérification, elle, passe par la dominance
+    générique seule (revue Codex 4.2a, B3).
+
+    **La lecture par sous-question a disparu avec T2** (amendement AD-1 du 03/09/2026). Le raffinement
+    du tour 2 lisait `RetrievalResult.facettes` — la couverture qu'une passe de code calculait en
+    attribuant des blocs à un rang. Plus aucune passe n'attribue : la question **est** la
+    sous-question pour ce déclencheur, et une fondatrice citée quelque part prouve que la base
+    décisionnelle existe. Ce qu'une sous-question laissée de côté déclenche, c'est la consigne de
+    couverture — un **libellé**, jamais un `block_id`.
     """
     fondatrices = [b.block_id for b in retrieval.blocs
                    if b.kind in KINDS_FONDATEURS and b.kind_confirmed]
     if not fondatrices:
         return []
     citees = {quote.block_id for claim in verification.claims for quote in claim.quotes}
-    if not retrieval.facettes:
-        # Aucune couverture par facette mesurée (variante guide, repli déterministe, question à une
-        # seule sous-question) : la question **est** la sous-question, et la règle historique vaut
-        # telle quelle — une fondatrice citée quelque part prouve que la base décisionnelle existe.
-        if citees & set(fondatrices):
-            return []
-        return fondatrices[:settings.draft_max_claims]
-    # Correctif du tour 2 : la règle historique se désarmait à la **première** fondatrice citée,
-    # quel que soit le nombre de sous-questions ouvertes. Sur A16 #2, la lecture portait les deux
-    # règles, la rédaction n'en citait qu'une, et ce garde-fou se taisait parce que « une »
-    # suffisait. La base décisionnelle existe **par sous-question**, ou elle n'existe pas : une
-    # fondatrice confirmée retrouvée pour une facette que rien n'a couverte, et qu'aucune claim ne
-    # cite, est exactement la clause que la relance doit faire rendre.
-    fondatrices_confirmees = set(fondatrices)
-    omises: list[str] = []
-    for rang in _facettes_non_couvertes(verification, parsed):
-        couverture = retrieval.facette(rang)
-        if couverture is None:
-            continue
-        omises.extend(block_id for block_id in couverture.block_ids
-                      if block_id in fondatrices_confirmees and block_id not in citees
-                      and block_id not in omises)
-    return omises[:settings.draft_max_claims]
-
-
-def _blocs_juges_hors_objet(verification: Verification) -> list[str]:
-    """Les blocs qu'une affirmation rejetée `hors_objet` citait, à ne pas redemander à la relance.
-
-    Le motif de relance dit « appuie-toi sur un passage qui répond à cet objet » ; la consigne
-    permanente de la story 3.3 dit, dans le **même** message, « rends une claim courte pour ce bloc,
-    même si sa portée semble différente du cas ». Les deux se contredisent, et l'audit montre le
-    modèle ré-émettant la claim rejetée à l'octet près. La contradiction se ferme ici, avec le seul
-    fait typé qui la distingue : la raison fermée du rejet.
-    """
-    return list(dict.fromkeys(
-        quote.block_id for claim in verification.rejected_claims
-        if claim.rejection_reason == "hors_objet" for quote in claim.quotes))
+    if citees & set(fondatrices):
+        return []
+    return fondatrices[:settings.draft_max_claims]
 
 
 def _facettes_non_couvertes(verification: Verification, parsed: ParsedQuestion) -> list[int]:
@@ -741,73 +704,24 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # **toute** l'étape »). La hisser dans une variable est ce qui empêche le repli de repartir
         # sur une borne neuve, c'est-à-dire de ne plus être borné.
         borne_retrieval = retrieval_budget(settings)
-        # La conversation de navigation, quand c'est elle qui sert : elle porte la lecture, la
-        # rédaction et la relance. `None` pour les deux variantes antérieures, dont chaque étape
-        # reste un appel séparé.
-        navigation: Navigation | None = None
-        if variant == VARIANT:
-            # Le modèle lit lui-même : aucune passe de code ne choisit ce que la rédaction verra.
-            # La rédaction est le dernier message de cette même conversation, plus bas — et la
-            # relance d'AD-3 un message de plus encore. La chaîne d'étapes, elle, ne bouge pas.
-            navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
-                                    doc_id=doc_id, settings=settings, client=client,
-                                    request_budget=budget, prompt="naviguer_sinistre", faits=faits)
-            try:
-                step_retrouver = await navigation.lire()
-            except PipelineError as exc:
-                # AD-16, comme partout ailleurs : l'étape partielle voyage avec l'erreur.
-                if exc.step is not None:
-                    steps.append(exc.step)
-                exc.trace = tracer()
-                raise
-            retrieval = navigation.retrieval()
-        elif variant == VARIANT_OUTILS:
-            # AD-1 : la navigation par outils est le mode par défaut. `kinds_prioritaires` n'y est
-            # pas porté — le départage de la story 1.8 est un tri à score égal **dans l'index**, et
-            # la variante outils ne classe pas : elle laisse le modèle choisir ses termes puis ses
-            # nœuds. L'ajouter serait un mécanisme de rappel de plus, pas le câblage de cette story.
-            candidats_outils: list[str] = []
-            try:
-                retrieval, step_retrouver = await retrouver_outils(
-                    parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
-                    client=client, request_budget=budget, doc_id=doc_id,
-                    dictionnaire=dictionnaire, candidats_out=candidats_outils,
-                    kinds_suffisants=KINDS_FONDATEURS)
-            except PipelineError as exc:
-                # AD-16, comme au guide : l'étape partielle voyage avec l'erreur. Sans cela, un
-                # échec pendant la navigation ressortirait en 503 sans dire ce qui avait été appelé.
-                if exc.step is not None:
-                    steps.append(exc.step)
-                exc.trace = tracer()
-                raise
-        else:
-            retrieval, step_retrouver = retrouver_deterministe(
-                parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
-                doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
-                dictionnaire=dictionnaire)
-        if variant == VARIANT_OUTILS and retrieval.truncated and not retrieval.blocs:
-            # Le repli du guide, à la condition près de rien : `truncated ∧ aucun bloc`. Des blocs
-            # outils **partiels** restent un contexte honnête, que la suite de la chaîne publiera
-            # avec `complete=False` ; les remplacer par une sélection déterministe coûterait plus et
-            # masquerait la lecture bornée. Une seule tentative, sous la même borne, sans tour modèle
-            # supplémentaire — et `kinds_prioritaires` décisionnels, comme l'appel déterministe
-            # qu'elle remplace : la baseline sinistre reste ce qu'elle était (story 1.8).
-            candidats_deterministes: list[str] = []
-            fallback, fallback_step = retrouver_deterministe(
-                parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
-                doc_id=doc_id, kinds_prioritaires=KINDS_DECISIONNELS,
-                dictionnaire=dictionnaire, candidats_out=candidats_deterministes)
-            step_retrouver.checks.append(CheckResult(
-                name="repli_deterministe", ok=False,
-                detail="navigation par outils tronquée sans bloc ; repli déterministe borné transmis"))
-            step_retrouver.checks.extend(fallback_step.checks)
-            step_retrouver.ms += fallback_step.ms
-            step_retrouver.opened_block_ids = list(fallback.opened_block_ids)
-            finaux = set(fallback.opened_block_ids)
-            candidats = [*candidats_outils, *candidats_deterministes]
-            discarded = list(dict.fromkeys(b for b in candidats if b not in finaux))
-            step_retrouver.discarded_block_ids = discarded
-            retrieval = fallback.model_copy(update={"discarded_block_ids": discarded})
+        # La conversation de navigation : elle porte la lecture, la rédaction et la relance.
+        # Depuis T2 c'est le seul chemin — il n'y a plus de variante à départager, et l'objet reste
+        # nommé pour que la suite du pipeline lise « ce que le modèle a lu lui-même ».
+        # Le modèle lit lui-même : aucune passe de code ne choisit ce que la rédaction verra. La
+        # rédaction est le dernier message de cette même conversation, plus bas — et la relance
+        # d'AD-3 un message de plus encore. La chaîne d'étapes, elle, ne bouge pas.
+        navigation = Navigation(parsed, corpus=corpus, index=index, dictionnaire=dictionnaire,
+                                doc_id=doc_id, settings=settings, client=client,
+                                request_budget=budget, prompt="naviguer_sinistre", faits=faits)
+        try:
+            step_retrouver = await navigation.lire()
+        except PipelineError as exc:
+            # AD-16, comme partout ailleurs : l'étape partielle voyage avec l'erreur.
+            if exc.step is not None:
+                steps.append(exc.step)
+            exc.trace = tracer()
+            raise
+        retrieval = navigation.retrieval()
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:
@@ -822,12 +736,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
 
         # --- rédiger --------------------------------------------------------
         echeance("rediger")
-        if navigation is not None:
-            draft, step_rediger = await navigation.rediger()
-        else:
-            draft, step_rediger = await rediger(parsed, retrieval, [], client=client, budget=budget,
-                                                index=index, doc_id=doc_id, settings=settings,
-                                                prompt="rediger_sinistre")
+        draft, step_rediger = await navigation.rediger()
         steps.append(step_rediger)
 
         # --- vérifier -------------------------------------------------------
@@ -843,87 +752,17 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
         # cette étape-là que ses checks doivent nommer).
         draft_verifie, step_de_la_verification = draft, step_verifier
 
-        # --- couverture des facettes, avant toute relance --------------------
-        # *vérifier* mesure quelles sous-questions une affirmation **affichée** couvre ; jusqu'ici
-        # ce constat ne déclenchait rien. Une facette laissée de côté par la rédaction — ou dont la
-        # lecture n'avait rapporté aucune règle — se contentait d'abaisser `complete`, et le second
-        # cycle re-rédigeait sur exactement les mêmes blocs : il ne pouvait pas couvrir ce qui
-        # n'avait pas été retrouvé.
-        #
-        # La reprise est **ciblée** sur les seules facettes non couvertes, **en code pur** (aucun
-        # appel : `couvrir_facettes` ne fait que classer et rouvrir), **sous le budget de l'étape**
-        # — le même objet `borne_retrieval` que la passe initiale et que la satisfaction 4.2e, sans
-        # quoi une seconde passe repartie de zéro ne serait plus bornée du tout. Une passe, jamais
-        # une boucle : ce qui reste sans clause après elle est déclaré absent, et la chaîne cesse.
+        # --- couverture des sous-questions, avant toute relance --------------
+        # *vérifier* mesure quelles sous-questions une affirmation **affichée** couvre (AD-4, et
+        # c'est lui qui décide `complete`). Ce que le code en fait tient maintenant en une ligne :
+        # il **nomme au modèle** la sous-question restée sans réponse. Jusqu'à T2, il rouvrait aussi
+        # des blocs pour elle (`couvrir_facettes`) — une passe de code qui choisissait ce que la
+        # rédaction verrait, et que l'amendement AD-1 du 03/09/2026 refuse. Ce qui repart est donc
+        # le **libellé**, jamais un `block_id` : aucun chemin ne dérive un bloc d'un rang.
         rangs_non_couverts = _facettes_non_couvertes(verification, parsed)
-        retrieval_relance = retrieval
-        consigne_facette: str | None = None
-        blocs_des_facettes: list[str] = []
-        if rangs_non_couverts and navigation is None:
-            complement_facettes, step_facettes = couvrir_facettes(
-                parsed, retrieval=retrieval, corpus=corpus, index=index, budget=borne_retrieval,
-                settings=settings, doc_id=doc_id, kinds_suffisants=KINDS_FONDATEURS,
-                dictionnaire=dictionnaire, rangs=rangs_non_couverts)
-            # Fusion de trace, comme le repli déterministe et la satisfaction 4.2e : l'étape
-            # *retrouver* reste une, et ce qu'elle vient de rouvrir rejoint ce qu'elle publiait.
-            step_retrouver.checks.extend(step_facettes.checks)
-            step_retrouver.ms += step_facettes.ms
-            step_retrouver.opened_block_ids = list(complement_facettes.opened_block_ids)
-            step_retrouver.discarded_block_ids = list(complement_facettes.discarded_block_ids)
-            # La borne se dit **tout de suite**, même si le complément n'est pas adopté (revue
-            # 4.2e, F) : un refus aval ne doit jamais repartir d'une lecture donnée pour exhaustive
-            # alors que le budget a écarté des candidats. Les **blocs**, eux, restent ceux que la
-            # vérification servie a réellement vus.
-            truncated = truncated or complement_facettes.truncated
-            retrieval = retrieval.model_copy(update={
-                "truncated": truncated,
-                "discarded_block_ids": list(complement_facettes.discarded_block_ids)})
-            retrieval_relance = complement_facettes.model_copy(update={"truncated": truncated})
-            # Correctif du tour 3 (R4). **On ne relance que sur ce qu'une relance peut rendre
-            # pertinent.** Deux gardes, et elles sont mesurées toutes les deux :
-            #
-            # 1. les blocs viennent de `FacetteCouverture.block_ids`, qui ne contient plus que des
-            #    correspondances **pleines** depuis R1 — c'est ce qui a fait ordonner au rédacteur,
-            #    en réel, une claim sur une exclusion de responsabilité civile immeuble ;
-            # 2. la reprise doit avoir **réellement rouvert** quelque chose pour cette
-            #    sous-question. Quand elle ne rouvre rien, la relance n'a devant elle que des blocs
-            #    déjà soumis au rédacteur, qui les a lus et n'en a rien tiré : lui redemander la
-            #    même chose est une dépense sûre pour un gain nul (mesuré : 42 s et 0,09 € sur la
-            #    troisième réponse, pour deux claims que le contrôle a rejetées). Si l'un de ces
-            #    blocs est une fondatrice confirmée jamais citée, `_fondatrices_omises` le nomme —
-            #    c'est le chemin précis, et il reste ouvert.
-            rouverts = set(step_facettes.opened_block_ids)
-            blocs_des_facettes[:] = list(dict.fromkeys(
-                block_id for rang in rangs_non_couverts
-                for block_id in (complement_facettes.facette(rang).block_ids
-                                 if complement_facettes.facette(rang) is not None else ())
-                if block_id in rouverts))
-            if not rouverts and complement_facettes.facettes:
-                # Fin de chaîne honnête : rien de décisionnel n'existe dans le contrat lu pour ces
-                # sous-questions, et aucune relance de *rédiger* ne peut le fabriquer. La réponse
-                # le dit — *vérifier* dépose la lacune `facettes_sans_clause` sur la déclaration
-                # d'absence de *retrouver*, et *restituer* la projette dans `unknown[]`.
-                #
-                # `complement.facettes` vide veut dire « pas mesuré » (question à une seule
-                # sous-question, où la facette **est** la question) : il n'y a alors rien à dire de
-                # plus que ce que la chaîne dit déjà, et la trace se tait plutôt que d'annoncer une
-                # absence qu'aucune passe n'a cherché à lever.
-                step_de_la_verification.checks.append(CheckResult(
-                    name="facettes_sans_clause", ok=False,
-                    detail=f"{len(rangs_non_couverts)} sous-question(s) sans clause décisionnelle "
-                           "neuve après une reprise ciblée de retrouver : la relance n'aurait que "
-                           "des blocs déjà soumis à proposer, l'absence est dite plutôt que "
-                           "fabriquée"))
 
         # --- relance unique (AD-3) ------------------------------------------
-        omises = _fondatrices_omises(verification, retrieval_relance, settings, parsed)
-        # Les deux consignes disent deux choses différentes et ne doivent pas dire la même deux
-        # fois : `omises` nomme les **fondatrices** qu'aucune claim ne cite (leur consigne est celle
-        # de la story 3.3, la plus précise) ; ce qui reste des blocs décisionnels d'une facette non
-        # couverte — conditions, franchises, fondatrices déjà citées ailleurs — relève de la
-        # consigne de facette. Un identifiant n'apparaît donc que dans l'une des deux.
-        blocs_des_facettes = [block_id for block_id in blocs_des_facettes
-                              if block_id not in set(omises)]
+        omises = _fondatrices_omises(verification, retrieval, settings)
         # Correctif du tour 2 : **la sous-question restée sans réponse est nommée.** Le motif ne
         # savait dire que « telle claim a été rejetée » ; il ne disait jamais « il te reste cette
         # sous-question à traiter », et le rédacteur ne recevait pas non plus le découpage. La ligne
@@ -936,17 +775,6 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
             "Sous-question(s) de la demande restée(s) sans affirmation affichée, à traiter "
             "explicitement : " + " ; ".join(libelles_manquants) + "."
         ) if libelles_manquants else None
-        if blocs_des_facettes:
-            # Composée par le code, comme tout motif (AD-15) : les identifiants viennent du corpus
-            # typé, jamais de la question — la consigne nomme des blocs à rendre vérifiables.
-            consigne_facette = (
-                f"{len(rangs_non_couverts)} sous-question(s) de la demande n'ont reçu aucune "
-                "affirmation affichée, alors que la lecture porte pour elles des clauses "
-                "décisionnelles confirmées (" + ", ".join(blocs_des_facettes) + ") : rends "
-                "pour au moins l'une d'elles une claim courte qui rapporte sa règle "
-                "conditionnelle, avec sa plus courte citation contiguë, sans décider de son "
-                "applicabilité au dossier — le code la calcule. Conserve les affirmations "
-                "déjà acquises.")
         if omises and len(verification.claims) >= settings.draft_max_claims:
             # Revue Codex 4.2a (B1) : la fusion doit reconduire **tous** les acquis et au moins une
             # correction fondatrice. Quand les affirmations retenues occupent déjà
@@ -961,14 +789,14 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        "acquis et ajouter la clause"))
             verification = relance_abandonnee(verification)
             omises = []
-        if (navigation is not None and consigne_facettes_nommees is not None
+        if (consigne_facettes_nommees is not None
                 and len(verification.claims) >= settings.draft_max_claims):
-            # Même raison que les deux gardes voisines, appliquée à la seule consigne que le chemin
-            # servi puisse porter : sous navigation, aucune passe de code ne nomme de blocs pour une
-            # sous-question (l'amendement AD-1 du 03/09/2026 les a retirées), et c'est le **libellé**
-            # de la sous-question restée sans affirmation qui repart au modèle. Sous
-            # `draft_max_claims` déjà occupé, la relance ne pourrait que troquer une facette contre
-            # une autre — exactement ce que la dominance interdit.
+            # Même raison que la garde voisine, appliquée à la seule consigne de couverture que le
+            # chemin servi porte : aucune passe de code ne nomme de blocs pour une sous-question
+            # (l'amendement AD-1 du 03/09/2026 les a retirées), et c'est le **libellé** de la
+            # sous-question restée sans affirmation qui repart au modèle. Sous `draft_max_claims`
+            # déjà occupé, la relance ne pourrait que troquer une facette contre une autre —
+            # exactement ce que la dominance interdit.
             step_verifier.checks.append(CheckResult(
                 name="relance_facette_sans_place", ok=False,
                 detail=f"{len(rangs_non_couverts)} sous-question(s) sans affirmation affichée mais "
@@ -977,31 +805,17 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                        "couvrir la facette"))
             verification = relance_abandonnee(verification)
             consigne_facettes_nommees = None
-        if consigne_facette is not None and len(verification.claims) >= settings.draft_max_claims:
-            # Même raison que ci-dessus, et elle vaut mot pour mot : la fusion doit reconduire tous
-            # les acquis **et** ajouter la clause de la sous-question laissée de côté. Sous
-            # `draft_max_claims` déjà occupé, la relance ne pourrait que troquer une facette contre
-            # une autre — exactement ce que la dominance interdit.
-            step_verifier.checks.append(CheckResult(
-                name="relance_facette_sans_place", ok=False,
-                detail=f"{len(rangs_non_couverts)} sous-question(s) sans affirmation affichée mais "
-                       f"les {len(verification.claims)} affirmation(s) retenue(s) occupent déjà "
-                       "draft_max_claims : la relance ne peut pas reconduire les acquis et "
-                       "couvrir la facette"))
-            verification = relance_abandonnee(verification)
-            consigne_facette = None
         relance_due = bool((verification.motif and (
             relance_utile(verification, settings)
             or _fondatrice_rejetee(verification, parsed, corpus=corpus, index=index)
-        )) or omises or consigne_facette
+        )) or omises
             # AD-1, amendement du 03/09/2026 : « la mesure de couverture par sous-question … est
-            # **en outre renvoyée au modèle comme consigne** ». Sur le chemin servi, c'est la seule
-            # forme qu'elle puisse prendre — plus aucune passe de code n'attribue de bloc à une
-            # sous-question, donc plus aucun identifiant à nommer. Sans ce terme, une sous-question
-            # laissée de côté par la rédaction ne déclencherait plus rien du tout : la consigne
-            # existerait sans jamais partir, et l'amendement perdrait au passage ce que le chemin
-            # précédent savait faire. La relance reste unique et bornée comme avant.
-            or (navigation is not None and consigne_facettes_nommees is not None))
+            # **en outre renvoyée au modèle comme consigne** ». C'est la seule forme qu'elle puisse
+            # prendre — plus aucune passe de code n'attribue de bloc à une sous-question, donc plus
+            # aucun identifiant à nommer. Sans ce terme, une sous-question laissée de côté par la
+            # rédaction ne déclencherait plus rien du tout : la consigne existerait sans jamais
+            # partir. La relance reste unique et bornée comme avant.
+            or consigne_facettes_nommees is not None)
         if relance_due:
             # Revue Codex 4.2a (B2, recheck) : le pré-contrôle couvre aussi la borne de segments.
             # La fusion doit reconduire tous les acquis, **toutes leurs limites** et au moins une
@@ -1039,10 +853,9 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     "déclaré.")
                 motif_relance = (f"{motif_relance}\n{consigne_fondatrice}" if motif_relance
                                  else consigne_fondatrice)
-            for consigne in (consigne_facettes_nommees, consigne_facette):
-                if consigne is not None:
-                    motif_relance = (f"{motif_relance}\n{consigne}" if motif_relance
-                                     else consigne)
+            if consigne_facettes_nommees is not None:
+                motif_relance = (f"{motif_relance}\n{consigne_facettes_nommees}" if motif_relance
+                                 else consigne_facettes_nommees)
             acquise = verification
             appels_avant = budget.attempts
             redaction_relancee = False
@@ -1061,23 +874,12 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     raise BudgetExceeded(
                         f"plafond d'appels trop bas pour la relance et sa vérification "
                         f"({budget.attempts}/{budget.max_attempts}, {APPELS_DE_LA_RELANCE} requis)")
-                # La relance rédige et se vérifie sur la lecture **complétée** : sans cela, la
-                # reprise ciblée n'aurait servi à rien — la facette redemandée n'aurait toujours
-                # pas ses blocs sous les yeux du rédacteur. Cette lecture-là n'est adoptée que si
-                # la vérification qu'elle produit l'est aussi (revue 4.2e, F).
-                if navigation is not None:
-                    # Le préfixe — sommaire compris — est déjà écrit et relu au tarif de cache, et
-                    # le modèle a sous les yeux ce qu'il a lu **et** ce qu'il a rédigé : la relance
-                    # ne repaie que ce qu'elle ajoute.
-                    draft_2, step_rediger_2 = await navigation.relancer(
-                        motif_relance, blocs_a_conserver=sorted(blocs_cites(acquise)))
-                else:
-                    draft_2, step_rediger_2 = await rediger(
-                        parsed, retrieval_relance, [], client=client, budget=budget,
-                        index=index, doc_id=doc_id, settings=settings, motif=motif_relance,
-                        blocs_a_conserver=sorted(blocs_cites(acquise)),
-                        blocs_hors_objet=_blocs_juges_hors_objet(acquise),
-                        prompt="rediger_sinistre")
+                # La relance est un message de plus dans la conversation de navigation : le
+                # préfixe — sommaire compris — est déjà écrit et relu au tarif de cache, et le
+                # modèle a sous les yeux ce qu'il a lu **et** ce qu'il a rédigé. Elle ne rouvre
+                # rien : à ce stade la lecture est close, et elle ne repaie que ce qu'elle ajoute.
+                draft_2, step_rediger_2 = await navigation.relancer(
+                    motif_relance, blocs_a_conserver=sorted(blocs_cites(acquise)))
                 draft_2 = _reconduire_acquis(draft, draft_2, acquise, settings,
                                              step=step_rediger_2)
                 steps.append(step_rediger_2)
@@ -1090,7 +892,7 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                         detail="l'ébauche relancée est identique (même hash canonique) : arrêt sur la première vérification"))
                 else:
                     seconde, step_verifier_2 = await verifier(draft_2, parsed=parsed,
-                                                              retrieval=retrieval_relance,
+                                                              retrieval=retrieval,
                                                               corpus=corpus, index=index, client=client,
                                                               budget=budget, settings=settings,
                                                               faits=faits, dossier=dossier)
@@ -1109,9 +911,6 @@ async def run(doc_id: str | None, question: str, faits: Faits | Mapping[str, Any
                     if relance_trouve_clause or domine(seconde, acquise,
                                                        redaction_nouvelle=True):
                         verification = seconde
-                        # La lecture servie est celle que cette vérification-là a réellement vue :
-                        # le complément de facettes n'est adopté qu'avec elle.
-                        retrieval, truncated = retrieval_relance, retrieval_relance.truncated
                         # Story 4.2e : la vérification retenue est celle de l'ébauche relancée. Une
                         # reprise de contexte qui repartirait de la première soumettrait un lot où
                         # le `claim_id` de la demande n'existe pas — et, la dominance n'étant pas

@@ -13,7 +13,6 @@ from server.app.domain import (Block, BlockRef, ContextUnit, Document, Node, Nod
                                NodeWindow, QuestionClauseScore, ScoredHit, SummaryEntry,
                                SummaryPage, is_citable)
 from server.app.domain.retrieval import stable_uid
-from server.app.domain.verdict import KINDS_DECISIONNELS
 
 from .loader import Corpus
 from .text import normalize
@@ -184,7 +183,7 @@ class Index:
 
         **A — la carte tient.** Le document entier, avec son aperçu, entre dans
         `summary_page_max_chars` : il est servi d'un bloc. Le navigateur voit tout le document et
-        n'a aucune page à tourner, ce qui compte quand `max_llm_turns` ne laisse qu'un tour outillé
+        n'a aucune page à tourner, ce qui comptait quand un seul tour était outillé
         pour paginer, chercher **et** ouvrir. C'est le cas du guide : 87 fiches plates et courtes.
 
         **B — elle ne tient pas.** La carte est alors partielle *par nature* : quelle que soit sa
@@ -433,7 +432,7 @@ class Index:
         Le bloc demandé peut être l'amorce (le navigateur ouvre la garantie) ou l'un des items (il
         ouvre un péril, ou une réservation en désigne un) : les deux rendent la même unité, dans
         l'ordre de lecture. Aucune borne de taille ici — c'est de la structure ; le budget est
-        l'affaire de *retrouver*, qui borne par `enumeration_max_tokens`.
+        l'affaire de la lecture, bornée en tokens par `navigation_budget_tokens`.
         """
         entry = self._by_block[block_id]
         parent_id: str | None = None
@@ -480,9 +479,6 @@ class Index:
                  question: str | None = None,
                  kinds_prioritaires: Iterable[str] | None = None,
                  kinds_confirmes: Iterable[str] | None = None,
-                 groupes_prioritaires: Iterable[str | dict[str, list[str]] | list[str]]
-                 | None = None,
-                 reservations_out: list[tuple[str, str]] | None = None,
                  ) -> list[ScoredHit]:
         """Correspondance par couverture de mots entiers, puis kind et ordre de lecture.
 
@@ -518,13 +514,14 @@ class Index:
         demandés dont le typage est confirmé par le corpus. La sélection précède le classement et
         `limit` ; son défaut `None` laisse donc tous les appels historiques strictement inchangés.
 
-        `groupes_prioritaires` préserve, avant `limit`, au plus un candidat pleinement couvert par
-        sous-question, de préférence dans un nœud encore non réservé. Chaque entrée est **la requête
-        de la sous-question** — un libellé nu, ou le mapping `{canonique: [variantes]}` que l'étape
-        construit déjà pour son propre classement (correctif du tour 5, C6). Cette diversification reste contenue
-        dans les hits de `termes` : une facette réordonne le rappel, elle n'ajoute aucun document.
-        Si `reservations_out` est fourni, le même classement y expose les réservations qui survivent
-        à `limit`, dans leur ordre. L'appelant peut ainsi les rendre effectives sans second classement.
+        **Ce classement propose, il ne réserve plus** (amendement AD-1 du 03/09/2026). Jusqu'au
+        02/09, `groupes_prioritaires` préservait avant `limit` un candidat par sous-question, et
+        `reservations_out` les rendait effectives : c'est l'attribution lexicale d'un bloc à une
+        sous-question, et elle a été supprimée avec les variantes qui l'employaient. Aucun critère
+        lexical ne sépare « la fumée » d'une exclusion de « les fumées et les suies » d'une
+        garantie — ce qui les distingue, un nom au pluriel contre un participe passé, n'est pas une
+        information que l'index, qui supprime les accents, porte. Le rang sert donc à **ordonner une
+        proposition** que le modèle lit, jamais à décider ce qu'il verra.
         """
         if limit < 1:
             raise ValueError("limit doit être ≥ 1")
@@ -618,96 +615,8 @@ class Index:
                 hit.document_uid, hit.clause_uid, hit.result_uid))
             return scored
 
-        classement = classer(groups, question_uid_=question_uid, score_groups_=score_groups)
-        if groupes_prioritaires is None:
-            return classement[:limit]
-        if isinstance(groupes_prioritaires, str):
-            raise TypeError("groupes_prioritaires : liste de requêtes attendue, pas une chaîne")
-
-        # Chaque facette réserve d'abord la meilleure **règle décisionnelle confirmée** de son
-        # propre classement quand il en existe une. Les thèmes et doublons complètent ensuite le
-        # classement global : ils ne peuvent plus consommer toutes les places avant une autre
-        # sous-question utile.
-        reserves: list[tuple[str, str]] = []
-        noeuds_reserves: set[str] = set()
-        for demande in groupes_prioritaires:
-            # Une **seule** requête de sous-question pour toute la chaîne (correctif du tour 5, C6).
-            # L'étape construisait déjà la sienne — libellé **et** variantes de nombre, gardée par
-            # `full_matches > 0` depuis R1 — et réservait ici une seconde fois, sur le libellé nu et
-            # sans aucune garde. Deux requêtes, deux critères, et c'était celui **sans** garde qui
-            # dépensait les ouvertures : mesuré sur trois runs, il a ouvert des exclusions générales
-            # et un nœud « pertes indirectes » à 1 405 tokens — 40 % du budget de lecture — pendant
-            # que la clause de la sous-question, à 41 tokens, était refusée faute de place.
-            requete = ({demande: []} if isinstance(demande, str)
-                       else demande if isinstance(demande, dict)
-                       else {valeur: [] for valeur in demande})
-            groupes_facette = groupes(requete)
-            if not groupes_facette:
-                continue
-            # La seconde branche reste **l'ancien critère**, et elle garde donc son ancienne entrée :
-            # la couverture pleine du **libellé**, jamais celle d'une variante. Un corpus sans clause
-            # typée — un guide — se comporte exactement comme avant, ce qui est la promesse écrite
-            # du tour 2 ; élargir là ne corrigerait aucun écart mesuré et déplacerait une lecture
-            # que rien n'a mesurée.
-            canonique = frozenset(words(normalize(next(iter(requete)))))
-            # Une facette diversifie les candidats de la recherche principale ; elle n'ajoute
-            # jamais un bloc que `terms + scope.themes` n'aurait pas rendu avant la coupe — c'est
-            # la contrainte `classement_ids`, et elle ne bouge pas.
-            #
-            # **Correctif du tour 2 (cause R3) : la couverture pleine du libellé était le mauvais
-            # critère, et la réservation ne servait à rien.** Une facette rendue par *comprendre*
-            # est une phrase en langue naturelle ; exiger qu'un même bloc porte **tous** ses mots
-            # n'était satisfait par aucune, si bien qu'aucune facette ne réservait jamais rien. Et
-            # quand un libellé assez court y parvenait, il réservait le voisin lexical plutôt que
-            # la règle — le singulier d'un mot suffisait à déplacer le choix.
-            #
-            # Le critère est désormais celui du **corpus typé, quand il en est un** : parmi les
-            # candidats propres de la sous-question, la meilleure règle dont l'ingestion confirme un
-            # kind décisionnel. Elle n'a pas à porter tous les mots du libellé — c'est justement ce
-            # qui ne pouvait jamais arriver.
-            #
-            # L'ancien critère reste la **seconde branche**, et l'ajout est donc strictement
-            # additif : il ne retire aucune réservation qui existait, il en crée là où aucune
-            # n'était possible. Un corpus sans clauses typées — un guide — se comporte exactement
-            # comme avant. Rien n'est classé de neuf (l'ordre reste celui de `classer`), aucun
-            # document n'est ajouté, et pas un mot du texte des clauses n'entre dans la décision.
-            facette_uid = stable_uid("question-v1", [[" ".join(sorted(form))
-                                                      for form in groupes_facette[0]]])
-            classement_ids = {hit.clause_uid for hit in classement}
-            propres = [item for item in classer(groupes_facette, question_uid_=facette_uid)
-                       if item.clause_uid in classement_ids]
-            # **La même garde que R1, sur la même branche.** « La meilleure règle décisionnelle
-            # confirmée » se lisait sans exiger qu'elle corresponde entièrement à quoi que ce soit :
-            # un recouvrement partiel de mots fréquents suffisait à réserver, et à ouvrir. R1 avait
-            # fermé les quatre appelants du classement mémoïsé ; ce cinquième consommateur vit dans
-            # une autre couche et n'avait jamais reçu la règle.
-            candidats = [
-                item for item in propres
-                if item.score.full_matches > 0
-                and self._by_block[item.clause_uid].block.kind in KINDS_DECISIONNELS
-                and self._by_block[item.clause_uid].block.kind_confirmed
-            ] or [
-                item for item in propres
-                if canonique and canonique <= self._by_block[item.clause_uid].tokens
-            ]
-            if not candidats:
-                continue
-            choisi = next((item for item in candidats if item.node_uid not in noeuds_reserves),
-                           candidats[0])
-            # La réservation réutilise le record de la recherche complète : le score, le titre et
-            # l'identité vus à l'admission restent exactement ceux de ``chercher``.
-            choisi = next(item for item in classement if item.clause_uid == choisi.clause_uid)
-            if all(item.clause_uid != choisi.clause_uid for item in reserves):
-                reserves.append(choisi)
-                noeuds_reserves.add(choisi.node_uid)
-        reserved_ids = {item.clause_uid for item in reserves}
-        resultat = [*reserves, *(item for item in classement
-                                 if item.clause_uid not in reserved_ids)][:limit]
-        if reservations_out is not None:
-            reservations_out.extend(
-                (item.clause_uid, item.node_uid) for item in reserves
-                if item in resultat and (item.clause_uid, item.node_uid) not in reservations_out)
-        return resultat
+        return classer(groups, question_uid_=question_uid,
+                      score_groups_=score_groups)[:limit]
 
     def score_clause(self, question: str, block_id: str) -> ScoredHit:
         """Score une clause désignée sans transformer sa sélection en pertinence implicite."""

@@ -62,25 +62,20 @@ from server.app.steps.comprendre import comprendre
 from server.app.steps.naviguer import Navigation
 from server.app.steps.rediger import rediger
 from server.app.steps.restituer import restituer
-from server.app.steps.retrouver import (
-    part_du_mot_borne,
-    retrouver_deterministe,
-    retrouver_full_context,
-    retrouver_outils,
-)
+from server.app.steps.retrouver import part_du_mot_borne, retrouver_full_context
 from server.app.steps.verifier import verifier
 
 PIPELINE = "guide"
 VARIANT = RETRIEVAL_DEFAULT.variant
 # **Amendement AD-1 du 03/09/2026.** Le même chemin sert le guide et le sinistre : aucune branche
-# par sujet ni par document. Les trois variantes antérieures restent construites et testées — elles
-# ne sont plus servies —, et leur retrait est une tâche ultérieure de la story 5.6.
+# par sujet ni par document. La tâche T2 de la story 5.6 a supprimé `outils` et `deterministe` —
+# elles portaient les passes de code qui choisissaient ce que la rédaction verrait. `full_context`
+# reste, et elle seule, comme **variante de comparaison** : elle ne classe ni ne réserve rien, elle
+# donne tout le corpus citable au modèle et le laisse rendre sa liste de blocs. Elle n'est pas
+# servie et n'a pas de repli.
 VARIANT_NAVIGATION = "navigation"
-VARIANT_OUTILS = "outils"
-VARIANT_DETERMINISTE = "deterministe"
 VARIANT_FULL_CONTEXT = "full_context"
-VARIANTS = frozenset({VARIANT_NAVIGATION, VARIANT_OUTILS, VARIANT_DETERMINISTE,
-                      VARIANT_FULL_CONTEXT})
+VARIANTS = frozenset({VARIANT_NAVIGATION, VARIANT_FULL_CONTEXT})
 # L'alerte du loader qui dit que le périmètre annoncé à *comprendre* n'est plus exhaustif
 # (`corpus/loader._perimetre`, palier 3). Nommée ici parce que c'est ici qu'elle **désarme** un refus.
 PERIMETRE_TRONQUE = "perimetre_tronque"
@@ -439,7 +434,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # déjà normalisées, sans appel ni allocation notable, et le seul chemin où le travail est
         # perdu est celui du **refus** — où il évite un appel `reason` à ≈ 0,03 € (NFR4), quatre
         # ordres de grandeur au-dessus. Le rendre unique demanderait de faire voyager l'expansion à
-        # travers `refuser`, `_absence` et `retrouver_deterministe` : trois signatures élargies pour
+        # travers `refuser`, `_absence` et la navigation : trois signatures élargies pour
         # un gain non mesurable, et un état de plus à tenir cohérent. À reprendre si, et seulement
         # si, une mesure le montre (4.2). Le pré-contrôle n'a lieu que dictionnaire **signé**.
         termes = parsed.termes_de_recherche()
@@ -469,7 +464,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         # revue Codex 2.3, B1) —, et le pipeline n'a rien à leur ajouter ici.
         borne_retrieval = retrieval_budget(settings)
         # La conversation de navigation, quand c'est elle qui sert : elle porte la lecture, la
-        # rédaction et la relance. `None` pour les trois variantes antérieures.
+        # rédaction et la relance. `None` pour la variante de comparaison.
         navigation: Navigation | None = None
         if variant == VARIANT_NAVIGATION:
             # Le modèle lit lui-même — question, sommaire complet, quatre outils —, et rédige dans
@@ -487,19 +482,9 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 exc.trace = tracer()
                 raise
             retrieval = navigation.retrieval()
-        elif variant == VARIANT_OUTILS:
-            candidats_outils: list[str] = []
-            try:
-                retrieval, step_retrouver = await retrouver_outils(
-                    parsed, corpus=corpus, index=index, budget=borne_retrieval, settings=settings,
-                    client=client, request_budget=budget, doc_id=doc_id, dictionnaire=dictionnaire,
-                    candidats_out=candidats_outils)
-            except PipelineError as exc:
-                if exc.step is not None:
-                    steps.append(exc.step)
-                exc.trace = tracer()
-                raise
-        elif variant == VARIANT_FULL_CONTEXT:
+        else:
+            # `full_context` : comparaison seule, jamais servie. Aucun repli — un repli serait une
+            # seconde sélection, faite par le code, sur une lecture que le modèle a déjà rendue.
             try:
                 retrieval, step_retrouver = await retrouver_full_context(
                     parsed, corpus=corpus, index=index, budget=borne_retrieval,
@@ -510,31 +495,6 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                     steps.append(exc.step)
                 exc.trace = tracer()
                 raise
-        else:
-            retrieval, step_retrouver = retrouver_deterministe(
-                parsed, corpus=corpus, index=index, budget=borne_retrieval,
-                settings=settings, doc_id=doc_id, dictionnaire=dictionnaire)
-        if variant == VARIANT_OUTILS and retrieval.truncated and not retrieval.blocs:
-            # O9 : le repli protège uniquement une navigation épuisée sans bloc utile. Des blocs
-            # outils partiels restent un contexte honnête : *vérifier* publiera `lecture_bornee` et
-            # `complete=False`, sans les remplacer par une sélection déterministe potentiellement
-            # moins pertinente et plus coûteuse.
-            candidats_deterministes: list[str] = []
-            fallback, fallback_step = retrouver_deterministe(
-                parsed, corpus=corpus, index=index, budget=borne_retrieval,
-                settings=settings, doc_id=doc_id, dictionnaire=dictionnaire,
-                candidats_out=candidats_deterministes)
-            step_retrouver.checks.append(CheckResult(
-                name="repli_deterministe", ok=False,
-                detail="navigation par outils tronquée sans bloc ; repli déterministe borné transmis"))
-            step_retrouver.checks.extend(fallback_step.checks)
-            step_retrouver.ms += fallback_step.ms
-            step_retrouver.opened_block_ids = list(fallback.opened_block_ids)
-            finaux = set(fallback.opened_block_ids)
-            candidats = [*candidats_outils, *candidats_deterministes]
-            discarded = list(dict.fromkeys(b for b in candidats if b not in finaux))
-            step_retrouver.discarded_block_ids = discarded
-            retrieval = fallback.model_copy(update={"discarded_block_ids": discarded})
         steps.append(step_retrouver)
         truncated = retrieval.truncated
         if not retrieval.blocs and retrieval.truncated:
@@ -736,7 +696,7 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
         raise
     except Exception as exc:  # noqa: BLE001 — la garde d'AD-16, pas un avalement
         # Correctif du tour 2 : la même garde qu'au sinistre, et pour la même raison — l'étape
-        # partagée `retrouver_outils` est celle qui a laissé échapper une `ValidationError` en réel.
+        # partagée de lecture est celle qui a laissé échapper une `ValidationError` en réel.
         # L'erreur reste terminale et `internal` ; seule sa trace partielle cesse de disparaître.
         interne = PipelineError(ErrorCode.internal, f"{type(exc).__name__} dans la chaîne guide")
         interne.trace = tracer()
