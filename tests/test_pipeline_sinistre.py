@@ -857,7 +857,17 @@ async def test_a_surviving_bounded_dependency_never_masks_a_required_quality(
 
 async def test_une_fondatrice_non_confirmee_ne_remplace_jamais_plusieurs_acquis(
         index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    """La relance ne perd ni claims, ni facettes, ni blocs pour la seule apparition d'un kind."""
+    """La relance ne perd ni claims, ni facettes, ni blocs pour la seule apparition d'un kind.
+
+    Le contrôle de la relance est scripté **total** (T15) : `_reconduire_acquis` reconduit c2 et c5
+    dans l'ébauche relancée, ce sont donc trois affirmations qui partent au contrôle groupé, et
+    depuis T15 une sortie qui n'en juge qu'une n'est plus une décision mais une réponse incomplète
+    — elle déclenche le `parse_retry`. Le scénario, lui, est inchangé et il est même dit plus
+    franchement qu'avant : le modèle **écarte** explicitement les deux acquis reconduits et ne garde
+    que sa fondatrice au kind non confirmé. C'est exactement la substitution que la dominance doit
+    refuser ; elle était jusqu'ici obtenue par le silence du modèle, elle l'est maintenant par son
+    verdict.
+    """
     monkeypatch.setattr(index.corpus.documents[DOC_ID].block(f"{DOC_ID}:p2:1"),
                         "kind_source", None)
     answer, trace, fake = await _run(index, [
@@ -870,7 +880,10 @@ async def test_une_fondatrice_non_confirmee_ne_remplace_jamais_plusieurs_acquis(
             facettes=[["c2"], ["c5"]],
         ),
         _rediger(EXC_EXT),
-        _verifier(("c3", True, True, False, False, None), facettes=[["c3"], []]),
+        _verifier(("c3", True, True, False, False, None),
+                  ("c2", False, False, False, False, None, [], [], "hors_objet"),
+                  ("c5", False, False, False, False, None, [], [], "hors_objet"),
+                  facettes=[["c3"], []]),
     ])
 
     assert fake.remaining_script == 0
