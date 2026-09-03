@@ -24,15 +24,6 @@ CASES = [
     ("cœur et ﬁn", "coeur et fin", "œ décomposé (reprise 1.0 tranchée en 1.2)"),
     ("Œuvre ex æquo Æ", "oeuvre ex aequo ae", "Œ/æ/Æ décomposés"),
     ("porte-\nfenêtre", "portefenetre", "limite conservée en 1.2 : un vrai trait d'union en fin de ligne est traité comme une césure"),
-    # Story 5.6 T16 (`normalize_version` 3) : le bloc `baloise-lu-home-2-2024:p21:4` coupe sa ligne
-    # après « et/ ». La coupure devenait un espace, le modèle qui recopie soude « et/ou », et la
-    # citation cessait d'être une sous-chaîne de `text_norm` — la garantie fondatrice du cas
-    # `b-congelateur` était rejetée `non_retrouvee` une répétition sur trois.
-    ("congélateur et/\nou réfrigérateur", "congelateur et/ou refrigerateur",
-     "coupure de ligne après une barre oblique : même règle que la césure -\\n"),
-    ("congélateur et/ \n ou réfrigérateur", "congelateur et/ou refrigerateur",
-     "coupure après une barre, avec espaces"),
-    ("24/7 et\n/ou", "24/7 et /ou", "limite symétrique : une barre en début de ligne n'est pas une coupure"),
     ("", "", "vide"),
 ]
 
@@ -48,4 +39,4 @@ def test_normalize_idempotent() -> None:
 
 
 def test_normalize_version_is_a_string() -> None:
-    assert normalize_version == "3"
+    assert normalize_version == "2"

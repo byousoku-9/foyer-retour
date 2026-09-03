@@ -588,32 +588,6 @@ def test_every_line_of_every_pdf_block_is_mapped_even_across_a_hyphenation(reel:
     assert f"{cesure.block_id}:l11" in [lid for _a, _b, lid in spans]
 
 
-async def test_une_quote_soudee_sur_une_coupure_apres_barre_garde_ses_offsets_bruts(
-        reel: Index) -> None:
-    """Story 5.6 T16 : la coupure de ligne après `/` est une coupure, pas un espace.
-
-    Le bloc coupe sa ligne après « corporels et/ » ; le modèle qui recopie écrit « et/ou », sans
-    espace. Avant `normalize_version` 3, `text_norm` portait « et/ ou » et la citation n'y était plus
-    une sous-chaîne — c'est le rejet `non_retrouvee` mesuré sur `b-congelateur`. Le témoin vérifie
-    aussi ce que la règle ne doit **pas** casser : les offsets restent ceux du texte **brut** (AD-3),
-    donc le passage affiché reste celui du contrat, coupure comprise, et les deux `line_ids` que
-    l'occurrence traverse sont conservés.
-    """
-    bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p52:8")
-    assert "et/\n" in bloc.text  # la coupure est bien dans le corpus servi
-    soudee = "dommages corporels et/ou des dommages matériels subis par les Assurés"
-    assert "et/\n" not in soudee and normalize(soudee) in bloc.text_norm
-    v = await _verifier_reel(reel, _draft(("c1", "t", [(bloc.block_id, soudee)])), [bloc])
-    q = v.claims[0].quotes[0]
-    assert bloc.text_norm[q.start:q.end] == normalize(soudee)
-    # Le passage relu depuis le corpus : la forme d'origine, coupure de ligne comprise.
-    assert bloc.text[q.text_start:q.text_end] == (
-        "dommages corporels et/\nou des dommages matériels subis par les Assurés")
-    spans, _ = _lignes_du_bloc(bloc)
-    attendus = [lid for (a, b, lid) in spans if a < q.text_end and b > q.text_start]
-    assert q.line_ids == attendus == [f"{bloc.block_id}:l2", f"{bloc.block_id}:l3"]
-
-
 async def test_a_quote_over_a_hyphenation_keeps_the_line_ids_of_both_lines(reel: Index) -> None:
     bloc = reel.corpus.documents["axa-lu-optihome-2017"].block("axa-lu-optihome-2017:p26:5")
     debut = bloc.text.index("minimale fixée en cas de non-")

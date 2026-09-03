@@ -126,9 +126,9 @@ d'écriture. Prochain gisement, inchangé : borner ce sommaire (AD-9). Mesures :
 
 ## Limites honnêtes
 
-La porte de lecture change l'identité publiée : un artefact non réingéré est déclaré périmé ici.
-`normalize_version` passe à 3 : `empreinte-committee-perimee: axa-lu-optihome-2017` et
-`empreinte-committee-perimee: baloise-lu-home-2-2024`. Les blocs servis portent la règle 3.
+La porte de lecture change l'identité publiée. Un artefact committé non réingéré est déclaré périmé
+ici (`empreinte-committee-perimee: <doc>`) jusqu'à sa réingestion. Au 02/09/2026, les deux contrats
+sont réingérés avec le parseur courant : aucune déclaration active.
 
 - Le limiteur est **best-effort** et par instance : redémarrage, plusieurs instances ou identité
   réseau forgée empêchent d'en faire un quota global.

@@ -2,8 +2,7 @@
 
 NFKC → `œ`/`æ` décomposés en `oe`/`ae` → retrait des diacritiques (NFD, marques combinantes) → minuscules →
 apostrophes/guillemets/tirets unifiés (', ", -) et espaces internes aux guillemets retirés →
-suppression de la coupure de ligne intérieure à un token, `-\\n` (césure) puis `/\\n` →
-tout séparateur (\\s, puces, |) → un espace → trim.
+suppression de la césure `-\\n` → tout séparateur (\\s, puces, |) → un espace → trim.
 
 Limites assumées (documentées par `tests/test_normalize.py`) :
 - les ligatures de *compatibilité* (ﬁ, ﬂ, …) sont décomposées par NFKC ; `œ`/`æ` (et majuscules) le sont explicitement
@@ -11,12 +10,6 @@ Limites assumées (documentées par `tests/test_normalize.py`) :
 - la règle de césure `-\\n` supprime aussi un vrai trait d'union en fin de ligne (« porte-\\nfenêtre » → « portefenetre ») ;
   conservée en 1.2 : indécidable sans dictionnaire, 7 cas dans le contrat AXA, aucun sur les pages décisionnelles
   (9, 11, 34, 46) ;
-- la règle `/\\n` (`normalize_version` 3) traite de même la coupure de ligne qui suit une **barre oblique**
-  (« congélateur et/\\nou réfrigérateur » → « congelateur et/ou refrigerateur ») : en PDF, une ligne ne se
-  coupe à l'intérieur d'un token qu'après `-` ou `/`, et le second cas laissait un espace là où le lecteur
-  — le modèle qui recopie — n'en voit aucun, si bien que la citation n'était plus une sous-chaîne de
-  `text_norm` (8 blocs Baloise, 3 AXA — mesuré sur les artefacts du 03/09). Comme pour `-\\n`, la barre est **conservée** et la limite est
-  symétrique : un `/` réellement suivi d'un retour à la ligne perd cet espace ;
 - le tiret conditionnel U+00AD est supprimé ; un tiret (`-`, `–`, `—`) en début de ligne suivi d'un espace est une puce.
 
 `normalize_spans()` rend la **même** chaîne que `normalize()` et, en plus, l'origine de chacun de ses
@@ -34,7 +27,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-normalize_version = "3"
+normalize_version = "2"
 
 _APOSTROPHES = "’‘‛ʼ′´`"
 _QUOTES = "«»“”„‟″〝〞"
@@ -50,7 +43,6 @@ _OPEN_GUILLEMET = re.compile(r"«\s*")
 _CLOSE_GUILLEMET = re.compile(r"\s*»")
 _DASH_BULLET = re.compile(r"(?m)^[ \t]*[-–—][ \t]+")
 _HYPHENATION = re.compile(r"-\s*\n\s*")
-_SLASH_BREAK = re.compile(r"(?<=/)\s*\n\s*")
 _SEPARATORS = re.compile(r"[\s|" + re.escape(_BULLETS) + r"]+")
 
 
@@ -84,7 +76,7 @@ def _sub_spans(pattern: re.Pattern[str], repl: str, chars: list[str],
 def normalize_spans(s: str) -> tuple[str, list[Span]]:
     """`normalize(s)` et, pour chaque caractère rendu, le segment `[début, fin)` de `s` dont il vient.
 
-    Les caractères supprimés (marques combinantes, tiret conditionnel, coupures `-\\n` et `/\\n`) n'ont pas
+    Les caractères supprimés (marques combinantes, tiret conditionnel, césure `-\\n`) n'ont pas
     d'image ; ceux qu'une règle a fusionnés partagent le segment qui les a produits. Un intervalle
     normalisé `[a, b)` se retraduit donc en `(spans[a][0], spans[b - 1][1])`.
     """
@@ -106,9 +98,6 @@ def normalize_spans(s: str) -> tuple[str, list[Span]]:
     chars, spans = _sub_spans(_CLOSE_GUILLEMET, '"', chars, spans)
     chars = [c.translate(_TRANS) for c in chars]  # 1 → 1 : les origines ne bougent pas
     chars, spans = _sub_spans(_HYPHENATION, "", chars, spans)
-    # Même règle, même endroit : seule la coupure disparaît, la barre est conservée. `_sub_spans` garde
-    # les origines alignées, donc `text_start`/`text_end`/`line_ids` restent exacts de part et d'autre.
-    chars, spans = _sub_spans(_SLASH_BREAK, "", chars, spans)
     chars, spans = _sub_spans(_SEPARATORS, " ", chars, spans)
     debut, fin = 0, len(chars)  # `str.strip()`, en gardant les origines alignées
     while debut < fin and chars[debut].isspace():
