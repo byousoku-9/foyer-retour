@@ -55,7 +55,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationInfo, model_validator
@@ -764,6 +764,43 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
                                     f"document, hors du bloc {block_id} — étends-la pour la rendre "
                                     "unique", verifiee, ajustee=ajustee)
     return _Controle("", "", verifiee, ajustee=ajustee)
+
+
+def retirer_identifiants(texte: str, *, prefixes: Iterable[str]) -> tuple[str, int]:
+    """Le texte affiché débarrassé des identifiants de blocs et de nœuds, et leur compte.
+
+    Mesuré le 04/09/2026 sur la vraie page guide (run `7a4a4e45`, 08 h 15) : « … en période de
+    rentrée. **lux-guide:farrivee** Trouver un bon logement demande aussi … ». Le modèle avait écrit
+    un identifiant de fiche **dans sa prose**, et il est arrivé à l'écran. Rien ne l'y attrapait :
+    l'identifiant n'affirme rien, aucune citation ne le porte ni ne le contredit, il traverse donc
+    le contrôle phrase par phrase sans rougir. Il n'a pourtant aucun sens pour la personne qui lit —
+    la traçabilité passe par `quotes` et par le front, jamais par la prose.
+
+    **Le motif se dérive des documents servis, il ne s'écrit pas.** `prefixes` sont les `doc_id`
+    que la lecture a réellement rendus (`retrieval.blocs`), et un identifiant de ce projet est,
+    par construction, `<doc_id>` suivi de `:` puis de segments — `lux-guide:farrivee`,
+    `lux-guide:farrivee:9`, `axa-lu-optihome-2017:p34:12`. Aucune liste de formes (`f…`, `p…`,
+    `s…`) n'est écrite ici : elles sont propres à une ingestion, et le premier document qui
+    numéroterait autrement rendrait la règle muette. Le préfixe, lui, est une donnée du corpus.
+
+    Un identifiant est retiré **avec l'espace qui le précède**, sinon la phrase garderait une double
+    espace là où il était ; la ponctuation qui le suit reste (le motif s'arrête au dernier caractère
+    d'identifiant, jamais sur un point).
+    """
+    prefixes = [p for p in dict.fromkeys(prefixes) if p]
+    if not prefixes or not texte:
+        return texte, 0
+    # Un segment d'identifiant peut porter un point **à l'intérieur** (`…:a1.1`), jamais à la fin :
+    # sans cette borne, `…:p34:12.` emporterait le point de la phrase avec lui.
+    segment = r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*"
+    motif = re.compile(
+        r"[ \t]*(?:" + "|".join(re.escape(p) for p in prefixes) + r")(?::" + segment + r")+")
+    retire, n = motif.subn("", texte)
+    if not n:
+        # Rien retiré, rien touché : une phrase sans identifiant sort **byte-identique**, jusqu'à
+        # ses espaces doubles — le contrôle suivant compare des textes au caractère près.
+        return texte, 0
+    return re.sub(r"[ \t]{2,}", " ", retire).strip(), n
 
 
 def _mots_de_la_phrase(phrase: str, *, min_chars: int) -> set[str]:
@@ -1728,6 +1765,30 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 name="segments_derives_masques", ok=False,
                 detail=f"{derives_masques} segment(s) au texte byte-identique à une affirmation "
                        "rejetée ou sans verdict de pertinence : masqués avec elle, jamais rejugés"))
+
+    # --- aucun identifiant dans un texte affiché (story 5.6, L1j) ----------------------------
+    # Appliqué ici, au **découpage**, et non plus loin : c'est le dernier endroit où le texte
+    # affiché, les limites et les rattachements sont encore les mêmes objets, et c'est après tous
+    # les jugements — retirer un identifiant ne peut donc invalider aucune citation ni aucun
+    # verdict. Un identifiant n'affirme rien : il traversait le contrôle phrase par phrase sans
+    # rougir, et arrivait à l'écran (rejeu du 04/09/2026, 08 h 15).
+    prefixes = {bloc.block_id.split(":", 1)[0] for bloc in retrieval.blocs if ":" in bloc.block_id}
+    identifiants_retires = 0
+    for segment in survivants:
+        segment.text, n = retirer_identifiants(segment.text, prefixes=prefixes)
+        identifiants_retires += n
+    for claim in [*claims, *rejetees]:
+        claim.text, n = retirer_identifiants(claim.text, prefixes=prefixes)
+        identifiants_retires += n
+        if claim.rattachement:
+            claim.rattachement, n = retirer_identifiants(claim.rattachement, prefixes=prefixes)
+            identifiants_retires += n
+    if identifiants_retires:
+        step.checks.append(CheckResult(
+            name="identifiants_retires", ok=False,
+            detail=f"{identifiants_retires} identifiant(s) de bloc ou de nœud écrit(s) par le "
+                   "modèle dans un texte affiché (phrase, rattachement ou limite) : retiré(s) — la "
+                   "traçabilité passe par les citations et le front, jamais par la prose"))
 
     # --- ce qu'une phrase ne peut pas prouver : l'absence (revue Codex 1.5, tour 3, B1) -----
     # Un segment `limite` dit ce que le guide **ne dit pas**. Aucun passage ne peut le soutenir : une

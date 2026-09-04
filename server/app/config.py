@@ -1590,6 +1590,17 @@ class Settings(BaseSettings):
     # `search_limit` (20 aussi, mais celui-là borne une passe de code qui ouvre) : ici rien n'entre
     # dans le contexte de rédaction sans que le modèle ait ouvert le nœud.
     navigation_search_limit: int = Field(20, ge=1)
+    # `navigation_ouvertures_reservees_par_facette` : ce que le code **réserve** à une sous-question
+    # qu'aucune lecture n'a encore visée, au moment où le modèle veut conclure. Ce n'est pas une
+    # réservation de budget au sens de la variante retirée — aucun nœud n'est choisi, aucun token
+    # n'est mis de côté : c'est le nombre d'ouvertures que le message de refus annonce au modèle
+    # comme lui revenant s'il veut traiter cette sous-question-là. Mesuré le 04/09/2026 sur le rejeu
+    # de 08:15 (run `7a4a4e45`) : *comprendre* avait découpé trois facettes, la navigation s'est
+    # arrêtée après deux appels `retrouver` et une seule fiche ouverte, et deux sous-questions sont
+    # sorties « sans réponse » sans qu'aucune fiche ait été lue pour elles. Une ouverture suffit à
+    # lever ce cas — la fiche du guide porte la démarche entière —, et deux dépenseraient le budget
+    # de lecture sur une facette que le document peut très bien ne pas traiter.
+    navigation_ouvertures_reservees_par_facette: int = Field(1, ge=1)
     # AD-9 : Sonnet reste le plancher de tout choix sémantique servi, et la navigation **est** le
     # choix sémantique le plus lourd de la chaîne. `micro` reste réglable pour rejouer l'arbitrage.
     navigation_tier: Literal["micro", "reason"] = "reason"
@@ -1982,6 +1993,8 @@ class Settings(BaseSettings):
             "navigation_max_llm_turns": self.navigation_max_llm_turns,
             "navigation_budget_tokens": self.navigation_budget_tokens,
             "navigation_search_limit": self.navigation_search_limit,
+            "navigation_ouvertures_reservees_par_facette":
+                self.navigation_ouvertures_reservees_par_facette,
             "navigation_draft_max_claims": self.navigation_draft_max_claims,
             "navigation_draft_max_segments": self.navigation_draft_max_segments,
             "navigation_rediger_max_tokens": self.navigation_rediger_max_tokens,
@@ -2261,6 +2274,7 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "deadline_s", "llm_timeout_s", "llm_output_tokens_per_s_min", "llm_latence_marge_s",
     "raison_publiable_max_chars", "quote_min_chars", "quote_min_ratio", "max_opens",
     "navigation_max_llm_turns", "navigation_budget_tokens", "navigation_search_limit",
+    "navigation_ouvertures_reservees_par_facette",
     "navigation_draft_max_claims", "navigation_draft_max_segments",
     "navigation_rediger_max_tokens", "navigation_draft_effort_high", "navigation_tier_reason",
     "variante_nombre_max_part", "node_window", "search_limit", "limite_liee_max",

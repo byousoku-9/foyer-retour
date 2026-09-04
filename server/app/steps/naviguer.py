@@ -120,6 +120,29 @@ REPRISE_ASSISTANT_TRONQUEE = "(réponse tronquée omise)"
 # L'effort de la reprise, et il n'est pas un réglage : la reprise existe **parce que** la réflexion
 # a mangé la place du JSON. Le servir depuis `navigation_draft_effort` la rejouerait à l'identique.
 EFFORT_REPRISE_TRONQUEE = "low"
+# Combien de nœuds du sommaire le refus de tour terminal montre pour une facette sans lecture.
+# Ce n'est pas un seuil de politique — rien n'est réservé, rien n'est ouvert — mais une **forme de
+# message**, du même ordre que `INVENTAIRE_AMORCE_MAX_CHARS` : de quoi choisir sans relire tout le
+# sommaire, qui est déjà dans le préfixe et le restera. Cinq lignes tiennent dans un coup d'œil ;
+# vingt (la borne de `chercher`) rendraient le message aussi long que le sommaire d'une catégorie.
+FACETTE_NOEUDS_PROCHES_MAX = 5
+# Le refus, en trois temps : ce que le code constate, la facette et ses nœuds proches délimités
+# comme tout contenu qui vient d'un modèle ou du document (AD-15), puis ce qui est demandé. Le code
+# ne nomme aucun nœud comme « celui qu'il faut » et n'en ouvre aucun : il rend au modèle la
+# proximité que le sommaire porte déjà, et lui laisse la décision entière.
+FACETTE_SANS_LECTURE_CONSTAT = (
+    "Tu allais conclure, mais **{n} sous-question(s) de la demande n'ont encore reçu aucune "
+    "lecture** : aucun `ouvrir_noeud` de cette conversation ne les a déclarées. Une sous-question "
+    "sans nœud lu sort « sans réponse » alors que le document ne s'est pas prononcé — c'est le pire "
+    "résultat possible, et c'est celui-là que ce message vient éviter.")
+FACETTE_SANS_LECTURE_CONSIGNE = (
+    "{reservees} ouverture(s) de nœud te sont réservées **pour chacune** de ces sous-questions : "
+    "ouvre le nœud que tu juges utile avec `ouvrir_noeud`, en déclarant son `facette`. Les "
+    "`noeuds_les_plus_proches` ci-dessus sont ceux que le sommaire rapproche du libellé — une "
+    "**proposition**, comme `chercher` : tu peux en ouvrir un autre. Si après lecture le document "
+    "ne traite pas l'une d'elles, conclus : elle restera sans réponse, et ce sera honnête. Ce "
+    "rappel n'a lieu qu'une fois.")
+
 RAPPEL_TERMINAL = (
     "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
     "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
@@ -139,8 +162,21 @@ OUTILS: list[dict[str, Any]] = [
         "name": "ouvrir_noeud",
         "description": "Le texte intégral des blocs citables d'un nœud et de ses enfants feuilles à "
                        "un bloc. Seuls ces blocs deviennent citables.",
-        "input_schema": {"type": "object", "additionalProperties": False,
-                         "properties": {"node_id": {"type": "string"}}, "required": ["node_id"]},
+        "input_schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "node_id": {"type": "string"},
+                # La sous-question que **cette** ouverture vise, par son rang dans
+                # `sous_questions` (la première vaut 0). C'est la seule mesure mécanique que le
+                # code ait de la couverture d'une facette *avant* qu'une ligne soit rédigée :
+                # sans elle, « ce nœud traite-t-il l'école ? » demanderait au code de juger un
+                # titre, c'est-à-dire exactement la passe de sélection qu'AD-1 lui retire. Le
+                # modèle, lui, le sait au moment où il ouvre — il n'a qu'à le dire.
+                "facette": {"type": "integer", "minimum": 0,
+                            "description": "Rang dans `sous_questions` de la sous-question que "
+                                           "cette ouverture vise (la première vaut 0)."},
+            },
+            "required": ["node_id", "facette"]},
     },
     {
         "name": "chercher",
@@ -282,6 +318,12 @@ class Navigation:
         # dépassé le plafond : jamais plus d'une fois par tour terminal (voir `_appel_terminal`).
         self.tour_terminal_repris = 0
         self.recherches = 0
+        # Ce que **le modèle déclare** viser à chaque ouverture : rang de facette → nœuds ouverts.
+        # Aucune ligne de code n'y met un nœud que le modèle n'a pas rattaché lui-même.
+        self.facettes_lues: dict[int, list[str]] = {}
+        # Les facettes nommées par le refus de tour terminal — **une seule** fois par
+        # conversation, toutes ensemble.
+        self.facettes_rappelees: list[int] = []
         self._messages: list[dict[str, Any]] = [{
             "role": "user", "content": self._demande()}]
 
@@ -368,7 +410,7 @@ class Navigation:
                                         racine=str(node_id) if node_id else None) or \
                     "ce nœud n'a pas de sous-arborescence : ouvre-le."
             if nom == "ouvrir_noeud":
-                return self._ouvrir(str(args["node_id"]))
+                return self._ouvrir(str(args["node_id"]), facette=args.get("facette"))
             if nom == "chercher":
                 return self._chercher([str(t) for t in args.get("termes") or []])
             if nom == "definitions":
@@ -377,7 +419,7 @@ class Navigation:
             return f"identifiant inconnu dans ce document : {exc}"
         return f"outil inconnu : {nom}"
 
-    def _ouvrir(self, node_id: str) -> str:
+    def _ouvrir(self, node_id: str, *, facette: Any = None) -> str:
         if self.index.doc_of_node(node_id) != self.doc_id:
             return "ce nœud n'appartient pas au document servi."
         blocs = blocs_du_noeud(self.corpus, self.doc_id, node_id)
@@ -399,7 +441,24 @@ class Navigation:
             self.noeuds_ouverts.append(node_id)
         for bloc in blocs:
             self.ouverts.setdefault(bloc.block_id, bloc)
+        self._noter_la_facette(node_id, facette)
         return rendu
+
+    def _noter_la_facette(self, node_id: str, facette: Any) -> None:
+        """La facette que le modèle a déclarée pour **cette** ouverture, si elle en désigne une.
+
+        Un rang hors de `parsed.facettes` est une sortie de modèle comme une autre (AD-15) : il est
+        ignoré en silence, jamais republié — la couverture se mesure sur les rangs que *comprendre*
+        a réellement arrêtés. Le nœud est noté **après** l'ouverture, donc jamais pour une lecture
+        que le budget a refusée : déclarer une intention n'est pas lire.
+        """
+        if not isinstance(facette, int) or isinstance(facette, bool):
+            return
+        if not 0 <= facette < len(self.parsed.facettes):
+            return
+        noeuds = self.facettes_lues.setdefault(facette, [])
+        if node_id not in noeuds:
+            noeuds.append(node_id)
 
     def _mapping(self, termes: list[str]) -> dict[str, list[str]] | list[str]:
         """La requête élargie : équivalences écrites du dictionnaire (AD-5), puis formes de nombre.
@@ -457,6 +516,100 @@ class Navigation:
         return (_rendre_blocs(blocs) + "\n\nCes définitions éclairent ; pour en citer une, ouvre "
                 "son nœud.")
 
+    # --- la couverture des sous-questions par la lecture ------------------------------------
+
+    def facettes_sans_lecture(self) -> list[int]:
+        """Les rangs de `parsed.facettes` qu'aucune ouverture n'a déclaré viser, dans l'ordre."""
+        return [rang for rang in range(len(self.parsed.facettes))
+                if not self.facettes_lues.get(rang)]
+
+    def noeuds_proches_de_la_facette(self, rang: int) -> list[tuple[str, str]]:
+        """Les nœuds du sommaire les plus proches du libellé d'une sous-question, avec leur titre.
+
+        **La proximité n'est pas calculée ici et n'est pas un mot-clé.** C'est exactement ce que
+        `chercher` rend au modèle quand il l'appelle lui-même : l'index du document, élargi par son
+        dictionnaire écrit et par les formes de nombre (`_mapping`), classé par couverture de mots.
+        Le libellé de la sous-question y entre comme un terme composé, et les blocs qui remontent
+        sont ceux que le sommaire porte — titre, résumé, corps. Aucune table ne rattache « école » à
+        une fiche : il n'y en a pas, et il ne doit pas y en avoir, sans quoi le premier document
+        sans fiche « école » rendrait le rappel muet.
+
+        On remonte du bloc à son nœud parce que c'est un nœud qui s'ouvre, et on déduplique dans
+        l'ordre du classement : cinq propositions au plus, jamais une décision.
+        """
+        libelle = self.parsed.facettes[rang]
+        hits = self.index.chercher(self._mapping([libelle]),
+                                   limit=self.settings.navigation_search_limit,
+                                   doc_id=self.doc_id)
+        titres = {n.node_id: n.title for n in self.corpus.documents[self.doc_id].nodes}
+        proches: list[tuple[str, str]] = []
+        for hit in hits:
+            if hit.node_uid in dict(proches) or hit.node_uid not in titres:
+                continue
+            proches.append((hit.node_uid, titres[hit.node_uid]))
+            if len(proches) == FACETTE_NOEUDS_PROCHES_MAX:
+                break
+        return proches
+
+    def _refus_de_tour_terminal(self) -> str | None:
+        """Le tour terminal refusé **une fois** pour une sous-question qu'aucune lecture n'a visée.
+
+        Mesuré le 04/09/2026 sur la vraie page guide (run `7a4a4e45`, 08 h 15) : *comprendre* avait
+        arrêté trois facettes — les démarches d'avant le départ, l'école, le logement —, la
+        navigation s'est arrêtée après deux appels `retrouver` et **une** fiche ouverte, et la
+        réponse servie a annoncé « il reste 2 sous-questions sans réponse ». Ce n'était pas le
+        document qui se taisait : personne n'avait ouvert la fiche qui répond. La même question à
+        07 h 06 avait ouvert trois fiches et servi trois paragraphes — l'écart est une variance de
+        navigation, et une variance-là se tient par le code, pas par une phrase de prompt de plus.
+
+        **Ce que le code refuse, et ce qu'il ne fait pas.** Il refuse *une* fois de laisser la
+        conversation passer au tour terminal, nomme la sous-question restée sans lecture et rend les
+        nœuds que le sommaire désigne comme les plus proches. Il n'ouvre aucun nœud, n'en choisit
+        aucun, ne réserve aucun token et ne juge aucun titre : la lecture reste entière au modèle
+        (AD-1). Une seule reprise, ensuite le tour terminal a lieu — une facette que le document ne
+        traite pas doit pouvoir sortir « sans réponse », et une boucle qui insisterait ferait payer
+        au budget de lecture ce que le document ne contient pas.
+
+        Trois bornes, toutes vérifiables sans réseau : il reste des tours (sinon la borne est une
+        borne, `tours_epuises` le dit déjà) ; il reste du budget de lecture (rappeler d'ouvrir quand
+        `_ouvrir` refusera coûterait un tour pour rien) ; et la facette n'a pas déjà été rappelée.
+        """
+        settings = self.settings
+        if self.facettes_rappelees or self.tours >= settings.navigation_max_llm_turns:
+            return None
+        if self.tokens_lus >= settings.navigation_budget_tokens:
+            return None
+        if not self.facettes_lues:
+            # **Aucune déclaration n'est pas une couverture nulle : c'est l'absence de mesure.**
+            # `facette` est obligatoire au schéma de `ouvrir_noeud` : une conversation servie par le
+            # fournisseur en porte une à chaque ouverture, et n'en porter aucune veut dire que rien
+            # n'a été ouvert du tout — cas que le garde-fou « zéro bloc » des deux pipelines traite
+            # déjà, avant qu'une rédaction soit payée. Refuser ici sur cette base-là ferait payer un
+            # tour à une lecture vide pour lui redemander ce que le schéma exige déjà, et la
+            # réponse serait la même. Le remède d'un signal absent est le schéma, pas le rappel.
+            return None
+        manquantes = self.facettes_sans_lecture()
+        if not manquantes:
+            return None
+        self.facettes_rappelees = list(manquantes)
+        # **Toutes** les facettes sans lecture dans le même message, et non une par tour : la
+        # reprise est unique (une boucle ferait payer au budget ce que le document ne contient
+        # peut-être pas), et le rejeu du 04/09/2026 en avait deux — l'école et le logement.
+        # AD-15 : les libellés viennent de *comprendre* (une sortie de modèle) et les titres du
+        # document servi ; les deux voyagent délimités, jamais concaténés en clair dans une consigne.
+        corps = json.dumps(
+            [{"rang": rang, "sous_question": self.parsed.facettes[rang],
+              "noeuds_les_plus_proches": [
+                  {"node_id": node_id, "titre": titre}
+                  for node_id, titre in self.noeuds_proches_de_la_facette(rang)]}
+             for rang in manquantes],
+            ensure_ascii=False, sort_keys=True)
+        return "\n\n".join([
+            FACETTE_SANS_LECTURE_CONSTAT.format(n=len(manquantes)),
+            untrusted("facettes_sans_lecture", corps),
+            FACETTE_SANS_LECTURE_CONSIGNE.format(
+                reservees=settings.navigation_ouvertures_reservees_par_facette)])
+
     # --- la conversation -------------------------------------------------------------------
 
     async def lire(self) -> StepTrace:
@@ -485,7 +638,11 @@ class Navigation:
                 self._messages = [*self._messages, {"role": "assistant", "content": contenu}]
                 appels = [b for b in contenu if b.get("type") == "tool_use"]
                 if not appels:
-                    break
+                    rappel = self._refus_de_tour_terminal()
+                    if rappel is None:
+                        break
+                    self._messages = [*self._messages, {"role": "user", "content": rappel}]
+                    continue
                 self._messages = [*self._messages, {"role": "user", "content": [
                     {"type": "tool_result", "tool_use_id": appel.get("id"),
                      "content": self.executer(str(appel.get("name")),
@@ -526,6 +683,21 @@ class Navigation:
                        f"({', '.join(node_id for node_id, _ in suggerees)}), "
                        f"{len(ouvertes)} ouverte(s) par le modèle ({', '.join(ouvertes) or 'aucune'})"
                        " : une indication, jamais une ouverture"))
+        if self.parsed.facettes:
+            # Ce que la lecture a couvert, mesuré sur les déclarations du modèle et publié dans les
+            # deux sens. `ok=False` quand une facette reste sans lecture **après** le rappel : ce
+            # n'est pas un reproche — le document peut ne pas la traiter — mais le fait qui explique
+            # un « sans réponse » dans la réponse servie, et sans lequel on ne sait pas distinguer
+            # « le guide se tait » de « personne n'a ouvert la fiche ».
+            sans_lecture = self.facettes_sans_lecture()
+            step.checks.append(CheckResult(
+                name="facettes_sans_lecture", ok=not sans_lecture,
+                detail=f"{len(self.parsed.facettes) - len(sans_lecture)} sous-question(s) sur "
+                       f"{len(self.parsed.facettes)} ont au moins un nœud ouvert qui les déclare ; "
+                       f"rang(s) sans lecture : "
+                       f"{', '.join(str(rang) for rang in sans_lecture) or 'aucun'} ; "
+                       f"{len(self.facettes_rappelees)} tour(s) terminal(aux) refusé(s) pour cette "
+                       "cause"))
         step.checks.append(CheckResult(
             name="navigation", ok=True,
             detail=f"{self.tours} tour(s), {len(self.noeuds_ouverts)} nœud(s) ouvert(s) "

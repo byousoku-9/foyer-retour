@@ -78,13 +78,19 @@ def _settings(**kw: Any) -> Settings:
 
 def _navigation(script: list[Any], *, prompt: str = "naviguer_sinistre",
                 faits: Any = DEFAUT, scope: Any = None,
+                facettes: list[str] | None = None,
                 **reglages: Any) -> tuple[Navigation, FakeAnthropic]:
     corpus, index = _corpus()
     settings = _settings(**reglages)
     fake = FakeAnthropic(script)
     parsed = ParsedQuestion(question_resolue="Le signalement déposé est-il pris en charge ?",
                             intent="question", terms=["prise en charge", "signalement"],
-                            facettes=["prise en charge", "délai"],
+                            # **Une** sous-question par défaut, et les scripts de ces témoins
+                            # déclarent son rang à chaque ouverture (`_tour_doutils`) : la
+                            # couverture des facettes est donc acquise, et aucun tour n'est ajouté
+                            # à ce qu'ils mesurent — la boucle d'outils, le budget, le tour
+                            # terminal. Les témoins de la couverture, eux, passent leurs facettes.
+                            facettes=facettes if facettes is not None else ["prise en charge"],
                             **({"scope": scope} if scope is not None else {}))
     navigation = Navigation(
         parsed, corpus=corpus, index=index, dictionnaire=None, doc_id=DOC_ID, settings=settings,
@@ -96,6 +102,16 @@ def _navigation(script: list[Any], *, prompt: str = "naviguer_sinistre",
 
 
 def _tour_doutils(*appels: dict[str, Any], thinking: int = 0) -> dict[str, Any]:
+    """Un tour d'outils. Une ouverture qui ne dit pas sa facette vise la première (rang 0).
+
+    Le schéma de `ouvrir_noeud` rend `facette` obligatoire : un modèle réel la déclare toujours, et
+    un témoin qui ne s'intéresse pas à la couverture n'a pas à la répéter à chaque appel. Ceux qui
+    s'y intéressent la passent explicitement, et le défaut ne les gêne pas.
+    """
+    appels = tuple(
+        {**appel, "input": {"facette": 0, **appel.get("input", {})}}
+        if appel.get("name") == "ouvrir_noeud" else appel
+        for appel in appels)
     message = fake_message(model=TIERS["reason"], stop_reason="tool_use", content=[
         {"type": "tool_use", "id": f"t{rang}", **appel} for rang, appel in enumerate(appels)])
     message["usage"]["output_tokens_details"] = {"thinking_tokens": thinking}
@@ -303,7 +319,9 @@ async def test_une_ebauche_qui_ecarte_un_bloc_lu_le_trace() -> None:
     assert "2 identifiant(s) écarté(s)" in check.detail
     assert TITRE not in check.detail and "invente" not in check.detail
     # Une ébauche sans écart ne publie pas le check : c'est un fait, pas une case à cocher.
-    navigation2, _fake2 = _navigation([_fin_de_lecture(), _ebauche()])
+    # Deux `PRÊT` : cette lecture-là n'ouvre rien, le code refuse donc une fois le tour terminal
+    # pour la sous-question sans lecture, puis le laisse avoir lieu (témoin dédié plus bas).
+    navigation2, _fake2 = _navigation([_fin_de_lecture(), _fin_de_lecture(), _ebauche()])
     await navigation2.lire()
     _draft2, step2 = await navigation2.rediger()
     assert not [c for c in step2.checks if c.name == "blocs_decisionnels_ecartes"]
@@ -793,8 +811,12 @@ async def test_sans_profil_la_demande_et_la_trace_sont_inchangees() -> None:
     quoi les fixtures enregistrées du sinistre cesseraient de se rejouer, sans qu'aucune règle ait
     bougé.
     """
-    sans, _fake = _navigation([_fin_de_lecture()])
-    avec_scope_vide, _fake2 = _navigation([_fin_de_lecture()], scope=QuestionScope())
+    # Deux `PRÊT` : rien n'est ouvert, donc le refus de tour terminal pour sous-question sans
+    # lecture a lieu une fois avant que la boucle se referme — il ne touche ni la demande ni le
+    # contrôle que ce témoin mesure.
+    sans, _fake = _navigation([_fin_de_lecture(), _fin_de_lecture()])
+    avec_scope_vide, _fake2 = _navigation([_fin_de_lecture(), _fin_de_lecture()],
+                                          scope=QuestionScope())
 
     assert sans.fiches_suggerees() == [] and avec_scope_vide.fiches_suggerees() == []
     assert "fiches_suggerees" not in sans._demande()
@@ -802,3 +824,111 @@ async def test_sans_profil_la_demande_et_la_trace_sont_inchangees() -> None:
 
     step = await sans.lire()
     assert [c.name for c in step.checks if c.name == "noeuds_du_profil"] == []
+
+
+# --- 6. la couverture des sous-questions par la lecture (story 5.6, L1j) ------------------
+
+
+async def test_une_facette_sans_lecture_refuse_le_tour_terminal_une_fois() -> None:
+    """Le fait mesuré le 04/09/2026 sur la vraie page guide (run `7a4a4e45`, 08 h 15).
+
+    *comprendre* avait arrêté trois sous-questions ; la navigation s'est arrêtée après deux appels
+    `retrouver` et **une** fiche ouverte, et la réponse a annoncé « il reste 2 sous-questions sans
+    réponse » alors que personne n'avait ouvert la fiche qui y répond. Le code refuse donc une fois
+    le passage au tour terminal, nomme la sous-question sans lecture et rend les nœuds que le
+    sommaire désigne comme les plus proches — il n'en ouvre aucun.
+    """
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}}),
+         _fin_de_lecture(),
+         _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": ANNEXE, "facette": 1}}),
+         _fin_de_lecture()],
+        facettes=["prise en charge", "délai de signalement"])
+
+    step = await navigation.lire()
+
+    # Le refus a bien eu lieu, et il est **un message de plus dans le même fil** : le tour qui suit
+    # part avec le même préfixe et les mêmes outils, rien n'est rouvert.
+    rappel = fake.requests[2]["messages"][-1]["content"]
+    assert "1 sous-question(s) de la demande n'ont encore reçu aucune lecture" in rappel
+    assert '<untrusted kind="facettes_sans_lecture">' in rappel
+    assert "délai de signalement" in rappel and '"rang": 1' in rappel
+    # Les nœuds proposés viennent du sommaire, par l'index — jamais d'une table de mots-clés.
+    assert ANNEXE in rappel or SOCLE in rappel
+    assert "en déclarant son `facette`" in rappel and "1 ouverture(s)" in rappel
+    assert fake.requests[2]["system"] == fake.requests[0]["system"]
+    # Une seule reprise : la seconde fin de lecture referme la boucle.
+    assert navigation.facettes_rappelees == [1] and navigation.tours == 4
+    assert navigation.facettes_sans_lecture() == []
+    (check,) = [c for c in step.checks if c.name == "facettes_sans_lecture"]
+    assert check.ok is True
+    assert "2 sous-question(s) sur 2" in check.detail
+    assert "rang(s) sans lecture : aucun" in check.detail
+    assert "1 tour(s) terminal(aux) refusé(s)" in check.detail
+
+
+async def test_une_facette_que_le_document_ne_traite_pas_sort_sans_reponse_apres_un_seul_rappel() -> None:
+    """Le rappel n'a lieu qu'une fois : une facette muette ne boucle pas la lecture.
+
+    Une sous-question que le document ne traite **pas** doit pouvoir sortir « sans réponse » — c'est
+    honnête, et une boucle qui insisterait ferait payer au budget de lecture ce que le document ne
+    contient pas. La trace le dit alors, et c'est elle qui distingue « le guide se tait » de
+    « personne n'a ouvert la fiche ».
+    """
+    navigation, _fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}}),
+         _fin_de_lecture(), _fin_de_lecture()],
+        facettes=["prise en charge", "délai de signalement"])
+
+    step = await navigation.lire()
+
+    assert navigation.facettes_rappelees == [1]
+    assert navigation.facettes_sans_lecture() == [1]
+    (check,) = [c for c in step.checks if c.name == "facettes_sans_lecture"]
+    assert check.ok is False
+    assert "1 sous-question(s) sur 2" in check.detail and "rang(s) sans lecture : 1" in check.detail
+
+
+async def test_toutes_les_facettes_couvertes_najoutent_aucun_tour() -> None:
+    """La contre-épreuve : la lecture ordinaire ne paie rien pour cette propriété.
+
+    Deux ouvertures, deux facettes déclarées, un `PRÊT` : la boucle se referme au tour attendu, et
+    le corps de requête est celui d'avant — c'est ce qui garde les fixtures enregistrées valides.
+    """
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}},
+                       {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE, "facette": 1}}),
+         _fin_de_lecture()],
+        facettes=["prise en charge", "délai de signalement"])
+
+    step = await navigation.lire()
+
+    assert navigation.tours == 2 and navigation.facettes_rappelees == []
+    assert len(fake.requests) == 2
+    assert navigation.facettes_lues == {0: [SOCLE], 1: [ANNEXE]}
+    assert next(c for c in step.checks if c.name == "facettes_sans_lecture").ok is True
+
+
+async def test_une_facette_declaree_sur_une_ouverture_refusee_ne_compte_pas() -> None:
+    """Déclarer une intention n'est pas lire : le budget refuse, la facette reste sans lecture.
+
+    Et un rang hors de `parsed.facettes` — une sortie de modèle comme une autre (AD-15) — est
+    ignoré en silence, jamais republié ni compté comme une couverture.
+    """
+    navigation, _fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 1}},
+                       {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE, "facette": 9}}),
+         _fin_de_lecture(), _fin_de_lecture(), _fin_de_lecture()],
+        facettes=["prise en charge", "délai de signalement"],
+        navigation_budget_tokens=1)
+
+    step = await navigation.lire()
+
+    assert navigation.noeuds_ouverts == [] and navigation.facettes_lues == {}
+    assert navigation.facettes_sans_lecture() == [0, 1]
+    # Aucune ouverture n'a abouti, donc **aucune** déclaration : le code n'a pas de mesure de
+    # couverture et ne refuse rien. Une lecture vide se traite avant, par le garde-fou « zéro
+    # bloc » des pipelines — pas en redemandant au modèle ce que le schéma exige déjà.
+    assert navigation.facettes_rappelees == []
+    check = next(c for c in step.checks if c.name == "facettes_sans_lecture")
+    assert check.ok is False and "rang(s) sans lecture : 0, 1" in check.detail
