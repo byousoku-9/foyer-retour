@@ -709,9 +709,9 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
     # la phrase au mauvais endroit du document.
     autre = next((b.block_id for b in document.blocks
                   if b.block_id != block_id and retrouvee in b.text_norm), None)
-    if autre is not None:  # on s'arrête au premier doublon : le compte exact n'ajoute rien au motif
-        return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
-                                    f"document, hors du bloc {block_id} — étends-la pour la rendre unique")
+    # Le verdict d'ambiguïté est **retenu**, pas rendu tout de suite : la quote est construite dans
+    # tous les cas, parce qu'une amorce d'énumération citée avec son item se juge sur la claim
+    # entière et non sur ce seul passage (`_delier_les_amorces`, AD-3 précisé le 04/09/2026).
     # La quote est exacte : reste à savoir si elle s'arrête où le texte s'arrête. Le contrôle
     # d'AD-3 vérifie, il n'ajuste pas — un mot coupé en deux passe donc tous les contrôles et
     # s'affiche tel quel. Le code le complète ici, avant d'en tirer les offsets.
@@ -723,10 +723,48 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
     text_start = prepare.spans[debut][0]
     text_end = prepare.spans[fin - 1][1]
     line_ids = [lid for (a, b, lid) in prepare.lignes if a < text_end and b > text_start]
-    return _Controle("", "", VerifiedQuote(block_id=block_id, quote=block.text[text_start:text_end],
-                                           start=debut, end=fin, text_start=text_start,
-                                           text_end=text_end, line_ids=line_ids),
-                     ajustee=ajustee)
+    verifiee = VerifiedQuote(block_id=block_id, quote=block.text[text_start:text_end],
+                             start=debut, end=fin, text_start=text_start,
+                             text_end=text_end, line_ids=line_ids)
+    if autre is not None:  # on s'arrête au premier doublon : le compte exact n'ajoute rien au motif
+        return _Controle("ambigue", f"citation ambiguë : le même passage figure aussi ailleurs dans le "
+                                    f"document, hors du bloc {block_id} — étends-la pour la rendre "
+                                    "unique", verifiee, ajustee=ajustee)
+    return _Controle("", "", verifiee, ajustee=ajustee)
+
+
+def _delier_les_amorces(controles: list[_Controle], *, index: Any) -> int:
+    """Une amorce citée **avec** l'item qu'elle introduit n'est pas une citation indépendante (AD-3).
+
+    Story 5.6 (L1f). AD-3 rejette `ambigue` « une quote présente dans plusieurs blocs du document » ;
+    ce qu'il vise est la **mauvaise attribution** — un passage rattaché à un endroit du document
+    quand il vient d'un autre. Or l'amorce d'une énumération n'est attribuée nulle part ailleurs dès
+    lors que la claim cite aussi, et de façon unique, l'item qu'elle ouvre : l'adjacence structurelle
+    (`Index.introduit_immediatement`) dit d'où vient le passage, et il ne reste rien à trancher.
+
+    Mesuré le 04/09/2026 sur le gate Baloise (`b-bougie-canape`, une répétition sur trois en
+    `faux_refus`) : les deux claims citaient chacune leur clause **et** la phrase qui l'ouvre — « Les
+    dommages matériels subis par les biens assurés causés par : », présente dans cinq blocs du
+    document, « Sont exclus : » dans vingt-huit. Les deux tombaient entières, item compris, et les
+    deux autres répétitions passaient parce que le modèle n'avait pas cité l'amorce. Un contrat
+    écrit par énumérations rendait donc sa clause au hasard.
+
+    Le critère est **structurel**, jamais lexical : ni deux-points, ni longueur, ni vocabulaire —
+    l'adjacence sur l'arbre, et la même claim. Une amorce citée seule, ou citée avec un bloc qu'elle
+    n'introduit pas, reste `ambigue` : rien de ce qui rattachait ce passage à cet endroit n'a changé.
+    L'item, lui, doit avoir été retrouvé de façon **unique** — c'est lui qui porte la preuve.
+    """
+    items = [c.quote.block_id for c in controles if not c.kind and c.quote is not None]
+    liees = 0
+    for controle in controles:
+        if controle.kind != "ambigue" or controle.quote is None:
+            continue
+        if not any(index.introduit_immediatement(controle.quote.block_id, item) for item in items):
+            continue
+        controle.kind, controle.motif = "", ""
+        controle.quote = controle.quote.model_copy(update={"contexte": True})
+        liees += 1
+    return liees
 
 
 def _bloc_connu(index: Any, block_id: str) -> bool:
@@ -1053,6 +1091,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     rejetees: list[RejectedClaim] = []
     noms: dict[str, str] = {}  # `claim_id` → nom sûr pour les motifs (les `claim_id` sont uniques, AD-3)
     ajustees_au_mot = 0  # citations affichées que le code a étendues jusqu'à la frontière de mot
+    amorces_liees = 0  # amorces d'énumération lues comme le contexte de l'item cité avec elles (L1f)
     clauses_par_claim: dict[str, list[ClauseCitee]] = {}  # mode sinistre : les clauses de chaque claim
     for position, claim in enumerate(draft.claims, start=1):
         noms[claim.claim_id] = _nom_de_claim(claim, position)
@@ -1061,6 +1100,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         controles = [_controler_quote(q.block_id, q.quote, corpus=corpus, index=index, fournis=fournis,
                                       blocs=blocs_prepares, settings=settings)
                      for q in claim.quotes]
+        amorces_liees += _delier_les_amorces(controles, index=index)
         echecs = [c for c in controles if c.kind]
         if echecs:
             # `non_retrouvee` prime `ambigue` : une citation introuvable est un défaut plus grave
@@ -1108,6 +1148,16 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             name="citation_ajustee_au_mot", ok=True,
             detail=f"{ajustees_au_mot} citation(s) vérifiée(s) coupaient un mot en deux : étendues "
                    "par le code jusqu'à la frontière de mot, dans le texte relu depuis le corpus"))
+
+    # Story 5.6 (L1f). Le compte des amorces lues comme contexte : il dit combien de claims ont
+    # survécu à un passage répété dans le document parce que la structure disait d'où il venait.
+    # Des **comptes** seulement, jamais le texte d'un bloc (AD-10).
+    if amorces_liees:
+        step.checks.append(CheckResult(
+            name="citation_amorce_liee", ok=True,
+            detail=f"{amorces_liees} citation(s) répétée(s) ailleurs dans le document introduisent "
+                   "immédiatement un autre passage cité par la même affirmation : lues comme son "
+                   "contexte (statut « contexte »), pas comme une source indépendante"))
 
     # `quote_max_chars` était annoncé au modèle dans `prompts/rediger.md`, publié dans `thresholds()`
     # — et appliqué par personne (reprise différée `target_story: 2.1`). Il l'est ici, et **jamais**

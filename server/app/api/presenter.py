@@ -69,6 +69,16 @@ from server.app.domain.errors import ErrorCode, PipelineError
 logger = logging.getLogger("foyer.api")
 
 STATUT_VERIFIEE = "verifiee"
+# Story 5.6 (L1f) — l'amorce d'une énumération citée avec l'item qu'elle introduit est aussi prouvée
+# qu'une autre citation (mêmes offsets, même relecture depuis le corpus) ; ce qu'elle n'est pas,
+# c'est une source indépendante. Le statut le dit au lecteur plutôt que de la faire passer pour la
+# clause elle-même. `VerifiedQuote.contexte` est le seul à en décider, et il vient de *vérifier*.
+STATUT_CONTEXTE = "contexte"
+
+
+def _statut_de(quote: VerifiedQuote) -> str:
+    """« verifiee », ou « contexte » quand la citation est l'amorce de l'item cité avec elle (L1f)."""
+    return STATUT_CONTEXTE if quote.contexte else STATUT_VERIFIEE
 
 
 def _incoherence(block_id: str, motif: str) -> PipelineError:
@@ -156,7 +166,7 @@ def _source_item(quote: VerifiedQuote, statut: str, *, claim_id: str, index: Any
 
 def sources_de(answer: Answer, index: Any, corpus: Any) -> list[SourceItem]:
     """Les citations de la réponse **affichée**, relues du corpus, dans l'ordre de citation (AD-3/AD-11)."""
-    return [_source_item(quote, STATUT_VERIFIEE, claim_id=claim.claim_id, index=index, corpus=corpus)
+    return [_source_item(quote, _statut_de(quote), claim_id=claim.claim_id, index=index, corpus=corpus)
             for claim in answer.claims  # AD-4 : les seules claims retrouvées, pertinentes et citées
             for quote in claim.quotes]
 
@@ -178,10 +188,12 @@ def _clause_item(quote: VerifiedQuote, *, claim_id: str, index: Any, corpus: Any
     ce sont les lignes que l'occurrence prouvée traverse, calculées par *vérifier* dans le texte
     brut, et c'est la donnée que la visionneuse de l'epic 3 surlignera.
 
-    Le `status` d'une `ClauseSource` est **toujours** `verifiee` : AD-11 le veut dans le contrat, et
-    `clauses_de()` n'énumère que `answer.claims`, dont AD-4 garantit qu'elles sont retrouvées et
-    pertinentes. En faire un paramètre laissait croire qu'un appelant pouvait en décider (revue 1.9,
-    tour 2) : c'est le champ plat du contrat, pas le `ClaimStatus`, qui voyage dans `answer`.
+    Le `status` d'une `ClauseSource` n'est décidé par **aucun appelant** : AD-11 le veut dans le
+    contrat, et `clauses_de()` n'énumère que `answer.claims`, dont AD-4 garantit qu'elles sont
+    retrouvées et pertinentes. En faire un paramètre laissait croire qu'un appelant pouvait en
+    décider (revue 1.9, tour 2) : c'est le champ plat du contrat, pas le `ClaimStatus`, qui voyage
+    dans `answer`. Il vaut donc `verifiee`, sauf pour l'amorce d'énumération citée avec son item, où
+    il vaut `contexte` — et cela aussi est lu sur la citation prouvée, jamais sur un argument (L1f).
     """
     document = _document(index, corpus, quote.block_id)
     if document is None:
@@ -192,7 +204,7 @@ def _clause_item(quote: VerifiedQuote, *, claim_id: str, index: Any, corpus: Any
     bloc = document.block(quote.block_id)
     return ClauseSource(block_id=quote.block_id, page=bloc.page, bbox=bloc.bbox,
                         line_ids=list(quote.line_ids), kind=bloc.kind,
-                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=STATUT_VERIFIEE,
+                        kind_confirmed=bloc.kind_confirmed, quote=texte, status=_statut_de(quote),
                         # Story 5.6 (L1) : mêmes champs additifs qu'au guide, lus sur le **bloc du
                         # corpus** et sur l'arbre du document — la clause dans son article, et sous
                         # la phrase qui la cite.

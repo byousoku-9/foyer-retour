@@ -366,6 +366,34 @@ class Index:
                 return [block_id, candidate]
         return [block_id]
 
+    def introduit_immediatement(self, amorce_id: str, item_id: str) -> bool:
+        """`amorce_id` est-il la phrase qui **ouvre** `item_id`, immédiatement avant lui ?
+
+        Story 5.6 (L1f). Une énumération s'écrit en deux blocs au moins : l'amorce (« Les dommages
+        matériels subis par les biens assurés causés par : ») et l'item qui la complète. Le corpus
+        les range de deux façons, et les deux se lisent **sur l'arbre**, jamais sur la ponctuation :
+
+        - **le même nœud** : l'amorce est le bloc citable qui précède immédiatement l'item parmi les
+          blocs directs du nœud — Baloise range ainsi « Sont exclus : » et l'exclusion qui suit ;
+        - **le nœud parent direct** : l'amorce est portée par le nœud parent et l'item est la feuille
+          à un seul bloc, cas déjà nommé par `amorce_de_lenumeration` — AXA range ainsi ses périls.
+
+        Le prédicat sert *vérifier* (AD-3) : une amorce citée avec son item n'est pas une citation
+        indépendante mais le contexte de l'item, et cette adjacence-là lève l'ambiguïté qu'un texte
+        répété dans le document ferait peser sur elle. Comme `amorce_de_lenumeration`, l'amorce n'est
+        jamais un titre : le code ne fabrique pas une unité de lecture à partir d'un titre.
+        """
+        try:
+            amorce, item = self._by_block[amorce_id], self._by_block[item_id]
+        except KeyError:
+            return False  # un bloc non citable n'introduit rien et ne se cite pas
+        if amorce_id == item_id or amorce.doc_id != item.doc_id or amorce.block.kind == "heading":
+            return False
+        if amorce.node_id == item.node_id:
+            directs = self._nodes[item.node_id][1]
+            return directs.index(amorce_id) + 1 == directs.index(item_id)
+        return self.amorce_de_lenumeration(item_id) == amorce_id
+
     def amorce_de_lenumeration(self, block_id: str) -> str | None:
         """La phrase qui **ouvre** l'énumération dont ce bloc est l'item, ou `None`.
 

@@ -318,6 +318,11 @@ class VerifiedQuote(Quote):
     text_start: int = Field(ge=0)
     text_end: int = Field(ge=0)
     line_ids: list[str] = Field(default_factory=list)
+    # Story 5.6 (L1f) — cette citation est l'**amorce** de l'énumération dont un autre passage de la
+    # même claim est l'item : son contexte, pas une source indépendante. Le champ ne change rien à la
+    # preuve (mêmes offsets, même relecture depuis le corpus) ; il change ce que l'affichage en dit,
+    # `status: "contexte"` plutôt que `"verifiee"` (AD-3, précision du 04/09/2026).
+    contexte: bool = False
 
     @model_validator(mode="after")
     def _span_is_not_empty(self) -> VerifiedQuote:

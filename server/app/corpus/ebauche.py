@@ -121,24 +121,28 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: st
     Un bloc d'un autre document, inconnu de l'index ou sans amorce est laissé tel quel : ce n'est
     pas ici qu'on juge une citation.
 
-    **Deux bornes de plus, story 5.6 (L1c), et c'est la même leçon que la quatrième.** Une amorce
-    jointe traverse ensuite les contrôles du code, et deux d'entre eux peuvent rejeter la claim
-    **entière** à cause du passage qu'on vient d'ajouter — la projection censée sauver une citation
-    la détruisait alors une seconde fois, par un autre chemin :
+    **Une borne de plus, story 5.6 (L1c), et c'est la même leçon que la quatrième.** Une amorce
+    jointe traverse ensuite les contrôles du code, et l'un d'eux peut rejeter la claim **entière** à
+    cause du passage qu'on vient d'ajouter — la projection censée sauver une citation la détruisait
+    alors une seconde fois, par un autre chemin :
 
-    - **l'amorce doit être unique dans le document.** AD-3 rejette `ambigue` une citation dont le
-      passage se relit dans un autre bloc, et la phrase qui ouvre une énumération d'exclusions est
-      précisément la plus répétée d'un contrat (« Les exclusions mentionnées aux conditions
-      générales communes sont d'application. En outre, ne sont pas assurés : », dans chaque section
-      d'AXA). Mesuré le 04/09/2026 sur le rejeu « vol » : deux affirmations d'exclusion, justes et
-      citées, rejetées `ambigue` sur un passage que le modèle n'avait pas écrit ;
     - **l'amorce ne doit pas ajouter un second `kind` décisionnel.** « Une seule clause par
       affirmation » (D6) est un contrôle de code : une claim qui cite une `garantie` et une
       `condition` rend la table d'AD-6 indécidable et part en `ambigue`. Or la phrase qui ouvre une
       énumération de garanties est souvent typée `condition` (« La Compagnie garantit, pour autant
-      qu'une plainte ait été déposée : »). Même rejeu, trois affirmations de plus.
+      qu'une plainte ait été déposée : »). Mesuré le 04/09/2026 sur le rejeu « vol » : trois
+      affirmations rejetées sur un passage que le modèle n'avait pas écrit.
 
-    Dans les deux cas l'item reste cité seul — l'état d'avant cette projection, jamais moins.
+    L'item reste alors cité seul — l'état d'avant cette projection, jamais moins.
+
+    **La borne jumelle a été levée, story 5.6 (L1f).** L1c interdisait aussi de joindre une amorce
+    non unique dans le document, parce qu'AD-3 rejetait `ambigue` toute citation dont le passage se
+    relit ailleurs — et la phrase qui ouvre une énumération d'exclusions est la plus répétée d'un
+    contrat (huit des 58 amorces d'énumération d'AXA, deux des six de Baloise). C'était renoncer au
+    contexte précisément là où le contrat en a le plus besoin. AD-3, précisé le 04/09/2026, lit
+    désormais l'amorce **adjacente** à un item cité par la même claim comme le contexte de cet item :
+    ce que le code joint ici est par construction `amorce_de_lenumeration(item)`, donc adjacent, donc
+    accepté (`steps.verifier._delier_les_amorces`). Il n'y a plus de rejet à devancer.
     """
     servis = set(blocs_servis)
     jointes = 0
@@ -159,8 +163,6 @@ def joindre_amorces_denumeration(draft: AnswerDraft, *, index: Index, doc_id: st
                 continue
             if not texte.strip():
                 continue
-            if any(b.block_id != amorce and texte in b.text_norm for b in document.blocks):
-                continue  # AD-3 la rejetterait `ambigue`, et la claim avec elle
             if _second_kind_decisionnel(document, amorce, deja):
                 continue  # D6 la rejetterait `ambigue` : deux clauses dans une même affirmation
             deja.add(amorce)

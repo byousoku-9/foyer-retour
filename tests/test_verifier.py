@@ -113,6 +113,11 @@ ARRIVEE = "Vous disposez de huit jours pour déclarer votre arrivée au Biergerc
 CAUTION = "La caution est plafonnée à deux mois de loyer."
 REPETE = "Ce passage est répété mot pour mot dans deux blocs du document."
 COURT = "Deux mois."
+# Story 5.6 (L1f) : l'amorce d'une énumération, la phrase la plus répétée d'un contrat, et l'item
+# qu'elle introduit. Le corpus synthétique les range dans le **même nœud**, comme Baloise range
+# « Sont exclus : » et l'exclusion qui la suit ; le corpus réel couvre le cas du nœud parent.
+AMORCE = "Ne sont pas pris en charge :"
+ITEM = "les dommages nés d'un défaut d'entretien de la toiture, constaté par l'expert."
 
 
 def _blocs() -> list[dict]:
@@ -125,6 +130,9 @@ def _blocs() -> list[dict]:
         {"block_id": "mini:p1:6", "loc": "p1", "seq": 6, "kind": "para", "text": COURT},
         {"block_id": "mini:p1:7", "loc": "p1", "seq": 7, "kind": "para", "text": "Un renvoi non résolu.",
          "unresolved_refs": ["article 12"]},
+        {"block_id": "mini:p1:8", "loc": "p1", "seq": 8, "kind": "para", "text": AMORCE},
+        {"block_id": "mini:p1:9", "loc": "p1", "seq": 9, "kind": "para", "text": ITEM},
+        {"block_id": "mini:p1:10", "loc": "p1", "seq": 10, "kind": "para", "text": AMORCE},
     ]
 
 
@@ -304,6 +312,47 @@ async def test_an_ambiguous_quote_is_rejected_not_attributed_to_the_first_block(
     (rejet,) = v.rejected_claims
     assert rejet.rejection_kind == "ambigue" and "étends-la" in rejet.motif
     assert v.claims == [] and v.found is False
+
+
+async def test_lamorce_citee_avec_son_item_est_le_contexte_de_litem(mini: Index) -> None:
+    """Story 5.6 (L1f) — AD-3 précisé : l'adjacence structurelle lève l'ambiguïté de l'amorce.
+
+    Témoin du gate Baloise du 04/09/2026 (`b-bougie-canape`) : la claim citait l'exclusion **et** la
+    phrase qui l'ouvre, présente dans vingt-huit blocs du document ; AD-3 la rejetait entière, item
+    compris, et deux répétitions sur trois passaient seulement parce que le modèle n'avait pas cité
+    l'amorce. L'amorce n'est pas attribuée ailleurs dès lors que l'item, lui, est unique.
+    """
+    draft = _draft(("c1", "Les dommages de toiture sont exclus.",
+                    [("mini:p1:9", ITEM), ("mini:p1:8", AMORCE)]))
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    (claim,) = v.claims
+    assert v.found is True and v.rejected_claims == []
+    item, amorce = claim.quotes
+    # L'item reste la source ; l'amorce est prouvée aux mêmes conditions, affichée comme contexte.
+    assert (item.block_id, item.contexte) == ("mini:p1:9", False)
+    assert (amorce.block_id, amorce.contexte) == ("mini:p1:8", True)
+    bloc = mini.corpus.documents["mini"].block("mini:p1:8")
+    assert bloc.text_norm[amorce.start:amorce.end] == normalize(AMORCE)  # offsets du bloc déclaré
+    (trace,) = [c for c in step.checks if c.name == "citation_amorce_liee"]
+    assert trace.ok is True and "1 citation" in trace.detail and AMORCE not in trace.detail
+
+
+async def test_lamorce_citee_seule_reste_ambigue(mini: Index) -> None:
+    """Rien ne dit d'où vient le passage : le critère est l'adjacence, pas la forme de la phrase."""
+    draft = _draft(("c1", "t", [("mini:p1:8", AMORCE)]))
+    v, step, _fake = await _verifier(mini, draft, [])
+    (rejet,) = v.rejected_claims
+    assert rejet.rejection_kind == "ambigue" and "étends-la" in rejet.motif
+    assert v.claims == [] and [c.name for c in step.checks if c.name == "citation_amorce_liee"] == []
+
+
+async def test_lamorce_citee_avec_un_bloc_quelle_nintroduit_pas_reste_ambigue(mini: Index) -> None:
+    """L'adjacence se lit sur l'arbre : citer l'amorce avec un bloc lointain ne la rattache à rien."""
+    draft = _draft(("c1", "t", [("mini:p1:2", "huit jours pour déclarer votre arrivée"),
+                                ("mini:p1:8", AMORCE)]))
+    v, _step, _fake = await _verifier(mini, draft, [])
+    (rejet,) = v.rejected_claims
+    assert rejet.rejection_kind == "ambigue" and v.claims == []
 
 
 async def test_a_claim_is_found_only_if_all_its_quotes_are(mini: Index) -> None:

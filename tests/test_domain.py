@@ -267,10 +267,13 @@ def test_answer_models() -> None:
 # AD-3 (story 1.5) : ce que *vérifier* ajoute au domaine
 def test_verified_quote_carries_the_occurrence() -> None:
     assert fields(answer.VerifiedQuote) == {"block_id", "quote", "start", "end", "text_start", "text_end",
-                                            "line_ids"}
+                                            "line_ids", "contexte"}
     q = answer.VerifiedQuote(block_id="d:p1:1", quote="huit jours", start=3, end=13, text_start=4,
                              text_end=14, line_ids=["l1"])
     assert (q.start, q.end, q.text_start, q.text_end, q.line_ids) == (3, 13, 4, 14, ["l1"])
+    # Story 5.6 (L1f) : le défaut est « une source », pas « un contexte » — l'amorce d'énumération
+    # est le seul cas où *vérifier* le lève, et il ne se devine pas depuis le domaine.
+    assert q.contexte is False
     with pytest.raises(ValidationError, match="end doit être"):
         answer.VerifiedQuote(block_id="d:p1:1", quote="x", start=5, end=5, text_start=0, text_end=1)
     # les deux systèmes d'offsets sont contrôlés : le brut sert au surlignage, il ne peut pas être vide

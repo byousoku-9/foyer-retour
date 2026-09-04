@@ -331,3 +331,56 @@ def test_une_section_qui_porte_des_sous_parties_nest_pas_une_enumeration() -> No
     attendue = [f"{doc_id}:p34:{n}" for n in (6, 7, 8, 9, 10, 11, 12)]
     assert index.enumeration_de(f"{doc_id}:p34:6") == attendue
     assert index.enumeration_de(f"{doc_id}:p34:12") == attendue
+
+
+def test_lamorce_introduit_immediatement_son_item_sur_les_deux_rangements_du_corpus() -> None:
+    """Story 5.6 (L1f) : l'adjacence que lit AD-3 se prend sur l'arbre, jamais sur la ponctuation.
+
+    Deux rangements, un seul prédicat : Baloise range l'amorce et son item dans le **même nœud**
+    (« Sont exclus : » puis l'exclusion), AXA range l'amorce dans le **nœud parent** et chaque péril
+    dans une feuille. Ce qui n'est pas adjacent — un item après un autre item, un bloc lointain,
+    l'ordre inverse — n'est introduit par rien.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    baloise = "baloise-lu-home-2-2024"
+    axa = "axa-lu-optihome-2017"
+    # Même nœud, blocs directs consécutifs : l'amorce introduit l'item.
+    assert index.introduit_immediatement(f"{baloise}:p12:8", f"{baloise}:p12:9")
+    assert index.introduit_immediatement(f"{baloise}:p12:5", f"{baloise}:p12:6")
+    # Nœud parent direct : le cas que `amorce_de_lenumeration` nomme déjà.
+    assert index.introduit_immediatement(f"{axa}:p34:6", f"{axa}:p34:11")
+    # Les fermetures. L'ordre compte (une amorce précède), un item n'introduit pas son voisin,
+    # un bloc lointain n'introduit rien, et un bloc ne s'introduit pas lui-même.
+    assert not index.introduit_immediatement(f"{baloise}:p12:9", f"{baloise}:p12:8")
+    assert not index.introduit_immediatement(f"{axa}:p34:11", f"{axa}:p34:12")
+    assert not index.introduit_immediatement(f"{baloise}:p12:5", f"{baloise}:p12:9")
+    assert not index.introduit_immediatement(f"{axa}:p34:6", f"{axa}:p34:6")
+    # Un titre n'introduit rien : le code ne fabrique pas d'unité de lecture à partir d'un titre.
+    doc = index.corpus.documents[baloise]
+    titre = next(b.block_id for b in doc.blocks if b.kind == "heading")
+    assert not any(index.introduit_immediatement(titre, b.block_id) for b in doc.blocks)
+
+
+def test_le_rayon_daction_des_amorces_non_uniques_est_une_minorite_nommee() -> None:
+    """Story 5.6 (L1f) — la borne du correctif, mesurée le 04/09/2026 sur les deux contrats servis.
+
+    Une amorce d'énumération dont le texte se relit ailleurs dans le document était, depuis L1c, la
+    seule que le code refusait de joindre — et c'est justement celle qui ouvre les exclusions, donc
+    celle dont l'item a le plus besoin. Le compte dit l'ampleur de ce que L1f rouvre : ce n'est pas
+    la majorité des amorces, c'est la minorité qui portait le plus de contexte perdu. Le témoin
+    l'épingle pour qu'un changement d'ingestion ou de typage se voie.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    mesures = {}
+    for doc_id in ("axa-lu-optihome-2017", "baloise-lu-home-2-2024"):
+        doc = index.corpus.documents[doc_id]
+        amorces = {a for b in doc.blocks
+                   if (a := index.amorce_de_lenumeration(b.block_id)) is not None}
+        non_uniques = {a for a in amorces
+                       if any(o.block_id != a and doc.block(a).text_norm in o.text_norm
+                              for o in doc.blocks)}
+        # Toutes restent adjacentes à leur item : le correctif les couvre, aucune n'est laissée.
+        assert all(index.introduit_immediatement(index.amorce_de_lenumeration(b.block_id), b.block_id)
+                   for b in doc.blocks if index.amorce_de_lenumeration(b.block_id) is not None)
+        mesures[doc_id] = (len(amorces), len(non_uniques))
+    assert mesures == {"axa-lu-optihome-2017": (58, 8), "baloise-lu-home-2-2024": (6, 2)}

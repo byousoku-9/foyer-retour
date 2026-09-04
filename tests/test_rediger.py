@@ -298,20 +298,28 @@ async def test_lamorce_de_lenumeration_est_jointe_a_litem_cite_seul() -> None:
     hors = draft({"block_id": item.block_id, "quote": item.text})
     assert joindre_amorces_denumeration(hors, index=index, doc_id=doc.doc_id,
                                         blocs_servis=[item.block_id]) == (hors, 0)
-    # Fermeture 5 (story 5.6, L1c) : une amorce dont le texte se relit **ailleurs** dans le document
-    # n'est pas jointe. `p41:2` — « Les exclusions mentionnées aux conditions générales communes sont
-    # d'application. En outre, ne sont pas assurés : » — ouvre l'énumération de `p41:3` et se relit
-    # mot pour mot en `p69:2` : AD-3 la rejetterait `ambigue`, et la claim avec elle. Mesuré le
-    # 04/09/2026 sur le rejeu « vol » (les deux affirmations d'exclusion perdues), et sur 72 des 287
-    # items d'AXA qui ont une amorce.
+    # Fermeture 5 **levée** (story 5.6, L1f) : L1c refusait de joindre une amorce dont le texte se
+    # relit ailleurs dans le document — `p41:2`, « Les exclusions mentionnées aux conditions
+    # générales communes sont d'application. En outre, ne sont pas assurés : », qui ouvre `p41:3` et
+    # se relit mot pour mot en `p69:2` —, parce qu'AD-3 la rejetait `ambigue` et la claim avec elle.
+    # AD-3, précisé le 04/09/2026, lit l'amorce adjacente comme le **contexte** de l'item : ce que le
+    # code joint est par construction `amorce_de_lenumeration(item)`, donc adjacent, donc accepté.
+    # C'est exactement là que le contexte manquait le plus (huit des 58 amorces d'énumération d'AXA
+    # sont non uniques, deux des six de Baloise) : la jonction est rétablie.
     exclusion = doc.block("axa-lu-optihome-2017:p41:3")
     amorce_repetee = doc.block("axa-lu-optihome-2017:p41:2")
     assert index.amorce_de_lenumeration(exclusion.block_id) == amorce_repetee.block_id
-    ambigue = draft({"block_id": exclusion.block_id, "quote": exclusion.text})
-    assert joindre_amorces_denumeration(
-        ambigue, index=index, doc_id=doc.doc_id,
-        blocs_servis=[exclusion.block_id, amorce_repetee.block_id]) == (ambigue, 0)
-    # Fermeture 6 (même tour, même principe) : une amorce qui ajouterait un **second** `kind`
+    assert any(b.block_id != amorce_repetee.block_id and amorce_repetee.text_norm in b.text_norm
+               for b in doc.blocks)  # le passage se relit bien ailleurs : c'est le cas visé
+    repetee = draft({"block_id": exclusion.block_id, "quote": exclusion.text})
+    jointe, combien = joindre_amorces_denumeration(
+        repetee, index=index, doc_id=doc.doc_id,
+        blocs_servis=[exclusion.block_id, amorce_repetee.block_id])
+    assert combien == 1
+    assert [q.block_id for q in jointe.claims[0].quotes] == [exclusion.block_id,
+                                                             amorce_repetee.block_id]
+    assert index.introduit_immediatement(amorce_repetee.block_id, exclusion.block_id)
+    # Fermeture 6 (story 5.6, L1c, celle-là **tient**) : une amorce qui ajouterait un **second** `kind`
     # décisionnel n'est pas jointe non plus. « Une seule clause par affirmation » (D6) est un
     # contrôle de code : une claim qui cite une `condition` et une `garantie` rend la table d'AD-6
     # indécidable et part en `ambigue`. La projection ne fabrique pas ce qu'elle sait rejeté.
