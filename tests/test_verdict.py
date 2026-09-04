@@ -20,6 +20,7 @@ from server.app.domain.verdict import (
     applicable_de_claim,
     applicabilites_des_claims,
     decider,
+    nomme_la_couverture,
 )
 
 ASK_MAX = 8
@@ -651,3 +652,97 @@ def test_une_garantie_ecartee_ne_fait_pas_poser_la_question_de_sa_section() -> N
                 ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
     assert not any("3.1.4 Dégâts des eaux" in q for q in v.ask_client)
     assert v.value == "couvert", v.value
+
+
+# --- L1m : une exigence qui nomme la couverture elle-même --------------------
+COUVERTURE = "caractère couvert du sinistre"
+
+
+@pytest.mark.parametrize("libelle", [
+    COUVERTURE, "sinistre garanti", "dommages indemnisés", "prise en charge du sinistre",
+    "caractère assuré de l'événement"])
+def test_a_label_that_only_names_the_coverage_is_circular(libelle: str) -> None:
+    """L1m : le libellé ne dit rien d'autre que « ce sinistre est couvert » — c'est le verdict."""
+    assert nomme_la_couverture(libelle)
+
+
+@pytest.mark.parametrize("libelle", [
+    "", "défaut d'entretien", "caractère « soudain » exigé par la clause citée",
+    "qualité d'assuré de la personne en cause, exigée par la clause citée",
+    "garde du bien par l'assuré, exigée par la clause citée", "biens assurés désignés",
+    "garantie souscrite"])
+def test_a_label_that_names_a_fact_besides_the_coverage_stays_due(libelle: str) -> None:
+    """Le garde-fou du lexique : porter « assuré » ne suffit pas, il faut ne rien dire d'autre."""
+    assert not nomme_la_couverture(libelle)
+
+
+def test_a_coverage_requirement_is_never_a_missing_fact_nor_a_question() -> None:
+    """Règle 1 : ni `fait_manquant`, ni qualité non établie — et `fait_requis_present` remis à vrai.
+
+    L'effacer seul aurait donné la signature du « fait connu et contraire » (`applicable="non"`) :
+    une clause écartée là où elle doit suivre sa garantie.
+    """
+    champs = _champs(False, manquant=COUVERTURE, exigees=[COUVERTURE, "caractère « soudain » exigé"],
+                     non_etablies=[COUVERTURE])
+    assert champs.fait_manquant is None
+    assert champs.fait_requis_present is True
+    assert champs.qualites_non_etablies == []
+    assert COUVERTURE in champs.qualites_exigees  # la trace garde ce que la clause écrivait
+    assert champs.reference_a_la_couverture is True
+
+
+def _etendue_et_sa_garantie(principale: ChampsApplicabilite) -> list[ClaimJugee]:
+    """Le nœud « 3.1.4 Dégâts des eaux » du parcours de prod : la garantie, puis sa clause d'étendue.
+
+    `p38:2` — « La perte d'eau subie à l'occasion d'un sinistre couvert est prise en charge à
+    concurrence de 1.000 € » — n'exige du sinistre que d'être couvert : elle suit `p37:1`.
+    """
+    garantie = ClaimJugee(claim_id="c1", clauses=[_clause("garantie", block_id="d:p37:1")],
+                          champs=principale)
+    etendue = ClaimJugee(
+        claim_id="c2", clauses=[_clause("garantie", block_id="d:p38:2")],
+        champs=_champs(False, manquant=COUVERTURE, exigees=[COUVERTURE], non_etablies=[COUVERTURE]))
+    return [garantie, etendue]
+
+
+@pytest.mark.parametrize("principale, attendu", [
+    (_champs(True), "oui"), (_champs(True, cp=True), "humain"), (_champs(False), "non")])
+def test_an_extent_clause_follows_the_main_guarantee_of_its_node(
+        principale: ChampsApplicabilite, attendu: str) -> None:
+    """Règle 2 : `oui` si la garantie l'est, `humain` si elle l'est, `non` sinon (L1m)."""
+    claims = _etendue_et_sa_garantie(principale)
+    assert applicabilites_des_claims(claims)["c2"][0] == attendu
+
+
+def test_an_extent_clause_alone_at_its_node_stays_human() -> None:
+    """Aucune garantie principale au nœud : rien n'établit que le sinistre est couvert."""
+    etendue = _etendue_et_sa_garantie(_champs(True))[1]
+    assert applicabilites_des_claims([etendue])["c2"][0] == "humain"
+
+
+def test_an_extent_clause_never_tips_the_verdict_to_ne_tranche_pas() -> None:
+    """Le témoin du parcours de prod du 04/09 : `p38:2` rendait `ne_tranche_pas` un dossier couvert.
+
+    La garantie du socle s'applique, plus rien n'est ouvert — et la seule clause encore `humain`
+    l'était pour une exigence qui nommait le verdict lui-même.
+    """
+    verdict = decider(_etendue_et_sa_garantie(_champs(True)), ask_client_max=ASK_MAX,
+                      missing=PAQUET_ETABLI)
+    assert verdict.value == "couvert"
+    assert not any("couvert" in question for question in verdict.ask_client)
+    assert verdict.missing.faits == []
+
+
+def test_a_real_quality_of_the_same_clause_is_still_asked() -> None:
+    """Témoin (b) : la référence à la couverture part, « soudain » reste dû au client."""
+    claims = _etendue_et_sa_garantie(_champs(True))
+    claims[1].champs = _champs(False, manquant=COUVERTURE, exigees=[COUVERTURE, "caractère soudain"],
+                               non_etablies=[COUVERTURE, "caractère soudain"])
+    assert applicabilites_des_claims(claims)["c2"][0] == "humain"
+    verdict = decider(claims, ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert verdict.missing.faits == ["caractère soudain"]
+    # La clause reste ouverte, donc le verdict aussi : `couvert` est hors d'atteinte tant que
+    # « soudain » n'est pas établi. Que la table rende ici `ne_tranche_pas` plutôt que
+    # `sous_conditions` ne tient pas à L1m — la règle (2) ne compte comme « clause ouverte » qu'une
+    # condition, une franchise ou une exclusion, jamais une seconde garantie `humain`.
+    assert verdict.value != "couvert"

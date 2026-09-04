@@ -1241,3 +1241,95 @@ def test_la_route_de_suivi_accepte_un_fait_libre_sans_question_id() -> None:
     # Aucune question n'a été refermée : le fait libre ne répond à rien.
     assert not [q for q in vue["questions"] if q["status"] == "repondue"]
     assert not [f for f in vue["facts"] if f["question_id"]]
+
+
+# --- L1m : le verdict ne s'affaiblit pas quand on répond ---------------------
+FORCE_VERDICT = {"non_couvert": 0, "ne_tranche_pas": 1, "sous_conditions": 2, "couvert": 3}
+
+
+def _etat_degats_des_eaux():
+    """Le nœud « 3.1.4 Dégâts des eaux » du parcours de prod du 04/09, en dur (aucun appel).
+
+    `p37:1` est la garantie, subordonnée par le contrat lui-même à une mention aux conditions
+    particulières ; `p38:2` est sa clause d'**étendue** — « la perte d'eau subie à l'occasion d'un
+    sinistre **couvert** est prise en charge à concurrence de 1.000 € » —, dont la seule exigence
+    nomme la couverture. C'est la paire qui, en prod, faisait passer le verdict de `sous_conditions`
+    à `ne_tranche_pas` **parce que** le client avait répondu.
+    """
+    condition = ConditionDeSection(
+        block_id="cg:p37:11", titre="3.1.4 Dégâts des eaux", renvoie_cp=True,
+        texte="Les présentes conditions spéciales sont applicables si les conditions particulières "
+              "mentionnent que la garantie « dégâts des eaux » est souscrite.")
+
+    def clause(block_id: str) -> ClauseCitee:
+        return ClauseCitee(block_id=block_id, kind="garantie", kind_confirmed=True,
+                           portee={"cg:socle"}, node_id="cg:socle", socle=True,
+                           condition_section=condition)
+
+    garantie = ClaimJugee(claim_id="c-garantie", clauses=[clause("cg:p37:1")],
+                          champs=ChampsApplicabilite(fait_requis_present=True, cp_requise=True))
+    etendue = ClaimJugee(
+        claim_id="c-etendue", clauses=[clause("cg:p38:2")],
+        champs=ChampsApplicabilite(fait_requis_present=False,
+                                   fait_manquant="caractère couvert du sinistre",
+                                   qualites_exigees=["caractère couvert du sinistre"],
+                                   qualites_non_etablies=["caractère couvert du sinistre"]))
+    claims = [garantie, etendue]
+    verdict = decider(claims, ask_client_max=3, missing=MissingPackage())
+    # Même forme d'`Answer` que `_state()` : le fil se juge sur son verdict et ses claims de
+    # décision, et `found=True` exigerait des `VerifiedClaim` que ce test n'a pas à fabriquer.
+    answer = Answer(found=False, complete=False, texte="Le contrat assure les dégâts des eaux.",
+                    reason=AbsenceProof(kind="claims_rejetes"), verdict=verdict,
+                    faits_compris=QuestionScope(bien="appartement", cause="robinet"))
+    return initialiser(
+        doc_id="cg", source_hash="source", ingest_fingerprint="ingest",
+        pipeline_digest="pipeline", prompts_digest="prompts", request_id="r-0",
+        faits=Faits(description="Un robinet resté ouvert a inondé l'appartement.", montant_eur=None),
+        answer=answer, decision_claims=claims)
+
+
+def test_une_clause_d_etendue_ne_pose_aucune_question_circulaire() -> None:
+    """Témoin (a) du parcours réel : « caractère couvert du sinistre » n'est demandé à personne."""
+    state = _etat_degats_des_eaux()
+    textes = [q.text for q in state.questions]
+    assert not any("couvert" in texte for texte in textes)
+    assert any("conditions particulières mentionnent-elles" in texte for texte in textes)
+
+
+def test_repondre_oui_a_la_cp_renforce_le_verdict_au_lieu_de_l_affaiblir() -> None:
+    """Le parcours mesuré en prod : `sous_conditions`, « oui », puis `couvert` — jamais l'inverse.
+
+    Le tour 1 rendait « Je ne peux pas trancher » **après** une réponse : la clause d'étendue restait
+    `humain` sur une exigence qui nommait le verdict, et la règle (3) refusait de conclure. Répondre
+    ne peut pas retirer au dossier ce qu'il avait avant la réponse.
+    """
+    state = _etat_degats_des_eaux()
+    assert state.answer.verdict.value == "sous_conditions"
+    question = next(q for q in state.questions
+                    if q.kind == "conditions_particulieres" or "mentionnent-elles" in q.text)
+    updated = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
+                        request_id="r-1", ask_client_max=3)
+    assert updated.answer.verdict.value == "couvert"
+
+
+@pytest.mark.parametrize("fabrique", [_state, _etat_degats_des_eaux])
+def test_monotonie_du_recalcul_sur_les_etats_du_fil(fabrique) -> None:
+    """Règle 3 généralisée : « oui » ne peut qu'égaler ou renforcer, « non » qu'égaler ou affaiblir.
+
+    Le test porte sur les questions posées par une **garantie** ou par le dossier (CP, option,
+    condition de section) : celles où « oui » ajoute au dossier ce que la clause attendait. Une
+    question d'exclusion dit l'inverse — « y a-t-il eu … ? » —, et sa monotonie est celle de
+    l'exclusion, pas de la couverture ; aucun des deux états n'en porte.
+    """
+    state = fabrique()
+    depart = FORCE_VERDICT[state.answer.verdict.value]
+    for question in [q for q in state.questions if q.status == "active"]:
+        cible = next((c for c in state.base_claims if c.claim_id == question.claim_id), None)
+        if cible is not None and cible.kind == "exclusion":
+            continue
+        oui = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
+                        request_id="r-oui", ask_client_max=3)
+        non = appliquer(state, ConversationAction(question_id=question.question_id, value="non"),
+                        request_id="r-non", ask_client_max=3)
+        assert FORCE_VERDICT[oui.answer.verdict.value] >= depart, question.text
+        assert FORCE_VERDICT[non.answer.verdict.value] <= depart, question.text

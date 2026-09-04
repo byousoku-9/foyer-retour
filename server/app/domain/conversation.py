@@ -592,6 +592,7 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
         if meaning not in {ResponseMeaning.AFFIRMATIVE, ResponseMeaning.NEGATIVE}:
             continue
         targets = _cibles(question, claims, vises)
+        levees: set[str] = set()  # L1m : les conditions de section que cette réponse établit
         if question.kind == "option":
             missing.options_souscrites = False
             for claim in targets:
@@ -611,12 +612,22 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
                 if meaning == ResponseMeaning.AFFIRMATIVE:
                     for clause in claim.clauses:
                         if clause.condition_section is not None and clause.condition_section.renvoie_cp:
+                            levees.add(clause.condition_section.block_id)
                             clause.condition_section = None
                 if claim.champs is not None:
                     claim.champs.cp_requise = False
                     if meaning == ResponseMeaning.NEGATIVE:
                         claim.champs.fait_requis_present = False
                         claim.champs.fait_manquant = None
+            # Story 5.7 (L1m) : la condition est celle de la **section**, pas de la claim qui a porté
+            # la question. Le parcours de prod du 04/09 le montre : deux clauses du même nœud
+            # « 3.1.4 Dégâts des eaux » la portaient, la question n'en visait qu'une, et le verdict
+            # restait plafonné par la seconde après que la personne eut produit la pièce. Une pièce
+            # produite l'est pour toute la section qu'elle mentionne.
+            for claim in claims:
+                for clause in claim.clauses:
+                    if clause.condition_section is not None and clause.condition_section.block_id in levees:
+                        clause.condition_section = None
         elif question.kind == "avenant_date":
             if meaning == ResponseMeaning.AFFIRMATIVE:
                 missing.avenants = False

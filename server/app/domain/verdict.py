@@ -22,7 +22,7 @@ import re
 import unicodedata
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .document import DomainModel
 
@@ -100,6 +100,39 @@ class ChampsApplicabilite(DomainModel):
     # `qualites_exigees` moins celles que les faits déclarés établissent : la différence est faite par
     # l'appelant (*vérifier*), qui seul borne et normalise les libellés du modèle.
     qualites_non_etablies: list[str] = Field(default_factory=list)
+    # Story 5.7 (L1m) : le libellé d'une exigence nommait la **couverture elle-même** (« caractère
+    # couvert du sinistre »). Dérivé, jamais rendu par le modèle : il marque la clause dont l'effet
+    # est subordonné au fait que la garantie joue — une clause d'**étendue** —, et c'est lui que
+    # `applicabilites_des_claims` lit pour la faire suivre la garantie principale de son nœud.
+    reference_a_la_couverture: bool = False
+
+    @model_validator(mode="after")
+    def _ecarter_les_references_a_la_couverture(self) -> "ChampsApplicabilite":
+        """Une exigence qui nomme la couverture n'est ni une question, ni un fait manquant (L1m).
+
+        Le filtre est posé **à la porte du type**, et non chez chacun de ses lecteurs : le paquet
+        manquant, le fil de conversation et la table lisent tous les trois `fait_manquant` et
+        `qualites_non_etablies`, et une garde recopiée trois fois aurait fini par manquer au
+        quatrième. Ce qui entre ici n'a plus de libellé circulaire à demander à personne.
+
+        `fait_manquant` circulaire ⇒ retiré **et** `fait_requis_present` remis à vrai : l'effacer
+        seul aurait donné la signature du « fait connu et contraire » (`applicable="non"`, règle (5)
+        d'`applicable_de_claim`), c'est-à-dire une clause écartée là où elle doit simplement suivre
+        sa garantie. Le libellé reste dans `qualites_exigees`, qui n'est affiché nulle part et sert
+        la trace : c'est là que se lit ce que la clause exigeait vraiment.
+        """
+        marque = any(nomme_la_couverture(libelle) for libelle in
+                     (*self.qualites_exigees, *self.qualites_non_etablies))
+        gardees = [q for q in self.qualites_non_etablies if not nomme_la_couverture(q)]
+        if gardees != self.qualites_non_etablies:
+            self.qualites_non_etablies = gardees
+        if (self.fait_manquant or "").strip() and nomme_la_couverture(self.fait_manquant or ""):
+            marque = True
+            self.fait_manquant = None
+            self.fait_requis_present = True
+        if marque and not self.reference_a_la_couverture:
+            self.reference_a_la_couverture = True
+        return self
 
 
 class ConditionDeSection(DomainModel):
@@ -294,6 +327,87 @@ def _mots_qualifiants(texte: str) -> dict[str, str]:
     return trouves
 
 
+# Story 5.7 (L1m). Les mots par lesquels une clause nomme **la couverture elle-même**. Ils ne
+# décrivent aucun fait du sinistre : « la perte d'eau subie à l'occasion d'un sinistre **couvert** est
+# prise en charge » ne dit pas ce que le sinistre doit présenter, elle dit que la garantie doit jouer
+# — c'est-à-dire exactement ce que la table calcule. Mesuré sur le parcours de prod du 04/09 : le
+# modèle a rendu la qualité « caractère couvert du sinistre » pour `p38:2`, le code l'a tenue pour non
+# établie, la clause a valu `humain`, et le client a lu « Le sinistre présente-t-il cette
+# caractéristique : « caractère couvert du sinistre » ? » — une question dont la réponse est le
+# verdict qu'il attend.
+#
+# Fermé et court comme les trois autres lexiques : il ne sert pas à comprendre la clause, seulement à
+# reconnaître un libellé **circulaire**. Les racines sont cherchées en tête de mot (formes fléchies :
+# « couverte », « garantis », « assurée », « indemnisable ») ; les tournures composées, telles quelles.
+RACINES_DE_COUVERTURE: frozenset[str] = frozenset({
+    "couvert", "garanti", "assur", "indemnis"})
+TOURNURES_DE_COUVERTURE: frozenset[str] = frozenset({
+    "pris en charge", "prise en charge", "prises en charge", "pris en compte"})
+
+# Ce qu'un libellé circulaire a le droit de nommer **à côté** de la couverture : le sinistre lui-même
+# et rien d'autre. C'est ce garde-fou qui tient le rayon du lexique — « qualité d'assuré de la
+# personne en cause » porte bien la racine « assur », mais elle nomme aussi une *personne* et une
+# *cause* : elle décrit un fait, elle reste due au client (`QUALITES_DE_PERSONNE`, T19). Seul un
+# libellé qui ne dit rien de plus que « ce sinistre est couvert » est écarté.
+MOTS_DU_SINISTRE: frozenset[str] = frozenset({
+    "caractere", "nature", "sinistre", "sinistres", "dommage", "dommages", "evenement",
+    "evenements", "cas", "declare", "declares", "survenu", "survenus"})
+
+# Grammaire pure : ni un fait, ni une couverture. Séparée du lexique pour qu'on lise d'un coup d'œil
+# ce que la règle regarde vraiment (les mots pleins) et ce qu'elle ignore.
+_MOTS_OUTILS: frozenset[str] = frozenset({
+    "a", "au", "aux", "ce", "cet", "cette", "d", "de", "des", "du", "en", "est", "et", "etre",
+    "l", "la", "le", "les", "ne", "on", "ou", "par", "pas", "pour", "que", "qui", "sa", "ses",
+    "soit", "son", "sont", "un", "une", "y"})
+
+
+def _mots_normalises(texte: str) -> list[str]:
+    """Les mots d'un libellé, sans casse ni diacritiques — même repli que `_mots_qualifiants`.
+
+    La couche `domain` n'importe que la stdlib et pydantic (`tests/test_layers.py`) : pas de
+    `normalize()` de `corpus`, mais les deux seules règles qui comptent ici (casse, diacritiques),
+    appliquées aux mots que `re.findall` isole déjà — guillemets et apostrophes tombent avec.
+    """
+    mots: list[str] = []
+    for mot in re.findall(r"[^\W\d_]+", texte, flags=re.UNICODE):
+        mots.append("".join(c for c in unicodedata.normalize("NFD", mot.casefold())
+                            if not unicodedata.combining(c)))
+    return mots
+
+
+def nomme_la_couverture(libelle: str) -> bool:
+    """Le libellé ne dit-il rien d'autre que « ce sinistre est couvert » ? (story 5.7, L1m)
+
+    Un tel libellé n'est **jamais** une question ni un fait manquant : la couverture est ce que la
+    table conclut, la demander au client est circulaire. La règle est en deux temps, et c'est le
+    second qui la tient étroite :
+
+    1. le libellé porte une racine ou une tournure de couverture (`RACINES_DE_COUVERTURE`,
+       `TOURNURES_DE_COUVERTURE`) ;
+    2. **et** tout ce qu'il dit d'autre ne nomme que le sinistre (`MOTS_DU_SINISTRE`) ou n'est que
+       de la grammaire.
+
+    « caractère couvert du sinistre » et « sinistre garanti » sont donc écartés ; « qualité d'assuré
+    de la personne en cause » (T19), « biens assurés désignés » ou « garantie souscrite » nomment
+    autre chose que la couverture et restent des faits à établir.
+    """
+    plat = " ".join(_mots_normalises(libelle))
+    porte = False
+    for tournure in TOURNURES_DE_COUVERTURE:
+        if tournure in plat:
+            porte = True
+            plat = plat.replace(tournure, " ")
+    autres: list[str] = []
+    for mot in plat.split():
+        if mot in _MOTS_OUTILS or mot in MOTS_DU_SINISTRE:
+            continue
+        if any(mot.startswith(racine) for racine in RACINES_DE_COUVERTURE):
+            porte = True
+            continue
+        autres.append(mot)
+    return porte and not autres
+
+
 def _fusionner_par_qualificatif(libelles: list[str]) -> list[str]:
     """Dédoublonne des libellés de faits par **racine de qualificatif**, en gardant le plus complet.
 
@@ -424,7 +538,10 @@ def _qualites_a_confirmer(claims: list[ClaimJugee], *, deja: list[str]) -> list[
         if claim.champs is None:
             continue
         for libelle in claim.champs.qualites_exigees:
-            if libelle and libelle not in claim.champs.qualites_non_etablies:
+            # L1m : `qualites_exigees` garde le libellé circulaire pour la trace ; il ne se confirme
+            # pas plus qu'il ne se demande — c'est le verdict lui-même que la clause y nomme.
+            if libelle and libelle not in claim.champs.qualites_non_etablies and not (
+                    nomme_la_couverture(libelle)):
                 out.append(libelle)
     fusion = _fusionner_par_qualificatif([*deja, *out])
     return [libelle for libelle in fusion if libelle not in deja]
@@ -610,12 +727,52 @@ def _noeuds_du_cas(claims: list[ClaimJugee]) -> set[str]:
     return garanties
 
 
+# `non` < `humain` < `oui` : l'ordre de force d'une applicabilité, dont le minimum sert à combiner
+# deux lectures d'une même clause sans jamais rendre la plus engageante des deux.
+_FORCE: dict[str, int] = {"non": 0, "humain": 1, "oui": 2}
+
+
+def _garantie_principale_du_noeud(claim: ClaimJugee, claims: list[ClaimJugee], *,
+                                  noeuds_du_cas: set[str]) -> Applicable:
+    """L'applicabilité de la garantie principale du nœud d'une clause d'**étendue** (L1m).
+
+    Une clause qui écrit « la perte d'eau subie à l'occasion d'un sinistre **couvert** est prise en
+    charge à concurrence de 1.000 € » ne pose aucune condition au client : elle étend la garantie de
+    sa propre section, et elle joue exactement quand celle-ci joue. Son applicabilité est donc
+    **empruntée** aux garanties du même nœud qui, elles, disent à quelles conditions le contrat
+    couvre — jamais calculée sur ses propres champs, qui ne portent que la référence circulaire.
+
+    `oui` dès qu'une garantie du nœud s'applique, `humain` si l'une reste ouverte, `non` si toutes
+    sont écartées. Aucune garantie principale au nœud ⇒ `humain` : rien n'établit alors que le
+    sinistre est couvert, et c'est le seul cas où la clause d'étendue reste une question d'humain.
+    Les clauses d'étendue ne s'empruntent rien entre elles — sans quoi deux d'entre elles se
+    porteraient mutuellement.
+    """
+    noeuds = {clause.node_id for clause in claim.clauses if clause.node_id}
+    valeurs = [
+        applicable_de_claim(autre, noeuds_du_cas=noeuds_du_cas)
+        for autre in claims
+        if autre.claim_id != claim.claim_id and autre.kind == "garantie"
+        and not (autre.champs is not None and autre.champs.reference_a_la_couverture)
+        and any(clause.node_id in noeuds for clause in autre.clauses)]
+    valeurs = [v for v in valeurs if v is not None]
+    if not valeurs:
+        return "humain"
+    if "oui" in valeurs:
+        return "oui"
+    return "humain" if "humain" in valeurs else "non"
+
+
 def applicabilites_des_claims(
         claims: list[ClaimJugee]) -> dict[str, tuple[Applicable | None, ApplicableReason | None]]:
     """Statut et raison issus du même état de portée que la table AD-6.
 
     Le calcul est par claim affichée. Seule une garantie affichée fixe les nœuds contractuels du
     cas ; sans elle, une exclusion reste humaine sauf si les faits typés suffisent à la contredire.
+
+    C'est aussi le seul endroit où une claim est jugée **avec les autres** : une clause d'étendue,
+    qui ne subordonne son effet qu'au fait que le sinistre soit couvert, n'a rien à dire d'elle-même
+    et emprunte son applicabilité à la garantie principale de son nœud (story 5.7, L1m).
     """
     out: dict[str, tuple[Applicable | None, ApplicableReason | None]] = {}
     for claim in claims:
@@ -625,6 +782,14 @@ def applicabilites_des_claims(
             applicable = "humain"
         else:
             applicable = applicable_de_claim(claim, noeuds_du_cas=case_nodes)
+        if (applicable is not None and claim.kind == "garantie" and claim.champs is not None
+                and claim.champs.reference_a_la_couverture):
+            # L1m : une clause d'étendue suit la garantie principale de son nœud, sans jamais la
+            # dépasser. Le minimum garde ce que ses **autres** exigences disent encore d'elle (une
+            # portée absente, un qualificatif non établi) : la référence à la couverture est retirée
+            # du calcul, elle n'y est pas remplacée par un blanc-seing.
+            suivi = _garantie_principale_du_noeud(claim, claims, noeuds_du_cas=case_nodes)
+            applicable = min((applicable, suivi), key=lambda v: _FORCE[v])
         reason: ApplicableReason | None = None
         if applicable == "non":
             out_of_scope = (

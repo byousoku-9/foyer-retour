@@ -101,6 +101,7 @@ from server.app.domain.verdict import (
     applicable_de_claim,
     applicabilites_des_claims,
     decider,
+    nomme_la_couverture,
 )
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
@@ -2494,6 +2495,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         name="qualite_etablie_par_qualification", ok=True,
                         detail="une qualité écrite par la clause citée, sans qualificatif à "
                                "établir, est tenue pour remplie par le fait déclaré qui la nomme"))
+                    continue
+                if nomme_la_couverture(q):
+                    # L1m : « caractère couvert du sinistre » ne se corrobore par aucun fait — c'est
+                    # le verdict que la clause nomme. `ChampsApplicabilite` l'écarte de toute façon
+                    # des faits manquants ; la trace ne le compte donc pas ici comme une exigence en
+                    # défaut, sans quoi elle dirait `humain` pour une raison qui n'existe plus.
                     continue
                 if q not in non_etablies:
                     non_etablies.append(q)
