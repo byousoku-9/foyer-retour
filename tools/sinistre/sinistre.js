@@ -1345,6 +1345,41 @@
   var TITRE_QUESTIONS = "Pour affiner le verdict";
 
   /**
+   * Story 5.6 (L2f) — les trois boutons ne s'affichent que sur une question qui se répond par oui
+   * ou par non.
+   *
+   * Le parcours du 03/09 posait « Quelles options et extensions ont été souscrites ? » sous
+   * « Oui / Non / Je ne sais pas » : trois réponses dont aucune ne répond. Ce sont les questions du
+   * **paquet contractuel** d'AD-6 — les pièces dues quel que soit le verdict —, et elles attendent
+   * une valeur : une liste d'options, un montant, une date. Elles n'ont plus que « Préciser », avec
+   * l'exemple de la forme attendue, et « Ajouter ce fait ».
+   *
+   * La règle ne devine rien, elle lit ce que le contrat publie :
+   *   - une question qui porte un `expected_value` est un **fait exigé** que la réponse confirme ou
+   *     infirme : oui/non, quel que soit son libellé ;
+   *   - sinon, seules les trois clés du paquet (`option_requise`, `conditions_particulieres`,
+   *     `avenant_date`) sont ouvertes. La condition écrite en tête d'une section porte, elle, une
+   *     clé qui nomme son bloc (`conditions_particulieres:<block_id>`, cf. `_cle_de_section`) et
+   *     demande bien « vos conditions particulières la mentionnent-elles ? » : elle garde ses
+   *     boutons, et c'est par eux que le verdict est passé de « sous conditions » à « couvert ».
+   */
+  var PLACEHOLDERS_OUVERTS = {
+    option_requise: "ex. : option Confort souscrite",
+    conditions_particulieres: "ex. : franchise 250 €",
+    avenant_date: "ex. : contrat en vigueur depuis le 1er janvier 2024"
+  };
+
+  var PLACEHOLDER_OUI_NON = "ex. : la garantie dégâts des eaux figure dans mes conditions " +
+                            "particulières";
+
+  function placeholderOuvert(question) {
+    if (!question || question.expected_value) return "";
+    var cle = String(question.fact_key || "");
+    return Object.prototype.hasOwnProperty.call(PLACEHOLDERS_OUVERTS, cle)
+      ? PLACEHOLDERS_OUVERTS[cle] : "";
+  }
+
+  /**
    * Les questions décisives et leur mécanique de réponse : sélection, Oui / Non / Je ne sais pas,
    * champ « Préciser un fait ». Extrait de `conversationVue()` sans rien changer à ses classes ni à
    * ses `data-*` — c'est **le** mécanisme existant, déplacé, pas un second formulaire.
@@ -1357,9 +1392,13 @@
     var selections = actives.map(function (q, index) {
       return noeud("button", "conv-selection-question", String(q.text), null, {
         "type": "button", "data-question-id": String(q.question_id),
-        "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false"
+        "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false",
+        // Ce que la question attend voyage avec elle : `brancherConversation` bascule la zone de
+        // réponse commune sur la sélection sans relire le dossier.
+        "data-placeholder": placeholderOuvert(q)
       });
     });
+    var ouverte = placeholderOuvert(actives[0]);
     return section("conv-questions", TITRE_QUESTIONS, [
       // Story 5.6 (L2c) — la phrase d'explication vient **avant** les questions, parce que c'est
       // elle qui dit ce qu'un clic déclenche. Lancelot l'a demandée mot pour mot en lisant l'écran
@@ -1379,7 +1418,9 @@
           // « Je ne sais pas » : c'est l'assuré qui répond, pas un dossier qu'on annote.
           noeud("button", "conv-repondre", "Je ne sais pas", null,
                 { "type": "button", "data-value": "inconnu" })
-        ]),
+        // Masqués, pas retirés : la zone de réponse est **commune** aux questions, et la sélection
+        // suivante peut être une question fermée. Les boutons gardent alors leur branchement.
+        ], ouverte ? { "hidden": "hidden" } : null),
         // « Envoyer la réponse libre » ne disait pas *à quoi* le champ répondait — Lancelot a
         // demandé « réponse ouverte à quoi ? ». Le champ est nommé par ce qu'il attend, et son
         // exemple montre la forme d'un fait ; le bouton dit ce que le clic ajoute.
@@ -1389,8 +1430,7 @@
           noeud("input", "conv-reponse-libre", null, null,
                 { "type": "text", "id": "conv-reponse-libre", "maxlength": "500",
                   "aria-label": "Préciser un fait",
-                  "placeholder": "ex. : la garantie dégâts des eaux figure dans mes conditions " +
-                                 "particulières" }),
+                  "placeholder": ouverte || PLACEHOLDER_OUI_NON }),
           noeud("button", "conv-envoyer-libre", "Ajouter ce fait", null, { "type": "button" })
         ])
       ])
@@ -3597,7 +3637,17 @@
           cible.textContent = texteQuestion;
           cible.setAttribute("data-selected-question-id", questionId);
         }
+        // Story 5.6 (L2f) — la zone de réponse suit la question sélectionnée : les trois boutons
+        // disparaissent sur une question du paquet, qui attend une valeur, et le champ prend
+        // l'exemple de la forme attendue. `data-placeholder` porte les deux décisions à la fois.
+        var attendu = bouton.getAttribute("data-placeholder") || "";
+        var reponses = racine.querySelector(".conv-reponses");
+        if (reponses) {
+          if (attendu) reponses.setAttribute("hidden", "hidden");
+          else reponses.removeAttribute("hidden");
+        }
         var libre = racine.querySelector(".conv-reponse-libre");
+        if (libre) libre.setAttribute("placeholder", attendu || PLACEHOLDER_OUI_NON);
         if (libre && typeof libre.focus === "function") libre.focus();
       });
     });

@@ -2606,3 +2606,40 @@ def test_la_mention_de_recalcul_ne_se_lit_pas_deux_fois_quand_lencart_est_la(
     assert corps.startswith("Le contrat assure les biens désignés contre les dégâts des eaux")
     assert "La garantie est étendue sans supplément de prime aux frais de recherche" in corps
 
+
+def test_une_question_ouverte_na_pas_de_boutons_oui_non(rendus: dict[str, Any]) -> None:
+    """AC : une question du paquet contractuel attend une valeur, pas un oui/non.
+
+    Les trois — options, conditions particulières, date d'effet et avenants — n'ont plus que
+    « Préciser » et « Ajouter ce fait », et chacune porte l'exemple de la forme qu'elle attend.
+    """
+    vu = rendus["sinistre-robinet-suivi"]["bloc3"]
+    assert vu["questions"][0] == "Quelles options et extensions ont été souscrites ?"
+    assert vu["boutons_masques"] == ["hidden"], "les trois boutons sont masqués"
+    assert vu["placeholder"] == ["ex. : option Confort souscrite"]
+    assert vu["attendus"] == ["ex. : option Confort souscrite",
+                              "ex. : franchise 250 €",
+                              "ex. : contrat en vigueur depuis le 1er janvier 2024"]
+    # Masqués, pas retirés : la zone de réponse est commune, et la sélection suivante peut être une
+    # question fermée. Le branchement des boutons survit donc à la bascule.
+    assert vu["boutons"] == ["Oui", "Non", "Je ne sais pas"]
+
+
+def test_une_question_oui_non_garde_ses_trois_boutons(cas: dict[str, Any]) -> None:
+    """La condition écrite en tête d'une section demande bien « vos conditions particulières la
+    mentionnent-elles ? » : elle garde ses boutons, et c'est par eux que le parcours du 03/09 a fait
+    passer le verdict de « sous conditions » à « couvert ». Un fait exigé (`expected_value`) aussi.
+    """
+    assert cas["l2c_questions"]["boutons"] == ["Oui", "Non", "Je ne sais pas"]
+    assert cas["l2c_questions"]["placeholder"] == (
+        "ex. : la garantie dégâts des eaux figure dans mes conditions particulières")
+
+
+def test_la_zone_de_reponse_suit_la_question_selectionnee(cas: dict[str, Any]) -> None:
+    """Un seul formulaire pour toutes les questions : sélectionner une question ouverte masque les
+    boutons et change l'exemple, revenir sur un fait exigé les ramène. Rien n'est détruit."""
+    vu = cas["l2f_bascule"]
+    assert vu["depart"] == [None, "ex. : la garantie dégâts des eaux figure dans mes conditions "
+                                  "particulières"]
+    assert vu["sur_ouverte"] == ["hidden", "ex. : option Confort souscrite"]
+    assert vu["retour"] == vu["depart"]

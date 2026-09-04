@@ -157,6 +157,8 @@
   .conv-libre-nom { flex: 0 0 auto; margin: 0; font-size: 13px; color: var(--ink-2); }
   .conv-reponse-commune { border-left: 3px solid var(--bord); padding-left: 12px; margin-top: 10px; }
   .conv-reponses, .conv-choix, .conv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* Une question ouverte n'a pas de oui/non : `display: flex` l'emporterait sur `[hidden]`. */
+  .conv-reponses[hidden] { display: none; }
   .conv-reponses button, .conv-choix button, .conv-actions button { margin: 0; padding: 6px 10px; }
   .conv-reponse-libre { flex: 1 1 260px; width: auto; }
   .conv-conflits { border: 1px solid #a16207; border-radius: 8px; padding: 10px; }

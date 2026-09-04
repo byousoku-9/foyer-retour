@@ -128,6 +128,16 @@ function releverBlocs(peint) {
     // Bloc 3 — ce qui manque : questions, faits exigés, pièces non lues.
     bloc3: manques && {
       questions: manques.querySelectorAll(".conv-selection-question").map(ligne),
+      // Story 5.6 (L2f) — la zone de réponse commune : les trois boutons, masqués ou non, et
+      // l'exemple que le champ libre propose. Ce que la question sélectionnée attend.
+      boutons: manques.querySelectorAll(".conv-repondre").map(ligne),
+      boutons_masques: manques.querySelectorAll(".conv-reponses").map(
+        (n) => n.getAttribute("hidden")),
+      placeholder: manques.querySelectorAll(".conv-reponse-libre").map(
+        (n) => n.getAttribute("placeholder")),
+      // Ce que chaque question demande, dans l'ordre où elles sont posées : « » pour un oui/non.
+      attendus: manques.querySelectorAll(".conv-selection-question").map(
+        (n) => n.getAttribute("data-placeholder") || ""),
       demandes: manques.querySelectorAll(".ask-liste").flatMap(
         (u) => u.querySelectorAll("li").map(ligne)),
       faits_exiges: manques.querySelectorAll(".paquet-faits").flatMap(

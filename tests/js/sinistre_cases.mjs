@@ -828,6 +828,25 @@ async function main() {
       copie_echec: copieEchec,
     };
 
+    // Story 5.6 (L2f) — la zone de réponse **suit** la question sélectionnée. Les questions du
+    // paquet contractuel (`option_requise`, `conditions_particulieres`, `avenant_date`) attendent
+    // une valeur : les trois boutons disparaissent et le champ prend l'exemple de la forme
+    // attendue. Revenir sur un fait exigé les ramène — la zone est commune, rien n'est détruit.
+    {
+      const racineQ = handlers.SINISTRE.materialiser(
+        handlers.SINISTRE.conversationVue(conversation.conversation));
+      handlers.SINISTRE.brancherConversation(racineQ, conversation, { doc_id: DOC_ID }, () => {});
+      const choix = racineQ.querySelectorAll(".conv-selection-question");
+      const zone = racineQ.querySelector(".conv-reponses");
+      const champ = racineQ.querySelector(".conv-reponse-libre");
+      const etat = () => [zone.getAttribute("hidden"), champ.getAttribute("placeholder")];
+      const depart = etat();
+      choix[2].declencher("click");
+      const surOuverte = etat();
+      choix[0].declencher("click");
+      cas.l2f_bascule = { depart, sur_ouverte: surOuverte, retour: etat() };
+    }
+
     // Story 5.6 (L2f) — l'intitulé d'un fait apporté vient de la question qui l'a posé. Trois
     // chemins : par `question_id`, par `fact_key` quand la question a été reposée sous un autre
     // identifiant, et — quand le dossier n'en publie aucune — la clé, à condition qu'elle soit en
