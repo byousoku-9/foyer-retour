@@ -4722,3 +4722,71 @@ du gate `-14` (cas bougie) reste identique, trois `ne_tranche_pas` : la règle n
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 
 **Ronde `-17` du 04/09/2026 13:13-13:32** (orchestrateur, `S = 6a4c10e`, campagnes `epic5-gate-<doc>-17`, ancrage `epic5-final-anchor-18` 3/3) : Baloise 9/9 (2,02 €), AXA 3/3 (0,65 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=b937020a…` / `prompts_digest=4f0c8e67…`. Rondes précédentes du matin : `-14` (AXA rouge par stabilité du cas bougie, cause L1o), `-16` (Baloise rouge par stabilité du congélateur, cause L1p ; AXA incident réseau). Générations `data/.publie/{a,b}` commises ensemble (`fb56a3c`) ; certificat Baloise ré-épinglé.
+
+## Tour D2 (04/09/2026) — la relecture des 83 clauses est appliquée par la réingestion
+
+La voie prévue par le message de quarantaine a été suivie jusqu'au bout : re-télécharger les
+sources, déposer l'overlay par la racine, réingérer. **Aucun appel API** — le typage est transporté
+depuis la génération précédente (registre), et `blocs_typage_a_rejouer` vaut 0 sur les deux
+documents.
+
+```
+GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud --project=foyer-retour auth print-access-token) \
+  uv run python -m server.ingest.fetch_source axa-lu-optihome-2017
+  uv run python -m server.ingest.fetch_source baloise-lu-home-2-2024
+# dépôt de l'overlay par la seule voie opérateur (server.ingest.artifacts.deposer_par_la_racine)
+uv run python -m server.ingest.pdf_to_blocks axa-lu-optihome-2017 \
+    --title "Conditions d’assurances OptiHome (multirisques habitation)" --edition "juin 2017"
+uv run python -m server.ingest.pdf_to_blocks baloise-lu-home-2-2024 \
+    --title "Baloise Luxembourg HOME" --edition "CG-HOME(2)-LUFR-09-24"
+```
+
+`fetch_source` : AXA depuis le CDN public (544 969 octets), Baloise en repli
+`gs://foyer-retour-sources/` (l'URL publique rend HTTP 406 ; 411 134 octets), tous deux vérifiés
+contre `source.sha256` avant écriture.
+
+**Les blocs sont identiques, et c'est vérifié trois fois.** `ids_disparus = ids_nouveaux = 0` ;
+`document_hash` inchangé (`6014b03c…` sur AXA, `169c3f64…` sur Baloise) donc le texte, les lignes,
+les coordonnées, l'ordre et les identifiants le sont aussi ; `ingest_fingerprint` inchangée
+(`0fd08416…`, `af06d797…`) — même `PARSER_VERSION`, mêmes règles, même `structure.json` Baloise
+(`572152b1…`, conservée). `tests/test_parsing_axa.py` et `tests/test_parsing_baloise.py`, PDF
+présents, relisent les extraits de pages : 18 tests verts avant comme après.
+
+**Ce que la réingestion change, et qu'elle seule pouvait changer** : `overlay_hash` passe de `null`
+à `5fcb2845…` (AXA) et `86c55c59…` (Baloise). Au chargement, les blocs décisionnels non confirmés
+tombent de **83 à 8** (AXA 52 → 2, Baloise 31 → 6) et la garantie incendie
+`axa-lu-optihome-2017:p34:7` est `kind_source: manual`, confirmée, de portée `a3.1.1.1.1`. Serveur
+local (`ALLOW_UNGATED=true`, GET seuls) : les trois documents servis, aucune quarantaine, aucune
+alerte `source_absente`.
+
+**Ce qu'elle coûte, et qui doit le reprendre.** `manifest.gate` n'est pas conservé : le gate
+certifie `document_hash`, `overlay_hash` **et** `structure_hash`, et l'overlay vient de changer
+(README, « il le conserve seulement quand… »). Les deux contrats passent donc de `gate: vertical`
+à `gate: null` et l'alerte `sans_gate` remplace le gate vert : **sans `ALLOW_UNGATED`, l'image de
+production ne sert plus que le guide** tant que l'orchestrateur n'a pas remesuré les deux gates
+verticaux. C'est le cycle d'amorçage après réingestion que `server/evals/reference/plancher.yaml`
+décrit : les onze témoins marqués `etat_servi` sont rouges par construction, la preuve hors ligne
+les exclut (`-m 'not evals and not etat_servi'`), et la révision qui commit les gates verts doit
+repasser la suite entière sans exclusion.
+
+**Un artefact perdu, dit ici plutôt que masqué** : `report.json` de Baloise est réécrit par
+l'ingestion, qui ne réémet pas les statistiques de la campagne de typage (`typage_transport`,
+`typage_standard_requests`, `typage_standard_cost_eur = 0,1807`, les registres T1/T2, le check
+`typage_transport`). Le rapport AXA n'en portait déjà plus depuis sa propre réingestion. Les
+chiffres de la campagne du 02/09 restent dans ce document et dans l'historique git de l'artefact ;
+`tests/test_parsing_baloise.py` n'épingle plus que ce que le rapport publié prouve encore — 964
+décisions transportées (942 + 22), 0 à rejouer.
+
+- gate-a-relancer: axa-lu-optihome-2017 overlay_hash=5fcb28452d8c21a6d73bd59f9185c2aaba7a79e0f350b1db6b6d04a91f1f2c0c
+- gate-a-relancer: baloise-lu-home-2-2024 overlay_hash=86c55c59fc7f3e61dae2ad5b5be2a8a65b35dacca7120e9919b394cf3f0559f1
+
+**Le dictionnaire du guide n'est pas signé, et l'alerte reste — c'est une décision.**
+`data/axa-lu-optihome-2017/dictionary.json` est validé à la main depuis le 04/09 ; `data/dictionary.json`,
+celui du guide, ne l'est pas, et `/api/v1/sante` porte donc toujours `dictionnaire_non_valide`
+(`doc_id: "*"`). Signer le dictionnaire du guide armerait le refus « zéro hit » d'AD-5 sur le
+pipeline guide : une question dont aucun terme canonique ni aucune variante n'a de hit serait
+refusée **avant** *retrouver*. En démonstration, ce refus tomberait sur une question mal formulée
+autant que sur une question hors sujet, alors que le garde-fou « zéro bloc » refuse déjà, plus tard
+et avec la même preuve. La non-validation ne désarme que ce court-circuit : les variantes
+multilingues servent, le refus par intent reste actif, et la trace dit lequel des deux chemins a
+joué par la présence de l'étape *retrouver*.
