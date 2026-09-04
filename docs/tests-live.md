@@ -4508,3 +4508,52 @@ l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et i
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 
 **Ronde `-12` du 04/09/2026 02:33-02:53** (orchestrateur, `S = 83c257a`, campagnes `epic5-gate-<doc>-12`, ancrage `epic5-final-anchor-13` sur `g-luxtrust-prix` 3/3) : Baloise 9/9 (2,53 €), AXA 3/3 (0,36 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=0ff7573b…` / `prompts_digest=ca306d38…` (ceux de l'image). Ronde `-11` précédente sur `3f12de3` : Baloise 8/9 (faux refus `b-bougie-canape` par amorces ambiguës, cause corrigée en L1f), AXA 3/3, guide 3/3. Générations `data/.publie/{a,b}` commises ensemble (`a50e3de`) ; certificat Baloise ré-épinglé.
+
+## L1g — la vue dossier sert la réponse, et le guide s'écrit phrase par phrase soutenue (4 septembre 2026)
+
+Deux lectures du 04/09 au matin sur la production `bfa9a49`. Sur `/sinistre/`, la page servait
+« Verdict recalculé : sous conditions. <raison de la table> », « Clause vérifiée conservée pour le
+recalcul du verdict. » sous chaque clause et « Les conditions particulières établissent-elles le
+point exigé ? » comme question active : la projection de l'état conversationnel avait remplacé le
+texte du modèle, les `text`/`rattachement` des affirmations et les questions lisibles du moteur. Sur
+le guide, la question « avant de partir au Luxembourg » rendait trois phrases sans lien entre elles
+et « J'ai retiré 7 phrases de ma réponse ».
+
+### Rejeux — serveur local `127.0.0.1:8878`, 0,47 €
+
+`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, clé lue dans `.env` et jamais affichée. Majorant
+annoncé 2 €. Lecture détaillée : `automation/runs/20260902-structure-index/proto/lecture.md`.
+
+| rejeu | fichier | ce qui sort |
+|---|---|---|
+| sinistre « robinet laissé ouvert », tour 0 | `proto/s-robinet-l1g.json` (0,1790 €) | `sous_conditions` ; les quatre questions sont **des textes de `ask_client` mot pour mot**, la condition de section L1e (« Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ? ») **en tête et active** |
+| sinistre, tour 1 — « oui » à cette question | `proto/s-robinet-l1g-suivi.json` (0,0000 €) | `sous_conditions` → **`couvert`** ; texte du modèle conservé sous l'amorce « Verdict mis à jour avec vos réponses, sans relire le contrat : couvert. » ; `text`/`rattachement` des trois affirmations inchangés ; la raison de la table dans `trace.restituer` |
+| guide « avant de partir », profil famille/2 enfants/salarié/louer/départ | `proto/g-partir-l1g.json` (0,2879 €) | une réponse suivie de huit phrases enchaînées, les **trois** sous-questions servies (avant de partir : certificat de radiation et bulletins ; école : sections linguistiques et rentrée ; logement : dossier complet et garantie locative) |
+
+Un premier rejeu sinistre (0,1438 €) a été lu puis refait : la question de section L1e était absente
+de la liste, écrasée par la question du paquet manquant à qui elle partageait sa clé de fait. Cause
+corrigée (`_cle_de_section`), second rejeu ci-dessus. **Résidu nommé** : le guide déclare encore
+« J'ai retiré 7 phrases de ma réponse » — la relance ciblée a bien été demandée (1 affirmation
+perdant plus de 34 % de ses phrases), elle a coûté 0,09 €, elle est rentrée **vide** (0 affirmation)
+et `relance_moins_bonne` a conservé l'acquis. La borne fonctionne ; le taux de réussite de la
+relance ciblée reste à mesurer sur plusieurs questions.
+
+### Suite hermétique
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **code de sortie 0**. `ruff check
+server tests` vert, `git diff --check` vert. Le schéma du vérificateur ne change pas au sens de sa
+forme de sortie, mais `naviguer_guide.md` change : les fixtures LLM sont indexées par une **empreinte
+de la requête**, donc les sept fixtures qui portent ce préfixe ont été **ré-enregistrées** en live
+(`tests/test_pipeline_live.py`, `tests/test_langues_live.py`). Le certificat Baloise
+(`tests/test_parsing_baloise.py`) épingle les empreintes de l'artefact de gate, pas celles du code
+courant : **rien à ré-épingler**, et il est vert.
+
+### Dette déclarée : les trois gates, reconduits
+
+`server/`, `steps/`, `domain/`, `api/`, `config.py` et un prompt changent : `pipeline_digest` passe
+à `bc36e9c2…`, `prompts_digest` à `144b786d…`. AD-7 sert donc les documents avec `gate_perime` tant
+que le re-gate live n'est pas fait ; il revient à l'orchestrateur, `data/.publie` n'a pas été touché.
+
+- gate-a-relancer: lux-guide pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
