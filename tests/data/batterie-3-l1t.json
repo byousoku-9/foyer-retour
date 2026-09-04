@@ -1,0 +1,201 @@
+{
+  "source": "automation/runs/20260903-lisibilite/batterie-3 — batterie du 03/09/2026, corpus AXA",
+  "doc_id": "axa-lu-optihome-2017",
+  "cas": [
+    {
+      "nom": "s10-intention",
+      "verdict_observe": "non_couvert",
+      "ask_client_observe": [
+        "Quelles options et extensions ont été souscrites ?",
+        "Que prévoient les conditions particulières (montants, franchises, biens désignés) ?",
+        "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.1 Incendie et périls assimilés » ?",
+        "Fait à établir auprès du client : faute intentionnelle ou dolosive de l'assuré"
+      ],
+      "faits_observes": [
+        "faute intentionnelle ou dolosive de l'assuré"
+      ],
+      "questions_de_trop": [
+        "Fait à établir auprès du client : faute intentionnelle ou dolosive de l'assuré"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:6",
+            "axa-lu-optihome-2017:p34:7"
+          ],
+          "applicable": "oui",
+          "rattache": true,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c2",
+          "blocs": [
+            "axa-lu-optihome-2017:p22:5"
+          ],
+          "applicable": "oui",
+          "rattache": true,
+          "fait_manquant": "faute intentionnelle ou dolosive de l'assuré",
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p22:4"
+          ],
+          "applicable": null,
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        }
+      ]
+    },
+    {
+      "nom": "s03-velo",
+      "verdict_observe": "non_couvert",
+      "ask_client_observe": [
+        "Quelles options et extensions ont été souscrites ? Une clause citée ne joue qu'à cette condition.",
+        "Que prévoient les conditions particulières (montants, franchises, biens désignés) ? Une clause citée y renvoie.",
+        "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
+        "Fait à établir auprès du client : localisation du vol dans une zone visée (cour, jardin, couloir, passage d'accès, dépendance)"
+      ],
+      "faits_observes": [
+        "localisation du vol dans une zone visée (cour, jardin, couloir, passage d'accès, dépendance)"
+      ],
+      "questions_de_trop": [
+        "Fait à établir auprès du client : localisation du vol dans une zone visée (cour, jardin, couloir, passage d'accès, dépendance)"
+      ],
+      "claims": [
+        {
+          "claim_id": "c2",
+          "blocs": [
+            "axa-lu-optihome-2017:p40:13"
+          ],
+          "applicable": "non",
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": true,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p40:8"
+          ],
+          "applicable": "humain",
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": true
+        },
+        {
+          "claim_id": "c4",
+          "blocs": [
+            "axa-lu-optihome-2017:p41:9",
+            "axa-lu-optihome-2017:p41:2"
+          ],
+          "applicable": "oui",
+          "rattache": true,
+          "fait_manquant": "localisation du vol dans une zone visée (cour, jardin, couloir, passage d'accès, dépendance)",
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c5",
+          "blocs": [
+            "axa-lu-optihome-2017:p41:3",
+            "axa-lu-optihome-2017:p41:2"
+          ],
+          "applicable": "non",
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        }
+      ]
+    },
+    {
+      "nom": "s11-bijoux",
+      "verdict_observe": "non_couvert",
+      "ask_client_observe": [
+        "Quelles options et extensions ont été souscrites ?",
+        "Que prévoient les conditions particulières (montants, franchises, biens désignés) ?",
+        "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.6 Vol » ?",
+        "Fait à établir auprès du client : dépôt de plainte auprès des autorités judiciaires ou policières"
+      ],
+      "faits_observes": [
+        "dépôt de plainte auprès des autorités judiciaires ou policières"
+      ],
+      "questions_de_trop": [
+        "Fait à établir auprès du client : dépôt de plainte auprès des autorités judiciaires ou policières",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.6 Vol » ?"
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "blocs": [
+            "axa-lu-optihome-2017:p40:11"
+          ],
+          "applicable": "oui",
+          "rattache": true,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c2",
+          "blocs": [
+            "axa-lu-optihome-2017:p40:10"
+          ],
+          "applicable": "humain",
+          "rattache": false,
+          "fait_manquant": "dépôt de plainte auprès des autorités judiciaires ou policières",
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p41:3",
+            "axa-lu-optihome-2017:p41:2"
+          ],
+          "applicable": "oui",
+          "rattache": true,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c5",
+          "blocs": [
+            "axa-lu-optihome-2017:p41:5",
+            "axa-lu-optihome-2017:p41:11",
+            "axa-lu-optihome-2017:p41:2"
+          ],
+          "applicable": "non",
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        },
+        {
+          "claim_id": "c6",
+          "blocs": [
+            "axa-lu-optihome-2017:p22:5"
+          ],
+          "applicable": "non",
+          "rattache": false,
+          "fait_manquant": null,
+          "option_requise": false,
+          "cp_requise": false
+        }
+      ]
+    }
+  ]
+}

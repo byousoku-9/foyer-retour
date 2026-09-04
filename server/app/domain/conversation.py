@@ -23,6 +23,8 @@ from .verdict import (
     applicabilites_des_claims,
     conditions_de_section_ouvertes,
     decider,
+    exclusion_decisive,
+    faits_etablis_par_rattachement,
     fusionner_faits,
     meme_fait,
     question_de_fait_exige,
@@ -341,8 +343,16 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
     retenues = [claim for claim in claims if claim.retenue]
     etat = {claim_id: value for claim_id, (value, _reason)
             in applicabilites_des_claims(retenues).items()}
-    ouvertes = {condition.block_id: condition
-                for condition in conditions_de_section_ouvertes(retenues, etat=etat)}
+    # Story 5.7 (L1t) : le fil pose les mêmes questions que le verdict, il doit donc les taire pour
+    # les mêmes raisons. Une exclusion qui conclut rend sans objet les conditions de la garantie
+    # qu'elle écarte — la condition de section comprise, qui redevient alors la question de dossier
+    # sur les conditions particulières —, et un fait qu'un rattachement retenu a établi n'est plus
+    # demandé à personne. Sans ce miroir, `ask_client` se taisait et le fil reposait la question.
+    decisive = exclusion_decisive(retenues, etat=etat)
+    etablis = faits_etablis_par_rattachement(retenues, etat=etat)
+    ouvertes = ({} if decisive is not None else
+                {condition.block_id: condition
+                 for condition in conditions_de_section_ouvertes(retenues, etat=etat)})
     paquet_typees = questions_du_paquet_typees(retenues, verdict.missing)
     paquet = dict(paquet_typees)
     candidates: list[tuple[int, QuestionKind, str, str, str | None, str | None]] = []
@@ -350,12 +360,13 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
     for claim in claims:
         if claim.champs is None or etat.get(claim.claim_id) == "non":
             continue
+        if decisive is not None and claim.claim_id != decisive.claim_id:
+            continue
         champs = claim.champs
-        if (champs.fait_manquant or "").strip():
-            exiges.append((claim, champs.fait_manquant.strip()))
-        for quality in champs.qualites_non_etablies:
-            if quality.strip():
-                exiges.append((claim, quality.strip()))
+        for libelle in ((champs.fait_manquant or ""), *champs.qualites_non_etablies):
+            texte = libelle.strip()
+            if texte and not any(meme_fait(texte, etabli) for etabli in etablis):
+                exiges.append((claim, texte))
         if champs.option_requise:
             candidates.append((RANG_PAQUET_CONTRACTUEL, "option",
                                paquet.get("option", QUESTION_OPTION),

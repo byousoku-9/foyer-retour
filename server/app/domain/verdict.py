@@ -551,7 +551,64 @@ def meme_fait(un: str, autre: str) -> bool:
     return len(fusionner_faits([un, autre])) == 1
 
 
-def _libelles_manquants(claims: list[ClaimJugee], *, etat: dict[str, Applicable], place: int) -> list[str]:
+def faits_etablis_par_rattachement(claims: list[ClaimJugee], *,
+                                   etat: dict[str, Applicable | None]) -> list[str]:
+    """Les faits qu'un rattachement retenu a **établis** : ils ne se demandent plus (story 5.7, L1t).
+
+    Story 5.7 (L1r) a donné à la table une règle (3bis) : une exclusion dont le rattachement, jugé
+    soutenu, énonce un fait présent dans la déclaration vaut `oui`, et « aucun champ typé ne rouvre
+    ce que la réponse affiche ». Le dossier, lui, continuait de lire ces mêmes champs : le
+    03/09/2026, `s10-intention` rendait « Exclu » en citant « le fait d'avoir mis le feu exprès est
+    une faute intentionnelle », et demandait dans la même page « Fait à établir auprès du client :
+    faute intentionnelle ou dolosive de l'assuré ». Le même verdict tenait le fait pour acquis et le
+    redemandait.
+
+    La règle est donc l'exact symétrique de (3bis), et elle est **générique** : quand le
+    rattachement d'une claim est soutenu (`fait_rattache`) et que la table en a tiré `oui`, ce que
+    cette claim déclarait manquant — le `fait_manquant` du modèle comme les `qualites_non_etablies`
+    calculées par le code — est établi. Un fait établi ne se demande à personne, ni au titre de la
+    clause qui l'a établi, ni au titre d'une autre qui l'exige dans d'autres termes : c'est
+    `meme_fait` qui reconnaît la seconde, la définition unique du système (L1b/L1k).
+
+    Le verrou est `etat == "oui"`, et il n'est pas décoratif : une garantie dont le rattachement est
+    soutenu mais dont une qualité exigée n'est pas établie reste `humain`, et ses questions restent
+    dues — le cas bougie garde les siennes. Rien ici n'établit une qualité que la table n'a pas déjà
+    tenue pour acquise.
+    """
+    etablis: list[str] = []
+    for claim in claims:
+        if claim.champs is None or not claim.fait_rattache or etat.get(claim.claim_id) != "oui":
+            continue
+        etablis += [(claim.champs.fait_manquant or "").strip(),
+                    *claim.champs.qualites_non_etablies]
+    return [libelle for libelle in etablis if libelle.strip()]
+
+
+def exclusion_decisive(claims: list[ClaimJugee], *,
+                       etat: dict[str, Applicable | None]) -> ClaimJugee | None:
+    """L'exclusion qui fonde `non_couvert` — règle (1) de la table, isolée pour être lue avant elle.
+
+    Story 5.7 (L1t). La table décidait, puis les questions étaient composées ; elles l'étaient donc
+    sans savoir que le verdict était `non_couvert`. `s11-bijoux` en montrait le prix le 03/09/2026 :
+    l'exclusion des vols simples s'appliquait, et le dossier demandait quand même le dépôt de plainte
+    et la souscription de la garantie vol — les deux conditions de la garantie que l'exclusion venait
+    d'écarter. Le calcul de la règle (1) vit donc ici, appelé par `decider` **avant** les questions
+    et **par** la table ensuite : une seule lecture, deux usages.
+
+    Sa définition ne bouge pas d'un mot : une exclusion affichée que la table tient pour `oui`, et
+    qui rencontre le cas — par sa portée déclarée (AD-2) ou par son rattachement aux faits (L1r).
+    """
+    cas = _noeuds_du_cas(claims)
+    for exclusion in claims:
+        if exclusion.kind != "exclusion" or etat.get(exclusion.claim_id) != "oui":
+            continue
+        if exclusion.fait_rattache or any(clause.portee & cas for clause in exclusion.clauses):
+            return exclusion
+    return None
+
+
+def _libelles_manquants(claims: list[ClaimJugee], *, etat: dict[str, Applicable], place: int,
+                        etablis: list[str] | None = None) -> list[str]:
     """Les faits que le dossier ne dit pas, côté clauses : dédupliqués, dans l'ordre, bornés (D8).
 
     Deux sources, du même appel groupé et de la même nature — ce que la clause exige et que les faits
@@ -577,17 +634,26 @@ def _libelles_manquants(claims: list[ClaimJugee], *, etat: dict[str, Applicable]
     établir : ce qu'elle exigeait est sans objet, et le demander donne au gestionnaire une piste que
     le verdict a déjà refermée. Le filtre est du code pur, postérieur à la réponse du modèle.
 
+    **Un fait déjà établi n'est pas un fait manquant** (story 5.7, L1t). `etablis` porte ce qu'un
+    rattachement retenu a établi (`faits_etablis_par_rattachement`) : le filtre est le même geste que
+    celui de la claim écartée, un cran plus tôt — la clause vise bien le cas, et ce qu'elle exigeait
+    est déjà là. La reconnaissance passe par `meme_fait`, jamais par l'égalité de chaînes : une autre
+    clause qui exige la même chose dans d'autres termes ne doit pas rouvrir ce que celle-ci a fermé.
+
     La déduplication, elle, ne peut plus être l'égalité de chaînes : les libellés viennent de deux
     sources et de plusieurs claims, et la même exigence s'y écrit de plusieurs façons
     (`_fusionner_par_qualificatif`).
     """
+    acquis = [libelle for libelle in (etablis or []) if libelle.strip()]
     libelles: list[str] = []
     for claim in claims:
         if claim.champs is None or etat.get(claim.claim_id) == "non":
             continue
         libelles += [(claim.champs.fait_manquant or "").strip(),
                      *claim.champs.qualites_non_etablies]
-    return _fusionner_par_qualificatif(libelles)[:max(place, 0)]
+    retenus = [libelle for libelle in _fusionner_par_qualificatif(libelles)
+               if not any(meme_fait(libelle, etabli) for etabli in acquis)]
+    return retenus[:max(place, 0)]
 
 
 def _qualites_a_confirmer(claims: list[ClaimJugee], *, deja: list[str]) -> list[str]:
@@ -926,6 +992,16 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
           portée par une affirmation retenue** ⇒ `couvert` ;
     (4)   sinon ⇒ `ne_tranche_pas`.
 
+    **Ce que le verdict laisse encore à demander (story 5.7, L1t).** La table décidait, et les
+    questions étaient composées avant elle, donc sans elle. Un dossier `non_couvert` posait alors les
+    conditions de la garantie que l'exclusion venait d'écarter — le dépôt de plainte, la souscription
+    de la garantie vol —, questions auxquelles aucune réponse ne pouvait rien rouvrir. La règle (1)
+    est donc calculée d'abord (`exclusion_decisive`) : quand elle tient, les seules questions dues
+    sont celles qui pourraient **renverser** le verdict — celles de l'exclusion qui le fonde — plus le
+    paquet contractuel, dû quel que soit le verdict parce qu'il dit ce que la lecture n'a pas lu. Et
+    ce qu'un rattachement retenu a établi n'est plus demandé nulle part
+    (`faits_etablis_par_rattachement`), quel que soit le verdict.
+
     **La condition d'applicabilité de la section (story 5.7, L1e).** La règle (3) lisait le socle sur
     le seul `Node.scope.kind`, et tenait donc « 3.1.4 Dégâts des eaux » pour acquise parce qu'elle est
     rangée sous « 3.1 Garanties de base » — alors que le contrat écrit en tête de cette section même
@@ -982,6 +1058,20 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
         # nominal ; les valeurs fournies ne sont pas complétées au hasard.
         resolutions = applicabilites_des_claims(retenues)
     etat = {claim_id: value for claim_id, (value, _reason) in resolutions.items()}
+    contradiction = any(c.contredit for c in retenues)
+    renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
+    fondatrices = [c for c in retenues if c.kind in KINDS_FONDATEURS]
+    # Story 5.7 (L1t) : la règle (1) est **lue avant les questions**, parce que c'est elle qui dit
+    # lesquelles ont encore un objet. Les questions restantes sont celles qui pourraient renverser le
+    # verdict — celles de l'exclusion qui le fonde, qu'un « non » contredirait — plus le paquet
+    # contractuel, dû quel que soit le verdict. Les conditions de la garantie écartée (le dépôt de
+    # plainte, la souscription de la garantie vol) ne sont plus posées : l'exclusion s'applique, elles
+    # n'ont plus d'objet, et y répondre ne pouvait rien rouvrir. Aucune règle antérieure n'est
+    # déplacée — l'exclusion décisive n'existe que si (0) et (0bis) ont laissé passer.
+    decisive = (None if contradiction or renvoi or not fondatrices
+                else exclusion_decisive(retenues, etat=etat))
+    interrogeables = [decisive] if decisive is not None else retenues
+    etablis = faits_etablis_par_rattachement(retenues, etat=etat)
     # Les questions du paquet manquant d'abord : elles ne dépendent d'aucune sortie du modèle et
     # elles sont dues quel que soit le verdict — mais seulement pour les pièces réellement absentes.
     # Ce qu'elles laissent de place borne alors les libellés du modèle, si bien que `missing.faits` et
@@ -993,17 +1083,18 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # `missing.faits` annonce, `ask_client` doit pouvoir le demander.
     sections_ouvertes = conditions_de_section_ouvertes(retenues, etat=etat)
     conditions_ouvertes = {condition.block_id for condition in sections_ouvertes}
-    questions_section = _questions_de_section(sections_ouvertes)
+    # L1t : elles restent lues par la table (`conditions_ouvertes`, règles 2 et 3) et ne sont plus
+    # **demandées** sous une exclusion qui conclut — la garantie qu'elles subordonnent est écartée.
+    questions_section = [] if decisive is not None else _questions_de_section(sections_ouvertes)
     manquants = _libelles_manquants(
-        retenues, etat=etat, place=ask_client_max - len(paquet) - len(questions_section))
+        interrogeables, etat=etat, place=ask_client_max - len(paquet) - len(questions_section),
+        etablis=etablis)
     missing_final = connu.model_copy(update={"faits": manquants})
     ask = (paquet
            + questions_section
            + [f"Fait à établir auprès du client : {libelle}" for libelle in manquants]
            + [f"Qualité exigée par une clause citée, à faire confirmer par le client : {libelle}"
-              for libelle in _qualites_a_confirmer(retenues, deja=manquants)])[:ask_client_max]
-    contradiction = any(c.contredit for c in retenues)
-    renvoi = any(c.renvoi_ouvert for c in retenues if c.clauses)
+              for libelle in _qualites_a_confirmer(interrogeables, deja=manquants)])[:ask_client_max]
     escalate = _escalades(retenues, contradiction=contradiction, renvoi=renvoi)
 
     def verdict(value: VerdictValue, reason: str,
@@ -1021,7 +1112,6 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
         return verdict("ne_tranche_pas", "Une clause décisionnelle renvoie à un passage que "
                                          "l'ingestion n'a pas résolu")
 
-    fondatrices = [c for c in retenues if c.kind in KINDS_FONDATEURS]
     if not fondatrices:
         if retenues:
             return verdict("ne_tranche_pas", "Des passages ont été retrouvés et affichés, mais "
@@ -1029,7 +1119,6 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
                                              "fondatrice")
         return verdict("ne_tranche_pas", "Aucun passage n'a été retenu et affiché")
 
-    exclusions = [c for c in retenues if c.kind == "exclusion"]
     garanties = [c for c in retenues if c.kind == "garantie"]
 
     # (1) — l'exclusion prime, à condition qu'elle couvre le cas : par sa portée déclarée (AD-2,
@@ -1041,12 +1130,13 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # batterie du 03/09/2026, y compris les exclusions communes du socle. Un rattachement soutenu qui
     # nomme un fait déclaré dans les mots de la clause dit la même chose que la portée, en plus
     # direct : cette clause-là a rencontré ce sinistre-là.
-    for exclusion in exclusions:
-        if etat[exclusion.claim_id] != "oui":
-            continue
-        cas = _noeuds_du_cas(retenues)
-        if exclusion.fait_rattache or any(clause.portee & cas for clause in exclusion.clauses):
-            return verdict("non_couvert", "Une exclusion applicable couvre le cas décrit")
+    #
+    # L1t : la raison le dit en clair. « Une exclusion applicable couvre le cas décrit » laissait le
+    # lecteur devant une page qui affichait « Exclu » et lui demandait au-dessous d'établir le dépôt
+    # de plainte : rien ne disait que ces conditions-là étaient devenues sans objet.
+    if decisive is not None:
+        return verdict("non_couvert", "Une exclusion applicable couvre le cas décrit : les "
+                                      "conditions de la garantie n'ont plus d'objet")
 
     ouvertes = [c for c in retenues
                 if c.kind in ("condition", "franchise", "exclusion") and etat[c.claim_id] == "humain"]

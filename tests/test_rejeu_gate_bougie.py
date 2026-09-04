@@ -14,7 +14,7 @@ import pytest
 
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
-from server.app.domain.verdict import applicable_de_claim
+from server.app.domain.verdict import applicable_de_claim, decider
 from server.app.steps.verifier import _mots_qualifiants
 from tests.rejeu_gate import rapport, rejouer, verdicts, verdicts_observes
 
@@ -113,3 +113,23 @@ def test_l1p_ne_deplace_rien_sur_le_cas_bougie(corpus: Corpus) -> None:
     assert verdicts(RAPPORT, corpus=corpus, index=index) == ["ne_tranche_pas"] * 3
     assert verdicts(RAPPORT, corpus=corpus, index=index,
                     avant=frozenset({"L1p"})) == ["ne_tranche_pas"] * 3
+
+
+def test_l1t_ne_retire_aucune_qualite_au_cas_bougie(corpus: Corpus) -> None:
+    """Contre-épreuve de L1t : un rattachement ne dispense pas une garantie de ses qualités.
+
+    L1t tait ce qu'un rattachement **retenu** a établi, et son verrou est `applicable = "oui"`. Le
+    cas bougie est exactement la borne : `p34:12` exige « soudain » et « subite », les faits ne les
+    disent pas, la claim vaut `humain` — et rien de ce que le rattachement affirmerait par ailleurs
+    ne referme cela. Les trois répétitions sont donc rejouées avec `fait_rattache` posé partout : les
+    verdicts ne bougent pas, et les deux qualités restent des questions au client.
+    """
+    index = Index(corpus)
+    for repetition in RAPPORT["repetitions"]:
+        _verdict, jugees = rejouer(repetition, corpus=corpus, index=index)
+        rattachees = [j.model_copy(update={"fait_rattache": True}) for j in jugees]
+        verdict = decider(rattachees, ask_client_max=8)
+        assert verdict.value == "ne_tranche_pas"
+        assert any(ITEM in claim["blocs"] for claim in repetition["claims"])
+        demandes = " ".join(verdict.missing.faits)
+        assert set(_mots_qualifiants(demandes)) >= {"soudain", "subit"}, verdict.missing.faits
