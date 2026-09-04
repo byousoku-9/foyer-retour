@@ -2287,22 +2287,55 @@ def test_lamorce_ne_se_fond_que_si_les_trois_conditions_tiennent(cas: dict[str, 
 
     Une fusion devinée est plus grave que la carte de trop qu'elle évite : elle rangerait un appui
     distinct sous un autre, sous un verdict. Le cas fait donc varier **un seul point à la fois** —
-    l'affirmation, l'adjacence des blocs, le chemin, ce qui atteste que le bloc en appelle un
-    autre — et n'accepte la fusion que quand les trois tiennent ensemble.
+    l'affirmation, le nœud, ce qui atteste que le bloc en appelle un autre, l'ordre du document.
+
+    Story 5.6 (L2e) : l'adjacence `n → n+1` n'en fait plus partie. Le contrat introduit une
+    *section* (« Ne sont pas assurés, les dommages causés : ») et ses items sont des nœuds enfants,
+    plusieurs blocs plus loin — les exiger voisins faisait une carte de plus par item.
     """
     vu = cas["l2d_amorce"]
     assert vu["fondue"] == {
         "cartes": 1,
         "amorces": ["La Compagnie assure les biens désignés c'est-à-dire :"],
         "blocs": [["cg-mini:p9:2", "cg-mini:p9:3"]]}
+    # Un bloc sauté, puis un nœud enfant sur une autre page : la fusion tient dans les deux cas.
+    assert vu["distants"]["blocs"] == [["cg-mini:p9:2", "cg-mini:p9:5"]]
+    assert vu["noeud_enfant"]["blocs"] == [["cg-mini:p9:2", "cg-mini:p10:4"]]
+    for fondu in ("distants", "noeud_enfant"):
+        assert vu[fondu]["cartes"] == 1, fondu
+        assert vu[fondu]["amorces"] == [
+            "La Compagnie assure les biens désignés c'est-à-dire :"], fondu
     # « contexte » est ce que le moteur dit d'un bloc qui n'est pas décisif seul : il vaut le
     # deux-points, et une amorce sans ponctuation d'appel se fond quand même.
     assert vu["statut_contexte"]["cartes"] == 1
     assert vu["statut_contexte"]["blocs"] == [["cg-mini:p9:2", "cg-mini:p9:3"]]
-    for garde in ("claims_differentes", "non_adjacents", "chemin_different", "sans_appel"):
+    # Et les quatre gardes tiennent : une autre affirmation, un autre nœud, rien qui appelle une
+    # suite, ou un item que l'amorce ne peut pas annoncer parce qu'il la précède dans le contrat.
+    for garde in ("claims_differentes", "chemin_different", "sans_appel", "item_avant_lamorce"):
         assert vu[garde]["cartes"] == 2, garde
         assert vu[garde]["amorces"] == [], garde
         assert all(len(b) == 1 for b in vu[garde]["blocs"]), garde
+
+
+def test_une_amorce_partagee_se_fond_dans_chacun_de_ses_items(cas: dict[str, Any]) -> None:
+    """Le défaut lu sur le vrai serveur le 03/09 : huit cartes pour cinq appuis.
+
+    Le contrat n'introduit ses exclusions qu'une fois — « Ne sont pas assurés, les dommages
+    causés : », nœud `3.1.4.2 Exclusions` — et les trois exclusions citées sont des nœuds enfants.
+    Le moteur cite donc **le même bloc** sous trois affirmations ; la page en faisait trois cartes
+    de plus, chacune sans un mot à elle, portant la phrase en clair de sa voisine.
+    """
+    vu = cas["l2e_amorce_partagee"]
+    assert vu["sources"] == 8 and vu["cartes"] == 5
+    # L'amorce partagée se lit une fois par exclusion, au-dessus du paragraphe qu'elle ouvre.
+    assert vu["amorces"] == ["Ne sont pas assurés, les dommages causés :"] * 3
+    # Les deux garanties gardent leur carte, et chaque exclusion ouvre **les deux** blocs.
+    assert vu["blocs"] == [
+        ["cg-mini:p37:13"],
+        ["cg-mini:p38:2"],
+        ["cg-mini:p38:5", "cg-mini:p38:6"],
+        ["cg-mini:p38:5", "cg-mini:p38:12"],
+        ["cg-mini:p38:5", "cg-mini:p38:17"]]
 
 
 def test_le_titre_de_la_reponse_est_la_phrase_qui_repond_pas_la_condition(

@@ -642,7 +642,7 @@
     return out;
   }
 
-  // ---------- l'amorce d'une énumération (story 5.6, L2d) ----------
+  // ---------- l'amorce d'une énumération (story 5.6, L2d puis L2e) ----------
   //
   // Le contrat écrit ses garanties en deux blocs : une phrase qui **appelle** la liste (« La
   // Compagnie assure les biens désignés contre les dégâts des eaux c'est-à-dire : ») puis les items
@@ -650,21 +650,37 @@
   // deux cartes — même chemin, même phrase en clair, deux boutons « Voir la page ». Le lecteur y
   // lisait deux appuis là où il n'y en a qu'un, coupé en son milieu par le PDF.
   //
-  // L'amorce se reconnaît sans deviner, et les trois conditions sont exigées ensemble :
+  // L2d exigeait l'adjacence `n → n+1` et l'égalité des chemins. Le parcours de production du
+  // 03/09 (`automation/runs/.../parcours/sinistre-tour0.txt`) montre que c'est trop étroit : les
+  // exclusions du contrat AXA sont introduites une seule fois — « Ne sont pas assurés, les dommages
+  // causés : », nœud `3.1.4.2 Exclusions` — et **chaque** exclusion citée (3.1.4.2.2, .8, .13) est
+  // un nœud enfant, séparé de l'amorce par plusieurs blocs. La même amorce faisait donc trois
+  // cartes de plus, sans un mot à elle : huit cartes pour cinq appuis.
+  //
+  // La règle est celle du contrat, pas celle de la mise en page : une amorce se fond dans le
+  // **premier item cité de la même affirmation qui la suit dans son nœud**. Trois conditions, toutes
+  // nécessaires :
   //   1. **la même affirmation** — deux blocs qu'aucune claim ne réunit ne se fondent jamais ;
-  //   2. **le bloc immédiatement précédent du même chemin** — même document, même page, rang `n`
-  //      puis `n + 1`, et le même intitulé de section : c'est l'adjacence typographique du PDF ;
+  //   2. **le même nœud** — même document, et le chemin de l'amorce ouvre celui de l'item (égal, ou
+  //      son préfixe : l'item est dans la section que l'amorce introduit). Une autre section n'est
+  //      jamais annoncée par cette amorce ;
   //   3. **un texte qui appelle une suite** — il finit par « : », ou le moteur l'a publié en
   //      `status: "contexte"`, ce qui est exactement ce qu'il dit d'un bloc qui n'est pas décisif
   //      par lui-même.
   //
-  // Faute d'une seule des trois, les deux clauses restent deux cartes : une fusion devinée
-  // masquerait un appui distinct sous un autre.
+  // Faute d'une seule des trois, l'amorce **reste une carte** : elle est un passage relu du contrat,
+  // et une citation qui s'évapore est pire qu'une carte de trop. C'est aussi le sort d'une amorce
+  // dont aucun item cité ne suit — l'écran garde ce que la vérification a relu.
   var RE_BLOC_ID = /^(.+):p(\d+):(\d+)$/;
 
   function reperesBloc(id) {
     var m = RE_BLOC_ID.exec(String(id || ""));
-    return m ? { doc: m[1], page: m[2], rang: Number(m[3]) } : null;
+    return m ? { doc: m[1], page: Number(m[2]), rang: Number(m[3]) } : null;
+  }
+
+  function cheminSegments(src) {
+    return tableau(src && src.chemin).map(function (t) { return String(t || "").trim(); })
+      .filter(function (t) { return t; });
   }
 
   function cheminJoint(src) {
@@ -678,30 +694,68 @@
     return String(brut || "").replace(/\s+/g, " ").trim();
   }
 
-  // `memeClaim` : `true` quand l'appelant tient déjà les deux clauses **d'une même affirmation** —
-  // l'appariement positionnel les groupe par claim sans que les sources portent un `claim_id`.
-  function estAmorce(amorce, item, memeClaim) {
-    if (!estObjetPlat(amorce) || !estObjetPlat(item)) return false;
-    if (memeClaim !== true && (!amorce.claim_id || amorce.claim_id !== item.claim_id)) return false;
-    var a = reperesBloc(amorce.block_id);
-    var b = reperesBloc(item.block_id);
-    if (!a || !b || a.doc !== b.doc || a.page !== b.page || a.rang + 1 !== b.rang) return false;
-    if (cheminJoint(amorce) !== cheminJoint(item)) return false;
-    return /:$/.test(texteDeBloc(amorce)) || amorce.status === "contexte";
+  /** Le bloc appelle-t-il une suite ? Sa ponctuation le dit, ou le moteur l'a dit lui-même. */
+  function estAmorce(src) {
+    if (!estObjetPlat(src)) return false;
+    return /:$/.test(texteDeBloc(src)) || src.status === "contexte";
+  }
+
+  /** Le nœud de l'amorce contient-il celui de l'item ? Chemin égal, ou préfixe strict. */
+  function ouvreLeNoeud(amorce, item) {
+    var a = cheminSegments(amorce);
+    var b = cheminSegments(item);
+    if (!a.length || a.length > b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  /** `b` vient-il après `a` dans le document ? Même PDF, page puis rang — l'ordre de lecture. */
+  function suitDansLeDocument(a, b) {
+    var x = reperesBloc(a && a.block_id);
+    var y = reperesBloc(b && b.block_id);
+    if (!x || !y || x.doc !== y.doc) return false;
+    return y.page > x.page || (y.page === x.page && y.rang > x.rang);
   }
 
   /**
-   * La citation **principale** d'une affirmation : la première qui n'est pas l'amorce de la
-   * suivante. Une amorce annonce ce que dit le bloc d'après ; c'est le bloc d'après qui porte ce
-   * que le contrat prévoit, et donc le `kind` sur lequel se décide ce qui répond.
+   * L'item dans lequel une amorce se fond, ou `null`.
+   *
+   * `memeClaim` vaut `true` quand l'appelant tient déjà des clauses **d'une même affirmation** —
+   * l'appariement positionnel les groupe par claim sans que les sources portent un `claim_id`.
+   * `exclus` porte les rangs déjà pris : un item ne fond qu'une amorce, et une amorce ne se fond
+   * jamais dans une autre amorce — la chaîne s'arrête à un cran.
+   */
+  function itemDeLAmorce(entrees, rang, memeClaim, exclus) {
+    var amorce = entrees[rang].src;
+    var choisi = -1;
+    for (var j = 0; j < entrees.length; j++) {
+      if (j === rang || exclus[j]) continue;
+      var item = entrees[j].src;
+      if (estAmorce(item)) continue;
+      if (memeClaim !== true && (!amorce.claim_id || amorce.claim_id !== item.claim_id)) continue;
+      if (!suitDansLeDocument(amorce, item)) continue;
+      if (!ouvreLeNoeud(amorce, item)) continue;
+      if (choisi < 0 || suitDansLeDocument(item, entrees[choisi].src)) choisi = j;
+    }
+    return choisi;
+  }
+
+  /**
+   * La citation **principale** d'une affirmation : la première qui n'est pas une amorce fondue.
+   * Une amorce annonce ce que dit un bloc plus loin ; c'est ce bloc-là qui porte ce que le contrat
+   * prévoit, et donc le `kind` sur lequel se décide ce qui répond.
    */
   function citationPrincipale(clauses) {
     var liste = tableau(clauses);
+    var entrees = liste.map(function (s) { return { src: s }; });
+    var vides = Object.create(null);
     for (var i = 0; i < liste.length; i++) {
-      if (i + 1 < liste.length && estAmorce(liste[i], liste[i + 1], true)) continue;
+      if (estAmorce(liste[i]) && itemDeLAmorce(entrees, i, true, vides) >= 0) continue;
       return liste[i];
     }
-    return null;
+    return liste.length ? liste[0] : null;
   }
 
   /**
@@ -1880,33 +1934,35 @@
   }
 
   /**
-   * Story 5.6 (L2d) — l'amorce se fond dans la carte de son item.
+   * Story 5.6 (L2d, élargi en L2e) — l'amorce se fond dans la carte de son item.
    *
-   * Les entrées sont dans l'ordre de `sources[]`, donc une amorce précède **immédiatement** l'item
-   * qu'elle annonce : la reconnaître ici suffit, il n'y a rien à réordonner. La carte de l'item
-   * porte alors l'amorce en petite ligne au-dessus de son paragraphe, et une seule fois le reste —
-   * une phrase en clair, un statut, un bouton « Voir la page » qui ouvre les **deux** blocs.
+   * L'item n'est pas forcément le bloc suivant : le contrat introduit une section entière d'une
+   * seule phrase, et les items cités en sont des nœuds enfants, plusieurs blocs plus loin. La
+   * fusion se décide donc sur le **document**, pas sur le rang dans `sources[]` — la carte reste à
+   * la place de son item, et l'amorce vient en petite ligne au-dessus de son paragraphe, avec une
+   * seule fois le reste : une phrase en clair, un statut, un bouton « Voir la page » qui ouvre les
+   * **deux** blocs.
    *
    * Une amorce dont le texte en clair est vide n'est jamais fondue : elle disparaîtrait de l'écran
-   * sans que rien ne la reprenne, et une citation qui s'évapore est pire qu'une carte de trop.
-   * Une amorce déjà porteuse d'une amorce ne se fond pas non plus — la chaîne s'arrête à un cran.
+   * sans que rien ne la reprenne, et une citation qui s'évapore est pire qu'une carte de trop. Un
+   * item ne porte qu'une amorce, et une amorce ne se fond pas dans une autre — la chaîne s'arrête
+   * à un cran, deux amorces qui se suivent restent deux cartes.
    */
   function fondreAmorces(entrees, memeClaim) {
-    var out = [];
+    var pris = Object.create(null);
+    var fondues = Object.create(null);
     for (var i = 0; i < entrees.length; i++) {
-      var e = entrees[i];
-      var suivante = entrees[i + 1];
-      if (suivante && !e.amorce && estAmorce(e.src, suivante.src, memeClaim === true)) {
-        var texte = enClair(texteDeBloc(e.src));
-        if (texte) {
-          suivante.amorce = e.src;
-          suivante.amorceTexte = texte;
-          continue;
-        }
-      }
-      out.push(e);
+      if (!estAmorce(entrees[i].src)) continue;
+      var texte = enClair(texteDeBloc(entrees[i].src));
+      if (!texte) continue;
+      var cible = itemDeLAmorce(entrees, i, memeClaim, pris);
+      if (cible < 0) continue;
+      entrees[cible].amorce = entrees[i].src;
+      entrees[cible].amorceTexte = texte;
+      pris[cible] = true;
+      fondues[i] = true;
     }
-    return out;
+    return entrees.filter(function (e, k) { return !fondues[k]; });
   }
 
   function appuisDe(reponse) {

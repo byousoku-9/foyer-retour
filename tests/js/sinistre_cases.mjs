@@ -606,12 +606,20 @@ async function main() {
         fondue: releve(AMORCE, ITEM, true),
         // Deux affirmations distinctes : deux appuis, quoi qu'en dise la mise en page du PDF.
         claims_differentes: releve(AMORCE, ITEM, false),
-        // Un bloc sauté : l'adjacence typographique n'est plus établie.
-        non_adjacents: releve(AMORCE, bloc("cg-mini:p9:5", "• l'écoulement de l'eau ;"), true),
-        // Une autre section : le PDF ne les enchaîne pas.
+        // Story 5.6 (L2e) — l'adjacence n'est plus exigée : le contrat introduit une section, pas
+        // le bloc suivant. Un bloc sauté, même page, même chemin : la fusion tient.
+        distants: releve(AMORCE, bloc("cg-mini:p9:5", "• l'écoulement de l'eau ;"), true),
+        // Le cas du parcours de production : l'item est un **nœud enfant** de celui de l'amorce,
+        // plusieurs blocs plus loin, et sur une autre page. C'est le même appui.
+        noeud_enfant: releve(AMORCE, bloc("cg-mini:p10:4", "• l'écoulement de l'eau ;", {
+          chemin: CHEMIN.concat(["3.1.4.2.2 aux conduites"]) }), true),
+        // Une autre section : ce que l'amorce annonce n'est pas dans son nœud.
         chemin_different: releve(
           Object.assign({}, AMORCE, { chemin: ["3 L'assurance des biens", "3.1.9 Frais annexes"] }),
           ITEM, true),
+        // L'item **précède** l'amorce dans le contrat : elle n'annonce pas ce qui est déjà écrit,
+        // et aucun autre item cité ne la suit. Elle reste une carte, avec sa citation.
+        item_avant_lamorce: releve(AMORCE, bloc("cg-mini:p9:1", "• l'écoulement de l'eau ;"), true),
         // Ni « : » ni « contexte » : rien n'atteste que ce bloc en appelle un autre.
         sans_appel: releve(bloc("cg-mini:p9:2", "La Compagnie assure les biens désignés."),
                            ITEM, true),
@@ -620,6 +628,70 @@ async function main() {
           bloc("cg-mini:p9:2", "La Compagnie assure les biens désignés.", { status: "contexte" }),
           ITEM, true),
       };
+
+      // Story 5.6 (L2e) — la forme exacte du parcours de production du 03/09 : **une** amorce
+      // (« Ne sont pas assurés, les dommages causés : », nœud `3.1.4.2 Exclusions`) citée par trois
+      // affirmations, chacune avec son exclusion, un nœud enfant plus loin. L'écran montrait huit
+      // cartes pour cinq appuis, dont trois fois la même amorce sans un mot à elle.
+      {
+        const EXCL = ["3 L'assurance des biens", "3.1.4 Dégâts des eaux", "3.1.4.2 Exclusions"];
+        function exclusion(id, texte, feuille) {
+          return clause(id, texte, { chemin: EXCL.concat([feuille]), texte_bloc: texte,
+                                     kind: "exclusion" });
+        }
+        const amorce = clause("cg-mini:p38:5", "Ne sont pas assurés, les dommages causés :",
+                              { chemin: EXCL, texte_bloc: "Ne sont pas assurés, les dommages causés :",
+                                kind: "exclusion" });
+        const items = [
+          exclusion("cg-mini:p38:6", "3.1.4.2.2 aux conduites, aux installations et appareils "
+                    + "hydrauliques ;", "3.1.4.2.2 aux conduites"),
+          exclusion("cg-mini:p38:12", "3.1.4.2.8 par les dommages causés par un objet non relié à "
+                    + "l'installation hydraulique ;", "3.1.4.2.8 par un objet non relié"),
+          exclusion("cg-mini:p38:17", "3.1.4.2.13 par un défaut de réparation ou d'entretien ;",
+                    "3.1.4.2.13 par un défaut de réparation"),
+        ];
+        const garanties = [
+          clause("cg-mini:p37:13", "La Compagnie assure les biens désignés contre les dégâts des eaux.",
+                 { chemin: ["3 L'assurance des biens", "3.1.4 Dégâts des eaux",
+                            "3.1.4.1 Etendue de la garantie"],
+                   texte_bloc: "La Compagnie assure les biens désignés contre les dégâts des eaux." }),
+          clause("cg-mini:p38:2", "La perte d'eau est prise en charge à concurrence de 1.000 €.",
+                 { chemin: ["3 L'assurance des biens", "3.1.4 Dégâts des eaux",
+                            "3.1.4.1 Etendue de la garantie"],
+                   texte_bloc: "La perte d'eau est prise en charge à concurrence de 1.000 €." }),
+        ];
+        const r = reponseVerdict();
+        r.answer.rejected_claims = [];
+        r.answer.segments = [];
+        r.answer.claims = [];
+        r.sources = [];
+        garanties.forEach((g, i) => {
+          const id = "g" + (i + 1);
+          r.answer.claims.push(claim(id, "Garantie " + (i + 1) + ".", [g.block_id], STATUT_OUI));
+          r.answer.segments.push({ text: "Garantie " + (i + 1) + ".", kind: "factuel",
+                                   claim_ids: [id] });
+          r.sources.push(Object.assign({}, g, { claim_id: id }));
+        });
+        // L'amorce est citée **après** son item dans `sources[]`, exactement comme la route l'a
+        // rendue : c'est l'ordre du document qui décide, pas celui de l'énumération.
+        items.forEach((item, i) => {
+          const id = "e" + (i + 1);
+          r.answer.claims.push(claim(id, "Exclusion " + (i + 1) + ".",
+                                     [item.block_id, amorce.block_id], STATUT_OUI));
+          r.answer.segments.push({ text: "Exclusion " + (i + 1) + ".", kind: "factuel",
+                                   claim_ids: [id] });
+          r.sources.push(Object.assign({}, item, { claim_id: id }));
+          r.sources.push(Object.assign({}, amorce, { claim_id: id }));
+        });
+        const vue = SINISTRE.vueVerdict(r, { doc_id: DOC_ID });
+        cas.l2e_amorce_partagee = {
+          sources: r.sources.length,
+          cartes: aplatirVue(vue).filter((n) => premiereClasse(n) === "appui").length,
+          amorces: textesDe(vue, "appui-amorce"),
+          blocs: aplatirVue(vue).filter((n) => n.cls === "cl-ouvrir")
+            .map((n) => JSON.parse(n.attrs["data-block-ids"])),
+        };
+      }
     }
     {
       const vueQ = SINISTRE.vueVerdict(conversation, { doc_id: DOC_ID });
