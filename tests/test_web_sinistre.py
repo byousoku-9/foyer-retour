@@ -1794,7 +1794,8 @@ def test_apres_une_reponse_le_bloc_1_dit_le_recalcul_et_garde_la_reponse_lisible
     assert vu["tete"] == ["Verdict mis à jour avec vos réponses"]
     # Seuls les faits que l'assuré a apportés : ceux extraits de sa description sont déjà dits par
     # « Ce que j'ai compris du sinistre ».
-    assert vu["faits"] == ["caractère subit : oui"]
+    # Story 5.6 (L2f) : la **question telle qu'elle a été posée**, pas sa clé de fait.
+    assert vu["faits"] == ["Le caractère subit est-il établi ? — oui"]
     assert vu["corriger"] == [["Corriger", "f-r"]]
     assert vu["phrase"] == ["La garantie vise l'action subite de la chaleur."]
     assert vu["suite"] == ["Une condition reste ouverte."]
@@ -2522,7 +2523,8 @@ def test_un_fait_libre_se_lit_comme_une_precision_pas_comme_une_reponse(
     vu = rendus["sinistre-robinet-suivi"]["bloc1"]
     assert vu["maj_tete"] == ["Verdict mis à jour avec vos réponses"]
     assert vu["maj_faits"] == [
-        "garantie dégâts des eaux : oui",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ? "
+        "— oui",
         "Vous avez précisé : Le voisin du dessous a fait constater des dégâts sur son plafond "
         "pour 2 500 euros"]
 
@@ -2534,7 +2536,73 @@ def test_une_phrase_identique_nest_jamais_ecrite_deux_fois_dans_le_corps(
     mention = "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions."
     vu = rendus["sinistre-robinet-suivi"]["bloc1"]
     corps = " ".join([vu["phrase"]] + vu["explications"])
-    assert corps.count(mention) == 1
+    # Story 5.6 (L2f) : elle n'y est plus **du tout** — l'encart le dit au-dessus, et mieux. Le
+    # filtre des doublons de L2e reste en amont : le corps de ce dossier porte deux fois la même
+    # mention, et deux ne peuvent pas passer là où une ne passe pas.
+    assert corps.count(mention) == 0
     for nom in ("sinistre-couvert", "sinistre-sous-conditions", "sinistre-sans-clause",
                 "sinistre-robinet-reel", "sinistre-robinet-suivi"):
         assert rendus[nom]["bloc1"]["corps_sans_doublon"] is True, nom
+
+
+# =========================================================================
+# Story 5.6 (L2f) — trois finitions du parcours réel du 03/09 (candidat `bcaa9d0`,
+# transcriptions et captures dans `automation/runs/20260903-lisibilite/parcours2/`).
+#
+# Le parcours tient : question du robinet, « Oui » à la question des conditions particulières, fait
+# libre ; le verdict passe bien de « sous conditions » à « couvert » et le fait libre se lit
+# « Vous avez précisé : … ». Restent trois choses que l'écran disait mal :
+#
+#   1. l'encart de recalcul écrivait « conditions_particulieres:axa-lu-optihome-2017:p37:11 : oui »
+#      — la clé de fait du moteur, qui nomme un bloc du corpus, là où l'assuré cherche la question
+#      à laquelle il vient de répondre ;
+#   2. « Verdict mis à jour avec vos réponses, sans relire le contrat : couvert. » se lisait **en
+#      plus** dans le corps, alors que l'encart le dit au-dessus, avec les faits en prime ;
+#   3. « Quelles options et extensions ont été souscrites ? » était posée sous « Oui / Non / Je ne
+#      sais pas » : trois réponses dont aucune ne répond.
+#
+# `sinistre-robinet-suivi.json` porte désormais le dossier réel de ce tour 2 : la clé technique, la
+# question `repondue` qui l'a posée, la mention publiée en segment `limite` (deux fois, comme le
+# serveur l'accumulait), et les trois questions du paquet contractuel restées actives.
+# =========================================================================
+
+
+def test_une_reponse_se_lit_avec_la_question_telle_quelle_a_ete_posee(
+        rendus: dict[str, Any]) -> None:
+    """AC : le libellé de la question, puis la réponse. Jamais la clé de fait du moteur."""
+    vu = rendus["sinistre-robinet-suivi"]["bloc1"]
+    assert vu["maj_faits"][0] == (
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ? "
+        "— oui")
+    # Et la clé qui s'affichait en production n'est plus nulle part sur l'écran de la réponse.
+    assert not any("axa-lu-optihome-2017:p37:11" in ligne for ligne in vu["maj_faits"])
+
+
+def test_le_libelle_dun_fait_apporte_ne_retombe_jamais_sur_une_cle_technique(
+        cas: dict[str, Any]) -> None:
+    """Les trois chemins du libellé, et le repli quand il n'y en a aucun.
+
+    Par `question_id` ; par `fact_key` quand la question a été reposée sous un autre identifiant ;
+    par la clé elle-même quand le dossier ne publie plus la question — mais seulement si elle est
+    en clair. Une clé qui nomme un bloc du corpus (`document:pNN:MM`, le filtre technique de L2c)
+    est remplacée par ce qu'on sait d'elle avec certitude : qu'elle répond à une question.
+    """
+    assert cas["l2f_libelles"] == [
+        "Le caractère subit est-il établi ? — oui",       # retrouvée par `question_id`
+        "Une option a-t-elle été souscrite ? — Confort",  # retrouvée par `fact_key`
+        "caractère accidentel : oui",                     # aucune question : la clé, en clair
+        "Réponse à une question : oui"]                   # aucune question, et la clé est technique
+
+
+def test_la_mention_de_recalcul_ne_se_lit_pas_deux_fois_quand_lencart_est_la(
+        rendus: dict[str, Any]) -> None:
+    """L'encart dit le recalcul **et** les faits qui l'ont causé ; la mention n'en dit que la
+    conclusion. Quand l'encart est affiché, le corps ne la répète pas."""
+    vu = rendus["sinistre-robinet-suivi"]["bloc1"]
+    assert vu["maj_tete"] == ["Verdict mis à jour avec vos réponses"], "l'encart est bien là"
+    corps = " ".join([vu["phrase"]] + vu["explications"])
+    assert "Verdict mis à jour avec vos réponses, sans relire le contrat" not in corps
+    # Rien d'autre n'a quitté le corps : les phrases du contrat y sont toutes.
+    assert corps.startswith("Le contrat assure les biens désignés contre les dégâts des eaux")
+    assert "La garantie est étendue sans supplément de prime aux frais de recherche" in corps
+

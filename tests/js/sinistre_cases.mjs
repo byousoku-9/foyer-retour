@@ -828,6 +828,33 @@ async function main() {
       copie_echec: copieEchec,
     };
 
+    // Story 5.6 (L2f) — l'intitulé d'un fait apporté vient de la question qui l'a posé. Trois
+    // chemins : par `question_id`, par `fact_key` quand la question a été reposée sous un autre
+    // identifiant, et — quand le dossier n'en publie aucune — la clé, à condition qu'elle soit en
+    // clair. Une clé technique ne remonte jamais : c'est le défaut lu en production.
+    {
+      const orphelin = JSON.parse(JSON.stringify(conversation));
+      orphelin.conversation.turn = 1;
+      orphelin.conversation.facts.push(
+        { event_id: "f-id", key: "caractère subit", value: "oui", source: "reponse_client",
+          turn: 1, question_id: "q-1", replaces_event_id: null },
+        { event_id: "f-cle", key: "option_requise", value: "Confort", source: "reponse_client",
+          turn: 1, question_id: "q-disparue", replaces_event_id: null },
+        { event_id: "f-clair", key: "caractère accidentel", value: "oui",
+          source: "reponse_client", turn: 1, question_id: "q-inconnue",
+          replaces_event_id: null },
+        { event_id: "f-tech", key: "conditions_particulieres:axa-lu-optihome-2017:p37:11",
+          value: "oui", source: "reponse_client", turn: 1, question_id: "q-perdue",
+          replaces_event_id: null });
+      // La question qui portait `caractère accidentel` n'est plus publiée : sa clé est en clair et
+      // se lit telle quelle. Celle du fait technique non plus, et sa clé nomme un bloc du corpus.
+      orphelin.conversation.questions = orphelin.conversation.questions.filter(
+        (q) => q.question_id !== "q-2");
+      const bloc1 = aplatirVue(SINISTRE.vueVerdict(orphelin, { doc_id: DOC_ID }))
+        .filter((n) => premiereClasse(n) === "bloc")[0];
+      cas.l2f_libelles = textesDe(bloc1, "maj-fait-val");
+    }
+
     // Une réponse de l'ancienne vue est ignorée après qu'une nouvelle vue a été branchée.
     let resoudreAncienne;
     const anciennePromise = new Promise((resolve) => { resoudreAncienne = resolve; });

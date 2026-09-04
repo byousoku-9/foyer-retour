@@ -1,1554 +1,1574 @@
 {
- "answer": {
-  "found": true,
-  "complete": false,
-  "lang": "fr",
-  "lang_fallback": false,
-  "texte": "Faits compris — cause : oubli de fermeture d'un robinet ; puis événement : inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous. Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite. Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations. Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause. La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations. Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers. L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens. Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant. La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau. L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise. Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions. Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.",
-  "segments": [
-   {
-    "text": "Faits compris — cause : oubli de fermeture d'un robinet ; puis événement : inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous.",
-    "kind": "transition",
-    "claim_ids": []
-   },
-   {
-    "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c1"
-    ]
-   },
-   {
-    "text": "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c2"
-    ]
-   },
-   {
-    "text": "Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c2"
-    ]
-   },
-   {
-    "text": "La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c3"
-    ]
-   },
-   {
-    "text": "Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c4"
-    ]
-   },
-   {
-    "text": "L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c4"
-    ]
-   },
-   {
-    "text": "Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c5"
-    ]
-   },
-   {
-    "text": "La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c6"
-    ]
-   },
-   {
-    "text": "L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise.",
-    "kind": "factuel",
-    "claim_ids": [
-     "c6"
-    ]
-   },
-   {
-    "text": "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.",
-    "kind": "factuel",
-    "claim_ids": []
-   },
-   {
-    "text": "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.",
-    "kind": "factuel",
-    "claim_ids": []
-   }
-  ],
-  "claims": [
-   {
-    "claim_id": "c1",
-    "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite.",
-    "quotes": [
-     {
+  "answer": {
+    "found": true,
+    "complete": false,
+    "lang": "fr",
+    "lang_fallback": false,
+    "texte": "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.\n\nFaits compris — cause : oubli de fermeture d'un robinet ; puis événement : inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous. Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite. Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations. Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause. La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations. Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers. L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens. Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant. La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau. L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise.",
+    "segments": [
+      {
+        "text": "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.",
+        "kind": "limite",
+        "claim_ids": []
+      },
+      {
+        "text": "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions.",
+        "kind": "limite",
+        "claim_ids": []
+      },
+      {
+        "text": "Faits compris — cause : oubli de fermeture d'un robinet ; puis événement : inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous.",
+        "kind": "transition",
+        "claim_ids": []
+      },
+      {
+        "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c1"
+        ]
+      },
+      {
+        "text": "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c2"
+        ]
+      },
+      {
+        "text": "Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c2"
+        ]
+      },
+      {
+        "text": "La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c3"
+        ]
+      },
+      {
+        "text": "Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c4"
+        ]
+      },
+      {
+        "text": "L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c4"
+        ]
+      },
+      {
+        "text": "Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c5"
+        ]
+      },
+      {
+        "text": "La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c6"
+        ]
+      },
+      {
+        "text": "L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise.",
+        "kind": "factuel",
+        "claim_ids": [
+          "c6"
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "claim_id": "c1",
+        "text": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p37:11",
+            "quote": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite.",
+            "start": 0,
+            "end": 146,
+            "text_start": 0,
+            "text_end": 146,
+            "line_ids": [
+              "axa-lu-optihome-2017:p37:11:l1",
+              "axa-lu-optihome-2017:p37:11:l2"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 0,
+        "rattachement": null,
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "humain",
+          "applicable_reason": null,
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p37:11:l1",
+          "axa-lu-optihome-2017:p37:11:l2"
+        ]
+      },
+      {
+        "claim_id": "c2",
+        "text": "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p37:13",
+            "quote": "La Compagnie assure les biens désignés contre les dégâts des eaux c’est-à-dire :",
+            "start": 0,
+            "end": 80,
+            "text_start": 0,
+            "text_end": 80,
+            "line_ids": [
+              "axa-lu-optihome-2017:p37:13:l1"
+            ],
+            "contexte": false
+          },
+          {
+            "block_id": "axa-lu-optihome-2017:p37:14",
+            "quote": "l’écoulement de l’eau des installations hydrauliques se trouvant à l’intérieur du bâtiment\ndésigné et des bâtiments voisins, par suite de rupture, fissure ou débordement de ces\ninstallations",
+            "start": 0,
+            "end": 190,
+            "text_start": 2,
+            "text_end": 192,
+            "line_ids": [
+              "axa-lu-optihome-2017:p37:14:l1",
+              "axa-lu-optihome-2017:p37:14:l2",
+              "axa-lu-optihome-2017:p37:14:l3"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 0,
+        "rattachement": "Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause.",
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "applicable_reason": null,
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p37:13:l1",
+          "axa-lu-optihome-2017:p37:14:l1",
+          "axa-lu-optihome-2017:p37:14:l2",
+          "axa-lu-optihome-2017:p37:14:l3"
+        ]
+      },
+      {
+        "claim_id": "c3",
+        "text": "La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p38:3",
+            "quote": "La Compagnie étend sans supplément de prime la portée de la garantie :",
+            "start": 0,
+            "end": 70,
+            "text_start": 0,
+            "text_end": 70,
+            "line_ids": [
+              "axa-lu-optihome-2017:p38:3:l1"
+            ],
+            "contexte": true
+          },
+          {
+            "block_id": "axa-lu-optihome-2017:p38:4",
+            "quote": "aux frais de recherche des fuites des installations hydrauliques défectueuses du bâtiment\ndésigné ainsi que les frais d’ouverture et de remise en état des murs, planchers et plafonds\nen vue de la réparation desdites installations",
+            "start": 0,
+            "end": 229,
+            "text_start": 2,
+            "text_end": 231,
+            "line_ids": [
+              "axa-lu-optihome-2017:p38:4:l1",
+              "axa-lu-optihome-2017:p38:4:l2",
+              "axa-lu-optihome-2017:p38:4:l3"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 0,
+        "rattachement": null,
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "applicable_reason": null,
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p38:3:l1",
+          "axa-lu-optihome-2017:p38:4:l1",
+          "axa-lu-optihome-2017:p38:4:l2",
+          "axa-lu-optihome-2017:p38:4:l3"
+        ]
+      },
+      {
+        "claim_id": "c4",
+        "text": "Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p49:9",
+            "quote": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
+            "start": 0,
+            "end": 223,
+            "text_start": 0,
+            "text_end": 223,
+            "line_ids": [
+              "axa-lu-optihome-2017:p49:9:l1",
+              "axa-lu-optihome-2017:p49:9:l2",
+              "axa-lu-optihome-2017:p49:9:l3"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 1,
+        "rattachement": "L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens.",
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "applicable_reason": null,
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p49:9:l1",
+          "axa-lu-optihome-2017:p49:9:l2",
+          "axa-lu-optihome-2017:p49:9:l3"
+        ]
+      },
+      {
+        "claim_id": "c5",
+        "text": "Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p50:2",
+            "quote": "La Compagnie garantit la responsabilité civile qu’un Assuré pourrait encourir sur la base des\narticles 1382 à 1386 du Code civil, à l’égard d’un tiers, en raison de dommages causés par\nle fait :",
+            "start": 0,
+            "end": 194,
+            "text_start": 0,
+            "text_end": 194,
+            "line_ids": [
+              "axa-lu-optihome-2017:p50:2:l1",
+              "axa-lu-optihome-2017:p50:2:l2",
+              "axa-lu-optihome-2017:p50:2:l3"
+            ],
+            "contexte": false
+          },
+          {
+            "block_id": "axa-lu-optihome-2017:p50:3",
+            "quote": "du bâtiment désigné (en ce compris ses hampes ou antennes) servant exclusivement\nd’habitation",
+            "start": 0,
+            "end": 93,
+            "text_start": 2,
+            "text_end": 95,
+            "line_ids": [
+              "axa-lu-optihome-2017:p50:3:l1",
+              "axa-lu-optihome-2017:p50:3:l2"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 1,
+        "rattachement": null,
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "oui",
+          "applicable_reason": null,
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p50:2:l1",
+          "axa-lu-optihome-2017:p50:2:l2",
+          "axa-lu-optihome-2017:p50:2:l3",
+          "axa-lu-optihome-2017:p50:3:l1",
+          "axa-lu-optihome-2017:p50:3:l2"
+        ]
+      },
+      {
+        "claim_id": "c6",
+        "text": "La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau.",
+        "quotes": [
+          {
+            "block_id": "axa-lu-optihome-2017:p50:18",
+            "quote": "aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
+            "start": 11,
+            "end": 114,
+            "text_start": 11,
+            "text_end": 114,
+            "line_ids": [
+              "axa-lu-optihome-2017:p50:18:l1",
+              "axa-lu-optihome-2017:p50:18:l2"
+            ],
+            "contexte": false
+          }
+        ],
+        "facette": 1,
+        "rattachement": "L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise.",
+        "status": {
+          "retrouvee": true,
+          "pertinente": true,
+          "applicable": "non",
+          "applicable_reason": "hors_portee",
+          "edition": "juin 2017"
+        },
+        "line_ids": [
+          "axa-lu-optihome-2017:p50:18:l1",
+          "axa-lu-optihome-2017:p50:18:l2"
+        ]
+      }
+    ],
+    "rejected_claims": [],
+    "reason": null,
+    "lecture_partielle": null,
+    "verdict": {
+      "value": "sous_conditions",
+      "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
+      "missing": {
+        "conditions_particulieres": true,
+        "options_souscrites": true,
+        "avenants": true,
+        "date_effet": true,
+        "faits": []
+      },
+      "ask_client": [
+        "Quelles options et extensions ont été souscrites ?",
+        "Que prévoient les conditions particulières (montants, franchises, biens désignés) ? Une clause citée y renvoie.",
+        "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ?",
+        "Vos conditions particulières mentionnent-elles la garantie « 3.1.10 Responsabilité civile immeuble » ?"
+      ],
+      "escalate": []
+    },
+    "faits_compris": {
+      "themes": [],
+      "noeuds": [],
+      "bien": "appartement (parquet)",
+      "evenement": "inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous",
+      "lieu": null,
+      "cause": "oubli de fermeture d'un robinet",
+      "moment": null
+    },
+    "unknown": [
+      "Ma lecture n'a pas couvert le calcul de l'indemnité (vétusté, franchise éventuelle) ni les conditions particulières attestant de la souscription effective de ces garanties."
+    ],
+    "clarification": null
+  },
+  "sources": [
+    {
       "block_id": "axa-lu-optihome-2017:p37:11",
+      "page": 37,
+      "bbox": [
+        121.89,
+        601.9,
+        541.62,
+        627.36
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p37:11:l1",
+        "axa-lu-optihome-2017:p37:11:l2"
+      ],
+      "kind": "condition",
+      "kind_confirmed": true,
       "quote": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite.",
-      "start": 0,
-      "end": 146,
-      "text_start": 0,
-      "text_end": 146,
-      "line_ids": [
-       "axa-lu-optihome-2017:p37:11:l1",
-       "axa-lu-optihome-2017:p37:11:l2"
+      "status": "verifiee",
+      "texte_bloc": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite.",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.4 Dégâts des eaux"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 0,
-    "rattachement": null,
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "humain",
-     "applicable_reason": null,
-     "edition": "juin 2017"
+      "claim_id": "c1"
     },
-    "line_ids": [
-     "axa-lu-optihome-2017:p37:11:l1",
-     "axa-lu-optihome-2017:p37:11:l2"
-    ]
-   },
-   {
-    "claim_id": "c2",
-    "text": "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment l'écoulement de l'eau des installations hydrauliques se trouvant à l'intérieur du bâtiment désigné, par suite de rupture, fissure ou débordement de ces installations.",
-    "quotes": [
-     {
+    {
       "block_id": "axa-lu-optihome-2017:p37:13",
+      "page": 37,
+      "bbox": [
+        121.89,
+        677.52,
+        480.75,
+        688.78
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p37:13:l1"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "La Compagnie assure les biens désignés contre les dégâts des eaux c’est-à-dire :",
-      "start": 0,
-      "end": 80,
-      "text_start": 0,
-      "text_end": 80,
-      "line_ids": [
-       "axa-lu-optihome-2017:p37:13:l1"
+      "status": "verifiee",
+      "texte_bloc": "La Compagnie assure les biens désignés contre les dégâts des eaux c’est-à-dire :",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.4 Dégâts des eaux",
+        "3.1.4.1 Etendue de la garantie"
       ],
-      "contexte": false
-     },
-     {
+      "claim_id": "c2"
+    },
+    {
       "block_id": "axa-lu-optihome-2017:p37:14",
+      "page": 37,
+      "bbox": [
+        121.89,
+        690.51,
+        544.41,
+        766.77
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p37:14:l1",
+        "axa-lu-optihome-2017:p37:14:l2",
+        "axa-lu-optihome-2017:p37:14:l3"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "l’écoulement de l’eau des installations hydrauliques se trouvant à l’intérieur du bâtiment\ndésigné et des bâtiments voisins, par suite de rupture, fissure ou débordement de ces\ninstallations",
-      "start": 0,
-      "end": 190,
-      "text_start": 2,
-      "text_end": 192,
-      "line_ids": [
-       "axa-lu-optihome-2017:p37:14:l1",
-       "axa-lu-optihome-2017:p37:14:l2",
-       "axa-lu-optihome-2017:p37:14:l3"
+      "status": "verifiee",
+      "texte_bloc": "• l’écoulement de l’eau des installations hydrauliques se trouvant à l’intérieur du bâtiment\ndésigné et des bâtiments voisins, par suite de rupture, fissure ou débordement de ces\ninstallations ;\n• la pénétration ou l’infiltration dans le bâtiment désigné d’eau provenant de précipitations\natmosphériques par suite de rupture, fissure ou débordement dans les tuyaux extérieurs\ndestinés à l’évacuation de cette eau ;",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.4 Dégâts des eaux",
+        "3.1.4.1 Etendue de la garantie"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 0,
-    "rattachement": "Le robinet resté ouvert par oubli, provoquant un débordement d'eau, correspond au débordement des installations hydrauliques visé par la clause.",
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "oui",
-     "applicable_reason": null,
-     "edition": "juin 2017"
+      "claim_id": "c2"
     },
-    "line_ids": [
-     "axa-lu-optihome-2017:p37:13:l1",
-     "axa-lu-optihome-2017:p37:14:l1",
-     "axa-lu-optihome-2017:p37:14:l2",
-     "axa-lu-optihome-2017:p37:14:l3"
-    ]
-   },
-   {
-    "claim_id": "c3",
-    "text": "La garantie est étendue sans supplément de prime aux frais de recherche des fuites des installations hydrauliques défectueuses ainsi qu'aux frais d'ouverture et de remise en état des murs, planchers et plafonds en vue de la réparation desdites installations.",
-    "quotes": [
-     {
+    {
       "block_id": "axa-lu-optihome-2017:p38:3",
+      "page": 38,
+      "bbox": [
+        121.89,
+        134.61,
+        443.02,
+        145.87
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p38:3:l1"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "La Compagnie étend sans supplément de prime la portée de la garantie :",
-      "start": 0,
-      "end": 70,
-      "text_start": 0,
-      "text_end": 70,
-      "line_ids": [
-       "axa-lu-optihome-2017:p38:3:l1"
+      "status": "contexte",
+      "texte_bloc": "La Compagnie étend sans supplément de prime la portée de la garantie :",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.4 Dégâts des eaux",
+        "3.1.4.1 Etendue de la garantie"
       ],
-      "contexte": true
-     },
-     {
+      "claim_id": "c3"
+    },
+    {
       "block_id": "axa-lu-optihome-2017:p38:4",
+      "page": 38,
+      "bbox": [
+        121.89,
+        147.61,
+        543.41,
+        249.87
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p38:4:l1",
+        "axa-lu-optihome-2017:p38:4:l2",
+        "axa-lu-optihome-2017:p38:4:l3"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "aux frais de recherche des fuites des installations hydrauliques défectueuses du bâtiment\ndésigné ainsi que les frais d’ouverture et de remise en état des murs, planchers et plafonds\nen vue de la réparation desdites installations",
-      "start": 0,
-      "end": 229,
-      "text_start": 2,
-      "text_end": 231,
-      "line_ids": [
-       "axa-lu-optihome-2017:p38:4:l1",
-       "axa-lu-optihome-2017:p38:4:l2",
-       "axa-lu-optihome-2017:p38:4:l3"
+      "status": "verifiee",
+      "texte_bloc": "• aux frais de recherche des fuites des installations hydrauliques défectueuses du bâtiment\ndésigné ainsi que les frais d’ouverture et de remise en état des murs, planchers et plafonds\nen vue de la réparation desdites installations ;\n• aux frais liés à la réparation ou au remplacement de la canalisation encastrée ou souterraine\nà l’origine du sinistre.\n• aux dégâts liés l’écoulement d’huile minérale par suite de rupture des installations (réservoir\net canalisations). La perte d’huile minérale subie à l’occasion d’un sinistre est également\ncouverte.",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.4 Dégâts des eaux",
+        "3.1.4.1 Etendue de la garantie"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 0,
-    "rattachement": null,
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "oui",
-     "applicable_reason": null,
-     "edition": "juin 2017"
+      "claim_id": "c3"
     },
-    "line_ids": [
-     "axa-lu-optihome-2017:p38:3:l1",
-     "axa-lu-optihome-2017:p38:4:l1",
-     "axa-lu-optihome-2017:p38:4:l2",
-     "axa-lu-optihome-2017:p38:4:l3"
-    ]
-   },
-   {
-    "claim_id": "c4",
-    "text": "Le contrat couvre les frais que l'Assuré peut encourir en vertu des articles 1382 à 1386 du Code civil pour les dommages matériels causés par un sinistre garanti se communiquant à des biens qui sont la propriété de tiers.",
-    "quotes": [
-     {
+    {
       "block_id": "axa-lu-optihome-2017:p49:9",
+      "page": 49,
+      "bbox": [
+        121.9,
+        536.43,
+        541.64,
+        573.69
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p49:9:l1",
+        "axa-lu-optihome-2017:p49:9:l2",
+        "axa-lu-optihome-2017:p49:9:l3"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
-      "start": 0,
-      "end": 223,
-      "text_start": 0,
-      "text_end": 223,
-      "line_ids": [
-       "axa-lu-optihome-2017:p49:9:l1",
-       "axa-lu-optihome-2017:p49:9:l2",
-       "axa-lu-optihome-2017:p49:9:l3"
+      "status": "verifiee",
+      "texte_bloc": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.9 Frais annexes",
+        "3.1.9.10 Recours des tiers"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 1,
-    "rattachement": "L'inondation du logement du voisin du dessous consécutive au dégât des eaux garanti est un dommage matériel causé à un tiers par communication d'un sinistre garanti à ses biens.",
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "oui",
-     "applicable_reason": null,
-     "edition": "juin 2017"
+      "claim_id": "c4"
     },
-    "line_ids": [
-     "axa-lu-optihome-2017:p49:9:l1",
-     "axa-lu-optihome-2017:p49:9:l2",
-     "axa-lu-optihome-2017:p49:9:l3"
-    ]
-   },
-   {
-    "claim_id": "c5",
-    "text": "Le contrat garantit la responsabilité civile qu'un Assuré peut encourir sur la base des articles 1382 à 1386 du Code civil, à l'égard d'un tiers, en raison de dommages causés par le fait du bâtiment désigné servant exclusivement d'habitation, des terrains y attenant ou du mobilier s'y trouvant.",
-    "quotes": [
-     {
+    {
       "block_id": "axa-lu-optihome-2017:p50:2",
+      "page": 50,
+      "bbox": [
+        121.89,
+        99.11,
+        541.59,
+        136.37
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p50:2:l1",
+        "axa-lu-optihome-2017:p50:2:l2",
+        "axa-lu-optihome-2017:p50:2:l3"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "La Compagnie garantit la responsabilité civile qu’un Assuré pourrait encourir sur la base des\narticles 1382 à 1386 du Code civil, à l’égard d’un tiers, en raison de dommages causés par\nle fait :",
-      "start": 0,
-      "end": 194,
-      "text_start": 0,
-      "text_end": 194,
-      "line_ids": [
-       "axa-lu-optihome-2017:p50:2:l1",
-       "axa-lu-optihome-2017:p50:2:l2",
-       "axa-lu-optihome-2017:p50:2:l3"
+      "status": "verifiee",
+      "texte_bloc": "La Compagnie garantit la responsabilité civile qu’un Assuré pourrait encourir sur la base des\narticles 1382 à 1386 du Code civil, à l’égard d’un tiers, en raison de dommages causés par\nle fait :",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.10 Responsabilité civile immeuble",
+        "3.1.10.1 Etendue de la garantie"
       ],
-      "contexte": false
-     },
-     {
+      "claim_id": "c5"
+    },
+    {
       "block_id": "axa-lu-optihome-2017:p50:3",
+      "page": 50,
+      "bbox": [
+        121.89,
+        138.1,
+        541.62,
+        240.36
+      ],
+      "line_ids": [
+        "axa-lu-optihome-2017:p50:3:l1",
+        "axa-lu-optihome-2017:p50:3:l2"
+      ],
+      "kind": "garantie",
+      "kind_confirmed": true,
       "quote": "du bâtiment désigné (en ce compris ses hampes ou antennes) servant exclusivement\nd’habitation",
-      "start": 0,
-      "end": 93,
-      "text_start": 2,
-      "text_end": 95,
-      "line_ids": [
-       "axa-lu-optihome-2017:p50:3:l1",
-       "axa-lu-optihome-2017:p50:3:l2"
+      "status": "verifiee",
+      "texte_bloc": "• du bâtiment désigné (en ce compris ses hampes ou antennes) servant exclusivement\nd’habitation ;\n• des terrains y attenant pour autant qu’ils ne dépassent pas un hectare ;\n• du mobilier s’y trouvant ;\n• de l’encombrement des trottoirs du bâtiment désigné ;\n• du défaut d’enlèvement de neige, de glace ou de verglas ;\n• d’ascenseurs et d’appareils élévateurs à moteur du bâtiment désigné pour autant qu’ils\nsoient conformes à la réglementation en vigueur et fassent l’objet d’un entretien annuel.",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.10 Responsabilité civile immeuble",
+        "3.1.10.1 Etendue de la garantie"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 1,
-    "rattachement": null,
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "oui",
-     "applicable_reason": null,
-     "edition": "juin 2017"
+      "claim_id": "c5"
     },
-    "line_ids": [
-     "axa-lu-optihome-2017:p50:2:l1",
-     "axa-lu-optihome-2017:p50:2:l2",
-     "axa-lu-optihome-2017:p50:2:l3",
-     "axa-lu-optihome-2017:p50:3:l1",
-     "axa-lu-optihome-2017:p50:3:l2"
-    ]
-   },
-   {
-    "claim_id": "c6",
-    "text": "La garantie de responsabilité civile immeuble exclut les dommages causés aux biens par l'eau.",
-    "quotes": [
-     {
+    {
       "block_id": "axa-lu-optihome-2017:p50:18",
-      "quote": "aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
-      "start": 11,
-      "end": 114,
-      "text_start": 11,
-      "text_end": 114,
+      "page": 50,
+      "bbox": [
+        58.12,
+        714.56,
+        540.17,
+        738.82
+      ],
       "line_ids": [
-       "axa-lu-optihome-2017:p50:18:l1",
-       "axa-lu-optihome-2017:p50:18:l2"
+        "axa-lu-optihome-2017:p50:18:l1",
+        "axa-lu-optihome-2017:p50:18:l2"
       ],
-      "contexte": false
-     }
-    ],
-    "facette": 1,
-    "rattachement": "L'inondation subie par le voisin, causée par l'eau, correspond au dommage causé aux biens par l'eau que cette clause vise.",
-    "status": {
-     "retrouvee": true,
-     "pertinente": true,
-     "applicable": "non",
-     "applicable_reason": "hors_portee",
-     "edition": "juin 2017"
-    },
-    "line_ids": [
-     "axa-lu-optihome-2017:p50:18:l1",
-     "axa-lu-optihome-2017:p50:18:l2"
-    ]
-   }
+      "kind": "exclusion",
+      "kind_confirmed": true,
+      "quote": "aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
+      "status": "verifiee",
+      "texte_bloc": "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
+      "chemin": [
+        "3 L’assurance des biens",
+        "3.1 Garanties de base",
+        "3.1.10 Responsabilité civile immeuble",
+        "3.1.10.3 Dommages exclus",
+        "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du"
+      ],
+      "claim_id": "c6"
+    }
   ],
-  "rejected_claims": [],
-  "reason": null,
-  "lecture_partielle": null,
-  "verdict": {
-   "value": "sous_conditions",
-   "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
-   "missing": {
-    "conditions_particulieres": true,
-    "options_souscrites": true,
-    "avenants": true,
-    "date_effet": true,
-    "faits": []
-   },
-   "ask_client": [
-    "Quelles options et extensions ont été souscrites ?",
-    "Que prévoient les conditions particulières (montants, franchises, biens désignés) ? Une clause citée y renvoie.",
-    "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
-    "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ?",
-    "Vos conditions particulières mentionnent-elles la garantie « 3.1.10 Responsabilité civile immeuble » ?"
-   ],
-   "escalate": []
-  },
-  "faits_compris": {
-   "themes": [],
-   "noeuds": [],
-   "bien": "appartement (parquet)",
-   "evenement": "inondation par oubli de fermeture d'un robinet, avec dommages au voisin du dessous",
-   "lieu": null,
-   "cause": "oubli de fermeture d'un robinet",
-   "moment": null
-  },
-  "unknown": [
-   "Ma lecture n'a pas couvert le calcul de l'indemnité (vétusté, franchise éventuelle) ni les conditions particulières attestant de la souscription effective de ces garanties."
-  ],
-  "clarification": null
- },
- "sources": [
-  {
-   "block_id": "axa-lu-optihome-2017:p37:11",
-   "page": 37,
-   "bbox": [
-    121.89,
-    601.9,
-    541.62,
-    627.36
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p37:11:l1",
-    "axa-lu-optihome-2017:p37:11:l2"
-   ],
-   "kind": "condition",
-   "kind_confirmed": true,
-   "quote": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite.",
-   "status": "verifiee",
-   "texte_bloc": "Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite.",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.4 Dégâts des eaux"
-   ],
-   "claim_id": "c1"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p37:13",
-   "page": 37,
-   "bbox": [
-    121.89,
-    677.52,
-    480.75,
-    688.78
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p37:13:l1"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "La Compagnie assure les biens désignés contre les dégâts des eaux c’est-à-dire :",
-   "status": "verifiee",
-   "texte_bloc": "La Compagnie assure les biens désignés contre les dégâts des eaux c’est-à-dire :",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.4 Dégâts des eaux",
-    "3.1.4.1 Etendue de la garantie"
-   ],
-   "claim_id": "c2"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p37:14",
-   "page": 37,
-   "bbox": [
-    121.89,
-    690.51,
-    544.41,
-    766.77
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p37:14:l1",
-    "axa-lu-optihome-2017:p37:14:l2",
-    "axa-lu-optihome-2017:p37:14:l3"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "l’écoulement de l’eau des installations hydrauliques se trouvant à l’intérieur du bâtiment\ndésigné et des bâtiments voisins, par suite de rupture, fissure ou débordement de ces\ninstallations",
-   "status": "verifiee",
-   "texte_bloc": "• l’écoulement de l’eau des installations hydrauliques se trouvant à l’intérieur du bâtiment\ndésigné et des bâtiments voisins, par suite de rupture, fissure ou débordement de ces\ninstallations ;\n• la pénétration ou l’infiltration dans le bâtiment désigné d’eau provenant de précipitations\natmosphériques par suite de rupture, fissure ou débordement dans les tuyaux extérieurs\ndestinés à l’évacuation de cette eau ;",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.4 Dégâts des eaux",
-    "3.1.4.1 Etendue de la garantie"
-   ],
-   "claim_id": "c2"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p38:3",
-   "page": 38,
-   "bbox": [
-    121.89,
-    134.61,
-    443.02,
-    145.87
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p38:3:l1"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "La Compagnie étend sans supplément de prime la portée de la garantie :",
-   "status": "contexte",
-   "texte_bloc": "La Compagnie étend sans supplément de prime la portée de la garantie :",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.4 Dégâts des eaux",
-    "3.1.4.1 Etendue de la garantie"
-   ],
-   "claim_id": "c3"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p38:4",
-   "page": 38,
-   "bbox": [
-    121.89,
-    147.61,
-    543.41,
-    249.87
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p38:4:l1",
-    "axa-lu-optihome-2017:p38:4:l2",
-    "axa-lu-optihome-2017:p38:4:l3"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "aux frais de recherche des fuites des installations hydrauliques défectueuses du bâtiment\ndésigné ainsi que les frais d’ouverture et de remise en état des murs, planchers et plafonds\nen vue de la réparation desdites installations",
-   "status": "verifiee",
-   "texte_bloc": "• aux frais de recherche des fuites des installations hydrauliques défectueuses du bâtiment\ndésigné ainsi que les frais d’ouverture et de remise en état des murs, planchers et plafonds\nen vue de la réparation desdites installations ;\n• aux frais liés à la réparation ou au remplacement de la canalisation encastrée ou souterraine\nà l’origine du sinistre.\n• aux dégâts liés l’écoulement d’huile minérale par suite de rupture des installations (réservoir\net canalisations). La perte d’huile minérale subie à l’occasion d’un sinistre est également\ncouverte.",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.4 Dégâts des eaux",
-    "3.1.4.1 Etendue de la garantie"
-   ],
-   "claim_id": "c3"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p49:9",
-   "page": 49,
-   "bbox": [
-    121.9,
-    536.43,
-    541.64,
-    573.69
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p49:9:l1",
-    "axa-lu-optihome-2017:p49:9:l2",
-    "axa-lu-optihome-2017:p49:9:l3"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
-   "status": "verifiee",
-   "texte_bloc": "La Compagnie couvre les frais que l’Assuré peut encourir en vertu des articles 1382 à 1386 du\nCode civil pour les dommages matériels causés par un sinistre garanti se communiquant à des\nbiens qui sont la propriété de tiers.",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.9 Frais annexes",
-    "3.1.9.10 Recours des tiers"
-   ],
-   "claim_id": "c4"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p50:2",
-   "page": 50,
-   "bbox": [
-    121.89,
-    99.11,
-    541.59,
-    136.37
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p50:2:l1",
-    "axa-lu-optihome-2017:p50:2:l2",
-    "axa-lu-optihome-2017:p50:2:l3"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "La Compagnie garantit la responsabilité civile qu’un Assuré pourrait encourir sur la base des\narticles 1382 à 1386 du Code civil, à l’égard d’un tiers, en raison de dommages causés par\nle fait :",
-   "status": "verifiee",
-   "texte_bloc": "La Compagnie garantit la responsabilité civile qu’un Assuré pourrait encourir sur la base des\narticles 1382 à 1386 du Code civil, à l’égard d’un tiers, en raison de dommages causés par\nle fait :",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.10 Responsabilité civile immeuble",
-    "3.1.10.1 Etendue de la garantie"
-   ],
-   "claim_id": "c5"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p50:3",
-   "page": 50,
-   "bbox": [
-    121.89,
-    138.1,
-    541.62,
-    240.36
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p50:3:l1",
-    "axa-lu-optihome-2017:p50:3:l2"
-   ],
-   "kind": "garantie",
-   "kind_confirmed": true,
-   "quote": "du bâtiment désigné (en ce compris ses hampes ou antennes) servant exclusivement\nd’habitation",
-   "status": "verifiee",
-   "texte_bloc": "• du bâtiment désigné (en ce compris ses hampes ou antennes) servant exclusivement\nd’habitation ;\n• des terrains y attenant pour autant qu’ils ne dépassent pas un hectare ;\n• du mobilier s’y trouvant ;\n• de l’encombrement des trottoirs du bâtiment désigné ;\n• du défaut d’enlèvement de neige, de glace ou de verglas ;\n• d’ascenseurs et d’appareils élévateurs à moteur du bâtiment désigné pour autant qu’ils\nsoient conformes à la réglementation en vigueur et fassent l’objet d’un entretien annuel.",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.10 Responsabilité civile immeuble",
-    "3.1.10.1 Etendue de la garantie"
-   ],
-   "claim_id": "c5"
-  },
-  {
-   "block_id": "axa-lu-optihome-2017:p50:18",
-   "page": 50,
-   "bbox": [
-    58.12,
-    714.56,
-    540.17,
-    738.82
-   ],
-   "line_ids": [
-    "axa-lu-optihome-2017:p50:18:l1",
-    "axa-lu-optihome-2017:p50:18:l2"
-   ],
-   "kind": "exclusion",
-   "kind_confirmed": true,
-   "quote": "aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
-   "status": "verifiee",
-   "texte_bloc": "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du\nbâtiment ;",
-   "chemin": [
-    "3 L’assurance des biens",
-    "3.1 Garanties de base",
-    "3.1.10 Responsabilité civile immeuble",
-    "3.1.10.3 Dommages exclus",
-    "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du"
-   ],
-   "claim_id": "c6"
-  }
- ],
- "via": "api/v1",
- "trace": {
-  "request_id": "724c8090-1b7e-4aa1-96f5-c300478b6ec7",
-  "pipeline": "sinistre",
-  "variant": "navigation",
-  "intent": "question",
-  "steps": [
-   {
-    "name": "comprendre",
-    "tier": "reason",
-    "prompt_cache": null,
-    "mechanism_order": [],
-    "ms": 4162,
-    "usage": {
-     "input": 200,
-     "cached": 3996,
-     "output": 317,
-     "cost_eur": 0.006,
-     "cached_response": false,
-     "cost_eur_original": 0.006
-    },
-    "opened_block_ids": [],
-    "discarded_block_ids": [],
-    "budget_lecture": null,
-    "checks": [],
-    "calls": [
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 4158,
-      "usage": {
-       "input": 200,
-       "cached": 3996,
-       "output": 317,
-       "cost_eur": 0.006,
-       "cached_response": false,
-       "cost_eur_original": 0.006
+  "via": "api/v1",
+  "trace": {
+    "request_id": "724c8090-1b7e-4aa1-96f5-c300478b6ec7",
+    "pipeline": "sinistre",
+    "variant": "navigation",
+    "intent": "question",
+    "steps": [
+      {
+        "name": "comprendre",
+        "tier": "reason",
+        "prompt_cache": null,
+        "mechanism_order": [],
+        "ms": 4162,
+        "usage": {
+          "input": 200,
+          "cached": 3996,
+          "output": 317,
+          "cost_eur": 0.006,
+          "cached_response": false,
+          "cost_eur_original": 0.006
+        },
+        "opened_block_ids": [],
+        "discarded_block_ids": [],
+        "budget_lecture": null,
+        "checks": [],
+        "calls": [
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 4158,
+            "usage": {
+              "input": 200,
+              "cached": 3996,
+              "output": 317,
+              "cost_eur": 0.006,
+              "cached_response": false,
+              "cost_eur_original": 0.006
+            },
+            "cache_read": 3996,
+            "cache_write": 0,
+            "thinking": 0,
+            "tools": [],
+            "call_uid": "call:f15ffdea-cb91-4b42-a508-9c1825d1896a",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "a6e4b8436c00bcc25c8ee7650e0fecf43030a3e90c3541eaae0dca86330a646a",
+            "input_bytes": 9146,
+            "response_sha256": "c4afadffd7478c3115d78ee4aaeeeee4d2125311c3a1a8fbc2203bd50fc531b4",
+            "response_bytes": 1393,
+            "audit_persisted": false
+          }
+        ]
       },
-      "cache_read": 3996,
-      "cache_write": 0,
-      "thinking": 0,
-      "tools": [],
-      "call_uid": "call:f15ffdea-cb91-4b42-a508-9c1825d1896a",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "a6e4b8436c00bcc25c8ee7650e0fecf43030a3e90c3541eaae0dca86330a646a",
-      "input_bytes": 9146,
-      "response_sha256": "c4afadffd7478c3115d78ee4aaeeeee4d2125311c3a1a8fbc2203bd50fc531b4",
-      "response_bytes": 1393,
-      "audit_persisted": false
-     }
+      {
+        "name": "retrouver",
+        "tier": "reason",
+        "prompt_cache": true,
+        "mechanism_order": [],
+        "ms": 30030,
+        "usage": {
+          "input": 14352,
+          "cached": 243420,
+          "output": 2351,
+          "cost_eur": 0.1392,
+          "cached_response": false,
+          "cost_eur_original": 0.1392
+        },
+        "opened_block_ids": [
+          "axa-lu-optihome-2017:p37:10",
+          "axa-lu-optihome-2017:p37:11",
+          "axa-lu-optihome-2017:p49:8",
+          "axa-lu-optihome-2017:p49:9",
+          "axa-lu-optihome-2017:p13:4",
+          "axa-lu-optihome-2017:p13:5",
+          "axa-lu-optihome-2017:p13:9",
+          "axa-lu-optihome-2017:p13:6",
+          "axa-lu-optihome-2017:p13:7",
+          "axa-lu-optihome-2017:p13:8",
+          "axa-lu-optihome-2017:p37:12",
+          "axa-lu-optihome-2017:p37:13",
+          "axa-lu-optihome-2017:p37:14",
+          "axa-lu-optihome-2017:p38:1",
+          "axa-lu-optihome-2017:p38:2",
+          "axa-lu-optihome-2017:p38:3",
+          "axa-lu-optihome-2017:p38:4",
+          "axa-lu-optihome-2017:p50:1",
+          "axa-lu-optihome-2017:p50:2",
+          "axa-lu-optihome-2017:p50:3",
+          "axa-lu-optihome-2017:p50:4",
+          "axa-lu-optihome-2017:p50:5",
+          "axa-lu-optihome-2017:p50:18"
+        ],
+        "discarded_block_ids": [],
+        "budget_lecture": {
+          "opens_used": 6,
+          "blocks_used": 23,
+          "tokens_used": 2806,
+          "opens_remaining": 0,
+          "blocks_remaining": null,
+          "tokens_remaining": 9194
+        },
+        "checks": [
+          {
+            "name": "navigation",
+            "ok": true,
+            "detail": "5 tour(s), 6 nœud(s) ouvert(s) (axa-lu-optihome-2017:a3.1.4, axa-lu-optihome-2017:a3.1.9.10, axa-lu-optihome-2017:a1.36, axa-lu-optihome-2017:a3.1.4.1, axa-lu-optihome-2017:a3.1.10.1, axa-lu-optihome-2017:a3.1.10.3.3), 0 recherche(s), lecture 2806/12000 tokens, réflexion 1812 tokens"
+          }
+        ],
+        "calls": [
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 3304,
+            "usage": {
+              "input": 381,
+              "cached": 48684,
+              "output": 286,
+              "cost_eur": 0.0184,
+              "cached_response": false,
+              "cost_eur_original": 0.0184
+            },
+            "cache_read": 48684,
+            "cache_write": 0,
+            "thinking": 71,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:81fa3997-150e-4b7f-b5fc-a0eabe0309c1",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "77b0c0d36c5f7039c672459971fe29eba219159819b88cb4d2fcdf81515a59dc",
+            "input_bytes": 99229,
+            "response_sha256": "b52c4ae14121a82b26fc9606584b3be194f36da9c768c36e895f772f332ea92f",
+            "response_bytes": 1509,
+            "audit_persisted": false
+          },
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 3115,
+            "usage": {
+              "input": 1421,
+              "cached": 48684,
+              "output": 258,
+              "cost_eur": 0.0209,
+              "cached_response": false,
+              "cost_eur_original": 0.0209
+            },
+            "cache_read": 48684,
+            "cache_write": 0,
+            "thinking": 182,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:d772af3d-0e7f-4336-8271-920471cd081b",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "d49312b33e1136cfc6c39dd6b4b09845798aae8a07e1cf36ac21416abbe35e5c",
+            "input_bytes": 102097,
+            "response_sha256": "09fdab1ba1cb0d88aa81b5aff60dba3d0bbd59330edb8119d59e07f0c5b01738",
+            "response_bytes": 1577,
+            "audit_persisted": false
+          },
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 12782,
+            "usage": {
+              "input": 2418,
+              "cached": 48684,
+              "output": 996,
+              "cost_eur": 0.0339,
+              "cached_response": false,
+              "cost_eur_original": 0.0339
+            },
+            "cache_read": 48684,
+            "cache_write": 0,
+            "thinking": 846,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:9c959249-def3-4cf2-aa18-1b1258f97eda",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "348f830c205ecc863cb880e99595c6f17dcf1462ac21d1bd4f153d5087d8ab51",
+            "input_bytes": 105184,
+            "response_sha256": "9e09a75bf8d0cdaa9658e79c5170e433764751c447bd8c77358ff2bf5032f0fd",
+            "response_bytes": 4396,
+            "audit_persisted": false
+          },
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 9386,
+            "usage": {
+              "input": 4097,
+              "cached": 48684,
+              "output": 771,
+              "cost_eur": 0.0354,
+              "cached_response": false,
+              "cost_eur_original": 0.0354
+            },
+            "cache_read": 48684,
+            "cache_write": 0,
+            "thinking": 713,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:b5611a8d-64f4-4ceb-b918-7b436a2b9625",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "dc7232594eb96523ab50f399b4555e568a0c0c5c3178264eeadacdcaaeccbead",
+            "input_bytes": 110792,
+            "response_sha256": "349476e0aaa0e9d7a2fc7771d6c4c8a906fd49a18fd3203c9ac0a472270a8e06",
+            "response_bytes": 3516,
+            "audit_persisted": false
+          },
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 1402,
+            "usage": {
+              "input": 6035,
+              "cached": 48684,
+              "output": 40,
+              "cost_eur": 0.0306,
+              "cached_response": false,
+              "cost_eur_original": 0.0306
+            },
+            "cache_read": 48684,
+            "cache_write": 0,
+            "thinking": 0,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:9287b192-b638-4895-8068-8977d93d5dc9",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "57c652bb7bba6d66369a1292111735eb51f54b8a627ea31e9c82afe1acfaa546",
+            "input_bytes": 116871,
+            "response_sha256": "74bef88cee71ed92012017962258e6a22b3db561c1c8d584daaa42a714fe88b5",
+            "response_bytes": 566,
+            "audit_persisted": false
+          }
+        ]
+      },
+      {
+        "name": "rediger",
+        "tier": "reason",
+        "prompt_cache": true,
+        "mechanism_order": [],
+        "ms": 23881,
+        "usage": {
+          "input": 7695,
+          "cached": 50374,
+          "output": 2567,
+          "cost_eur": 0.0706,
+          "cached_response": false,
+          "cost_eur_original": 0.0706
+        },
+        "opened_block_ids": [
+          "axa-lu-optihome-2017:p37:10",
+          "axa-lu-optihome-2017:p37:11",
+          "axa-lu-optihome-2017:p49:8",
+          "axa-lu-optihome-2017:p49:9",
+          "axa-lu-optihome-2017:p13:4",
+          "axa-lu-optihome-2017:p13:5",
+          "axa-lu-optihome-2017:p13:9",
+          "axa-lu-optihome-2017:p13:6",
+          "axa-lu-optihome-2017:p13:7",
+          "axa-lu-optihome-2017:p13:8",
+          "axa-lu-optihome-2017:p37:12",
+          "axa-lu-optihome-2017:p37:13",
+          "axa-lu-optihome-2017:p37:14",
+          "axa-lu-optihome-2017:p38:1",
+          "axa-lu-optihome-2017:p38:2",
+          "axa-lu-optihome-2017:p38:3",
+          "axa-lu-optihome-2017:p38:4",
+          "axa-lu-optihome-2017:p50:1",
+          "axa-lu-optihome-2017:p50:2",
+          "axa-lu-optihome-2017:p50:3",
+          "axa-lu-optihome-2017:p50:4",
+          "axa-lu-optihome-2017:p50:5",
+          "axa-lu-optihome-2017:p50:18"
+        ],
+        "discarded_block_ids": [],
+        "budget_lecture": null,
+        "checks": [
+          {
+            "name": "blocs_decisionnels_ecartes",
+            "ok": false,
+            "detail": "3 bloc(s) décisionnel(s) lu(s) écarté(s) par la rédaction (axa-lu-optihome-2017:p38:1, axa-lu-optihome-2017:p38:2, axa-lu-optihome-2017:p50:5) sur 12 ouvert(s) : une décision du modèle, tracée pour qu'une omission ne soit pas silencieuse"
+          },
+          {
+            "name": "ebauche_dans_la_conversation",
+            "ok": true,
+            "detail": "ébauche rendue dans le fil de navigation (23 bloc(s) ouvert(s) citables), 5 tour(s) dont 0 tour(s) terminal(aux) forcé(s), réflexion 0 tokens"
+          }
+        ],
+        "calls": [
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 23869,
+            "usage": {
+              "input": 7695,
+              "cached": 50374,
+              "output": 2567,
+              "cost_eur": 0.0706,
+              "cached_response": false,
+              "cost_eur_original": 0.0706
+            },
+            "cache_read": 50374,
+            "cache_write": 0,
+            "thinking": 0,
+            "tools": [
+              "sommaire",
+              "ouvrir_noeud",
+              "chercher",
+              "definitions"
+            ],
+            "call_uid": "call:0f93393a-7d36-462f-9338-62a037af441a",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [],
+            "input_sha256": "6b37918ba4a63ba688646d71edb880a1889d71267e8d4e230b41f5a51c81703d",
+            "input_bytes": 123265,
+            "response_sha256": "96a160f177e7a2796f7e939592b0991e9fe68c33ff8466fca04ac595f0b5c97c",
+            "response_bytes": 7051,
+            "audit_persisted": false
+          }
+        ]
+      },
+      {
+        "name": "verifier",
+        "tier": "reason",
+        "prompt_cache": null,
+        "mechanism_order": [],
+        "ms": 13454,
+        "usage": {
+          "input": 3361,
+          "cached": 17212,
+          "output": 1406,
+          "cost_eur": 0.0334,
+          "cached_response": false,
+          "cost_eur_original": 0.0334
+        },
+        "opened_block_ids": [],
+        "discarded_block_ids": [],
+        "budget_lecture": null,
+        "checks": [
+          {
+            "name": "citation_amorce_liee",
+            "ok": true,
+            "detail": "1 citation(s) répétée(s) ailleurs dans le document introduisent immédiatement un autre passage cité par la même affirmation : lues comme son contexte (statut « contexte »), pas comme une source indépendante"
+          },
+          {
+            "name": "segments_derives",
+            "ok": true,
+            "detail": "6 segment(s) factuel(s) au texte byte-identique à une affirmation référencée : non soumis au jugement de soutien, leur affichage suit la décision de pertinence de l'affirmation"
+          },
+          {
+            "name": "verdict",
+            "ok": true,
+            "detail": "sous_conditions sur 6 affirmation(s) affichée(s)"
+          },
+          {
+            "name": "claims_par_facette",
+            "ok": true,
+            "detail": "2 sous-question(s) sur 2 portent au moins une affirmation rédigée (6 affirmation(s) au total)"
+          },
+          {
+            "name": "citations",
+            "ok": true,
+            "detail": "6 affirmation(s) retenue(s), 0 rejetée(s) sur 6"
+          }
+        ],
+        "calls": [
+          {
+            "model": "claude-sonnet-5",
+            "tier": "reason",
+            "ms": 13380,
+            "usage": {
+              "input": 3361,
+              "cached": 17212,
+              "output": 1406,
+              "cost_eur": 0.0334,
+              "cached_response": false,
+              "cost_eur_original": 0.0334
+            },
+            "cache_read": 17212,
+            "cache_write": 0,
+            "thinking": 636,
+            "tools": [],
+            "call_uid": "call:3285fe2e-437b-4366-8697-9557cefbc171",
+            "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
+            "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
+            "trusted_line_uids": [
+              "line-v1:7dd98c9c75a0978f74ce7345ddfb53b071d32b2c03ba201f7ddb0a2c18cecf0e",
+              "line-v1:a6a6cf8ef25dfea3f340b1a93c22c14bf2a123aa1978c88d52edcff6b929b6be",
+              "line-v1:69ed1a44b51516b7c0b610d3b694f7164a00801bf6d5c916f6a200a81d7920bb",
+              "line-v1:39bab5b28684c48dbb99a3642663ca00199b7742eadad81f5e0c2b9779573ad7",
+              "line-v1:c2636f98439dc87504b5bfa534f248f72f036d903fdddb9df4f4e4b81468c4af",
+              "line-v1:48c4f931692a83c6d2b8ae856c9c4970bffb79a701063cff2c5e758f27dca04f",
+              "line-v1:44fc09aaaa0735691eaf3bf2325563077722486fe3777aa6116db61369efa5af",
+              "line-v1:b7338378cac251a67be75a8d3666f9ecbe536ec4c8f3e4f9540631f09c1205c9",
+              "line-v1:daba5cba43632a43f0a2a2f105ec8123e5e2c4424ca36c9dc8f9d05bf0535114",
+              "line-v1:37a8404295b1b8f5471e3690011f04a0e87bea0f327d589293c5246386277fa3",
+              "line-v1:717ce420179be4279c7720a11600d815b368bdeeea1799526ae0d5c2b4801500",
+              "line-v1:18d14891ac56ed12d63886f9e379c8cd897e72ea90c6ea0a59be12b81a3fb88a",
+              "line-v1:767107a106bfe0f46ad2078d7060991c7dc6fabbaae1a46401108f2e68238850",
+              "line-v1:28211d028392368d1ed7cd491654a0a5e36bee3e36d1b14808311e8e222a2cea",
+              "line-v1:9c99d0457760c6a8c4c2154d3478ae068a064e6ae945a8be39e71b2854ad2183",
+              "line-v1:27b7c76e76f0b23e428b4950375a41d49f291b3e73a29cbb7f03ed7bd2112ea3",
+              "line-v1:465731a391f6e6a1b82d6ec2e56a098fff0f9c85b09b0e6aa5b0668a306ee844",
+              "line-v1:a70e51785561877e77f1df546e291cd331e63af5273aa12acf1f4ec939a7f0dc",
+              "line-v1:993670d6f05eab062661871aa99440b0b40e8f5642fdeb2878dc56c47fa40db5",
+              "line-v1:6005199865bf37f53182d1cc03d3c8f615ced89f844ecd71e1a880721dc20bda",
+              "line-v1:22f22149256f08197c1b6b2d4f7b0362d191264ad54ab10295f315627ef0db40",
+              "line-v1:74bc39ed25030e081ef7b4a63e5f8ca2cb9d7a2810e0f82f3bdfd87661d7ac43",
+              "line-v1:a798dad0e92822ad88fc41126e5e7d77a324ea9734abaf342c930f2b3256bb30",
+              "line-v1:d48db49fe6dd0c87348bf5308a5bde1c07977c60fd1685bb95dbf1bd5ab5ec0f",
+              "line-v1:5a396eb560bb2377fd44fc82d949fe10d6b44456967973e8b6c05e075ed98082",
+              "line-v1:5a877f5ea8acbf11800caae85cb49117d71a00ab76d42a067962f68b95469c84",
+              "line-v1:627ecd5846e86f3c620e832dbc2422b2561f663e7840f090245eb5be084082c3",
+              "line-v1:512ee33ac23817dab087873b0bee2329ab05ac60ee32e8eb286fdccaea3fab54",
+              "line-v1:bd543c0f1894e2dfe1818288be482e176a003336a6dcbcb997f30a2c623d57df",
+              "line-v1:32cd0e4b5bfee3786f2b23f1aa6430d0f23d395417d4ac0c9eaf2ba4d9a42177",
+              "line-v1:36f709e6bb39e3bea4d71a5538a4d0139c182ef59411a8d88ccffa4fd3570241",
+              "line-v1:75f91f8cb0f65cf78c3f3b4e48eb7be084dd22e3ee7e7b278566ce033ff0fa52",
+              "line-v1:6e3abad001f0a8ae59d73f34ddea071ce8d52b957865f9186c7d2a6653876218",
+              "line-v1:3fe5a4c824265ec05b1a89c5c3bc10ec8cf08ffb20532d57709869b337c5d6e6"
+            ],
+            "input_sha256": "7f80c6118067a2d3fd48f66833d76eda29c9695a06558260c94750ae6b379340",
+            "input_bytes": 48369,
+            "response_sha256": "1c8f0a56e6351f83eeeb691088abb97423a42215fc40e5a715fd541ebd811d59",
+            "response_bytes": 4868,
+            "audit_persisted": false
+          }
+        ]
+      },
+      {
+        "name": "restituer",
+        "tier": null,
+        "prompt_cache": null,
+        "mechanism_order": [],
+        "ms": 0,
+        "usage": {
+          "input": 0,
+          "cached": 0,
+          "output": 0,
+          "cost_eur": 0.0,
+          "cached_response": false,
+          "cost_eur_original": 0.0
+        },
+        "opened_block_ids": [],
+        "discarded_block_ids": [],
+        "budget_lecture": null,
+        "checks": [],
+        "calls": []
+      }
+    ],
+    "total_cost_eur": 0.2492,
+    "source_hash": {
+      "axa-lu-optihome-2017": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
+    },
+    "ingest_fingerprint": {
+      "axa-lu-optihome-2017": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460"
+    },
+    "pipeline_digest": "0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a",
+    "prompts_digest": "ca306d3840e21043a3ba2acc89e2e1cf5ede0df88827f85770e618506bbe0bcb",
+    "thresholds": {
+      "deadline_s": 290.0,
+      "llm_timeout_s": 78.0,
+      "llm_output_tokens_per_s_min": 85.0,
+      "llm_latence_marge_s": 5.0,
+      "client_abort_margin_s": 25.0,
+      "sse_keepalive_s": 15.0,
+      "client_probe_timeout_s": 10.0,
+      "raison_publiable_max_chars": 500,
+      "quote_min_chars": 25,
+      "quote_min_ratio": 0.6,
+      "max_opens": 6,
+      "navigation_max_llm_turns": 8,
+      "navigation_budget_tokens": 12000,
+      "navigation_search_limit": 20,
+      "navigation_draft_max_claims": 6,
+      "navigation_draft_max_segments": 9,
+      "navigation_rediger_max_tokens": 5056,
+      "navigation_draft_effort_high": 0,
+      "navigation_tier_reason": 1,
+      "variante_nombre_max_part": 0.01,
+      "node_window": 30,
+      "search_limit": 20,
+      "limite_liee_max": 1,
+      "limite_liee_proximite_min": 0.35,
+      "pdf_highlight_max_lines": 40,
+      "pdf_highlight_max_blocks": 10,
+      "pdf_render_concurrency": 2,
+      "pdf_render_cache_pages": 32,
+      "pdf_render_dpi": 144,
+      "pdf_render_max_pixels": 16000000,
+      "pdf_render_queue_timeout_s": 2.0,
+      "max_llm_attempts": 15,
+      "retrouver_outils_max_tokens": 1024,
+      "retrieval_max_blocks": 30,
+      "retrieval_max_tokens": 3500,
+      "max_cost_eur_per_request": 1.3,
+      "cost_alert_eur": 1.0,
+      "evals_max_cost_eur": 20.0,
+      "live_budget_eur": 20.0,
+      "baseline_tiers": 0,
+      "comprendre_tier_reason": 1,
+      "rediger_tier_reason": 1,
+      "verifier_tier_reason": 1,
+      "retrouver_outils_tier_reason": 1,
+      "retrieval_prompt_cache": 1,
+      "llm_audit_max_bytes": 16777216,
+      "llm_audit_exact": 0,
+      "llm_audit_retention_files": 4,
+      "llm_max_output_tokens": 6144,
+      "llm_retry_margin_s": 5.0,
+      "comprendre_max_tokens": 1024,
+      "rediger_max_tokens": 2048,
+      "verifier_max_tokens": 3072,
+      "verifier_max_claims": 8,
+      "verifier_sinistre_max_tokens": 6144,
+      "verifier_sinistre_json_tokens": 1024,
+      "verifier_thinking_reserve_tokens": 5120,
+      "fait_manquant_max_chars": 200,
+      "ask_client_max": 8,
+      "conversation_rate_limit_per_minute": 30,
+      "conversation_rate_limit_per_day": 300,
+      "conversation_max_turns": 20,
+      "conversation_active_questions_max": 3,
+      "qualites_exigees_max": 4,
+      "qualite_mot_min_chars": 5,
+      "rattachement_max_chars": 240,
+      "claim_phrases_max": 12,
+      "historique_max_turns": 6,
+      "relance_sur_non_pertinence": 0,
+      "quote_max_chars": 250,
+      "draft_max_segments": 9,
+      "draft_max_claims": 6,
+      "draft_max_definitions": 1,
+      "question_min_terms": 2,
+      "question_max_terms": 6,
+      "question_max_facettes": 4,
+      "scope_max_themes": 6,
+      "libelle_max_chars": 500,
+      "liste_max_items": 32,
+      "estimate_chars_per_token": 2.0,
+      "estimate_tokenizer_factor": 1.3,
+      "count_tokens_timeout_s": 10.0,
+      "summary_max_tags": 5,
+      "summary_resume_max_chars": 90,
+      "summary_max_level": 2,
+      "summary_page_max_chars": 17000,
+      "summary_slice_max_chars": 30000,
+      "summary_apercu_max_chars": 90,
+      "excerpt_max_chars": 1000,
+      "rate_limit_per_minute": 10,
+      "rate_limit_per_day": 100,
+      "rate_limit_max_clients": 4096,
+      "retry_after_s": 60,
+      "request_max_bytes": 65536,
+      "cloud_trace_max_chars": 128,
+      "coverage_threshold": 0.8,
+      "kind_confidence_min": 0.7,
+      "mixed_page_image_density": 0.2,
+      "ocr_dpi": 300,
+      "quality_min_words": 12,
+      "foreign_signal_min": 3,
+      "french_signal_ratio_min": 0.08,
+      "gibberish_ratio_max": 0.35,
+      "residual_header_min_pages_ratio": 0.3,
+      "toc_page_number_baseline_pt": 8.0,
+      "toc_column_tolerance_pt": 80.0,
+      "toc_indent_tolerance_pt": 5.0,
+      "toc_line_gap_ratio": 1.5,
+      "toc_title_prefix_min_chars": 20,
+      "column_gutter_min_pt": 18.0,
+      "column_min_lines": 4,
+      "column_min_span_ratio": 0.35,
+      "column_row_pairing_max_ratio": 0.5,
+      "column_min_fill_ratio": 0.6,
+      "structure_max_depth": 6,
+      "structure_max_nodes": 2000,
+      "structure_max_children": 256,
+      "structure_max_blocks_per_leaf": 100,
+      "structure_min_coverage": 1.0,
+      "etiquette_max_chars": 160,
+      "structure_max_input_chars": 900000,
+      "structure_max_output_tokens": 16000,
+      "structure_output_tokens_per_line": 12.0,
+      "structure_thinking_reserve_tokens": 8000,
+      "structure_max_refinements": 4,
+      "structure_max_cost_eur": 8.0,
+      "dictionary_term_max_chars": 60,
+      "dictionary_term_max_words": 4,
+      "dictionary_max_variants_per_term": 8,
+      "dictionary_max_terms_per_fiche": 20,
+      "dictionary_question_max_chars": 160,
+      "dictionary_max_questions_per_fiche": 5,
+      "dictionary_max_intent_triggers": 30,
+      "dictionary_flat_max_blocks_per_request": 20,
+      "dictionary_flat_max_input_chars": 12000,
+      "dictionary_flat_max_terms_per_block": 3,
+      "dictionary_flat_max_output_tokens": 4096,
+      "dictionary_max_output_tokens": 16000,
+      "dictionary_max_cost_eur": 3.0,
+      "dictionary_batch_poll_s": 20.0,
+      "dictionary_batch_timeout_s": 3600.0,
+      "dictionary_tier_reason": 0,
+      "type_clauses_max_blocks_per_request": 10,
+      "type_clauses_max_input_chars": 60000,
+      "type_clauses_max_requests_per_batch": 1000,
+      "type_clauses_max_output_tokens": 2048,
+      "type_clauses_max_cost_eur": 12.0,
+      "type_clauses_arbitration_confidence_min": 0.8,
+      "type_clauses_confidence_tolerance": 1.0,
+      "type_clauses_batch_poll_s": 20.0,
+      "type_clauses_batch_timeout_s": 7200.0,
+      "type_clauses_standard_concurrency": 8,
+      "type_clauses_standard_max_retries": 3,
+      "type_clauses_standard_retry_base_s": 1.0,
+      "type_clauses_max_article_refs": 12,
+      "type_clauses_max_scope_articles": 20,
+      "type_clauses_max_relations": 6,
+      "type_clauses_ref_expansion_max_blocks": 30,
+      "type_clauses_definition_max_chars": 120,
+      "type_clauses_definition_max_words": 12,
+      "perimetre_max_chars": 4000,
+      "header_band_pt": 40.0,
+      "footer_band_pt": 40.0,
+      "header_min_pages_ratio": 0.3,
+      "para_gap_ratio": 1.5,
+      "article_number_max_x": 70.0,
+      "title_min_size_pt": 12.0,
+      "header_caps_max_size_pt": 10.0,
+      "baseline_tolerance_pt": 3.0,
+      "number_gap_tolerance_pt": 1.0,
+      "list_indent_pt": 4.0,
+      "dedent_tolerance_pt": 1.0,
+      "dedent_starter_max_lines": 2,
+      "fetch_timeout_s": 30.0,
+      "metadata_timeout_s": 2.0,
+      "prefix_keepalive_enabled": 1,
+      "prefix_keepalive_s": 3000.0,
+      "prefix_keepalive_max_prefixes": 12,
+      "prefix_keepalive_max_cost_eur_per_day": 1.0,
+      "response_cache_enabled": 1,
+      "response_cache_ttl_s": 604800.0,
+      "response_cache_max_entries": 200,
+      "response_cache_max_bytes": 33554432
+    },
+    "retries": 0,
+    "truncations": 0,
+    "deadline_remaining_s": 218.47,
+    "blocs": [
+      {
+        "block_id": "axa-lu-optihome-2017:p37:10",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4",
+        "fiche_id": null,
+        "titre": "3.1.4 Dégâts des eaux"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p37:11",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4",
+        "fiche_id": null,
+        "titre": "3.1.4 Dégâts des eaux"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p49:8",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.9.10",
+        "fiche_id": null,
+        "titre": "3.1.9.10 Recours des tiers"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p49:9",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.9.10",
+        "fiche_id": null,
+        "titre": "3.1.9.10 Recours des tiers"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:4",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36",
+        "fiche_id": null,
+        "titre": "1.36 Recours des tiers (recours des voisins)"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:5",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36",
+        "fiche_id": null,
+        "titre": "1.36 Recours des tiers (recours des voisins)"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:9",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36",
+        "fiche_id": null,
+        "titre": "1.36 Recours des tiers (recours des voisins)"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:6",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36.1",
+        "fiche_id": null,
+        "titre": "1.36.1 les dégâts matériels causés par un sinistre garanti se communiquant à des biens qui sont"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:7",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36.2",
+        "fiche_id": null,
+        "titre": "1.36.2 les frais repris aux conditions spéciales “frais annexes” lorsqu’ils ont été exposés par lesdits"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p13:8",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a1.36.3",
+        "fiche_id": null,
+        "titre": "1.36.3 le chômage commercial subi par lesdits “tiers”."
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p37:12",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p37:13",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p37:14",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p38:1",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p38:2",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p38:3",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p38:4",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.4.1",
+        "fiche_id": null,
+        "titre": "3.1.4.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:1",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.1",
+        "fiche_id": null,
+        "titre": "3.1.10.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:2",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.1",
+        "fiche_id": null,
+        "titre": "3.1.10.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:3",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.1",
+        "fiche_id": null,
+        "titre": "3.1.10.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:4",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.1",
+        "fiche_id": null,
+        "titre": "3.1.10.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:5",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.1",
+        "fiche_id": null,
+        "titre": "3.1.10.1 Etendue de la garantie"
+      },
+      {
+        "block_id": "axa-lu-optihome-2017:p50:18",
+        "doc_id": "axa-lu-optihome-2017",
+        "node_id": "axa-lu-optihome-2017:a3.1.10.3.3",
+        "fiche_id": null,
+        "titre": "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du"
+      }
+    ],
+    "gate": {
+      "profile": "vertical",
+      "cases": 1,
+      "countersigned": false,
+      "alerts": []
+    },
+    "dictionnaire": {
+      "charge": true,
+      "validated": false,
+      "corpus_ok": true,
+      "court_circuit_actif": false
+    },
+    "termes": [
+      "dégât des eaux",
+      "parquet",
+      "robinet",
+      "responsabilité civile",
+      "voisin"
+    ],
+    "facettes": [
+      "couverture des dommages au parquet de l'appartement",
+      "couverture des dommages causés au voisin (responsabilité civile)"
     ]
-   },
-   {
-    "name": "retrouver",
-    "tier": "reason",
-    "prompt_cache": true,
-    "mechanism_order": [],
-    "ms": 30030,
-    "usage": {
-     "input": 14352,
-     "cached": 243420,
-     "output": 2351,
-     "cost_eur": 0.1392,
-     "cached_response": false,
-     "cost_eur_original": 0.1392
-    },
-    "opened_block_ids": [
-     "axa-lu-optihome-2017:p37:10",
-     "axa-lu-optihome-2017:p37:11",
-     "axa-lu-optihome-2017:p49:8",
-     "axa-lu-optihome-2017:p49:9",
-     "axa-lu-optihome-2017:p13:4",
-     "axa-lu-optihome-2017:p13:5",
-     "axa-lu-optihome-2017:p13:9",
-     "axa-lu-optihome-2017:p13:6",
-     "axa-lu-optihome-2017:p13:7",
-     "axa-lu-optihome-2017:p13:8",
-     "axa-lu-optihome-2017:p37:12",
-     "axa-lu-optihome-2017:p37:13",
-     "axa-lu-optihome-2017:p37:14",
-     "axa-lu-optihome-2017:p38:1",
-     "axa-lu-optihome-2017:p38:2",
-     "axa-lu-optihome-2017:p38:3",
-     "axa-lu-optihome-2017:p38:4",
-     "axa-lu-optihome-2017:p50:1",
-     "axa-lu-optihome-2017:p50:2",
-     "axa-lu-optihome-2017:p50:3",
-     "axa-lu-optihome-2017:p50:4",
-     "axa-lu-optihome-2017:p50:5",
-     "axa-lu-optihome-2017:p50:18"
-    ],
-    "discarded_block_ids": [],
-    "budget_lecture": {
-     "opens_used": 6,
-     "blocks_used": 23,
-     "tokens_used": 2806,
-     "opens_remaining": 0,
-     "blocks_remaining": null,
-     "tokens_remaining": 9194
-    },
-    "checks": [
-     {
-      "name": "navigation",
-      "ok": true,
-      "detail": "5 tour(s), 6 nœud(s) ouvert(s) (axa-lu-optihome-2017:a3.1.4, axa-lu-optihome-2017:a3.1.9.10, axa-lu-optihome-2017:a1.36, axa-lu-optihome-2017:a3.1.4.1, axa-lu-optihome-2017:a3.1.10.1, axa-lu-optihome-2017:a3.1.10.3.3), 0 recherche(s), lecture 2806/12000 tokens, réflexion 1812 tokens"
-     }
-    ],
-    "calls": [
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 3304,
-      "usage": {
-       "input": 381,
-       "cached": 48684,
-       "output": 286,
-       "cost_eur": 0.0184,
-       "cached_response": false,
-       "cost_eur_original": 0.0184
-      },
-      "cache_read": 48684,
-      "cache_write": 0,
-      "thinking": 71,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:81fa3997-150e-4b7f-b5fc-a0eabe0309c1",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "77b0c0d36c5f7039c672459971fe29eba219159819b88cb4d2fcdf81515a59dc",
-      "input_bytes": 99229,
-      "response_sha256": "b52c4ae14121a82b26fc9606584b3be194f36da9c768c36e895f772f332ea92f",
-      "response_bytes": 1509,
-      "audit_persisted": false
-     },
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 3115,
-      "usage": {
-       "input": 1421,
-       "cached": 48684,
-       "output": 258,
-       "cost_eur": 0.0209,
-       "cached_response": false,
-       "cost_eur_original": 0.0209
-      },
-      "cache_read": 48684,
-      "cache_write": 0,
-      "thinking": 182,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:d772af3d-0e7f-4336-8271-920471cd081b",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "d49312b33e1136cfc6c39dd6b4b09845798aae8a07e1cf36ac21416abbe35e5c",
-      "input_bytes": 102097,
-      "response_sha256": "09fdab1ba1cb0d88aa81b5aff60dba3d0bbd59330edb8119d59e07f0c5b01738",
-      "response_bytes": 1577,
-      "audit_persisted": false
-     },
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 12782,
-      "usage": {
-       "input": 2418,
-       "cached": 48684,
-       "output": 996,
-       "cost_eur": 0.0339,
-       "cached_response": false,
-       "cost_eur_original": 0.0339
-      },
-      "cache_read": 48684,
-      "cache_write": 0,
-      "thinking": 846,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:9c959249-def3-4cf2-aa18-1b1258f97eda",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "348f830c205ecc863cb880e99595c6f17dcf1462ac21d1bd4f153d5087d8ab51",
-      "input_bytes": 105184,
-      "response_sha256": "9e09a75bf8d0cdaa9658e79c5170e433764751c447bd8c77358ff2bf5032f0fd",
-      "response_bytes": 4396,
-      "audit_persisted": false
-     },
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 9386,
-      "usage": {
-       "input": 4097,
-       "cached": 48684,
-       "output": 771,
-       "cost_eur": 0.0354,
-       "cached_response": false,
-       "cost_eur_original": 0.0354
-      },
-      "cache_read": 48684,
-      "cache_write": 0,
-      "thinking": 713,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:b5611a8d-64f4-4ceb-b918-7b436a2b9625",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "dc7232594eb96523ab50f399b4555e568a0c0c5c3178264eeadacdcaaeccbead",
-      "input_bytes": 110792,
-      "response_sha256": "349476e0aaa0e9d7a2fc7771d6c4c8a906fd49a18fd3203c9ac0a472270a8e06",
-      "response_bytes": 3516,
-      "audit_persisted": false
-     },
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 1402,
-      "usage": {
-       "input": 6035,
-       "cached": 48684,
-       "output": 40,
-       "cost_eur": 0.0306,
-       "cached_response": false,
-       "cost_eur_original": 0.0306
-      },
-      "cache_read": 48684,
-      "cache_write": 0,
-      "thinking": 0,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:9287b192-b638-4895-8068-8977d93d5dc9",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "57c652bb7bba6d66369a1292111735eb51f54b8a627ea31e9c82afe1acfaa546",
-      "input_bytes": 116871,
-      "response_sha256": "74bef88cee71ed92012017962258e6a22b3db561c1c8d584daaa42a714fe88b5",
-      "response_bytes": 566,
-      "audit_persisted": false
-     }
-    ]
-   },
-   {
-    "name": "rediger",
-    "tier": "reason",
-    "prompt_cache": true,
-    "mechanism_order": [],
-    "ms": 23881,
-    "usage": {
-     "input": 7695,
-     "cached": 50374,
-     "output": 2567,
-     "cost_eur": 0.0706,
-     "cached_response": false,
-     "cost_eur_original": 0.0706
-    },
-    "opened_block_ids": [
-     "axa-lu-optihome-2017:p37:10",
-     "axa-lu-optihome-2017:p37:11",
-     "axa-lu-optihome-2017:p49:8",
-     "axa-lu-optihome-2017:p49:9",
-     "axa-lu-optihome-2017:p13:4",
-     "axa-lu-optihome-2017:p13:5",
-     "axa-lu-optihome-2017:p13:9",
-     "axa-lu-optihome-2017:p13:6",
-     "axa-lu-optihome-2017:p13:7",
-     "axa-lu-optihome-2017:p13:8",
-     "axa-lu-optihome-2017:p37:12",
-     "axa-lu-optihome-2017:p37:13",
-     "axa-lu-optihome-2017:p37:14",
-     "axa-lu-optihome-2017:p38:1",
-     "axa-lu-optihome-2017:p38:2",
-     "axa-lu-optihome-2017:p38:3",
-     "axa-lu-optihome-2017:p38:4",
-     "axa-lu-optihome-2017:p50:1",
-     "axa-lu-optihome-2017:p50:2",
-     "axa-lu-optihome-2017:p50:3",
-     "axa-lu-optihome-2017:p50:4",
-     "axa-lu-optihome-2017:p50:5",
-     "axa-lu-optihome-2017:p50:18"
-    ],
-    "discarded_block_ids": [],
-    "budget_lecture": null,
-    "checks": [
-     {
-      "name": "blocs_decisionnels_ecartes",
-      "ok": false,
-      "detail": "3 bloc(s) décisionnel(s) lu(s) écarté(s) par la rédaction (axa-lu-optihome-2017:p38:1, axa-lu-optihome-2017:p38:2, axa-lu-optihome-2017:p50:5) sur 12 ouvert(s) : une décision du modèle, tracée pour qu'une omission ne soit pas silencieuse"
-     },
-     {
-      "name": "ebauche_dans_la_conversation",
-      "ok": true,
-      "detail": "ébauche rendue dans le fil de navigation (23 bloc(s) ouvert(s) citables), 5 tour(s) dont 0 tour(s) terminal(aux) forcé(s), réflexion 0 tokens"
-     }
-    ],
-    "calls": [
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 23869,
-      "usage": {
-       "input": 7695,
-       "cached": 50374,
-       "output": 2567,
-       "cost_eur": 0.0706,
-       "cached_response": false,
-       "cost_eur_original": 0.0706
-      },
-      "cache_read": 50374,
-      "cache_write": 0,
-      "thinking": 0,
-      "tools": [
-       "sommaire",
-       "ouvrir_noeud",
-       "chercher",
-       "definitions"
-      ],
-      "call_uid": "call:0f93393a-7d36-462f-9338-62a037af441a",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [],
-      "input_sha256": "6b37918ba4a63ba688646d71edb880a1889d71267e8d4e230b41f5a51c81703d",
-      "input_bytes": 123265,
-      "response_sha256": "96a160f177e7a2796f7e939592b0991e9fe68c33ff8466fca04ac595f0b5c97c",
-      "response_bytes": 7051,
-      "audit_persisted": false
-     }
-    ]
-   },
-   {
-    "name": "verifier",
-    "tier": "reason",
-    "prompt_cache": null,
-    "mechanism_order": [],
-    "ms": 13454,
-    "usage": {
-     "input": 3361,
-     "cached": 17212,
-     "output": 1406,
-     "cost_eur": 0.0334,
-     "cached_response": false,
-     "cost_eur_original": 0.0334
-    },
-    "opened_block_ids": [],
-    "discarded_block_ids": [],
-    "budget_lecture": null,
-    "checks": [
-     {
-      "name": "citation_amorce_liee",
-      "ok": true,
-      "detail": "1 citation(s) répétée(s) ailleurs dans le document introduisent immédiatement un autre passage cité par la même affirmation : lues comme son contexte (statut « contexte »), pas comme une source indépendante"
-     },
-     {
-      "name": "segments_derives",
-      "ok": true,
-      "detail": "6 segment(s) factuel(s) au texte byte-identique à une affirmation référencée : non soumis au jugement de soutien, leur affichage suit la décision de pertinence de l'affirmation"
-     },
-     {
-      "name": "verdict",
-      "ok": true,
-      "detail": "sous_conditions sur 6 affirmation(s) affichée(s)"
-     },
-     {
-      "name": "claims_par_facette",
-      "ok": true,
-      "detail": "2 sous-question(s) sur 2 portent au moins une affirmation rédigée (6 affirmation(s) au total)"
-     },
-     {
-      "name": "citations",
-      "ok": true,
-      "detail": "6 affirmation(s) retenue(s), 0 rejetée(s) sur 6"
-     }
-    ],
-    "calls": [
-     {
-      "model": "claude-sonnet-5",
-      "tier": "reason",
-      "ms": 13380,
-      "usage": {
-       "input": 3361,
-       "cached": 17212,
-       "output": 1406,
-       "cost_eur": 0.0334,
-       "cached_response": false,
-       "cost_eur_original": 0.0334
-      },
-      "cache_read": 17212,
-      "cache_write": 0,
-      "thinking": 636,
-      "tools": [],
-      "call_uid": "call:3285fe2e-437b-4366-8697-9557cefbc171",
-      "run_uid": "run:2b980d34-f9d9-4b5e-8c7e-2b6275824079",
-      "artifact_uid": "artifact-v1:d58c98d751a8350cd9335f3aaccb20873ad89e91fcff461f58d6f351b9a6e841",
-      "trusted_line_uids": [
-       "line-v1:7dd98c9c75a0978f74ce7345ddfb53b071d32b2c03ba201f7ddb0a2c18cecf0e",
-       "line-v1:a6a6cf8ef25dfea3f340b1a93c22c14bf2a123aa1978c88d52edcff6b929b6be",
-       "line-v1:69ed1a44b51516b7c0b610d3b694f7164a00801bf6d5c916f6a200a81d7920bb",
-       "line-v1:39bab5b28684c48dbb99a3642663ca00199b7742eadad81f5e0c2b9779573ad7",
-       "line-v1:c2636f98439dc87504b5bfa534f248f72f036d903fdddb9df4f4e4b81468c4af",
-       "line-v1:48c4f931692a83c6d2b8ae856c9c4970bffb79a701063cff2c5e758f27dca04f",
-       "line-v1:44fc09aaaa0735691eaf3bf2325563077722486fe3777aa6116db61369efa5af",
-       "line-v1:b7338378cac251a67be75a8d3666f9ecbe536ec4c8f3e4f9540631f09c1205c9",
-       "line-v1:daba5cba43632a43f0a2a2f105ec8123e5e2c4424ca36c9dc8f9d05bf0535114",
-       "line-v1:37a8404295b1b8f5471e3690011f04a0e87bea0f327d589293c5246386277fa3",
-       "line-v1:717ce420179be4279c7720a11600d815b368bdeeea1799526ae0d5c2b4801500",
-       "line-v1:18d14891ac56ed12d63886f9e379c8cd897e72ea90c6ea0a59be12b81a3fb88a",
-       "line-v1:767107a106bfe0f46ad2078d7060991c7dc6fabbaae1a46401108f2e68238850",
-       "line-v1:28211d028392368d1ed7cd491654a0a5e36bee3e36d1b14808311e8e222a2cea",
-       "line-v1:9c99d0457760c6a8c4c2154d3478ae068a064e6ae945a8be39e71b2854ad2183",
-       "line-v1:27b7c76e76f0b23e428b4950375a41d49f291b3e73a29cbb7f03ed7bd2112ea3",
-       "line-v1:465731a391f6e6a1b82d6ec2e56a098fff0f9c85b09b0e6aa5b0668a306ee844",
-       "line-v1:a70e51785561877e77f1df546e291cd331e63af5273aa12acf1f4ec939a7f0dc",
-       "line-v1:993670d6f05eab062661871aa99440b0b40e8f5642fdeb2878dc56c47fa40db5",
-       "line-v1:6005199865bf37f53182d1cc03d3c8f615ced89f844ecd71e1a880721dc20bda",
-       "line-v1:22f22149256f08197c1b6b2d4f7b0362d191264ad54ab10295f315627ef0db40",
-       "line-v1:74bc39ed25030e081ef7b4a63e5f8ca2cb9d7a2810e0f82f3bdfd87661d7ac43",
-       "line-v1:a798dad0e92822ad88fc41126e5e7d77a324ea9734abaf342c930f2b3256bb30",
-       "line-v1:d48db49fe6dd0c87348bf5308a5bde1c07977c60fd1685bb95dbf1bd5ab5ec0f",
-       "line-v1:5a396eb560bb2377fd44fc82d949fe10d6b44456967973e8b6c05e075ed98082",
-       "line-v1:5a877f5ea8acbf11800caae85cb49117d71a00ab76d42a067962f68b95469c84",
-       "line-v1:627ecd5846e86f3c620e832dbc2422b2561f663e7840f090245eb5be084082c3",
-       "line-v1:512ee33ac23817dab087873b0bee2329ab05ac60ee32e8eb286fdccaea3fab54",
-       "line-v1:bd543c0f1894e2dfe1818288be482e176a003336a6dcbcb997f30a2c623d57df",
-       "line-v1:32cd0e4b5bfee3786f2b23f1aa6430d0f23d395417d4ac0c9eaf2ba4d9a42177",
-       "line-v1:36f709e6bb39e3bea4d71a5538a4d0139c182ef59411a8d88ccffa4fd3570241",
-       "line-v1:75f91f8cb0f65cf78c3f3b4e48eb7be084dd22e3ee7e7b278566ce033ff0fa52",
-       "line-v1:6e3abad001f0a8ae59d73f34ddea071ce8d52b957865f9186c7d2a6653876218",
-       "line-v1:3fe5a4c824265ec05b1a89c5c3bc10ec8cf08ffb20532d57709869b337c5d6e6"
-      ],
-      "input_sha256": "7f80c6118067a2d3fd48f66833d76eda29c9695a06558260c94750ae6b379340",
-      "input_bytes": 48369,
-      "response_sha256": "1c8f0a56e6351f83eeeb691088abb97423a42215fc40e5a715fd541ebd811d59",
-      "response_bytes": 4868,
-      "audit_persisted": false
-     }
-    ]
-   },
-   {
-    "name": "restituer",
-    "tier": null,
-    "prompt_cache": null,
-    "mechanism_order": [],
-    "ms": 0,
-    "usage": {
-     "input": 0,
-     "cached": 0,
-     "output": 0,
-     "cost_eur": 0.0,
-     "cached_response": false,
-     "cost_eur_original": 0.0
-    },
-    "opened_block_ids": [],
-    "discarded_block_ids": [],
-    "budget_lecture": null,
-    "checks": [],
-    "calls": []
-   }
-  ],
-  "total_cost_eur": 0.2492,
-  "source_hash": {
-   "axa-lu-optihome-2017": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c"
   },
-  "ingest_fingerprint": {
-   "axa-lu-optihome-2017": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460"
-  },
-  "pipeline_digest": "0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a",
-  "prompts_digest": "ca306d3840e21043a3ba2acc89e2e1cf5ede0df88827f85770e618506bbe0bcb",
-  "thresholds": {
-   "deadline_s": 290.0,
-   "llm_timeout_s": 78.0,
-   "llm_output_tokens_per_s_min": 85.0,
-   "llm_latence_marge_s": 5.0,
-   "client_abort_margin_s": 25.0,
-   "sse_keepalive_s": 15.0,
-   "client_probe_timeout_s": 10.0,
-   "raison_publiable_max_chars": 500,
-   "quote_min_chars": 25,
-   "quote_min_ratio": 0.6,
-   "max_opens": 6,
-   "navigation_max_llm_turns": 8,
-   "navigation_budget_tokens": 12000,
-   "navigation_search_limit": 20,
-   "navigation_draft_max_claims": 6,
-   "navigation_draft_max_segments": 9,
-   "navigation_rediger_max_tokens": 5056,
-   "navigation_draft_effort_high": 0,
-   "navigation_tier_reason": 1,
-   "variante_nombre_max_part": 0.01,
-   "node_window": 30,
-   "search_limit": 20,
-   "limite_liee_max": 1,
-   "limite_liee_proximite_min": 0.35,
-   "pdf_highlight_max_lines": 40,
-   "pdf_highlight_max_blocks": 10,
-   "pdf_render_concurrency": 2,
-   "pdf_render_cache_pages": 32,
-   "pdf_render_dpi": 144,
-   "pdf_render_max_pixels": 16000000,
-   "pdf_render_queue_timeout_s": 2.0,
-   "max_llm_attempts": 15,
-   "retrouver_outils_max_tokens": 1024,
-   "retrieval_max_blocks": 30,
-   "retrieval_max_tokens": 3500,
-   "max_cost_eur_per_request": 1.3,
-   "cost_alert_eur": 1.0,
-   "evals_max_cost_eur": 20.0,
-   "live_budget_eur": 20.0,
-   "baseline_tiers": 0,
-   "comprendre_tier_reason": 1,
-   "rediger_tier_reason": 1,
-   "verifier_tier_reason": 1,
-   "retrouver_outils_tier_reason": 1,
-   "retrieval_prompt_cache": 1,
-   "llm_audit_max_bytes": 16777216,
-   "llm_audit_exact": 0,
-   "llm_audit_retention_files": 4,
-   "llm_max_output_tokens": 6144,
-   "llm_retry_margin_s": 5.0,
-   "comprendre_max_tokens": 1024,
-   "rediger_max_tokens": 2048,
-   "verifier_max_tokens": 3072,
-   "verifier_max_claims": 8,
-   "verifier_sinistre_max_tokens": 6144,
-   "verifier_sinistre_json_tokens": 1024,
-   "verifier_thinking_reserve_tokens": 5120,
-   "fait_manquant_max_chars": 200,
-   "ask_client_max": 8,
-   "conversation_rate_limit_per_minute": 30,
-   "conversation_rate_limit_per_day": 300,
-   "conversation_max_turns": 20,
-   "conversation_active_questions_max": 3,
-   "qualites_exigees_max": 4,
-   "qualite_mot_min_chars": 5,
-   "rattachement_max_chars": 240,
-   "claim_phrases_max": 12,
-   "historique_max_turns": 6,
-   "relance_sur_non_pertinence": 0,
-   "quote_max_chars": 250,
-   "draft_max_segments": 9,
-   "draft_max_claims": 6,
-   "draft_max_definitions": 1,
-   "question_min_terms": 2,
-   "question_max_terms": 6,
-   "question_max_facettes": 4,
-   "scope_max_themes": 6,
-   "libelle_max_chars": 500,
-   "liste_max_items": 32,
-   "estimate_chars_per_token": 2.0,
-   "estimate_tokenizer_factor": 1.3,
-   "count_tokens_timeout_s": 10.0,
-   "summary_max_tags": 5,
-   "summary_resume_max_chars": 90,
-   "summary_max_level": 2,
-   "summary_page_max_chars": 17000,
-   "summary_slice_max_chars": 30000,
-   "summary_apercu_max_chars": 90,
-   "excerpt_max_chars": 1000,
-   "rate_limit_per_minute": 10,
-   "rate_limit_per_day": 100,
-   "rate_limit_max_clients": 4096,
-   "retry_after_s": 60,
-   "request_max_bytes": 65536,
-   "cloud_trace_max_chars": 128,
-   "coverage_threshold": 0.8,
-   "kind_confidence_min": 0.7,
-   "mixed_page_image_density": 0.2,
-   "ocr_dpi": 300,
-   "quality_min_words": 12,
-   "foreign_signal_min": 3,
-   "french_signal_ratio_min": 0.08,
-   "gibberish_ratio_max": 0.35,
-   "residual_header_min_pages_ratio": 0.3,
-   "toc_page_number_baseline_pt": 8.0,
-   "toc_column_tolerance_pt": 80.0,
-   "toc_indent_tolerance_pt": 5.0,
-   "toc_line_gap_ratio": 1.5,
-   "toc_title_prefix_min_chars": 20,
-   "column_gutter_min_pt": 18.0,
-   "column_min_lines": 4,
-   "column_min_span_ratio": 0.35,
-   "column_row_pairing_max_ratio": 0.5,
-   "column_min_fill_ratio": 0.6,
-   "structure_max_depth": 6,
-   "structure_max_nodes": 2000,
-   "structure_max_children": 256,
-   "structure_max_blocks_per_leaf": 100,
-   "structure_min_coverage": 1.0,
-   "etiquette_max_chars": 160,
-   "structure_max_input_chars": 900000,
-   "structure_max_output_tokens": 16000,
-   "structure_output_tokens_per_line": 12.0,
-   "structure_thinking_reserve_tokens": 8000,
-   "structure_max_refinements": 4,
-   "structure_max_cost_eur": 8.0,
-   "dictionary_term_max_chars": 60,
-   "dictionary_term_max_words": 4,
-   "dictionary_max_variants_per_term": 8,
-   "dictionary_max_terms_per_fiche": 20,
-   "dictionary_question_max_chars": 160,
-   "dictionary_max_questions_per_fiche": 5,
-   "dictionary_max_intent_triggers": 30,
-   "dictionary_flat_max_blocks_per_request": 20,
-   "dictionary_flat_max_input_chars": 12000,
-   "dictionary_flat_max_terms_per_block": 3,
-   "dictionary_flat_max_output_tokens": 4096,
-   "dictionary_max_output_tokens": 16000,
-   "dictionary_max_cost_eur": 3.0,
-   "dictionary_batch_poll_s": 20.0,
-   "dictionary_batch_timeout_s": 3600.0,
-   "dictionary_tier_reason": 0,
-   "type_clauses_max_blocks_per_request": 10,
-   "type_clauses_max_input_chars": 60000,
-   "type_clauses_max_requests_per_batch": 1000,
-   "type_clauses_max_output_tokens": 2048,
-   "type_clauses_max_cost_eur": 12.0,
-   "type_clauses_arbitration_confidence_min": 0.8,
-   "type_clauses_confidence_tolerance": 1.0,
-   "type_clauses_batch_poll_s": 20.0,
-   "type_clauses_batch_timeout_s": 7200.0,
-   "type_clauses_standard_concurrency": 8,
-   "type_clauses_standard_max_retries": 3,
-   "type_clauses_standard_retry_base_s": 1.0,
-   "type_clauses_max_article_refs": 12,
-   "type_clauses_max_scope_articles": 20,
-   "type_clauses_max_relations": 6,
-   "type_clauses_ref_expansion_max_blocks": 30,
-   "type_clauses_definition_max_chars": 120,
-   "type_clauses_definition_max_words": 12,
-   "perimetre_max_chars": 4000,
-   "header_band_pt": 40.0,
-   "footer_band_pt": 40.0,
-   "header_min_pages_ratio": 0.3,
-   "para_gap_ratio": 1.5,
-   "article_number_max_x": 70.0,
-   "title_min_size_pt": 12.0,
-   "header_caps_max_size_pt": 10.0,
-   "baseline_tolerance_pt": 3.0,
-   "number_gap_tolerance_pt": 1.0,
-   "list_indent_pt": 4.0,
-   "dedent_tolerance_pt": 1.0,
-   "dedent_starter_max_lines": 2,
-   "fetch_timeout_s": 30.0,
-   "metadata_timeout_s": 2.0,
-   "prefix_keepalive_enabled": 1,
-   "prefix_keepalive_s": 3000.0,
-   "prefix_keepalive_max_prefixes": 12,
-   "prefix_keepalive_max_cost_eur_per_day": 1.0,
-   "response_cache_enabled": 1,
-   "response_cache_ttl_s": 604800.0,
-   "response_cache_max_entries": 200,
-   "response_cache_max_bytes": 33554432
-  },
-  "retries": 0,
-  "truncations": 0,
-  "deadline_remaining_s": 218.47,
-  "blocs": [
-   {
-    "block_id": "axa-lu-optihome-2017:p37:10",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4",
-    "fiche_id": null,
-    "titre": "3.1.4 Dégâts des eaux"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p37:11",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4",
-    "fiche_id": null,
-    "titre": "3.1.4 Dégâts des eaux"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p49:8",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.9.10",
-    "fiche_id": null,
-    "titre": "3.1.9.10 Recours des tiers"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p49:9",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.9.10",
-    "fiche_id": null,
-    "titre": "3.1.9.10 Recours des tiers"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:4",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36",
-    "fiche_id": null,
-    "titre": "1.36 Recours des tiers (recours des voisins)"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:5",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36",
-    "fiche_id": null,
-    "titre": "1.36 Recours des tiers (recours des voisins)"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:9",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36",
-    "fiche_id": null,
-    "titre": "1.36 Recours des tiers (recours des voisins)"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:6",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36.1",
-    "fiche_id": null,
-    "titre": "1.36.1 les dégâts matériels causés par un sinistre garanti se communiquant à des biens qui sont"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:7",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36.2",
-    "fiche_id": null,
-    "titre": "1.36.2 les frais repris aux conditions spéciales “frais annexes” lorsqu’ils ont été exposés par lesdits"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p13:8",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a1.36.3",
-    "fiche_id": null,
-    "titre": "1.36.3 le chômage commercial subi par lesdits “tiers”."
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p37:12",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p37:13",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p37:14",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p38:1",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p38:2",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p38:3",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p38:4",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.4.1",
-    "fiche_id": null,
-    "titre": "3.1.4.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:1",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.1",
-    "fiche_id": null,
-    "titre": "3.1.10.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:2",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.1",
-    "fiche_id": null,
-    "titre": "3.1.10.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:3",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.1",
-    "fiche_id": null,
-    "titre": "3.1.10.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:4",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.1",
-    "fiche_id": null,
-    "titre": "3.1.10.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:5",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.1",
-    "fiche_id": null,
-    "titre": "3.1.10.1 Etendue de la garantie"
-   },
-   {
-    "block_id": "axa-lu-optihome-2017:p50:18",
-    "doc_id": "axa-lu-optihome-2017",
-    "node_id": "axa-lu-optihome-2017:a3.1.10.3.3",
-    "fiche_id": null,
-    "titre": "3.1.10.3.3 aux biens par le feu, la fumée, l’eau, l’explosion, l’implosion, le déplacement du sol ou du"
-   }
-  ],
-  "gate": {
-   "profile": "vertical",
-   "cases": 1,
-   "countersigned": false,
-   "alerts": []
-  },
-  "dictionnaire": {
-   "charge": true,
-   "validated": false,
-   "corpus_ok": true,
-   "court_circuit_actif": false
-  },
-  "termes": [
-   "dégât des eaux",
-   "parquet",
-   "robinet",
-   "responsabilité civile",
-   "voisin"
-  ],
-  "facettes": [
-   "couverture des dommages au parquet de l'appartement",
-   "couverture des dommages causés au voisin (responsabilité civile)"
-  ]
- },
- "conversation": {
-  "token": "etat.signe",
-  "turn": 2,
-  "facts": [
-   {
-    "event_id": "f-1",
-    "key": "cause",
-    "value": "oubli de fermeture d'un robinet",
-    "source": "extraction",
-    "turn": 0,
-    "question_id": null,
-    "replaces_event_id": null
-   },
-   {
-    "event_id": "f-2",
-    "key": "garantie dégâts des eaux",
-    "value": "oui",
-    "source": "reponse_client",
-    "turn": 1,
-    "question_id": "q-1",
-    "replaces_event_id": null
-   },
-   {
-    "event_id": "f-3",
-    "key": "precision_client",
-    "value": "Le voisin du dessous a fait constater des dégâts sur son plafond pour 2 500 euros",
-    "source": "reponse_client",
+  "conversation": {
+    "token": "etat.signe",
     "turn": 2,
-    "question_id": null,
-    "replaces_event_id": null
-   }
-  ],
-  "conflicts": [],
-  "questions": [
-   {
-    "question_id": "q-2",
-    "text": "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ?",
-    "kind": "option",
-    "fact_key": "option_requise",
-    "claim_id": "c1",
-    "expected_value": null,
-    "status": "active",
-    "answered_event_id": null
-   },
-   {
-    "question_id": "q-3",
-    "text": "Vos conditions particulières mentionnent-elles la garantie « 3.1.10 Responsabilité civile immeuble » ?",
-    "kind": "option",
-    "fact_key": "option_requise",
-    "claim_id": "c2",
-    "expected_value": null,
-    "status": "active",
-    "answered_event_id": null
-   }
-  ],
-  "history": [
-   {
-    "turn": 0,
-    "value": "sous_conditions",
-    "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
-    "changed": false,
-    "causal_event_ids": [],
-    "causal_events": [],
-    "decisive_terms": [],
-    "request_id": "r-1"
-   },
-   {
-    "turn": 1,
-    "value": "sous_conditions",
-    "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
-    "changed": false,
-    "causal_event_ids": [
-     "f-2"
+    "facts": [
+      {
+        "event_id": "f-1",
+        "key": "cause",
+        "value": "oubli de fermeture d'un robinet",
+        "source": "extraction",
+        "turn": 0,
+        "question_id": null,
+        "replaces_event_id": null
+      },
+      {
+        "event_id": "f-2",
+        "key": "conditions_particulieres:axa-lu-optihome-2017:p37:11",
+        "value": "oui",
+        "source": "reponse_client",
+        "turn": 1,
+        "question_id": "q-1",
+        "replaces_event_id": null
+      },
+      {
+        "event_id": "f-3",
+        "key": "precision_client",
+        "value": "Le voisin du dessous a fait constater des dégâts sur son plafond pour 2 500 euros",
+        "source": "reponse_client",
+        "turn": 2,
+        "question_id": null,
+        "replaces_event_id": null
+      }
     ],
-    "causal_events": [
-     "garantie dégâts des eaux = oui (tour client)"
+    "conflicts": [],
+    "questions": [
+      {
+        "question_id": "q-1",
+        "text": "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ?",
+        "kind": "conditions_particulieres",
+        "fact_key": "conditions_particulieres:axa-lu-optihome-2017:p37:11",
+        "claim_id": "c1",
+        "expected_value": null,
+        "status": "repondue",
+        "answered_event_id": "f-2"
+      },
+      {
+        "question_id": "q-2",
+        "text": "Quelles options et extensions ont été souscrites ?",
+        "kind": "option",
+        "fact_key": "option_requise",
+        "claim_id": null,
+        "expected_value": null,
+        "status": "active",
+        "answered_event_id": null
+      },
+      {
+        "question_id": "q-3",
+        "text": "Que prévoient les conditions particulières (montants, franchises, biens désignés) ?",
+        "kind": "conditions_particulieres",
+        "fact_key": "conditions_particulieres",
+        "claim_id": null,
+        "expected_value": null,
+        "status": "active",
+        "answered_event_id": null
+      },
+      {
+        "question_id": "q-4",
+        "text": "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.",
+        "kind": "avenant_date",
+        "fact_key": "avenant_date",
+        "claim_id": null,
+        "expected_value": null,
+        "status": "active",
+        "answered_event_id": null
+      }
     ],
-    "decisive_terms": [],
-    "request_id": "r-2"
-   }
-  ]
- }
+    "history": [
+      {
+        "turn": 0,
+        "value": "sous_conditions",
+        "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
+        "changed": false,
+        "causal_event_ids": [],
+        "causal_events": [],
+        "decisive_terms": [],
+        "request_id": "r-1"
+      },
+      {
+        "turn": 1,
+        "value": "sous_conditions",
+        "reason": "Une garantie s'applique, mais une condition, une franchise ou une exclusion citée reste ouverte ; le contrat ne rend « 3.1.4 Dégâts des eaux » applicable qu'à une condition qu'aucun passage retenu n'établit — axa-lu-optihome-2017:p37:11 : « Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent\nque la garantie “ dégâts des eaux ” est souscrite. » (au regard des conditions générales seules)",
+        "changed": false,
+        "causal_event_ids": [
+          "f-2"
+        ],
+        "causal_events": [
+          "conditions_particulieres:axa-lu-optihome-2017:p37:11 = oui (tour client)"
+        ],
+        "decisive_terms": [],
+        "request_id": "r-2"
+      }
+    ]
+  }
 }

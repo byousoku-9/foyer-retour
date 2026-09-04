@@ -189,6 +189,13 @@
   // une réponse : c'est le constat, à côté du verdict, que rien n'a pu être retenu.
   var AUCUNE_PHRASE_RETENUE = "Aucune clause n'a pu être retenue";
 
+  // Story 5.6 (L2f) — la mention que le serveur ajoute au recalcul (`AMORCE_PREFIXE`, dans
+  // `server/app/domain/conversation.py`). Elle dit exactement ce que l'encart « Verdict mis à jour
+  // avec vos réponses » dit déjà, en tête du bloc 1 : quand l'encart est là, le corps ne la répète
+  // pas. Sans encart — un dossier sans fait apporté —, elle reste : elle est alors la seule trace
+  // du recalcul. Le préfixe est reconnu, pas la phrase entière : le verdict qui le suit varie.
+  var RE_MENTION_RECALCUL = /^\s*verdict\s+mis\s+à\s+jour\s+avec\s+vos\s+réponses\b/i;
+
   // « Ce que je ne sais pas » ne se compose pas ici. Le moteur écrivait une ligne générique, vraie
   // de tous les « sous conditions » et qui n'apprenait rien — elle est retirée du contrat par le
   // tour moteur, et la page ne la réaffiche pas si elle revenait.
@@ -1824,19 +1831,62 @@
    * dessous. Le bouton porte les mêmes classe et `data-*` que celui du dossier : `brancherConversation`
    * le trouve par sélecteur sur toute la racine peinte, il n'y a pas un second mécanisme.
    */
+  /**
+   * Ce que le dossier a **posé**, indexé pour retrouver la question d'un fait.
+   *
+   * Deux entrées, du plus sûr au plus pauvre : `question_id`, que le fait porte quand il répond à
+   * une question, et `fact_key` en repli — une question reposée d'un tour à l'autre change
+   * d'identifiant quand elle change de cible, jamais de clé. Une question `repondue` reste publiée
+   * (`state.questions` part entier vers la page) : c'est elle qui porte le libellé qu'on cherche.
+   */
+  function libellesDeQuestions(conversation) {
+    var parId = Object.create(null);
+    var parCle = Object.create(null);
+    tableau(conversation && conversation.questions).forEach(function (q) {
+      if (!estObjetPlat(q)) return;
+      var texte = String(q.text || "").trim();
+      if (!texte) return;
+      if (typeof q.question_id === "string") parId[q.question_id] = texte;
+      if (typeof q.fact_key === "string" && parCle[q.fact_key] === undefined) {
+        parCle[q.fact_key] = texte;
+      }
+    });
+    return { parId: parId, parCle: parCle };
+  }
+
+  /**
+   * Story 5.6 (L2f) — une réponse se lit avec **la question telle qu'elle a été posée**.
+   *
+   * Le parcours du 03/09 affichait « conditions_particulieres:axa-lu-optihome-2017:p37:11 : oui » :
+   * la clé de fait du moteur, qui nomme un bloc du corpus, là où l'assuré cherche ce à quoi il vient
+   * de répondre. Le libellé vient du dossier lui-même (`conversation.questions`) ; à défaut, la clé
+   * ne remonte à l'écran que si elle est en clair — une clé technique (le filtre de L2c : un
+   * `block_id` de la forme `document:pNN:MM`) est remplacée par ce qu'on sait d'elle avec certitude,
+   * qu'elle répond à une question. Jamais une clé brute.
+   */
+  var REPONSE_SANS_LIBELLE = "Réponse à une question";
+
+  function ligneDeFaitApporte(f, libelles) {
+    // Story 5.6 (L2e) — un fait libre n'est la réponse d'**aucune** question : il vient du champ
+    // « Préciser un fait ». L'écrire « <clé de la question> : <valeur> » le rangeait sous la
+    // question sélectionnée, qu'il ne visait pas — le parcours du 03/09 affichait « défaut de
+    // réparation ou d'entretien à l'origine du sinistre : Le voisin du dessous a fait constater
+    // des dégâts sur son plafond pour 2 500 euros ». Un fait sans `question_id` se lit donc pour
+    // ce qu'il est : une précision que l'assuré a apportée de lui-même.
+    if (!f.question_id) return "Vous avez précisé : " + String(f.value);
+    var pose = libelles.parId[f.question_id] || libelles.parCle[String(f.key)] || "";
+    // Le tiret, et non « : », parce que le libellé retrouvé est une question : « … ? : oui » se lit
+    // comme une coquille, « … ? — oui » comme la paire question/réponse que c'est.
+    if (pose) return pose + " — " + String(f.value);
+    return (enClair(f.key) || REPONSE_SANS_LIBELLE) + " : " + String(f.value);
+  }
+
   function majParReponses(conversation) {
     var apportes = faitsApportes(conversation);
     if (!apportes.length) return null;
+    var libelles = libellesDeQuestions(conversation);
     var lignes = apportes.map(function (f) {
-      // Story 5.6 (L2e) — un fait libre n'est la réponse d'**aucune** question : il vient du champ
-      // « Préciser un fait ». L'écrire « <clé de la question> : <valeur> » le rangeait sous la
-      // question sélectionnée, qu'il ne visait pas — le parcours du 03/09 affichait « défaut de
-      // réparation ou d'entretien à l'origine du sinistre : Le voisin du dessous a fait constater
-      // des dégâts sur son plafond pour 2 500 euros ». Un fait sans `question_id` se lit donc pour
-      // ce qu'il est : une précision que l'assuré a apportée de lui-même.
-      var texte = f.question_id
-        ? String(f.key) + " : " + String(f.value)
-        : "Vous avez précisé : " + String(f.value);
+      var texte = ligneDeFaitApporte(f, libelles);
       return noeud("li", "maj-fait", null, [
         noeud("span", "maj-fait-val", texte),
         noeud("button", "conv-corriger", "Corriger", null,
@@ -1946,20 +1996,27 @@
     // l'écart d'un **reste** ; sans reste, le corps garde tout et le bloc 2 dit les statuts.
     if (!retenues.length) { retenues = phrases.factuels; ecartees = []; }
     var factuels = retenues.map(function (f) { return f.texte; });
+    // Story 5.6 (L2f) — l'encart de recalcul et la mention du serveur disent la même chose ; la
+    // page ne l'écrit qu'une fois. L'encart la dit **mieux** : il nomme les faits qui ont changé le
+    // verdict, quand la mention n'en dit que la conclusion. Il gagne donc, et la phrase quitte le
+    // corps — où elle tombait en fin de paragraphe, derrière deux phrases de contrat. Sans encart,
+    // rien ne la remplace et elle reste.
+    var maj = majParReponses(r.conversation);
+    var limites = maj ? phrases.limites.filter(function (texte) {
+      return !RE_MENTION_RECALCUL.test(texte);
+    }) : phrases.limites;
     // Sans une seule phrase factuelle, le bloc dit le constat et le verdict — jamais une chaîne
     // de service à la place d'une réponse. Ce que le modèle a écrit sur les limites de sa lecture
     // reste dessous, en explication : le constat le résume, il ne le remplace pas. Les phrases
     // `limite` viennent après les factuelles, donc le rang du titre vaut sur la liste entière.
     var corps = factuels.length
-      ? reponseVue(factuels.concat(phrases.limites),
-                   indexPhraseReponse(retenues, citationsParClaim(r)))
-      : reponseVue([AUCUNE_PHRASE_RETENUE].concat(phrases.limites), 0);
+      ? reponseVue(factuels.concat(limites), indexPhraseReponse(retenues, citationsParClaim(r)))
+      : reponseVue([AUCUNE_PHRASE_RETENUE].concat(limites), 0);
     var phrase = corps.length ? corps[0] : null;
     var badge = noeud("span", "badge verdict-" + v.cle, v.texte);
     // La pastille se lit **à côté** de la première phrase : le verdict et la phrase qui l'énonce
     // sont une seule information, et les séparer par trois paragraphes en faisait deux.
     var enfants = [noeud("div", "reponse-tete", null, phrase ? [phrase, badge] : [badge])];
-    var maj = majParReponses(r.conversation);
     if (maj) enfants.push(maj);
     enfants = enfants.concat(corps.slice(1));
     // Après le corps, jamais dedans : ce qui a été examiné et écarté se lit une fois la réponse lue.
