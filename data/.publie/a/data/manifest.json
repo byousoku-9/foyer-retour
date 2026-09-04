@@ -12,7 +12,7 @@
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460",
       "cases_hash": "0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0",
-      "pipeline_digest": "13c3d7c63992f8a6081b7c701e0e692876ef156a84cb82748155bf97e1b2691d",
+      "pipeline_digest": "eb8b63113a150e0ea53d8fa7306cd4b1513382ba40b799a126f4529a0c7b19f5",
       "prompts_digest": "86823cbf9c94339f3410b6bf679c98fd2d7f4213de9d5bc8c226282d0144306e",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -20,7 +20,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-04T17:54:14Z",
+      "date": "2026-09-04T19:32:00Z",
       "overlay_hash": "5fcb28452d8c21a6d73bd59f9185c2aaba7a79e0f350b1db6b6d04a91f1f2c0c",
       "cases": 1,
       "countersigned": false,
@@ -31,7 +31,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6db2658ab1200ae8e6f1dbe9e5b4f28a5c33c1759d3c7d4297bb99563d676787",
+          "run_digest": "77bf840573b559d6e0138f25efa3469c836f56651371703f11442a891dd3de2d",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -42,7 +42,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6db2658ab1200ae8e6f1dbe9e5b4f28a5c33c1759d3c7d4297bb99563d676787",
+          "run_digest": "77bf840573b559d6e0138f25efa3469c836f56651371703f11442a891dd3de2d",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -53,7 +53,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "6db2658ab1200ae8e6f1dbe9e5b4f28a5c33c1759d3c7d4297bb99563d676787",
+          "run_digest": "77bf840573b559d6e0138f25efa3469c836f56651371703f11442a891dd3de2d",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -64,7 +64,7 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "6db2658ab1200ae8e6f1dbe9e5b4f28a5c33c1759d3c7d4297bb99563d676787",
+          "run_digest": "77bf840573b559d6e0138f25efa3469c836f56651371703f11442a891dd3de2d",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -75,7 +75,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "2a946607f230104e673f06551a05c744398dd6d64b8b6b65ce00ebdfb7a27882",
+          "run_digest": "1af0cf6c65104a3e6a40e46436eefe346f05ac94e15c6681bd94bb73df869502",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -86,7 +86,7 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "2a946607f230104e673f06551a05c744398dd6d64b8b6b65ce00ebdfb7a27882",
+          "run_digest": "1af0cf6c65104a3e6a40e46436eefe346f05ac94e15c6681bd94bb73df869502",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -97,17 +97,17 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "2a946607f230104e673f06551a05c744398dd6d64b8b6b65ce00ebdfb7a27882",
+          "run_digest": "1af0cf6c65104a3e6a40e46436eefe346f05ac94e15c6681bd94bb73df869502",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "6db2658ab1200ae8e6f1dbe9e5b4f28a5c33c1759d3c7d4297bb99563d676787",
+      "run_digest": "77bf840573b559d6e0138f25efa3469c836f56651371703f11442a891dd3de2d",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
-        "verifier_delai_facteur": 2.0,
+        "llm_timeout_facteur": 2.0,
         "llm_output_tokens_per_s_min": 85.0,
         "llm_latence_marge_s": 5.0,
         "client_abort_margin_s": 25.0,
@@ -143,10 +143,10 @@
         "retrouver_outils_max_tokens": 1024,
         "retrieval_max_blocks": 30,
         "retrieval_max_tokens": 3500,
-        "max_cost_eur_per_request": 1.3,
+        "max_cost_eur_per_request": 3.5,
         "cost_alert_eur": 1.0,
-        "evals_max_cost_eur": 20.0,
-        "live_budget_eur": 14.0,
+        "evals_max_cost_eur": 60.0,
+        "live_budget_eur": 60.0,
         "baseline_tiers": 0,
         "comprendre_tier_reason": 1,
         "rediger_tier_reason": 1,
@@ -299,7 +299,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "fea9bda1587045fd76467cd3fee2a7c92099e378",
+      "candidate_revision": "e655b9fb9678eff078215a65a1b32eb5a103ef66",
       "report_digest": null,
       "structure_hash": null
     }
@@ -317,7 +317,7 @@
       "source_hash": "2c365b0ea59a47ddf86295b0e1ad65a0c23847bcc30db22ec47861b18ba4a5a6",
       "ingest_fingerprint": "af06d797dd2d5e8de4247e6da66f800f3a2d8dd366b687a5b599ea09d8220fa5",
       "cases_hash": "0bdd3a6bc6ff598583d50ac881065f08f05e2b7e84b8cd988e8139274ce7903a",
-      "pipeline_digest": "13c3d7c63992f8a6081b7c701e0e692876ef156a84cb82748155bf97e1b2691d",
+      "pipeline_digest": "eb8b63113a150e0ea53d8fa7306cd4b1513382ba40b799a126f4529a0c7b19f5",
       "prompts_digest": "86823cbf9c94339f3410b6bf679c98fd2d7f4213de9d5bc8c226282d0144306e",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -325,7 +325,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-04T17:50:48Z",
+      "date": "2026-09-04T19:28:13Z",
       "overlay_hash": "86c55c59fc7f3e61dae2ad5b5be2a8a65b35dacca7120e9919b394cf3f0559f1",
       "cases": 3,
       "countersigned": false,
@@ -336,7 +336,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "ac9161ce6f97597092474b0663f36e95181e4509f2b47c285d284eb98e8bd089",
+          "run_digest": "b5c1f51c3e67261457036c925e1164fb3927008111611881b2cfa79b2d0650b4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -347,7 +347,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "ac9161ce6f97597092474b0663f36e95181e4509f2b47c285d284eb98e8bd089",
+          "run_digest": "b5c1f51c3e67261457036c925e1164fb3927008111611881b2cfa79b2d0650b4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -358,7 +358,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "ac9161ce6f97597092474b0663f36e95181e4509f2b47c285d284eb98e8bd089",
+          "run_digest": "b5c1f51c3e67261457036c925e1164fb3927008111611881b2cfa79b2d0650b4",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -369,7 +369,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "2a946607f230104e673f06551a05c744398dd6d64b8b6b65ce00ebdfb7a27882",
+          "run_digest": "1af0cf6c65104a3e6a40e46436eefe346f05ac94e15c6681bd94bb73df869502",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -380,17 +380,17 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "2a946607f230104e673f06551a05c744398dd6d64b8b6b65ce00ebdfb7a27882",
+          "run_digest": "1af0cf6c65104a3e6a40e46436eefe346f05ac94e15c6681bd94bb73df869502",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "ac9161ce6f97597092474b0663f36e95181e4509f2b47c285d284eb98e8bd089",
+      "run_digest": "b5c1f51c3e67261457036c925e1164fb3927008111611881b2cfa79b2d0650b4",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
-        "verifier_delai_facteur": 2.0,
+        "llm_timeout_facteur": 2.0,
         "llm_output_tokens_per_s_min": 85.0,
         "llm_latence_marge_s": 5.0,
         "client_abort_margin_s": 25.0,
@@ -426,10 +426,10 @@
         "retrouver_outils_max_tokens": 1024,
         "retrieval_max_blocks": 30,
         "retrieval_max_tokens": 3500,
-        "max_cost_eur_per_request": 1.3,
+        "max_cost_eur_per_request": 3.5,
         "cost_alert_eur": 1.0,
-        "evals_max_cost_eur": 20.0,
-        "live_budget_eur": 14.0,
+        "evals_max_cost_eur": 60.0,
+        "live_budget_eur": 60.0,
         "baseline_tiers": 0,
         "comprendre_tier_reason": 1,
         "rediger_tier_reason": 1,
@@ -582,7 +582,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "fea9bda1587045fd76467cd3fee2a7c92099e378",
+      "candidate_revision": "e655b9fb9678eff078215a65a1b32eb5a103ef66",
       "report_digest": null,
       "structure_hash": "572152b1efd8bfe79f8d784fe2dd05a575ed7b22bbdce69292dc02707f002ea7"
     }
