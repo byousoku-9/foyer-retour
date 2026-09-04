@@ -295,7 +295,7 @@ def test_verification_fields() -> None:
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
                                            "unknown", "lacunes", "facettes_couvertes",
                                            "facettes_claims", "verdict",
-                                           "demande_contexte", "motif"}
+                                           "demande_contexte", "phrases_a_reecrire", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None
     # Story 4.2e : aucune demande de contexte par défaut — le manque est un fait, pas un état neutre.
