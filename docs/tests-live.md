@@ -4666,3 +4666,20 @@ re-gate live n'est pas fait ; il revient à l'orchestrateur, `data/.publie` n'a 
 **Ronde `-13` du 04/09/2026 09:53-10:11** (orchestrateur, `S = 6ae0881`, campagnes `epic5-gate-<doc>-13`, ancrage `epic5-final-anchor-14` sur `g-luxtrust-prix` 3/3) : Baloise 9/9 (1,94 €), AXA 3/3 (0,47 €), guide 3/3 (0,12 €), tous `evals_ok=true` sur `pipeline_digest=a7164ce9…` / `prompts_digest=4f0c8e67…` (ceux de l'image). Parcours multi-tours lus sur ce même code (sinistre : question, réponse « oui », fait libre ; guide : trois questions enchaînées). Générations `data/.publie/{a,b}` commises ensemble (`7324832`) ; certificat Baloise ré-épinglé.
 
 **Ronde `-14` du 04/09/2026 10:56-11:13** (orchestrateur, `S = 1c5cc1e`, campagnes `epic5-gate-<doc>-14`, ancrage `epic5-final-anchor-15` 3/3) : Baloise 9/9 (1,64 €), AXA 3/3 (0,52 €), guide 3/3 (0,13 €), tous `evals_ok=true` sur `pipeline_digest=a484e02f…` / `prompts_digest=4f0c8e67…`. Générations `data/.publie/{a,b}` commises ensemble (`e9a4c29`) ; certificat Baloise ré-épinglé.
+
+
+### Dette déclarée : les trois gates, reconduits (L1n)
+
+`steps/verifier.py` change — les qualités qu'une clause exige sont désormais dérivées de son texte
+et non de la liste rendue par le modèle : `pipeline_digest` passe à `61e5d3e2…`, `prompts_digest`
+reste `4f0c8e67…` (aucun prompt n'est touché par ce tour). AD-7 sert donc les documents avec
+`gate_perime` tant que le re-gate live n'est pas fait ; il revient à l'orchestrateur, `data/.publie`
+n'a pas été touché. Le certificat Baloise (`tests/test_parsing_baloise.py`) épingle les empreintes de
+l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et il est vert.
+
+Ce tour n'a fait **aucun appel API** : la preuve est hors ligne, sur le rapport de gate `-14` figé
+dans `tests/data/gate-axa-14-bougie.json` (`tests/test_rejeu_gate_bougie.py`).
+
+- gate-a-relancer: lux-guide pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
