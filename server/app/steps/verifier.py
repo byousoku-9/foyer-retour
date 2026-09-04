@@ -1192,6 +1192,31 @@ def _condition_de_section(document: Any, node_id: str) -> ConditionDeSection | N
         renvoie_cp=bool(_mots_renvoi(bloc.text) & RENVOIS_CP))
 
 
+def _texte_de_la_clause(block_id: str, *, document: Any, index: Any) -> str:
+    """Le texte qu'il faut relire pour juger cette clause : celui de l'item, **précédé de son amorce**.
+
+    Story 5.7 (L1p). Les trois lexiques du code — les qualificatifs (B3), les renvois aux conditions
+    particulières et aux options (T18), les qualités de personne (T19) — relisent « le texte de la
+    clause ». Pour un item d'énumération, ce texte n'est pas celui de son seul bloc : l'amorce porte
+    le verbe et tout ce que l'énumération subordonne, et le contrat ne l'écrit qu'une fois.
+
+    Sans cela, le découpage des citations décidait à la place du contrat. Gate Baloise `-16`, cas
+    `b-congelateur` : l'amorce `p21:4` écrit « dans la limite prévue dans vos conditions
+    particulières », l'item `p21:5` ne l'écrit pas. Citée **avec** son item (rép. 1 et 2), l'amorce
+    donnait `cp_requise` et la règle (2bis) d'AD-6 rendait `sous_conditions` ; citée dans une
+    affirmation séparée (rép. 3), le renvoi disparaissait et la table tombait en `ne_tranche_pas` —
+    deux verdicts pour le même contrat et le même sinistre.
+
+    C'est l'exact inverse de L1o, et les deux tiennent l'énumération par les deux bouts : une amorce
+    citée seule ne décide pas (`ClaimJugee.clauses_decisionnelles`), un item cité seul est lu avec
+    l'amorce qui le subordonne. La lecture est structurelle (`Index.amorce_qui_introduit`), d'un seul
+    niveau, et ne peut que **fermer** un `oui` — elle n'ajoute jamais qu'un mot que le contrat écrit.
+    """
+    texte = document.block(block_id).text
+    amorce_id = index.amorce_qui_introduit(block_id)
+    return texte if amorce_id is None else f"{document.block(amorce_id).text}\n{texte}"
+
+
 def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
@@ -1207,6 +1232,7 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
         if block.kind not in KINDS_DECISIONNELS:
             continue  # une définition ou un paragraphe est le contexte de la clause, pas une clause
         node_id = document.node_of(block_id)
+        texte = _texte_de_la_clause(block_id, document=document, index=index)
         clauses.append(ClauseCitee(
             # Story 5.7 (L1e) : la condition d'applicabilité de la section, lue sur l'**arbre** et non
             # sur les claims. `renvoie_cp` est le témoin lexical déjà employé par T18 sur le texte de
@@ -1220,16 +1246,16 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # modèle énumère les qualités que la clause exige ; le texte de la clause dit, lui, s'il
             # avait quelque chose à énumérer. Une liste vide n'est plus « aucune qualité exigée »
             # quand la clause écrit « soudain » (`_qualites_de_la_clause`).
-            qualificatifs=list(_mots_qualifiants(block.text).values()),
+            qualificatifs=list(_mots_qualifiants(texte).values()),
             # T18, même source et même raison : le texte de la clause dit s'il subordonne son effet à
             # une pièce que le verdict ne lit pas. `cp_requise: false` sur une clause qui écrit
             # « dans la limite prévue dans vos conditions particulières » passait pour « la clause n'y
             # renvoie pas » (`_mots_renvoi`).
-            renvois=sorted(_mots_renvoi(block.text)),
+            renvois=sorted(_mots_renvoi(texte)),
             # T19 : et les qualités de **personne** que la clause écrit, lues à la même source. Elles
             # rejoignent `qualificatifs` dans `_qualites_de_la_clause` : ce que la clause exige et que
             # le modèle n'a nommé nulle part devient une qualité non établie, donc `humain`.
-            qualites_personne=_qualites_de_personne(block.text),
+            qualites_personne=_qualites_de_personne(texte),
             # L1o : ce bloc ouvre-t-il une énumération ? Lu sur l'**arbre** comme la portée et le
             # socle (`Index.est_amorce_denumeration`). Une amorce reste une clause citée — son texte
             # qualifie ses items (L1n) et sa section les conditionne (L1e) —, mais elle ne décide

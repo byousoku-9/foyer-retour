@@ -432,13 +432,55 @@ class Index:
         entry = self._by_block.get(block_id)
         if entry is None or entry.block.kind == "heading" or entry.block.structural_kind == "list":
             return False
-        if self._amorce_du_noeud(entry.node_id) == block_id:
-            return True
-        corps = [b for b in self._nodes[entry.node_id][1]
+        return block_id in (self._amorce_du_noeud(entry.node_id),
+                            self._amorce_du_corps(entry.node_id))
+
+    def amorce_qui_introduit(self, block_id: str) -> str | None:
+        """L'amorce dont ce bloc est un **item**, ou `None` — l'inverse de la méthode ci-dessus.
+
+        Story 5.7 (L1p). `est_amorce_denumeration` dit qu'un bloc n'énonce rien par lui-même ;
+        l'inverse dit ce qu'il manque à un item pour être lu. Un item d'énumération n'est pas une
+        phrase complète : l'amorce porte le verbe et **tout ce que l'énumération subordonne** —
+        « Nous garantissons, au lieu d'assurance, dans la limite prévue dans vos conditions
+        particulières, les détériorations des denrées […] résultant : » (`p21:4`), puis « d'un arrêt
+        accidentel du congélateur » (`p21:5`). Le renvoi aux conditions particulières est écrit une
+        fois, en tête, et vaut pour chaque item.
+
+        Mesuré sur le gate Baloise `-16` du 04/09, cas `b-congelateur` : selon que le modèle citait
+        l'amorce **avec** son item (rép. 1 et 2) ou dans une affirmation séparée (rép. 3), le même
+        contrat rendait `sous_conditions` ou `ne_tranche_pas` — le découpage des citations décidait à
+        la place du texte. `amorce_de_lenumeration` ne répondait que pour le rangement AXA (l'item est
+        une feuille sous le nœud de l'amorce) ; le rangement Baloise (amorce et items dans le même
+        nœud) n'avait pas d'inverse.
+
+        Les deux rangements sont donc ceux d'`est_amorce_denumeration`, pris dans l'autre sens, et
+        un seul niveau comme partout ailleurs — l'amorce d'une amorce n'existe pas.
+        """
+        entry = self._by_block.get(block_id)
+        if entry is None:
+            return None
+        amorce = self._amorce_du_corps(entry.node_id)
+        if amorce is not None and entry.block.structural_kind == "list":
+            return amorce  # les items du corps sont exactement ses `list`, et l'amorce n'en est pas
+        if self._nodes[entry.node_id][1] != [block_id]:
+            return None  # un nœud qui porte ses voisins n'est pas un item, il est une section
+        parent_id = self._node_parents.get(entry.node_id)
+        return None if parent_id is None else self._amorce_du_noeud(parent_id)
+
+    def _amorce_du_corps(self, node_id: str) -> str | None:
+        """Le bloc qui ouvre l'énumération portée par le **corps** de ce nœud, ou `None`.
+
+        Le pendant de `_amorce_du_noeud` pour l'autre rangement : le bloc ouvre le corps de son nœud
+        et **tout** ce qui le suit y est une liste, c'est-à-dire les items eux-mêmes. Un bloc `list`
+        est un item, jamais une amorce.
+        """
+        corps = [b for b in self._nodes[node_id][1]
                  if self._by_block[b].block.kind != "heading"]
-        if not corps or corps[0] != block_id or len(corps) == 1:
-            return False
-        return all(self._by_block[b].block.structural_kind == "list" for b in corps[1:])
+        if len(corps) < 2 or self._by_block[corps[0]].block.structural_kind == "list":
+            return None
+        if not all(self._by_block[b].block.structural_kind == "list" for b in corps[1:]):
+            return None
+        return corps[0]
 
     def _amorce_du_noeud(self, node_id: str) -> str | None:
         """Le bloc qui ouvre l'énumération **portée par les enfants** de ce nœud, ou `None`.
