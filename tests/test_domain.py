@@ -292,9 +292,12 @@ def test_verification_fields() -> None:
     # sous-question. Le contrôle calculait déjà la table pour en déduire `facettes_couvertes` et la
     # jetait ensuite — aucun appelant ne pouvait donc demander si la base décisionnelle d'une
     # sous-question donnée existait.
+    # `facettes_melangees` (story 5.7, L1q) : les affirmations que le contrôle a rangées sous deux
+    # sous-questions. Comme `phrases_a_reecrire`, c'est un défaut que seul le modèle peut réparer, et
+    # il vaut à lui seul la relance unique d'AD-3 (`pipelines.commun.relance_utile`).
     assert fields(answer.Verification) == {"segments", "claims", "rejected_claims", "found", "complete",
                                            "unknown", "lacunes", "facettes_couvertes",
-                                           "facettes_claims", "verdict",
+                                           "facettes_claims", "verdict", "facettes_melangees",
                                            "demande_contexte", "phrases_a_reecrire", "motif"}
     v = answer.Verification()
     assert v.found is False and v.complete is False and v.motif is None

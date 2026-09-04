@@ -495,6 +495,11 @@ class Verification(DomainModel):
     # réécrit rien (AD-1) — il nomme les rangs dans le motif et laisse la relance unique d'AD-3
     # refaire le paragraphe, une phrase par passage. Clé = `claim_id`, valeur = rangs retirés triés.
     phrases_a_reecrire: dict[str, list[int]] = Field(default_factory=dict)
+    # Story 5.7 (L1q) : les affirmations que le contrôle a rangées sous **deux** sous-questions —
+    # un paragraphe qui en fond plusieurs. Comme `phrases_a_reecrire`, c'est un défaut que seul le
+    # modèle peut réparer (le code ne découpe pas une réponse, AD-1) et que la relance unique d'AD-3
+    # répare : elle vaut donc, à elle seule, une relance.
+    facettes_melangees: list[str] = Field(default_factory=list)
     # Story 3.7 : état exact qui a alimenté AD-6. Il voyage seulement entre *vérifier*, le pipeline
     # et la fabrique du jeton signé ; il n'est jamais sérialisé dans l'ancien contrat ``Answer``.
     _decision_claims: list[ClaimJugee] = PrivateAttr(default_factory=list)

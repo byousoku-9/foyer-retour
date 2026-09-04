@@ -36,6 +36,7 @@ from server.app.steps.verifier import (
     retirer_identifiants,
     verifier,
 )
+from server.app.pipelines.commun import relance_utile
 from tests.llm_fake import FakeAnthropic, fake_message
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -3670,3 +3671,65 @@ def test_un_item_cite_avec_son_amorce_garde_lapplicabilite_quil_avait(reel: Inde
     # Et la lecture d'avant rendait déjà cela : l'item n'a rien perdu au passage.
     assert applicable_de_claim(_jugee("c1", [AMORCE_EXCLUSION, ITEM_EXCLUSION], reel=reel,
                                       l1o=False)) == "oui"
+
+
+# --- L1q : l'affirmation qui fond deux sous-questions -------------------------------------
+async def test_une_affirmation_rangee_sous_deux_sous_questions_est_ecartee(mini: Index) -> None:
+    """Story 5.7 (L1q), défaut 3 — **rouge avant** : la claim fondue passait, et couvrait deux rangs.
+
+    Mesuré en prod le 04/09/2026 sur la question d'installation : quatre sous-questions, **une**
+    affirmation, onze passages pris dans trois fiches, et l'école « sans réponse ». Le contrôle
+    disait lui-même que la claim répondait à plusieurs sous-questions ; le code n'en tirait qu'un
+    compte de couverture.
+    """
+    draft = _draft(("c1", "Le délai est de huit jours et la caution est plafonnée.",
+                    [("mini:p1:2", "huit jours pour déclarer votre arrivée"),
+                     ("mini:p1:3", "La caution est plafonnée à deux mois de loyer")]),
+                   ("c2", "La caution est plafonnée à deux mois de loyer.",
+                    [("mini:p1:3", "La caution est plafonnée à deux mois de loyer")]))
+    v, step, _fake = await _verifier(
+        mini, draft,
+        [_verdicts(("c1", True), ("c2", True), facettes=[["c1", "c2"], ["c1"]])],
+        nb_facettes=2)
+    assert [c.claim_id for c in v.claims] == ["c2"]
+    (rejet,) = v.rejected_claims
+    assert rejet.claim_id == "c1" and rejet.rejection_kind == "non_pertinente"
+    assert "une claim par sous-question" in rejet.motif and "découpe" in rejet.motif
+    assert v.facettes_melangees == ["c1"]
+    assert any(c.name == "facettes_melangees" and not c.ok for c in step.checks)
+    # La claim écartée ne couvre plus rien : la sous-question qu'elle prétendait traiter redevient
+    # sans réponse, ce qui est le fait, et `complete` le dit.
+    assert v.facettes_couvertes == [0] and v.complete is False
+
+
+async def test_une_affirmation_fondue_vaut_a_elle_seule_une_relance(mini: Index) -> None:
+    """Le code ne découpe pas une réponse (AD-1) : seule la relance unique d'AD-3 la répare."""
+    draft = _draft(("c1", "Le délai est de huit jours et la caution est plafonnée.",
+                    [("mini:p1:2", "huit jours pour déclarer votre arrivée"),
+                     ("mini:p1:3", "La caution est plafonnée à deux mois de loyer")]),
+                   ("c2", "La caution est plafonnée à deux mois de loyer.",
+                    [("mini:p1:3", "La caution est plafonnée à deux mois de loyer")]))
+    v, _step, _fake = await _verifier(
+        mini, draft,
+        [_verdicts(("c1", True), ("c2", True), facettes=[["c1", "c2"], ["c1"]])],
+        nb_facettes=2)
+    # `c2` survit, donc `found` reste vrai : sans la règle de L1q, `relance_utile` aurait rendu
+    # `False` (le seuil `relance_sur_non_pertinence` est à `False` par défaut) et l'affirmation
+    # fondue aurait été perdue sans réparation.
+    assert v.found is True
+    assert relance_utile(v, _settings()) is True
+
+
+async def test_une_affirmation_qui_ne_couvre_qu_une_sous_question_est_gardee(mini: Index) -> None:
+    """Contre-épreuve : deux claims, une sous-question chacune — rien n'est écarté."""
+    draft = _draft(("c1", "Le délai est de huit jours.",
+                    [("mini:p1:2", "huit jours pour déclarer votre arrivée")]),
+                   ("c2", "La caution est plafonnée à deux mois de loyer.",
+                    [("mini:p1:3", "La caution est plafonnée à deux mois de loyer")]))
+    v, _step, _fake = await _verifier(
+        mini, draft,
+        [_verdicts(("c1", True), ("c2", True), facettes=[["c1"], ["c2"]])],
+        nb_facettes=2)
+    assert [c.claim_id for c in v.claims] == ["c1", "c2"]
+    assert v.rejected_claims == [] and v.facettes_melangees == []
+    assert v.facettes_couvertes == [0, 1] and v.complete is True

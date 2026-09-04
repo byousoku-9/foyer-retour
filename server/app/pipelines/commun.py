@@ -349,6 +349,14 @@ def relance_utile(verification: Verification, settings: Settings) -> bool:
     exemples de motifs sont tous des défauts de citation — et non une évidence : le seuil
     `relance_sur_non_pertinence` la rend explicite et mesurable par les questions-témoins (4.2).
     """
+    if verification.facettes_melangees:
+        # Story 5.7 (L1q) : un quatrième cas, du même ordre que le troisième. Une affirmation qui
+        # fond deux sous-questions n'est pas « une affirmation de moins » : c'est la réponse à deux
+        # parts de la question rendue en un paragraphe qui n'en traite bien aucune, et seul le
+        # modèle peut la découper (AD-1 : le code ne réécrit pas). Sans cette ligne, le rejet
+        # n'aurait relancé que lorsque **rien** n'avait survécu — une affirmation fondue au milieu
+        # d'affirmations propres aurait été perdue sans réparation.
+        return True
     if verification.phrases_a_reecrire:
         # Story 5.6 (L1g) : un troisième cas, et il est du même ordre que le premier. Le paragraphe
         # servi n'est pas « une affirmation de moins » mais un texte amputé de ses liaisons, que
