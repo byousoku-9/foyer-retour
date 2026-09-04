@@ -107,6 +107,35 @@ EFFORT_PAR_PROMPT: dict[str, str] = {
     # il se voit, pas évité en achetant de la profondeur. Et la dépense de `low` est mesurée, non
     # censurée : ≤ 2 500 tokens de réflexion sur la campagne d'hier.
     "verifier_sinistre": "low",
+    # **`verifier` — le vérificateur du guide — passe à `low` le 04/09/2026 (story 5.6, L1l).**
+    # Il portait le défaut du palier (`medium`) ; le tour L1l le croyait déjà à `low`, l'audit dit
+    # le contraire, et c'est l'audit qui décide.
+    #
+    # **La mesure.** Rejeu L1j du 04/09/2026 08 h 45 (`proto/g-partir-l1j.json`, run `b8fe51e1`,
+    # `.audit/llm-calls.jsonl`), question guide à trois sous-questions, trois fiches lues, 37 blocs
+    # citables. L'appel de *vérifier* rend :
+    #
+    #     output_tokens = 6 144   dont thinking_tokens = 6 144   →   stop_reason = max_tokens
+    #
+    # **La totalité** de la sortie est de la réflexion, et pas un caractère de JSON n'est écrit :
+    # `LlmParse`, donc relance — laquelle expire à son tour (`APITimeoutError`). 139 s pour rien, sur
+    # une chaîne dont les trois autres étapes avaient abouti en 38,7 s.
+    #
+    # **C'est le mode d'échec déjà mesuré, déjà nommé, et déjà tranché** pour `verifier_sinistre` à
+    # T1d puis T10 : sur Sonnet 5 la réflexion est adaptative, `budget_tokens` est refusé, et rien ne
+    # la borne que `max_tokens` — qu'elle partage avec le contrat JSON. Un appel qui sature son
+    # plafond en réflexion ne rend rien du tout : la profondeur achetée n'est pas un jugement plus
+    # sévère, c'est un jugement jamais rendu. Le repli écrit à T1d s'applique mot pour mot ici :
+    # `low`, l'effort dont la dépense est **mesurée** et non censurée, et non un palier de plus.
+    # Relever `verifier_max_tokens` serait la troisième fois qu'on paie la même leçon.
+    #
+    # **Ce que `low` ne coûte pas ici.** Ce que le vérificateur du guide doit rendre est un verdict
+    # par affirmation contre des passages **joints** — la charge que `_pertinence` envoie ne contient
+    # que les citations relues dans le corpus, jamais les blocs entiers. Le raisonnement qui reste à
+    # faire est une comparaison, pas une construction. Et les recoupements que le code sait tenir
+    # seul — couverture des facettes donnée par *comprendre*, identifiants inventés, rangs hors
+    # borne, désignations contradictoires — sont déjà constatés par le code, là où ils se voient.
+    "verifier": "low",
 }
 
 
