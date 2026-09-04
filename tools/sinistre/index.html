@@ -337,6 +337,11 @@
     padding: 1px 8px;
   }
   .appui-doute { font-style: italic; color: var(--muted); }
+  /* L'amorce d'une énumération : la phrase du contrat qui appelle la liste, au-dessus du
+     paragraphe qu'elle ouvre. Plus petite et plus pâle que lui — elle introduit l'appui, elle
+     n'est pas l'appui. */
+  .appui-amorce { margin: 0 0 6px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
+                  max-width: var(--lecture); }
   .appui-texte {
     margin: 0; font-family: var(--serif); font-size: 15.5px; line-height: 1.55;
     max-width: var(--lecture);
@@ -443,7 +448,7 @@
     .reponse-phrase { font-size: 19px; }
     .appui { padding: 12px 13px; }
     .appui-chemin { overflow-wrap: anywhere; }
-    .appui-texte, .appui-clair, .appui-rattachement, .reponse-suite, .rej-txt { overflow-wrap: anywhere; }
+    .appui-texte, .appui-clair, .appui-amorce, .appui-rattachement, .reponse-suite, .rej-txt { overflow-wrap: anywhere; }
     .reponse-tete { gap: 10px; }
   }
 </style>

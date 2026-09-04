@@ -637,6 +637,102 @@
     return out;
   }
 
+  // ---------- l'amorce d'une énumération (story 5.6, L2d) ----------
+  //
+  // Le contrat écrit ses garanties en deux blocs : une phrase qui **appelle** la liste (« La
+  // Compagnie assure les biens désignés contre les dégâts des eaux c'est-à-dire : ») puis les items
+  // qui la complètent. Le moteur cite les deux sous la **même** affirmation, et la page en faisait
+  // deux cartes — même chemin, même phrase en clair, deux boutons « Voir la page ». Le lecteur y
+  // lisait deux appuis là où il n'y en a qu'un, coupé en son milieu par le PDF.
+  //
+  // L'amorce se reconnaît sans deviner, et les trois conditions sont exigées ensemble :
+  //   1. **la même affirmation** — deux blocs qu'aucune claim ne réunit ne se fondent jamais ;
+  //   2. **le bloc immédiatement précédent du même chemin** — même document, même page, rang `n`
+  //      puis `n + 1`, et le même intitulé de section : c'est l'adjacence typographique du PDF ;
+  //   3. **un texte qui appelle une suite** — il finit par « : », ou le moteur l'a publié en
+  //      `status: "contexte"`, ce qui est exactement ce qu'il dit d'un bloc qui n'est pas décisif
+  //      par lui-même.
+  //
+  // Faute d'une seule des trois, les deux clauses restent deux cartes : une fusion devinée
+  // masquerait un appui distinct sous un autre.
+  var RE_BLOC_ID = /^(.+):p(\d+):(\d+)$/;
+
+  function reperesBloc(id) {
+    var m = RE_BLOC_ID.exec(String(id || ""));
+    return m ? { doc: m[1], page: m[2], rang: Number(m[3]) } : null;
+  }
+
+  function cheminJoint(src) {
+    return tableau(src && src.chemin).map(function (t) { return String(t || "").trim(); }).join(" › ");
+  }
+
+  /** Le texte d'un bloc, tel qu'il se lit : le paragraphe entier s'il est publié, sinon la quote. */
+  function texteDeBloc(src) {
+    var s = src || {};
+    var brut = typeof s.texte_bloc === "string" && s.texte_bloc ? s.texte_bloc : s.quote;
+    return String(brut || "").replace(/\s+/g, " ").trim();
+  }
+
+  // `memeClaim` : `true` quand l'appelant tient déjà les deux clauses **d'une même affirmation** —
+  // l'appariement positionnel les groupe par claim sans que les sources portent un `claim_id`.
+  function estAmorce(amorce, item, memeClaim) {
+    if (!estObjetPlat(amorce) || !estObjetPlat(item)) return false;
+    if (memeClaim !== true && (!amorce.claim_id || amorce.claim_id !== item.claim_id)) return false;
+    var a = reperesBloc(amorce.block_id);
+    var b = reperesBloc(item.block_id);
+    if (!a || !b || a.doc !== b.doc || a.page !== b.page || a.rang + 1 !== b.rang) return false;
+    if (cheminJoint(amorce) !== cheminJoint(item)) return false;
+    return /:$/.test(texteDeBloc(amorce)) || amorce.status === "contexte";
+  }
+
+  /**
+   * La citation **principale** d'une affirmation : la première qui n'est pas l'amorce de la
+   * suivante. Une amorce annonce ce que dit le bloc d'après ; c'est le bloc d'après qui porte ce
+   * que le contrat prévoit, et donc le `kind` sur lequel se décide ce qui répond.
+   */
+  function citationPrincipale(clauses) {
+    var liste = tableau(clauses);
+    for (var i = 0; i < liste.length; i++) {
+      if (i + 1 < liste.length && estAmorce(liste[i], liste[i + 1], true)) continue;
+      return liste[i];
+    }
+    return null;
+  }
+
+  /**
+   * `claim_id → ses clauses`, par les deux chemins sûrs de `appuisDe()` et jamais autrement :
+   * le `claim_id` que le moteur publie sur chaque source, sinon l'appariement positionnel d'AD-11.
+   * Au moindre désaccord, `null` — et ce qui s'en sert retombe sur son comportement d'avant.
+   */
+  function citationsParClaim(reponse) {
+    var r = reponse || {};
+    var a = r.answer || {};
+    var sources = tableau(r.sources);
+    if (!sources.length) return null;
+    var connus = Object.create(null);
+    tableau(a.claims).forEach(function (c) {
+      if (c && typeof c.claim_id === "string") connus[c.claim_id] = true;
+    });
+    var parClaim = Object.create(null);
+    var tousIdentifies = sources.every(function (s) {
+      return s && typeof s.claim_id === "string" && s.claim_id &&
+        Object.prototype.hasOwnProperty.call(connus, s.claim_id);
+    });
+    if (tousIdentifies) {
+      sources.forEach(function (s) {
+        if (!parClaim[s.claim_id]) parClaim[s.claim_id] = [];
+        parClaim[s.claim_id].push(s);
+      });
+      return parClaim;
+    }
+    var appariees = clausesParClaim(a, sources);
+    if (!appariees) return null;
+    appariees.forEach(function (e) {
+      if (typeof e.claim_id === "string") parClaim[e.claim_id] = tableau(e.clauses);
+    });
+    return parClaim;
+  }
+
   // ---------- le corps posté ----------
   //
   // AD-11 : les quatre champs du contrat, et pas un de plus. Pas de `dossier` (D1) : la route ne
@@ -1570,24 +1666,62 @@
       if (!estObjetPlat(seg)) return;
       var texte = enClair(seg.text);
       if (!texte) return;
-      if (seg.kind === "factuel") factuels.push(texte);
-      else if (seg.kind === "limite") limites.push(texte);
+      if (seg.kind === "factuel") {
+        factuels.push({ texte: texte, claims: tableau(seg.claim_ids).filter(function (id) {
+          return typeof id === "string" && id;
+        }) });
+      } else if (seg.kind === "limite") {
+        limites.push(texte);
+      }
     });
     return { factuels: factuels, limites: limites };
   }
 
   /**
-   * La réponse en clair : la première phrase en grand, puis l'explication.
+   * Story 5.6 (L2d) — la phrase en grand est celle qui **répond**, pas la première rendue.
+   *
+   * Le tour du robinet ouvrait sur « Les présentes conditions spéciales sont applicables si les
+   * conditions particulières mentionnent que la garantie « dégâts des eaux » est souscrite. » : le
+   * modèle énonce d'abord la clause d'ouverture de la section, et le titre disait donc une
+   * condition d'application là où le lecteur cherche s'il est couvert.
+   *
+   * La règle est déterministe et ne lit que ce que le moteur publie : la première phrase factuelle
+   * rattachée à une affirmation dont la **citation principale** est une `garantie` ; à défaut une
+   * `exclusion` — ce qui exclut est aussi une réponse — ; à défaut la première phrase, comme avant.
+   * La phrase choisie ne quitte pas la réponse pour autant : toutes les autres restent dans le
+   * corps **dans leur ordre**, la condition à sa place, juste sous le titre.
+   */
+  var ORDRE_PHRASE_REPONSE = ["garantie", "exclusion"];
+
+  function indexPhraseReponse(factuels, parClaim) {
+    if (!parClaim || !factuels.length) return 0;
+    for (var k = 0; k < ORDRE_PHRASE_REPONSE.length; k++) {
+      for (var i = 0; i < factuels.length; i++) {
+        var ids = factuels[i].claims;
+        for (var j = 0; j < ids.length; j++) {
+          var principale = citationPrincipale(parClaim[ids[j]]);
+          if (principale && principale.kind === ORDRE_PHRASE_REPONSE[k]) return i;
+        }
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * La réponse en clair : la phrase qui répond en grand, puis l'explication.
    *
    * Les phrases viennent **entières** du serveur et la page n'en recompose aucune — elle leur donne
-   * une hiérarchie de lecture. Toutes restent affichées : les suivantes se groupent par trois, ce
-   * qui donne des paragraphes qui se lisent, sans jamais retrancher la fin d'une réponse longue.
+   * une hiérarchie de lecture. Toutes restent affichées : les autres se groupent par trois dans
+   * l'ordre du modèle, ce qui donne des paragraphes qui se lisent, sans jamais retrancher la fin
+   * d'une réponse longue ni déplacer une phrase que le titre a laissée derrière lui.
    */
-  function reponseVue(phrases) {
+  function reponseVue(phrases, iTitre) {
     if (!phrases.length) return [];
-    var corps = [noeud("p", "reponse-phrase", phrases[0])];
-    for (var i = 1; i < phrases.length; i += 3) {
-      corps.push(noeud("p", "reponse-suite", phrases.slice(i, i + 3).join(" ")));
+    var i = (typeof iTitre === "number" && iTitre >= 0 && iTitre < phrases.length) ? iTitre : 0;
+    var reste = phrases.slice(0, i).concat(phrases.slice(i + 1));
+    var corps = [noeud("p", "reponse-phrase", phrases[i])];
+    for (var k = 0; k < reste.length; k += 3) {
+      corps.push(noeud("p", "reponse-suite", reste.slice(k, k + 3).join(" ")));
     }
     return corps;
   }
@@ -1657,12 +1791,15 @@
     var verdict = a.verdict || null;
     var v = libelleVerdict(verdict && verdict.value, sansClause);
     var phrases = phrasesModele(a);
+    var factuels = phrases.factuels.map(function (f) { return f.texte; });
     // Sans une seule phrase factuelle, le bloc dit le constat et le verdict — jamais une chaîne
     // de service à la place d'une réponse. Ce que le modèle a écrit sur les limites de sa lecture
-    // reste dessous, en explication : le constat le résume, il ne le remplace pas.
-    var corps = reponseVue(phrases.factuels.length
-      ? phrases.factuels.concat(phrases.limites)
-      : [AUCUNE_PHRASE_RETENUE].concat(phrases.limites));
+    // reste dessous, en explication : le constat le résume, il ne le remplace pas. Les phrases
+    // `limite` viennent après les factuelles, donc le rang du titre vaut sur la liste entière.
+    var corps = factuels.length
+      ? reponseVue(factuels.concat(phrases.limites),
+                   indexPhraseReponse(phrases.factuels, citationsParClaim(r)))
+      : reponseVue([AUCUNE_PHRASE_RETENUE].concat(phrases.limites), 0);
     var phrase = corps.length ? corps[0] : null;
     var badge = noeud("span", "badge verdict-" + v.cle, v.texte);
     // La pastille se lit **à côté** de la première phrase : le verdict et la phrase qui l'énonce
@@ -1737,6 +1874,36 @@
     return entree;
   }
 
+  /**
+   * Story 5.6 (L2d) — l'amorce se fond dans la carte de son item.
+   *
+   * Les entrées sont dans l'ordre de `sources[]`, donc une amorce précède **immédiatement** l'item
+   * qu'elle annonce : la reconnaître ici suffit, il n'y a rien à réordonner. La carte de l'item
+   * porte alors l'amorce en petite ligne au-dessus de son paragraphe, et une seule fois le reste —
+   * une phrase en clair, un statut, un bouton « Voir la page » qui ouvre les **deux** blocs.
+   *
+   * Une amorce dont le texte en clair est vide n'est jamais fondue : elle disparaîtrait de l'écran
+   * sans que rien ne la reprenne, et une citation qui s'évapore est pire qu'une carte de trop.
+   * Une amorce déjà porteuse d'une amorce ne se fond pas non plus — la chaîne s'arrête à un cran.
+   */
+  function fondreAmorces(entrees, memeClaim) {
+    var out = [];
+    for (var i = 0; i < entrees.length; i++) {
+      var e = entrees[i];
+      var suivante = entrees[i + 1];
+      if (suivante && !e.amorce && estAmorce(e.src, suivante.src, memeClaim === true)) {
+        var texte = enClair(texteDeBloc(e.src));
+        if (texte) {
+          suivante.amorce = e.src;
+          suivante.amorceTexte = texte;
+          continue;
+        }
+      }
+      out.push(e);
+    }
+    return out;
+  }
+
   function appuisDe(reponse) {
     var r = reponse || {};
     var a = r.answer || {};
@@ -1753,21 +1920,23 @@
         Object.prototype.hasOwnProperty.call(parId, s.claim_id);
     });
     if (tousIdentifies) {
-      return { degrade: false, ambigus: 0, entrees: sources.map(function (s) {
+      return { degrade: false, ambigus: 0, entrees: fondreAmorces(sources.map(function (s) {
         var c = parId[s.claim_id];
         return enClairEntree({ src: s, texte: c.text, status: c.status || null,
                                rattachement: c.rattachement });
-      }) };
+      })) };
     }
 
     var appariees = clausesParClaim(a, sources);
     if (appariees) {
       var entrees = [];
       appariees.forEach(function (e) {
-        e.clauses.forEach(function (s) {
-          entrees.push(enClairEntree({ src: s, texte: e.text, status: e.status || null,
-                                       rattachement: e.rattachement }));
-        });
+        // Fondues **par affirmation** : ici les sources ne portent pas de `claim_id`, c'est le
+        // groupe qui atteste qu'une même claim les cite (D6, chemin 2).
+        entrees = entrees.concat(fondreAmorces(e.clauses.map(function (s) {
+          return enClairEntree({ src: s, texte: e.text, status: e.status || null,
+                                 rattachement: e.rattachement });
+        }), true));
       });
       return { entrees: entrees, degrade: false, ambigus: 0 };
     }
@@ -1847,6 +2016,11 @@
       tete.push(noeud("span", "appui-doute", "typage non confirmé"));
     }
     var enfants = [noeud("div", "appui-tete", null, tete)];
+    // L'amorce, au-dessus du paragraphe qu'elle annonce : c'est la phrase du contrat qui ouvre
+    // l'énumération, en petit et en gris, parce qu'elle introduit l'appui sans être l'appui.
+    if (entree.amorceTexte) {
+      enfants.push(noeud("p", "appui-amorce", entree.amorceTexte));
+    }
     var corps = corpsClause(src, (contexte || {}).decisive);
     enfants = enfants.concat(corps.enfants);
     // Posé **masqué**, pas absent : le paragraphe entier est déjà dans le document, et le
@@ -1870,11 +2044,15 @@
     var c = contexte || {};
     if (typeof c.doc_id === "string" && c.doc_id && typeof src.page === "number" &&
         isFinite(src.page) && Math.floor(src.page) === src.page && src.page > 0) {
+      // Un seul bouton par carte, et il ouvre **tout** ce que la carte montre : l'amorce fondue
+      // est sur la même page, immédiatement avant l'item, et son surlignage part avec le sien.
+      var blocs = entree.amorce ? [String(entree.amorce.block_id)] : [];
+      var lignes = entree.amorce ? tableau(entree.amorce.line_ids) : [];
       var attrs = {
         "data-doc-id": c.doc_id,
         "data-page": String(src.page),
-        "data-block-ids": JSON.stringify([String(src.block_id)]),
-        "data-line-ids": JSON.stringify(tableau(src.line_ids))
+        "data-block-ids": JSON.stringify(blocs.concat([String(src.block_id)])),
+        "data-line-ids": JSON.stringify(lignes.concat(tableau(src.line_ids)))
       };
       var source = lienHttp(c.source_url);
       if (source) attrs["data-source-url"] = source;
