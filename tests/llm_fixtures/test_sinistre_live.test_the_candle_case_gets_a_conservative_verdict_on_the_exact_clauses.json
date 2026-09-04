@@ -1,4 +1,378 @@
 {
+  "claude-sonnet-5:0204cc4c38cdb756": {
+    "certificate": {
+      "messages_sha256": "0a36ef768aa50c0085c0b82c75582fccf7cb7e18134fadde334dd746fd2f1493",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0204cc4c38cdb756",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou d'un contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"La bougie tombée sur le canapé qui a brûlé une partie du mobilier de salon sans propagation de flammes est un événement soudain résultant de l'action subite de la chaleur au sens de cette clause.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le contrat garantit par ailleurs, au titre de la même section, l'incendie proprement dit, défini comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat couvre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}],\"facette\":0,\"rattachement\":\"La bougie tombée sur le canapé qui a brûlé le mobilier sans embrasement ni commencement d'incendie est un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec une substance incandescente.\"},{\"claim_id\":\"c2\",\"text\":\"Le contrat garantit l'incendie, c'est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}],\"facette\":0,\"rattachement\":\"L'absence d'embrasement et de commencement d'incendie déclarée par l'assuré écarte le fait que la brûlure du canapé constitue cette destruction par des flammes se propageant.\"}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"motif\":\"Phrase d'amorce introductive de l'énumération des périls, ne décide rien par elle-même.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"Vise l'explosion ou l'implosion, sans rapport avec une brûlure par bougie.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"Vise la chute de la foudre, sans rapport avec les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"Vise l'électrocution d'animaux, sans rapport avec les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Vise les fumées et suies, non déclarées comme cause du dommage ici.\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehsCfooRV1JwHkXiU148",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 50374,
+        "inference_geo": "global",
+        "input_tokens": 2366,
+        "output_tokens": 1300,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:0c85bee405718b0b": {
+    "certificate": {
+      "messages_sha256": "aa4015ca89e3787e09b51c27f75988aaf37d77d826e6bd66a2391d987da6e1cb",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0c85bee405718b0b",
+    "response": {
+      "content": [
+        {
+          "signature": "ErcMCpABCBEYAipAMvgQhoVMQImEyeLlvSEzLsLCawfWUW4PdW/b3hUI2ETYdxRcrn4ShTbrJPt8t4qr1LbontDqCFuF9lqZb4K6NTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAae06dQGEgwUe4ZjTCwCqJ/Ypw4aDCyOfJ+XVDh7QAXq/CIwYDh9I6rX1vCwfrc/HAdP7Bbl2WZh+debSTRtdMEndFSHa491xM/waRaJY05Ht3kwKtMKHqJQgnwPZC/kbhIzXO+ts07ZAX6OE2uH8OgregwZn5gsVH2kxTbucRZedtDgGzLNCHU1RNUeCipLOO1p3t3Lw8nRYtBcJctF30WepEZh32AXydqhV4Zn1CMXEsPGryWddw/FEAJl9fw4w97Uw7tMuGzJ+B+/P0eQcyT3TGTSD9jJgz8qRsnsupi6HmDh8tBo9xUiQOjRfk+/8UE7NTvYhzJpNAcJklzuxQEf+eU10hByMJsQmccRfIvLvVqpQsaOdhluM5ps/wnvNFMw2wQli6zK5/gRGMqUKJ+Kn7u3X5cHC4cYE5f7TAK19f0SwBO7OSv5xE6OKcngUdeIw1VTmkKx4rFVwFZluE7X5pHfDgRV4MJ1j2SzhBD1tQIkxiehi61WFyk52Yqi7H5i2pdmGKOD8Kbjd6umhnAUOqhpnQZOuQhVZ3CN4jgiFIN1CXEGiKJw/PqR7+09ojCXSV+877wsA9d3pOjqrzCViL096rHqhiudVel7yYT83/klMVDgLNWnYVABrdz/nT5DCW+gWpbkyQtB/byYpLjzdCJ4vRc9LnmS0vgojb0rEtxxoJhHInVEogpGrq+q+ujc3Q4A7NT31V6P/t7Wk3MnaMorZuoFZKtln+kv6a2NrVwIZ9QAvUxFu1X0JBfYsatxdpRJWpADABQIYibNjXozW8Eklys5yoGTUaVLRxocQaebZJA8I+chCwckIu8QmlErnFiAq+qI9PzAsmQg5fYKbd5vzd5+dAikhbfSoaOYGsBdMpIGcP+/7/1qfwYiw9iV70iYQJ7slzSmhsyoSPhORqhTCiejqTk00POOlwfnGvjZOPkLm9KV7R/808ecJlUMfA1tsy74SLzZOzcU8+RqilT7LciIwOSUbzXJXk+OByGhjDrXwFPiCygs3qMUke62yCU8azgI/NIxR7r37vmPrMPG6cPnUVR74jBxzDjCiSfn0A77dDy2Y9dVlx6IIggbErQhHLcglsbIquese1WSgoLnUEJ+vY3FQz9tBSU2gEdvYirzovYH3PJwGboErGH4p2Z8/6OeRlxLA7cxGSXq/rjheAhjXsGtnux8CQzsNQdCJQfURr26r9wdMknp1FLmQamlgX5f5yIJ3AQVQJsxRRZqrHAh3EBUMgz6MhbkJ3/t07UjKJ3Y1NPvHgg48lNWeD5PE5NW/D+ZX5+mnyESm6BYGWY2DNZO4oSid0j8LO44UcwpQ5vtzgPs9AvF+x/lTlmyWwgUOjznnA4cEcBPN/7evSTY3Zy1BRVt5al8QaDqQ5nUKfkizYnk17Fs0sRcsTr6kvTq3ZilCY28ygezELD6xsIWEA6OfLxV+xtYF9b5WAtV/fviscOooyZ7R+qXTsmbanMEgfcdjO/yxeNLYrGfWHz5e36Itttdhu02RASfGBugBUU9i5FfmtJTajoLjlScszg791sJ+8b01n8zf1WHn0qEVgmOmw0o+bauriLkX9UQ1B+Mt/yYHsPoKEO3LTv/XELZz19UIXkfFY9t/kYsEicUHiTGgHBo9eM5/NYmjGq0dfB1JiIPS5PBgKi3LV5LYY5ge9Cy9x82WvhOSU3o1bKJYVauDHuutI969cOCrnJBoISHZcm+L+/6WplOPt2uSOtWCL4bFGGV7U0i476iSete1WPwrsrUZyeq24cN7/YeuS3GqYcXNeJ+dfb3hXqQ+uSJuxP7eYwlzNiNnt9SjVAmKr6IkQtbWzkJnZ9yWCLjgtBsUqfKdRFnzoEXOQFOqlETzNQWvp46YD2TfTYUgF3MQoSg5ftM0ybWAJYrhLWrAeZ+6IEle56oSJ7jpyQbMPGhAxgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs7Txmoid6kwKx2twuu",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1352,
+        "output_tokens": 498,
+        "output_tokens_details": {
+          "thinking_tokens": 491
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:0dc93174791c0311": {
+    "certificate": {
+      "messages_sha256": "ecae4cae4f3a12982fae569e02be69fde9f090be980680006b188c0c002683af",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0dc93174791c0311",
+    "response": {
+      "content": [
+        {
+          "signature": "EtEDCpABCBEYAipA8TO9m16wBBLpVW8uObZto1mJeoVwFMiBWCTwhGYqs76z/cgu+FZNRDcInNw1hoov9RbRz/KcOJ7h2lCz7MMqoDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAeS06dQGEgwL32haWPID23XF9PwaDOy08oUmBWsy9WEtTiIwl1hcemF6WhGhmzu3eO9L1zzGzgmruUgr3ObD7Nz7+aN6dgPsLMWUVaRHu/UguYI/Ku0BcJZDgbWo2ZAA2UPWkj4dYUpNgvFzcqNEdOl03y8k052BuCR5aDL72hozlvN+25C9izgDA6Igb8uciocvmoI2OZBTzncl+xHuvEj6J25Zkd1h4XU9fFXRedaeHLOl3m3Gm71/UNbdQfGkSPWPy8yAk4PHKxOIoJro3wDPRwKOJahgsV/k8qu9IQHOKqEFQQcWMzV1CMqBnCFgOV0cGhgirP6IgHfiZrybabt1VRPPPVkNWKP9OnkC9hm88ipo+U2OvO6jviPy/O6vVNH0sVySKaKbz6hRArLXH2N91YkTtzxzHLtQyhKeL7I3OyifGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01VLGquMgJq7yykXiE2oCyXK",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01EQpP6BzUi3TxwDhqpu1JLe",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehsCH3anu25Wo9WejU4U",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 437,
+        "output_tokens": 223,
+        "output_tokens_details": {
+          "thinking_tokens": 78
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:12342e36c83b694b": {
+    "certificate": {
+      "messages_sha256": "b771540a648cbc18951394bc2b95d32f3fbedb98c56db940832cc790c588d54b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "76929d145687e99762cb7a57dccf7586bea0f9ff793da79d64c2e544c1c20d0f",
+      "system_sha256": "0889d31d24ac9f2b6c9d99b767b5f3c2b0ba705e88be8389ca88c037c6943ecb",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:12342e36c83b694b",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\"]}],\"segments\":[{\"segment\":2,\"soutenu\":false}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"contact direct et immédiat avec un foyer ou une substance incandescente\"],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehqy8uDHgNo2wiBZLM4c",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 18511,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 18511,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 2458,
+        "output_tokens": 1009,
+        "output_tokens_details": {
+          "thinking_tokens": 645
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:128bb71d272d5492": {
+    "certificate": {
+      "messages_sha256": "5d92aa5290fefa3c28f646d3be5954dadda9a57949bfc06c48c5cce74ab884b3",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:128bb71d272d5492",
+    "response": {
+      "content": [
+        {
+          "signature": "EoQECpABCBEYAipAh4VE6hMEm2qdm+TlCThwPhVrNLnWDycSgiT3s4eMfasvvc1CLcbrWFjmytOghgmqIkm0DxYgY5s0Z2430WXIgjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZ+06dQGEgy5hZcExofTA5j7ap8aDM7rBRNWvgda7LZUryIwwsRTPzpZO3I8InFYCOJpzIm+sYUsk4HpIImlTw60PGCGOQCiss7BcqkSWxlDFQ2sKqACQGE/b+HY3HI0qvHbrTZyPg+cJbrPEwDGHxznaIDBtjE2fkOol2pkbOGWGeN/P+M671U4Wec2jRs150LfIEzRIXPs6jt+rTXQZxHl8yfYEV+6ZHqYVfh4u6FTvgZy8/QSDLVscMuIw1UOGpqc+zaaIJWALPnAjKFxOHiQEDp0jGUCOthPIO3KuZTSlgWXIymWxuLeHMW2Lw2lY9RxjljddTL1HoYxpUXWrd0jkofU2PTCxA5hkzLAy8XGWZ6wDM0o+hAG2XzTqCEK2NnYixPZ/K0UmHCnaVBLrjFHdh6KOliPV4ZhCR/LhejgtT52EhjrQY5hRj1q1zhRdVxfpjHz775DnZR2babBakQ/Q8me283VqZboBGEymNfJb+DUvVDKGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01H4pyNPfZuKB3aohaQjRbnx",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01CqRdrDiKj9eY6ciozaRbRK",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cehs7D1rDdirXQZUQPzcv",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 455,
+        "output_tokens": 242,
+        "output_tokens_details": {
+          "thinking_tokens": 98
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:152676d9a7faca56": {
+    "certificate": {
+      "messages_sha256": "6c71b056367bd01d49fa3cc4bbeb2fcc18ce52d0eb94975baf5e1c1855945bc5",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:152676d9a7faca56",
+    "response": {
+      "content": [
+        {
+          "signature": "EuADCpABCBEYAipA5agcnK3LDbFr0Ms7S+S3y1TxXlVf1T2VRjLsGEROe+5oDj0tjIOyQT/kiOX9nxc8gO0RBcl3G5IV57u9g7aWVjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZez6dQGEgwqz5ElOx13xkaV1tEaDPM1X5dusZhsU/2G9iIwRyAa3ziBK5Zl+MgTjugrCrxCBZydR3uElJKsVo9uHeO1w+zAiog4/7BZWngahNL9KvwBxUtq9UtJK9rwXof1vmOBkSF5tWqDAVo1tcNqJCIYC/OmxMdaT+qMlKGt2RdNQKbQyXACDzUJArP9ffjsSltykshfx5ei6YhWKx6Rn3yYxh/vRy3hMElCvHBSTu7EOKdidPeaLS7/ryxb4a+wZorow59GMViK+o2f5XUadqUuOI/nH2tcbqiRzKlFxTfBkOgMmVfWaTo8eSwgFH7XEFK1439/FgmArm3Pje+KRPg8qLbkRnxD1hqmpYJyNHGBd4ro2RXWR2zJr1xx6ALOSxNUVYt8IRZNLkN6A+DyCsZqL5dEIoD61BqDTmga+yBvin7UBge9UFaI/Y8I9D/tGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01846rWQnkrEM6qv3sUPqiLv",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01RWN2iGfLWk9hY5Px2pVod3",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehrwBdE9NUSTxDKsFLjS",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1464,
+        "output_tokens": 230,
+        "output_tokens_details": {
+          "thinking_tokens": 88
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:165619cf41978c07": {
+    "certificate": {
+      "messages_sha256": "acea40f9a141e44a68d7b684283232481e59e2b3d8fc4d89b2d1677cbdf354da",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "76929d145687e99762cb7a57dccf7586bea0f9ff793da79d64c2e544c1c20d0f",
+      "system_sha256": "0889d31d24ac9f2b6c9d99b767b5f3c2b0ba705e88be8389ca88c037c6943ecb",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:165619cf41978c07",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\"]}],\"segments\":[{\"segment\":2,\"soutenu\":false}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur\"],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehsDdiKJh3AnUMwUTnt5",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 18511,
+        "inference_geo": "global",
+        "input_tokens": 2413,
+        "output_tokens": 1200,
+        "output_tokens_details": {
+          "thinking_tokens": 851
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:33979b88ee9db2e3": {
     "certificate": {
       "messages_sha256": "0b3a860bc3746014484ff40edb83a00e8f922b9a81827eb46e0986246d7bcfdb",
@@ -13,11 +387,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le sinistre survenu le 2026-08-01 dans le salon du domicile assuré, où une bougie allumée posée sur une table basse est tombée sur le canapé et a brûlé une partie du mobilier de salon, sans embrasement ni commencement d'incendie, ni flammes propagées, ni dégât au bâtiment (montant estimé 1200 EUR), est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"dégât par brûlure\",\"incendie\",\"commencement d'incendie\",\"canapé\"],\"themes\":[],\"facettes\":[\"Le sinistre est-il couvert par les conditions générales du contrat ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du mobilier sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"chute d'une bougie allumée sur le canapé\",\"moment\":\"2026-08-01\"}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Le sinistre survenu le 2026-08-01 dans le salon du domicile assuré, où une bougie allumée tombée sur le canapé a brûlé une partie du mobilier de salon sans embrasement ni commencement d'incendie ni dégât au bâtiment, est-il couvert par les conditions générales du contrat ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"mobilier de salon\",\"canapé\",\"brûlure\",\"dommage par le feu sans incendie\",\"bougie\"],\"themes\":[],\"facettes\":[\"Le contrat garantit-il ce dommage par brûlure sans incendie ?\"],\"bien\":\"mobilier de salon (canapé)\",\"evenement\":\"brûlure du canapé par une bougie tombée, sans embrasement ni commencement d'incendie\",\"lieu\":\"salon du domicile assuré\",\"cause\":\"bougie allumée tombée sur le canapé\",\"moment\":\"2026-08-01\"}",
           "type": "text"
         }
       ],
-      "id": "msg_011CehM7spj9hg18vus4EQAr",
+      "id": "msg_011CehsBwYpUYJJr85NwHw6f",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -33,9 +407,97 @@
         "cache_read_input_tokens": 3996,
         "inference_geo": "global",
         "input_tokens": 249,
-        "output_tokens": 352,
+        "output_tokens": 326,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:473c3a16f09a8b0d": {
+    "certificate": {
+      "messages_sha256": "c6451e6abe0bb114f9d97a3145ca336e05e6c74c4867da692d3ecfb06a4089db",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:473c3a16f09a8b0d",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehrwSwj2Qztw2tuL9vkT",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1917,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:491308def2c3871a": {
+    "certificate": {
+      "messages_sha256": "0860fa64463006bbbf64da55ee76d64634c23e069bcd98291466818b1b9dc271",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "76929d145687e99762cb7a57dccf7586bea0f9ff793da79d64c2e544c1c20d0f",
+      "system_sha256": "0889d31d24ac9f2b6c9d99b767b5f3c2b0ba705e88be8389ca88c037c6943ecb",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:491308def2c3871a",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c2\",\"pertinente\":false,\"raison\":\"non_soutenue\",\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c4\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\",\"c4\"]}],\"segments\":[{\"segment\":4,\"soutenu\":true}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur\",\"contact direct et immédiat avec un foyer ou substance incandescente\"],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]},{\"claim_id\":\"c3\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]},{\"claim_id\":\"c4\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":true,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs3h4x3Dcjgm3cNb8A8",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 18511,
+        "inference_geo": "global",
+        "input_tokens": 3104,
+        "output_tokens": 3599,
+        "output_tokens_details": {
+          "thinking_tokens": 2979
         },
         "service_tier": "standard"
       }
@@ -152,6 +614,140 @@
       }
     }
   },
+  "claude-sonnet-5:67d9395637523295": {
+    "certificate": {
+      "messages_sha256": "f1a2a5b665062293b364fc900ba171ab4222a31775e9e0697e138997fa81d8ee",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:67d9395637523295",
+    "response": {
+      "content": [
+        {
+          "signature": "EoQGCpABCBEYAipAUvdb3o8ALclJK3rxRSseXVLnX0/1LdBdJU1UaqF4xx+4B/FEqmIkeI6FfOQzXaw7EuFg/gSA4LlIgPTlPuHs5jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYyt6dQGEgygLRjVJ7qyuU/V29saDApHoW94J/+RV6eK1yIwELQtn3lp9s9TSIihnwO+jw3zSb+JOIxVgAw0Ws26rtzrsYvNt1wdZrt77Wa3JUjFKqAEZFKowrmrimmdngeBWPyeNK/EEJ6IeXP0Fnss/XfoxhQW8ryn86KPXnmkKXbnqjpzUXP5vQ+tJYIsaVOL7UvscX0jSkRsdSIrTXR/cRg17tg1ApKbO8HMU4tnX6S9999BeNE9kMY5ZPv4YolPPFC3e9DqzZasboKRvBozdRb2nEY8UgzP+qLdSpCCHLz0H34+nR5y7cZvKN+xC4ZbKlVFY+msEZ31IQeocpCIr1eoQhjc6OW4DcGhmnzU83IpEZFlWJXFUZYP89Pu91OFrszWtbjhuA+6xEP7uvl3Ll4ZXudU0UlpYLw3dIdnMg40g/6nXU4Ro/AZjtg3p/yd60glyDz1AwWweWbzKcRi2ba6vhtT250jNaEbGEjgEc4Y6ABmDO+epaYeR76G1Zjg3KNbV/96+/XeVNAQwrx12hDVb6foPMb4wEaitul73G8pbyH4lk1LDYdvCI7ZWhWOLjL/VQr6FzDmhHjcsE2syzKKXn3Y7gaj8fQip+T9ZXFXmCHsr6nhWmJKdkDUWgbJgnGnvNTlL8UctfRK+so14+CygxEBTBKC4pufjPmoYe2T56brB4TJkAJ8XUAnwQVLLS3V0QAmfAKA9Ax4UUksQvoBAt7UTqfuGXl+9HBr3ldR55nqXMbFK0ETxwIF/sP1oIf1jq+X8ll1bz/+OqUfQX9OxvYdzeIfJdGuXEJR14Om5P+kJ0w7GUEQIiVzrR/VDP68sxgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehqwfJ1P67BFc1r4cXjw",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1800,
+        "output_tokens": 189,
+        "output_tokens_details": {
+          "thinking_tokens": 182
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:67fc26655e55fd94": {
+    "certificate": {
+      "messages_sha256": "7717628dba30968bee23d9415a8d651a6720fcde8f6848922278aaef146b16e7",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "76929d145687e99762cb7a57dccf7586bea0f9ff793da79d64c2e544c1c20d0f",
+      "system_sha256": "0889d31d24ac9f2b6c9d99b767b5f3c2b0ba705e88be8389ca88c037c6943ecb",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:67fc26655e55fd94",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\"]}],\"segments\":[{\"segment\":3,\"soutenu\":false}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur\",\"contact direct et immédiat avec un foyer ou substance incandescente\"],\"qualites_etablies\":[]},{\"claim_id\":\"c3\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs98nuaWbtDfWJzie3N",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 18511,
+        "inference_geo": "global",
+        "input_tokens": 2674,
+        "output_tokens": 2885,
+        "output_tokens_details": {
+          "thinking_tokens": 2391
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:75d9b9b68e2fb087": {
+    "certificate": {
+      "messages_sha256": "307513c20db69fe925b4f5284351473684365a84eae5e4b5155f27d9248ab7a4",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:75d9b9b68e2fb087",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs2bLPfzVY5XecU1vNt",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1640,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:794fe262a3ef4f0a": {
     "certificate": {
       "messages_sha256": "533d0844e78f8bcbc9bc7c6ab2f924bad18f27db55cbbec27e49e51a479c8a32",
@@ -262,6 +858,123 @@
       }
     }
   },
+  "claude-sonnet-5:8143ea404847aeb7": {
+    "certificate": {
+      "messages_sha256": "4fb3323892ddceaad74a04d5a374d63eb7901f58cd52e1ab5325976a9e724353",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:8143ea404847aeb7",
+    "response": {
+      "content": [
+        {
+          "signature": "Ev4GCpABCBEYAipAuuk44T5d50DBhcEFw0y5Rn+HU9DernpT+GDPZnI3E0wtOie1cvmVPtAzd9aKjQ0pTRTirHOnM1Js0Y2gFxJlfzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAYet6dQGEgyjiCaYl+7jDS+Vuz8aDPUzVvuF1USDmag3tCIw1Z0V2z50/YSP1uQ929VuYTxUOEUBoONhd73RSF2vMhBHwpMYrTboGdWLfDRd2R4+KpoFNZ8mXtkph6z2TSGlqHGF/ya5N9M4YwSIKPvSVkeQfIIzx9eyV6YLSh3uX9JUF/zUsktjE1zJ2RlyEaQWdesagyOSPHuPzA5SVY1SNGU5XseLkveshLBgsy2a0jKYql7vApZotcn20rxo+awIxwpXbOSY8LU/6MU390JhDVvg9RwknZMM/FNYJo1VmL8hgShllTNs20WQonwlLcOG4blSElwcUpdKX+iC7QtqonU8IApF9Q85DQb8juaVh3r1rPVMZmQG5XFr+fAXYGnApOPKVUULf4U+v4QQiHJiKPEBYEeITfsTcC0hb3dP0uZQ3aJ+OB+2NaQZJa5ykOn2h/BRUDuqv8cYVcY9C3Iipv3uroPTUJjuAZl2AndqDRC3x0Kg2WVpG9s8OBINXOgHGvP8LY8yB0g97kAfGnAXkKxtPBo4DQBWfvLodcIifvfGhF7BGH+9jGwhIEyH67UOmvlMtWRMPzOpGDrqdVQ3gn8hdAhNgIm8aQRlYREpKmSz/uJe+CswcOTu0cy4u3u2KFBymr6FaVQW6f74PWnZqJWnSCvHqAON4XHktnotHZ/VVEiabRrsH5okiY9TVw4xzn4YgyvgjG79DcI5oQH54vk4QYBJm1e5waa1dhUYlbgYqyIPmtoeuj6i91z3YQuad0Mz39TgOFlq1+e3O9gTHSjmCi6W9M01xwD0U5qp6ki/Cl/B0PsJeUEBCfIhfBc6qPZUPoYjGXGAJkgnlS1Pcf1sl6pqktFA4gZnUZqX5c/GRvKVuZ2P5fFEN82V6IYl1QP1ASh0pJXi+hvzvwqcjD/u9dy7iRADj6IAKuHYx0svbnYPRhgRUwBbTjekbmw1P0Xl73k0XqBem8c1m2yhor0VsPb/pS0oISUSil1gGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01YVqdFHbiRHX7VDcraUA6kK",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1.6"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_013iQUamXR1T9YHDdVADreVm",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_012Pm7URtGWUtSKRQ71pmJrs",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehqwBfqjBKUsASxTxJJ6",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 478,
+        "output_tokens": 485,
+        "output_tokens_details": {
+          "thinking_tokens": 267
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:9bcf4e7625d44726": {
+    "certificate": {
+      "messages_sha256": "f1e7695c807d26f0311c0a168f1c27a67bdc0035ff0fd5b97c3440dcdf1d402d",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:9bcf4e7625d44726",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Une clause de la garantie « Incendie et périls assimilés » vise spécifiquement les dégâts au mobilier causés par un événement soudain de chaleur, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le contrat assure les biens désignés contre une liste de périls, dont l'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'incendie proprement dit est défini comme la destruction par des flammes se propageant ou susceptibles de se propager.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Cette garantie de base n'est applicable que si les conditions particulières du contrat mentionnent qu'elle a été accordée.\",\"kind\":\"factuel\",\"claim_ids\":[\"c4\"]},{\"text\":\"Ma lecture ne permet pas de vérifier si les conditions particulières du contrat mentionnent effectivement que la garantie « incendie et périls assimilés » a été souscrite.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}],\"facette\":0,\"rattachement\":\"Le canapé brûlé en partie par une bougie tombée dessus, sans embrasement ni commencement d'incendie, est un dégât occasionné au mobilier par un événement soudain de chaleur.\"},{\"claim_id\":\"c2\",\"text\":\"Le contrat assure les biens désignés contre les périls énumérés dans cette section, dont l'incendie et les périls assimilés.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"quote\":\"La Compagnie assure les biens désignés, contre les périls suivants :\"}],\"facette\":0},{\"claim_id\":\"c3\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}],\"facette\":0,\"rattachement\":\"L'absence d'embrasement ou de propagation de flammes déclarée écarte la qualification d'incendie au sens de cette définition.\"},{\"claim_id\":\"c4\",\"text\":\"Les conditions spéciales relatives à la garantie « incendie et périls assimilés » ne sont applicables que si les conditions particulières mentionnent que cette garantie est accordée.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:4\",\"quote\":\"Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie “ incendie et périls assimilés ” est accordée.\"}],\"facette\":0}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"Explosion/implosion ne vise pas les faits déclarés (bougie tombée sur canapé).\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"Chute de foudre ne vise pas les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"Électrocution d'animaux ne vise pas les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Fumées et suies ne visent pas directement le fait déclaré (brûlure du mobilier), déjà couvert par la clause 3.1.1.1.6.\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs2i7BTaasyZVLgMKPy",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 50374,
+        "inference_geo": "global",
+        "input_tokens": 2772,
+        "output_tokens": 1567,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:a5476c9491724d37": {
     "certificate": {
       "messages_sha256": "0d36fa0d5c89c559ad24ab042676c7935b52d807986e6bc721e5d615043c2dc2",
@@ -297,6 +1010,153 @@
         "inference_geo": "global",
         "input_tokens": 2618,
         "output_tokens": 1557,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:aa8b4e4da2eda21a": {
+    "certificate": {
+      "messages_sha256": "d9d62e929417bdc8f61057da14c2392caf8c5f6be1e278580ef45a0d42dd1c8a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:aa8b4e4da2eda21a",
+    "response": {
+      "content": [
+        {
+          "signature": "EuUDCpABCBEYAipAA2IjKBcZEwSr0Mz/Hw41ZaZARtBD8ra0W7ubjjK+q0XR4pIzqJ7w2ivE5s8gwC5JZcx5t13XkixYiQ/zddRKmDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAdmz6dQGEgx5MyLEUdLsdP54Xu0aDI5vCWfB5CfQGed/tyIwCw8TtLvdlRmQSzUDVDnYNB1FYoFFZXLlX/uWX3qFsXj0GIkcjqycxmQXhoX8Fzj6KoECzaDbN8E1lA0gv2tGkcMDz05jfmcDfXHVkZu1XmlwofkJ1qEcdoUoyciCniPQi71qHvlBqPGQhikGDsBAuLvWZcKkadvwfLtmHkZ4umIfWOEtkNKnJssSP6ghrT3ERpUFZe991K9o8fhKT96HLi5Zzojy3ODHLtX4dfnCWd+7Y8sJX4RkYgJkZbwgh10r9AHLhutuie08qx52iGnTUAcl0wT1IjuAK8E4s+6G3r0TwZy3ajrVE4HaTBUlUus0bSGhAFloMUvdKSogBv7LxQ1Dck3/uAC1sJQRCjbaCko3uFR7r23UG8Yb6medsW5ADx/4rwlaQEgnfmNjNZfQC98GkIIYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01Db1eK8pN7bo3wdgkj79kdC",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_015dHDoGVxHmcgjUwHvTHdmf",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cehs1xpw34fsmMjeJHJG2",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 422,
+        "output_tokens": 237,
+        "output_tokens_details": {
+          "thinking_tokens": 93
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:afcc169e6058079c": {
+    "certificate": {
+      "messages_sha256": "16523973f4f83cb40f1ad2122ba2d73d0e832f820b480c2e2e939280f2afd8b0",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:afcc169e6058079c",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat garantit les biens désignés contre les périls énumérés à l'article 3.1.1.1, dont l'incendie, l'explosion, la foudre, l'électrocution d'animaux, les fumées et suies, et les dégâts par événement soudain de chaleur.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Une clause distincte couvre spécifiquement les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"Une autre clause définit distinctement l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Les autres périls énumérés à cet article (explosion, foudre, électrocution d'animaux, fumées et suies) visent des circonstances distinctes de celle déclarée.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat assure les biens désignés contre les périls suivants, énumérés à l'article 3.1.1.1.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"quote\":\"La Compagnie assure les biens désignés, contre les périls suivants :\"}],\"facette\":0},{\"claim_id\":\"c2\",\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"}],\"facette\":0,\"rattachement\":\"La bougie tombée sur le canapé qui a brûlé une partie du mobilier sans embrasement ni commencement d'incendie est un événement soudain résultant du contact direct avec un foyer ou une substance incandescente.\"},{\"claim_id\":\"c3\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}],\"facette\":0,\"rattachement\":\"L'absence d'embrasement et de commencement d'incendie déclarée par l'assuré est l'absence de propagation de flammes que cette définition qualifie.\"}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"Explosion/implosion : péril distinct sans lien avec les faits déclarés (bougie tombée, pas d'explosion).\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"Chute de la foudre : péril distinct, aucun fait déclaré n'y correspond.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"Électrocution d'animaux : péril distinct, aucun animal impliqué dans les faits.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Fumées et suies : péril distinct visant un autre type de dégât, non déclaré ici.\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehs843dBCUhyCj4tYQZV",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 50374,
+        "inference_geo": "global",
+        "input_tokens": 2882,
+        "output_tokens": 1442,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:b7888698687d7786": {
+    "certificate": {
+      "messages_sha256": "979c7b89e0e076a33b7e7034d4b5fd0127dada4846c04f798ea897e22f647002",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:b7888698687d7786",
+    "response": {
+      "content": [
+        {
+          "text": "Cela suffit pour répondre.\n\nPRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehsCXx2TkJNS5CiDh5bw",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1314,
+        "output_tokens": 20,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -350,6 +1210,48 @@
       }
     }
   },
+  "claude-sonnet-5:ba5c88625feeb92c": {
+    "certificate": {
+      "messages_sha256": "17f4e845d45726e26987a431989405ddba3e3e751e9770df3e2f7fca089b9db8",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:ba5c88625feeb92c",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"La garantie « Incendie et périls assimilés » couvre les dégâts au mobilier causés par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même sans embrasement ni commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Cette garantie n'est acquise que si les conditions particulières mentionnent qu'elle est accordée.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]},{\"text\":\"L'énumération des périls couverts par cette garantie inclut d'autres cas qui ne correspondent pas aux faits déclarés.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"La clause définissant l'incendie exige une propagation ou une possibilité de propagation de flammes en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c3\"]},{\"text\":\"Ma lecture ne couvre pas les conditions particulières du contrat, qui seules confirment si la garantie « Incendie et périls assimilés » a été souscrite.\",\"kind\":\"limite\",\"claim_ids\":[]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"La Compagnie assure les biens désignés contre les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"quote\":\"La Compagnie assure les biens désignés, contre les périls suivants :\"}],\"facette\":0,\"rattachement\":\"Le canapé brûlé partiellement par une bougie tombée dessus, sans embrasement ni commencement d'incendie, est un dégât occasionné au mobilier par un événement soudain résultant du contact direct avec une substance incandescente.\"},{\"claim_id\":\"c2\",\"text\":\"Les conditions spéciales de la garantie « incendie et périls assimilés » sont applicables si les conditions particulières mentionnent que cette garantie est accordée.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:4\",\"quote\":\"Les présentes conditions spéciales sont applicables si les conditions particulières mentionnent que la garantie “ incendie et périls assimilés ” est accordée.\"}],\"facette\":0},{\"claim_id\":\"c3\",\"text\":\"Le contrat définit l'incendie comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}],\"facette\":0,\"rattachement\":\"L'absence d'embrasement et de commencement d'incendie déclarée écarte la qualification d'incendie au sens de cette définition.\"}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"L'explosion ou l'implosion ne vise pas les faits déclarés (bougie tombée, pas d'explosion).\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"La chute de la foudre ne vise pas les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"L'électrocution d'animaux ne vise pas les faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Les fumées et suies ne sont pas le dommage déclaré, qui est une brûlure directe du mobilier.\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehrwZCWmScsZzVjV9H8y",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 50374,
+        "inference_geo": "global",
+        "input_tokens": 3049,
+        "output_tokens": 1540,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:c728da5e4c72584b": {
     "certificate": {
       "messages_sha256": "1762582b086ce1fb4c99fb32659b5bb10c51d1b1f5e4633d64a01fcc411d64d5",
@@ -397,6 +1299,117 @@
       }
     }
   },
+  "claude-sonnet-5:ce5da233e0d58104": {
+    "certificate": {
+      "messages_sha256": "5c7834ee0cdadcd81c85bc7ac28311c1b2438440636f68a1ceca09f27077f674",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:ce5da233e0d58104",
+    "response": {
+      "content": [
+        {
+          "signature": "EoIECpABCBEYAipAV19q6BiJOkFVSjF66ukNB3yoYpKPeik8Q/vM4GaDSur4dEssOMGqkbt5Y5gOt117GmteuNi/zMVnzL0S/wpghjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAZOz6dQGEgyotrM05o+aY7wCzekaDAx9MTdxWQFLzlrVvSIwzJMFkr7yuka0FzWaRmJ7PWOadH3JJw6pJnnGvZL81BzOMvx2XeF93PhO8e4U2LB5Kp4CUe39C3Ii3J7L+9cTko+yYh4F5OBRnv/qoelYv46Cn3cqfknCC7ApzGenoqniHeozQ9Uz9DQFr23jBFOkxfizRHiRDM3aaIQJKCC0gqJNpGWHPgqQCOSua2wG9IA3b9gpXCj9PsgZALH3WrcEvagO912rUcGjRlvi4tbYlyTNLkEQVtCy6JiXVXQazDq6cDgKh/Zjhi9DLcDajqAqfXkoourkOcuTyBoOw5CsJ/y+m2RcPWiTWRkcmKH8IyD9SOZ/zM12vNCDV8svmfHIzx2G3aiJA2eaDPAnoQzLd52DNGLn4fFBsryzn+tPwn5Y5/rcSoHm6OWlhUbULzDiMTVrRjbh0KQJB6B8b74govdyFzNX3lbs6TsQJQ7biJo6jhgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01QQkuvw51m87crkYZxzXWzY",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1.6"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01TiUquheKHjFz7JctkNXQdQ",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehrvpzkP3BQzkQAsK4U5",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 410,
+        "output_tokens": 282,
+        "output_tokens_details": {
+          "thinking_tokens": 132
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d78527b34b1b1ba7": {
+    "certificate": {
+      "messages_sha256": "68c1741b67a99f2d941126ad0c695333913c017317fb0e15ce33d5922edfb5ec",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "76929d145687e99762cb7a57dccf7586bea0f9ff793da79d64c2e544c1c20d0f",
+      "system_sha256": "0889d31d24ac9f2b6c9d99b767b5f3c2b0ba705e88be8389ca88c037c6943ecb",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:d78527b34b1b1ba7",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c2\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]},{\"claim_id\":\"c3\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\",\"c2\",\"c3\"]}],\"segments\":[{\"segment\":3,\"soutenu\":false},{\"segment\":4,\"soutenu\":true}],\"applicabilite\":[{\"claim_id\":\"c1\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":\"caractère soudain de l'événement\",\"qualites_exigees\":[\"caractère soudain de l'événement\",\"action subite de la chaleur ou contact direct et immédiat avec un foyer ou une substance incandescente\"],\"qualites_etablies\":[]},{\"claim_id\":\"c2\",\"fait_requis_present\":true,\"option_requise\":false,\"cp_requise\":true,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]},{\"claim_id\":\"c3\",\"fait_requis_present\":false,\"option_requise\":false,\"cp_requise\":false,\"fait_manquant\":null,\"qualites_exigees\":[],\"qualites_etablies\":[]}],\"demande_contexte\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehrxhLSEyfWk7PZhatZ6",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 18511,
+        "inference_geo": "global",
+        "input_tokens": 2939,
+        "output_tokens": 1659,
+        "output_tokens_details": {
+          "thinking_tokens": 1149
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:ddfe3c7258648180": {
     "certificate": {
       "messages_sha256": "b18041b36fa4d5bf684a749533d2547a51d583eb5a4086a3c86997cb38fb121e",
@@ -432,6 +1445,101 @@
         "inference_geo": "global",
         "input_tokens": 2600,
         "output_tokens": 1625,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:df90b26cbbc073f5": {
+    "certificate": {
+      "messages_sha256": "d585a05ab1e92e1cdcddd8efa7e5e0199997e02d69285eb75d648c8fdf067b3a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:df90b26cbbc073f5",
+    "response": {
+      "content": [
+        {
+          "signature": "Et4ECpABCBEYAipAX92xdhGDfbcQ2iwZYujCuWqCX9Zj7E0gYLUTwM/xZYYomQhiY6oBNU3Tkdp8E4rpmN/LAo0agR4vrTrjfZtxJzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAd2z6dQGEgzyKFl3rmbnifi/qRYaDP3JwZ1KeKAuOiBw1SIwDjOxffq0ZgEhbAjEgnhukEFlTtpKrl4nhw2hilDJpsKkYJXfnxwooacsE2rIwNczKvoCSGgqhHIJIWOckeX9BA5Rw61ciWc0bfS9uojsBI9RH6li1lKqAE5qj20JmaT4ZeRgaeU3Kkv64KjMeyDv+LB4j3FIRkP3mQu0e7oEYkuSI/Ol1hmDYlt4Csq46Ns+7P2834j3kx1EUBDv7JRj23LaMbeo3097iB1203//7US4CsRJ599yrUDzD0TeYQpPR6uNipqcke6NboTgIVdpPRfJT1dQbH/bbqPRnTg5xmrhQ3GcbfFKDqv9bOd9TAgsXf2noAhjzhF273fyMu4guNs8rBHqbMrpFhAZX3r2LAQcmG3GWpEIG6/XjlLYO382waZEI3VSNnWTlRmarNuD6pv5O4rtNTe+sAJyIovRZdy+eFLh30BdaCmHrjixwNoXwPArxtQCA5FUkU3kX+8ScBQYFjqbfP9ZhEzuXNXfd/BSxGp+mPBNNwqhPeYoqn0jvn8Hc3/P+UglGtS0Wf+FUt2Qvf7f8kunWwKQqbcsCUHrZjNSwwmSvatOctfwGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01A3ZFcMjuioucWNs4ojwU7F",
+          "input": {
+            "node_id": "axa-lu-optihome-2017:a3.1.1"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cehs2GS6Yt8MRLLjgKxZm",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 48684,
+        "inference_geo": "global",
+        "input_tokens": 1314,
+        "output_tokens": 200,
+        "output_tokens_details": {
+          "thinking_tokens": 126
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:f02571a09fd68abd": {
+    "certificate": {
+      "messages_sha256": "063dc2880158325616bbf7a61fc36d91f465a7ff343c2b1f6a83db191ed491ef",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "d0ca9a16619d3757a248e23f79644c64bedde0bec59cae11a0240a93473b9be8",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:f02571a09fd68abd",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou du contact direct avec un foyer ou une substance incandescente, même en l'absence d'embrasement ou de commencement d'incendie.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Le chute d'une bougie allumée sur le canapé, sans propagation de flammes, correspond à un événement soudain causé par le contact avec une substance incandescente.\",\"kind\":\"transition\",\"claim_ids\":[]},{\"text\":\"Le contrat garantit par ailleurs l'incendie, défini comme la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal.\",\"kind\":\"factuel\",\"claim_ids\":[\"c2\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Le contrat garantit les dégâts occasionnés au mobilier assuré par un événement soudain résultant de l'action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu'il n'y a pas eu embrasement, ni commencement d'incendie.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:12\",\"quote\":\"Les dégâts occasionnés au mobilier assuré et au bâtiment désigné par un événement soudain, résultant de l’action subite de la chaleur ou par le contact direct et immédiat avec un foyer ou une substance incandescente, même lorsqu’il n’y a pas eu embrasement, ni commencement d’incendie.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:6\",\"quote\":\"La Compagnie assure les biens désignés, contre les périls suivants :\"}],\"facette\":0,\"rattachement\":\"La bougie tombée sur le canapé et ayant brûlé une partie du mobilier sans embrasement ni commencement d'incendie est un événement soudain par contact avec une substance incandescente au sens de cette clause.\"},{\"claim_id\":\"c2\",\"text\":\"Le contrat garantit l'incendie, c'est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d'objets dont la destination n'est pas, à ce moment, de brûler.\",\"quotes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:7\",\"quote\":\"L’incendie, c’est-à-dire la destruction par des flammes se propageant ou susceptibles de se propager en dehors de leur domaine normal ou d’objets dont la destination n’est pas, à ce moment, de brûler ;\"}],\"facette\":0,\"rattachement\":\"L'absence de propagation de flammes et de commencement d'incendie déclarée écarte la qualification d'incendie au sens de cette clause.\"}],\"blocs_ecartes\":[{\"block_id\":\"axa-lu-optihome-2017:p34:8\",\"motif\":\"Vise l'explosion ou l'implosion, péril distinct non déclaré dans les faits.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:9\",\"motif\":\"Vise la chute de la foudre, péril non déclaré dans les faits.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:10\",\"motif\":\"Vise l'électrocution d'animaux, péril étranger aux faits déclarés.\"},{\"block_id\":\"axa-lu-optihome-2017:p34:11\",\"motif\":\"Vise les fumées et suies comme péril propre, non ce que les faits décrivent (brûlure directe du mobilier par contact).\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehqwwqRdRn9RS6R2tViJ",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 50374,
+        "inference_geo": "global",
+        "input_tokens": 3021,
+        "output_tokens": 1258,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

@@ -154,6 +154,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:31fdec4d7b4d9e94": {
+    "certificate": {
+      "messages_sha256": "05fbfc45f091226504b70acbc4b5e71256a88e8698256c352f039959c29a8d9b",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:31fdec4d7b4d9e94",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehrj5xptFvzhb1CdspYd",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 972,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:444c20683d89815c": {
     "certificate": {
       "messages_sha256": "cd13968eae155ea9e9156dda63f29cf5a6945bb6746b9e1969fd058a8c8c2ff2",
@@ -605,6 +644,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:c95c13dc924708c9": {
+    "certificate": {
+      "messages_sha256": "b176496000c966554352acdfcf0342474fdd49ec53fbe05abd2d3c2357ac5959",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:c95c13dc924708c9",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehqk8iBjkj5nPT1Pwh3V",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 902,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:d40dd545218927be": {
     "certificate": {
       "messages_sha256": "5d32e181d5644658b83114794cf4ea856dd8c30601a83c8ae58e12e361be7618",
@@ -956,6 +1034,48 @@
       }
     }
   },
+  "claude-sonnet-5:0f49e2aaa0d17bf3": {
+    "certificate": {
+      "messages_sha256": "e588261cb3adcab190db1d43253b8795707a7831e6c99bf7a7594d63db545457",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0f49e2aaa0d17bf3",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"School registration in Luxembourg involves three possible paths: public school, European or international schools, and private schools with international curricula, and this should be started before even looking for housing.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Registration with the commune generally comes before school registration, and places in the most sought-after sections can fill up up to a year in advance, so families should check the availability of the specific language section, not just the school itself.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Before leaving the home country, parents should obtain a certificate of deregistration (certificat de radiation) and the child's recent school reports, as these are almost always required and much harder to get once abroad.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"My reading did not cover specific municipal registration procedures or deadlines beyond what the school-related fiche describes.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"School enrolment in Luxembourg is described as the longest and most constrained step of the whole settling-in process, and it should be started before even the housing search, since three different school paths coexist: public school, European/international schools, and private international schools. Registration with the commune generally precedes school registration itself, and places in the most sought-after language sections can be filled up to a year in advance, so it's important to check availability of the specific linguistic section, not just the school. Before leaving the home country, families should request a certificate of deregistration (certificat de radiation) and the last years' school reports from the child's original school, since these documents are almost always required for enrolment and are much harder to obtain once the family has already left.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti.\"}],\"facette\":0}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehqiTxmJGaijKfxSmS4e",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9972,
+        "inference_geo": "global",
+        "input_tokens": 1383,
+        "output_tokens": 863,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:1074ba3baad80b39": {
     "certificate": {
       "messages_sha256": "90ba157fd0d611c7c9c978449827c1b45ce0bb11da28d20f3b7c5f6a7aa0863d",
@@ -1190,7 +1310,7 @@
           "type": "text"
         }
       ],
-      "id": "msg_011CehofABNViKE9ngoepY1L",
+      "id": "msg_011CehrhmdjFafaDGc4qDLX3",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1455,6 +1575,141 @@
       }
     }
   },
+  "claude-sonnet-5:45e20caedcbcdd37": {
+    "certificate": {
+      "messages_sha256": "6fff891f795532f5fb209426e3395ee6e2920347f827a3da6bc338769f9ecf14",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:45e20caedcbcdd37",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehqiPTtwExwtzcTh6Lhf",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8282,
+        "inference_geo": "global",
+        "input_tokens": 1216,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:47a4ab3d928bb56f": {
+    "certificate": {
+      "messages_sha256": "fc0c40c3068200c3c82fa74097f5917d5daaf7bbc0868c4b7aa16e305a0b2a7a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "c84a33be4f73bb4c134829a50eb9a7462913a326c82c0f4b219bd84c71fd3198",
+      "system_sha256": "2735d42acb0cc9c4c716cef64c42f11b1932a2ae1b07921f4e8c1efd7b9d3a83",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:47a4ab3d928bb56f",
+    "response": {
+      "content": [
+        {
+          "signature": "Ev8DCpABCBEYAipA6P2OqueOB4LiBNZrvN2NQZ1xcq1MvAXbJohdhXHmrz1DC371QWVYEht1+Xl7P4IKrSrxMJGoiYepNnDpCS6nQzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAe+x6dQGEgy1H6FTWiekYdm//kkaDPN1LRhCmj4ItV6OBSIwmQzATGsrfgTnL9J1k3I2U7S0k0NluOaAe7TzGC09ep/p/PIhF8tEP0ek7Y9BaxxTKpsCfyAMsV37rRG3oXYpXKkuK4rwRhzgagrX9qTbE+P325ibNDbVSLLi5X9sd3JqLjtmClmrQiqu23J977TrD/ouTQEsUX++/Vk2wmhq206lsUL2+VJTaluuOm7klOEvinBbJ24fyUSC3BC0PoEqHMSR/doCr99ofiUZk04yijPog9LaGaV5Qrho8RQ5BRq1czpihh8uVXDyxUN4+7KbVSaUUP0dneh+6NWK9Wza8ldaIwOjsMcVb8c/dVsxXzWDuIF2+ZyJp0h8SJ1bc75gCvl4IVnAuvI4LybKZ4G1BcDMBrV/wlqD+z7dyIJT81xcGTCT0RQk3U8THiRnqYCAjvCa3GDvNNe2akTkkF4uyiZFgn7Torv6NGvyGJziSxgB",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehripSgN8Ki5cMbH9SiR",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6513,
+        "inference_geo": "global",
+        "input_tokens": 2250,
+        "output_tokens": 239,
+        "output_tokens_details": {
+          "thinking_tokens": 101
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:4866c3efb054d783": {
+    "certificate": {
+      "messages_sha256": "0fbbb1ce478b2cb92ab8888f9c808c2a934146112aac482956136763840bc655",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "c84a33be4f73bb4c134829a50eb9a7462913a326c82c0f4b219bd84c71fd3198",
+      "system_sha256": "2735d42acb0cc9c4c716cef64c42f11b1932a2ae1b07921f4e8c1efd7b9d3a83",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:4866c3efb054d783",
+    "response": {
+      "content": [
+        {
+          "signature": "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",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[0],\"rattachements\":[{\"rang\":0,\"block_id\":\"lux-guide:fecole:7\"}]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":false},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true},{\"segment\":3,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehqj9AT58zp8Xh2vYR81",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6513,
+        "inference_geo": "global",
+        "input_tokens": 2384,
+        "output_tokens": 1170,
+        "output_tokens_details": {
+          "thinking_tokens": 991
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:4b03a6d715b8b417": {
     "certificate": {
       "messages_sha256": "767aa3baa5de97d1fee33c61e43b44ff9dd552d8e0890b982b94b63495d89e6b",
@@ -1673,6 +1928,48 @@
         "output_tokens": 419,
         "output_tokens_details": {
           "thinking_tokens": 327
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:59ab36d33dcd5740": {
+    "certificate": {
+      "messages_sha256": "7a2ebd16639e916127e3abd083f87a04db0f33cf4f85ef01c27ce1fc4c515f27",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:59ab36d33dcd5740",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"School enrollment in Luxembourg follows one of three tracks: public school, European or international schools, or private schools, and this choice needs to be made before finding housing, since it is the longest and most constrained step of the whole installation process.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Registration with the commune generally comes before school registration, and places in the most sought-after sections can fill up a year in advance, so it's important to check availability of the specific language section, not just the school itself, and to bring a certificate of deregistration and recent report cards from the home country, as these are almost always required and much harder to obtain after leaving; the school year starts in early September.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Ma lecture ne couvre pas les modalités précises d'inscription administrative auprès de la commune elle-même (documents, guichet, délai), qui relèvent d'une autre fiche non ouverte ici.\",\"kind\":\"limite\"}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"School enrollment in Luxembourg follows one of three tracks: public school, European or international schools, or private schools, and this choice needs to be made before finding housing, since it is the longest and most constrained step of the whole installation process. Registration with the commune generally comes before school registration, and places in the most sought-after sections can fill up a year in advance, so it's important to check availability of the specific language section, not just the school itself, and to bring a certificate of deregistration and recent report cards from the home country, as these are almost always required and much harder to obtain after leaving; the school year starts in early September.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance. Vérifiez la disponibilité de la section linguistique visée, et pas seulement celle de l'établissement. Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti. La rentrée se situe au début du mois de septembre.\"}],\"facette\":0}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehriAfKxEx6in6W3Y1hX",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9972,
+        "inference_geo": "global",
+        "input_tokens": 1386,
+        "output_tokens": 848,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
@@ -1905,7 +2202,7 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01YE3Et7qWC58dZA2vDWq7fm",
+          "id": "toolu_012h76K1X7hboXRYu3cVySG7",
           "input": {
             "node_id": "lux-guide:fecole"
           },
@@ -1913,7 +2210,7 @@
           "type": "tool_use"
         }
       ],
-      "id": "msg_011CehofL2TN3Wd42T255T39",
+      "id": "msg_011Cehrhw7VJihMbPTkVGuyQ",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -1930,6 +2227,47 @@
         "inference_geo": "global",
         "input_tokens": 168,
         "output_tokens": 63,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:89b2e26f841c020a": {
+    "certificate": {
+      "messages_sha256": "04ae1708184b7ecfb1fa4bd7ba848ca5aebf6cd4b8092f3ae7511c6bbab82ed8",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:89b2e26f841c020a",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehri4U1W5jMvNV5zcguh",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8282,
+        "inference_geo": "global",
+        "input_tokens": 1219,
+        "output_tokens": 7,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2121,6 +2459,54 @@
         "output_tokens": 1240,
         "output_tokens_details": {
           "thinking_tokens": 1007
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:a1817b2a25bbf123": {
+    "certificate": {
+      "messages_sha256": "e05cc825a4d5a0e1485e362354cc3806b566b57598e4548dff0f5c95bd92c149",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:a1817b2a25bbf123",
+    "response": {
+      "content": [
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_0188ipnSBCb2nBCLWco3nrMi",
+          "input": {
+            "node_id": "lux-guide:fecole"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CehqiFoXMDbS3AsYhsZyr",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8282,
+        "inference_geo": "global",
+        "input_tokens": 165,
+        "output_tokens": 63,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }

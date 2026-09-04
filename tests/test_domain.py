@@ -267,7 +267,7 @@ def test_answer_models() -> None:
 # AD-3 (story 1.5) : ce que *vérifier* ajoute au domaine
 def test_verified_quote_carries_the_occurrence() -> None:
     assert fields(answer.VerifiedQuote) == {"block_id", "quote", "start", "end", "text_start", "text_end",
-                                            "line_ids", "contexte"}
+                                            "line_ids", "contexte", "rattachee"}
     q = answer.VerifiedQuote(block_id="d:p1:1", quote="huit jours", start=3, end=13, text_start=4,
                              text_end=14, line_ids=["l1"])
     assert (q.start, q.end, q.text_start, q.text_end, q.line_ids) == (3, 13, 4, 14, ["l1"])

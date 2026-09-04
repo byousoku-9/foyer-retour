@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from server.app.api.presenter import STATUT_RATTACHEE, STATUT_VERIFIEE, _statut_de
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
@@ -173,7 +174,8 @@ def _client(script: list) -> tuple[LlmClient, FakeAnthropic]:
 def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None,
               segments: dict[int, bool] | None = None, nb_segments: int = 8,
               raisons: dict[str, str | None] | None = None,
-              phrases: dict[str, list[int]] | None = None) -> dict:
+              phrases: dict[str, list[int]] | None = None,
+              rattachements: dict[str, list[tuple[int, str]]] | None = None) -> dict:
     """Verdicts groupés + phrases soutenues + couverture des facettes.
 
     `facettes[i]` = les `claim_id` que le contrôle attribue à la facette de rang `i` de la
@@ -189,7 +191,13 @@ def _verdicts(*paires: tuple[str, bool], facettes: list[list[str]] | None = None
         {"verdicts": [{"claim_id": c, "pertinente": p,
                         "raison": (raisons or {}).get(c),
                         # L1d : les rangs des unités de lecture non soutenues, vides par défaut.
-                        "phrases_non_soutenues": (phrases or {}).get(c, [])} for c, p in paires],
+                        "phrases_non_soutenues": (phrases or {}).get(c, []),
+                        # L1h : les blocs **lus** que le contrôle désigne pour une phrase non
+                        # soutenue. Vide par défaut : le cas ordinaire est qu'il n'y ait rien à
+                        # rattacher, et les fixtures d'avant L1h le rejouent tel quel.
+                        "rattachements": [{"rang": rang, "block_id": bid}
+                                          for rang, bid in (rattachements or {}).get(c, [])]}
+                       for c, p in paires],
          "facettes": [{"facette": rang, "claim_ids": ids} for rang, ids in enumerate(facettes)],
          "segments": [{"segment": i, "soutenu": ok} for i, ok in sorted(soutiens.items())]}),
         model=HAIKU)
@@ -382,9 +390,12 @@ async def test_relevance_is_one_grouped_reason_call_with_delimited_content(mini:
     found = UNTRUSTED.findall(msg["content"])
     # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, ses
     # facettes (arrêtées par *comprendre*, jamais redécoupées ici), les affirmations avec leurs
-    # passages, puis **chaque phrase telle qu'elle serait affichée**
-    assert [kind for kind, _ in found] == ["question", "facette", "claim", "claim", "claim",
-                                           "segment", "segment", "segment"]
+    # passages, l'inventaire de ce que la lecture a ouvert (L1h), puis **chaque phrase telle qu'elle
+    # serait affichée**
+    kinds = [kind for kind, _ in found]
+    assert kinds[:5] == ["question", "facette", "claim", "claim", "claim"]
+    assert kinds[-3:] == ["segment", "segment", "segment"]
+    assert set(kinds[5:-3]) == {"lu"}  # l'inventaire vit entre les affirmations et les segments
     assert json.loads(found[1][1]) == {"facette": 0, "libelle": "facette 1"}
     # rien hors des balises : le contenu non fiable est intégralement délimité (AD-15)
     assert UNTRUSTED.sub("", msg["content"]).strip() == ""
@@ -499,8 +510,10 @@ async def test_claims_beyond_the_bound_are_declared_unevaluated_never_guessed(mi
     # `c2` n'est pas soumise au jugement de pertinence ; son segment factuel, lui, reste citable (sa
     # citation a été retrouvée) et part au contrôle des phrases — c'est le rejet de pertinence qui le
     # retirera ensuite de l'affichage.
-    assert [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])] == [
-        "question", "facette", "claim", "segment", "segment"]
+    kinds = [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])]
+    assert kinds[:3] == ["question", "facette", "claim"]
+    assert kinds[-2:] == ["segment", "segment"]
+    assert set(kinds[3:-2]) == {"lu"}  # l'inventaire de ce qui a été lu (L1h)
     assert [c.claim_id for c in v.claims] == ["c1"]
     (rejet,) = v.rejected_claims
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None and "non évaluée" in rejet.motif
@@ -3206,3 +3219,178 @@ async def test_le_nombre_dunites_par_affirmation_est_borne_par_config(mini: Inde
     assert "quarante-cinq euros" in charge["phrases"][1]["texte"]  # fondu, jamais perdu
     (claim,) = v.claims
     assert claim.text == "Vous disposez de huit jours pour déclarer votre arrivée."
+
+
+# --- L1h : une phrase vraie n'est pas retirée parce que le rédacteur a mal rangé sa source ---
+# Rejeu du 04/09/2026 (`540704d9`, sous-question « quoi prévoir pour s'installer ») : sur cinq
+# phrases rédigées, trois sont retirées, et l'une d'elles est écrite **mot pour mot** dans une fiche
+# lue pendant la navigation — mais que le rédacteur n'avait pas jointe à cette affirmation-là. Le
+# jugement était juste par rapport aux passages joints, étroit par rapport à ce que la lecture avait
+# vu. Ces témoins tiennent l'écart refermé, et ses quatre bords.
+
+# Deux phrases : la première est soutenue par le passage joint (`mini:p1:2`), la seconde est vraie et
+# écrite mot pour mot dans `mini:p1:3` — lu, jamais joint.
+PARAGRAPHE_L1H = ("Vous disposez de huit jours pour déclarer votre arrivée. "
+                  "La caution est plafonnée à deux mois de loyer.")
+
+
+async def test_une_phrase_vraie_est_rattachee_au_bloc_lu_qui_la_soutient(mini: Index) -> None:
+    """(a) Phrase vraie, passage non joint mais **lu** ⇒ conservée, citation ajoutée, AD-3 satisfaite."""
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(
+        ("c1", True), phrases={"c1": [1]}, rattachements={"c1": [(1, "mini:p1:3")]})])
+
+    (claim,) = v.claims
+    # La phrase est **conservée** : c'est tout l'objet du tour. Avant L1h, elle tombait.
+    assert claim.text == PARAGRAPHE_L1H
+    assert "caution" in claim.text
+    (segment,) = [s for s in v.segments if s.kind == "factuel"]
+    assert segment.text == PARAGRAPHE_L1H  # le texte affiché porte la même conservation
+    # La citation a été prise par le **code** dans le bloc désigné, et elle satisfait AD-3 : elle est
+    # relue depuis le corpus, aux offsets prouvés, et n'est jamais la chaîne d'un modèle.
+    assert [q.block_id for q in claim.quotes] == ["mini:p1:2", "mini:p1:3"]
+    ajoutee = claim.quotes[-1]
+    assert ajoutee.rattachee is True and claim.quotes[0].rattachee is False
+    bloc = mini.corpus.documents["mini"].block("mini:p1:3")
+    assert ajoutee.quote == bloc.text[ajoutee.text_start:ajoutee.text_end] == CAUTION
+    assert normalize(ajoutee.quote) in bloc.text_norm
+    # Rien n'est retiré, donc aucune lacune d'amputation.
+    assert [c for c in step.checks if c.name == "phrases_de_claim_retirees"] == []
+    (check,) = [c for c in step.checks if c.name == "phrases_rattachees"]
+    assert check.ok is True and "1 phrase(s)" in check.detail
+
+
+async def test_la_citation_rattachee_est_affichee_comme_telle_dans_les_sources(mini: Index) -> None:
+    """L'origine se lit à l'écran : `sources[i].statut` vaut « rattachee », jamais « verifiee ».
+
+    Une citation que la vérification a trouvée est aussi prouvée que les autres ; ce qu'elle n'est
+    pas, c'est une source que la rédaction a choisie. Le taire la ferait passer pour l'autre.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, _step, _fake = await _verifier(mini, draft, [_verdicts(
+        ("c1", True), phrases={"c1": [1]}, rattachements={"c1": [(1, "mini:p1:3")]})])
+    (claim,) = v.claims
+    assert [_statut_de(q) for q in claim.quotes] == [STATUT_VERIFIEE, STATUT_RATTACHEE]
+
+
+async def test_un_bloc_designe_qui_na_pas_ete_lu_ne_rattache_rien(mini: Index) -> None:
+    """(b) Bloc désigné **non lu** ⇒ ignoré, phrase retirée, et la trace le dit.
+
+    « Lu » se lit ici comme AD-1 et `_controler_quote` le lisent déjà : parmi les blocs transmis à
+    *rédiger*. Un identifiant réel mais jamais ouvert n'est pas plus citable par la vérification
+    qu'il ne l'était par la rédaction — sinon la réponse citerait un passage que rien n'a mis sous
+    les yeux de la chaîne.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), phrases={"c1": [1]},
+                                rattachements={"c1": [(1, "mini:p1:3")]})],
+        blocs=["mini:p1:1", "mini:p1:2"])  # `mini:p1:3` n'est pas transmis : il n'a pas été lu
+
+    (claim,) = v.claims
+    assert claim.text == "Vous disposez de huit jours pour déclarer votre arrivée."
+    assert [q.block_id for q in claim.quotes] == ["mini:p1:2"]  # aucune citation n'est apparue
+    (check,) = [c for c in step.checks if c.name == "rattachements_ignores"]
+    assert check.ok is False and "1 rattachement(s)" in check.detail
+    assert [c for c in step.checks if c.name == "phrases_rattachees"] == []
+    assert {lacune.kind: lacune.n for lacune in v.lacunes}["phrases_ecartees"] == 1
+
+
+async def test_un_bloc_designe_qui_ne_couvre_pas_la_phrase_ne_rattache_rien(mini: Index) -> None:
+    """(c) Bloc lu, mais qui ne porte pas le vocabulaire de la phrase ⇒ phrase retirée.
+
+    C'est le seul contrôle de couverture que le code sache faire seul, et il est du côté strict :
+    la désignation du contrôle ne suffit pas, il faut que les mots de la phrase soient dans le bloc.
+    Sans lui, un `block_id` pris au hasard dans l'inventaire ferait afficher une phrase sous une
+    citation qui parle d'autre chose.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    # `mini:p1:6` est lu, il est court, il est citable — et il ne dit rien de la caution.
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(
+        ("c1", True), phrases={"c1": [1]}, rattachements={"c1": [(1, "mini:p1:6")]})])
+
+    (claim,) = v.claims
+    assert "caution" not in claim.text
+    assert [q.block_id for q in claim.quotes] == ["mini:p1:2"]
+    (check,) = [c for c in step.checks if c.name == "rattachements_ignores"]
+    assert check.ok is False and "1 rattachement(s)" in check.detail
+
+
+async def test_sans_rattachement_rendu_rien_ne_change_et_linventaire_est_desarmable(
+        mini: Index) -> None:
+    """(d) Aucun rattachement rendu ⇒ le comportement de L1d, entier.
+
+    Et, `verifier_inventaire_max_tokens = 0`, le **message** lui-même retrouve son octet d'avant
+    L1h : aucun bloc `lu` n'est transmis. C'est ce qui rend le tour réversible par la configuration
+    seule, sans toucher au code.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE, [("mini:p1:2", QUOTE_ARRIVEE),
+                                           ("mini:p1:3", "plafonnée à deux mois de loyer")])
+    v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), phrases={"c1": [2]})],
+                                    settings=_settings(verifier_inventaire_max_tokens=0))
+
+    contenu = fake.requests[0]["messages"][0]["content"]
+    assert [kind for kind, _ in UNTRUSTED.findall(contenu) if kind == "lu"] == []
+    (claim,) = v.claims
+    assert "quarante-cinq euros" not in claim.text  # exactement le témoin (a) de L1d
+    assert all(q.rattachee is False for q in claim.quotes)
+    assert [c for c in step.checks if c.name in ("phrases_rattachees", "rattachements_ignores")] == []
+    (check,) = [c for c in step.checks if c.name == "phrases_de_claim_retirees"]
+    assert "1 phrase(s)" in check.detail
+
+
+async def test_un_rang_deja_soutenu_ou_hors_borne_ne_rattache_rien(mini: Index) -> None:
+    """Deux bornes du même mécanisme : on ne rattache pas ce qui tient déjà, ni au-delà de N.
+
+    Rattacher une phrase que les passages joints soutiennent déjà n'ajouterait qu'une source que
+    personne n'a demandée ; et `rattachement_de_phrase_max` dit que la vérification répare un oubli,
+    jamais qu'elle rédige.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    # Le rang 0 est soutenu par le passage joint : le rattacher est sans objet.
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(
+        ("c1", True), phrases={"c1": [1]}, rattachements={"c1": [(0, "mini:p1:3")]})])
+    assert [q.block_id for q in (v.claims[0]).quotes] == ["mini:p1:2"]
+    assert [c for c in step.checks if c.name == "rattachements_ignores"][0].ok is False
+
+    # Même désignation, valide cette fois, mais la borne est à zéro : rien n'est rattaché.
+    v, step, _fake = await _verifier(
+        mini, draft, [_verdicts(("c1", True), phrases={"c1": [1]},
+                                rattachements={"c1": [(1, "mini:p1:3")]})],
+        settings=_settings(rattachement_de_phrase_max=0))
+    assert [q.block_id for q in (v.claims[0]).quotes] == ["mini:p1:2"]
+    assert "caution" not in v.claims[0].text
+
+
+async def test_deux_blocs_designes_pour_un_meme_rang_valent_zero(mini: Index) -> None:
+    """Une contradiction est un doute, et le doute retire la phrase (la règle de toute l'étape)."""
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    v, step, _fake = await _verifier(mini, draft, [_verdicts(
+        ("c1", True), phrases={"c1": [1]},
+        rattachements={"c1": [(1, "mini:p1:3"), (1, "mini:p1:6")]})])
+
+    assert "caution" not in v.claims[0].text
+    (check,) = [c for c in step.checks if c.name == "rattachement_contradictoire"]
+    assert check.ok is False and "1 phrase(s)" in check.detail
+
+
+async def test_linventaire_ne_porte_ni_titre_ni_bloc_hors_budget(mini: Index) -> None:
+    """L'inventaire est borné en **tokens** par `config.py`, et n'offre jamais un `heading`.
+
+    Un titre ne se cite pas seul (AD-3) : le proposer serait proposer une désignation que le code
+    rejetterait à coup sûr. La borne, elle, protège le coût — c'est elle qui tient l'entrée du
+    contrôle sous ce que le tour s'est donné pour majorant.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    lus = [json.loads(charge) for kind, charge in UNTRUSTED.findall(
+        fake.requests[0]["messages"][0]["content"]) if kind == "lu"]
+    assert "mini:p1:1" not in [bloc["block_id"] for bloc in lus]  # le `heading` est exclu
+    assert "mini:p1:3" in [bloc["block_id"] for bloc in lus]
+
+    # Un budget qui ne tient qu'un ou deux blocs : l'inventaire rétrécit, il ne déborde pas.
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))],
+                                      settings=_settings(verifier_inventaire_max_tokens=45))
+    restreints = [json.loads(charge) for kind, charge in UNTRUSTED.findall(
+        fake.requests[0]["messages"][0]["content"]) if kind == "lu"]
+    assert 0 < len(restreints) < len(lus)

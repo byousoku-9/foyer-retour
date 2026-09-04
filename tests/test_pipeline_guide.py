@@ -1580,7 +1580,12 @@ async def test_un_suivi_resolu_traverse_la_chaine_et_lhistorique_ne_va_quau_fil_
     assert '<untrusted kind="historique">' not in verifier_req
     for tour in (LOGEMENT, REPONSE_LOGEMENT):
         assert tour in comprendre_req and tour in rediger_req
-        assert tour not in verifier_req
+    # Ce que *vérifier* ne reçoit pas est l'**historique** : ni sa balise, ni le tour de l'utilisateur.
+    # La réponse du tour précédent, elle, est écrite mot pour mot dans un bloc du corpus (c'est ainsi
+    # que le témoin a été construit) : depuis L1h, ce bloc peut voyager dans l'inventaire des
+    # passages **lus** — comme n'importe quel bloc lu, pour son `block_id`, jamais comme un tour de
+    # conversation. Chercher la chaîne y confondrait le corpus avec l'historique.
+    assert LOGEMENT not in verifier_req
     # La question brute reste à *comprendre* ; en dessous, seule la résolue circule (AD-5).
     assert "Et pour la voiture ?" in comprendre_req
     assert all("Et pour la voiture ?" not in requete for requete in (*fil_req, verifier_req))
