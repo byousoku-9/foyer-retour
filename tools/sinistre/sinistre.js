@@ -494,6 +494,7 @@
     segment_orphelin_joint: "une phrase sans antécédent a été jointe à la précédente",
     claims_par_facette: "les sous-questions qui portent au moins une affirmation rédigée",
     blocs_decisionnels_ecartes: "des clauses lues ont été écartées par la rédaction, avec leur motif",
+    blocs_ecartes_tronques: "trop d'écarts déclarés : la liste a été tronquée, la réponse est restée entière",
     quote_trop_longue: "des citations vérifiées dépassent la longueur maximale",
     raison_hors_vocabulaire: "une raison de rejet hors du vocabulaire fermé écarte l'affirmation",
     refus: "refus composé, avec sa preuve d'absence",
