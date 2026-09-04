@@ -281,7 +281,7 @@ async def test_le_guide_rend_une_reponse_chiffree_au_lieu_de_lever() -> None:
     assert 1 <= answer.lecture_partielle.nodes_read <= answer.lecture_partielle.blocks_read
     assert answer.lecture_partielle.documents == [next(iter(index.corpus.documents))]
     # La réponse dit ce qui lui manque, et ce qui a été écarté reste montrable.
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis
     assert [c.rejection_kind for c in answer.rejected_claims] == ["non_retrouvee"]
     # Le texte est celui du registre guide, composé par le code.
     assert answer.texte == PHRASES_DE_LECTURE_PARTIELLE["guide"]["fr"]
@@ -312,7 +312,7 @@ async def test_le_sinistre_rend_la_meme_reponse_avec_son_verdict() -> None:
     assert answer.lecture_partielle is not None
     assert (answer.lecture_partielle.nodes_read, answer.lecture_partielle.blocks_read) == (1, 1)
     assert answer.lecture_partielle.blocks_read == len(_retrieval(trace))
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis
     assert answer.rejected_claims
     # AD-6 : le `ne_tranche_pas` vient de la règle (0bis) appliquée à zéro clause affichée.
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"

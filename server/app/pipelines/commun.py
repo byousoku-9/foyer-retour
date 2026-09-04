@@ -306,7 +306,7 @@ def domine(seconde: Verification, acquise: Verification, *,
 
 
 def relance_abandonnee(verification: Verification) -> Verification:
-    """La relance d'AD-3 n'a pas démarré : la réponse acquise est servie, mais pas donnée pour complète.
+    """La relance d'AD-3 n'a pas démarré : la réponse acquise est servie, et elle le dit.
 
     AD-4 : « `complete=True` exige aucune troncature de budget » — un plafond d'appels ou une
     deadline qui empêchent la relance en est une. Story 2.3 : `complete=False` ne suffit plus, parce
@@ -320,11 +320,19 @@ def relance_abandonnee(verification: Verification) -> Verification:
 
     Aucune lacune sur un refus : `found=False` porte déjà son `AbsenceProof`, qui dit tout.
     Les deux pipelines passent par ici — deux copies auraient divergé au premier amendement.
+
+    **Story 5.6 (L1i) : la cause est posée, le badge ne l'est plus.** « Je n'ai pas pu reprendre ma
+    réponse pour l'améliorer » est un avis de service (`LACUNES_AVIS`) : la réponse servie est celle
+    que le contrôle avait vérifiée du premier coup, chacune de ses phrases est appuyée par un
+    passage cité, et aucune sous-question n'a disparu au passage. La dire « partielle » à ce titre
+    faisait lire un échec là où il n'y a qu'un renoncement à mieux faire. `complete` n'est donc plus
+    forcé ici — il reste celui que *vérifier* a calculé sur les manques —, et la lacune, elle, est
+    toujours déposée : elle atteindra l'utilisateur dans `Answer.avis[]`.
     """
     lacunes = list(verification.lacunes)
     if verification.found and LACUNE_RELANCE_ABANDONNEE not in lacunes:
         lacunes.append(LACUNE_RELANCE_ABANDONNEE)
-    return verification.model_copy(update={"complete": False, "lacunes": lacunes})
+    return verification.model_copy(update={"lacunes": lacunes})
 
 
 def relance_utile(verification: Verification, settings: Settings) -> bool:

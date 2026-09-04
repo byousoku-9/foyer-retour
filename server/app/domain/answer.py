@@ -70,6 +70,36 @@ LACUNES_PLURALISEES: frozenset[LacuneKind] = frozenset({
     "phrases_ecartees",
 })
 
+# Story 5.6 (L1i) — deux familles de causes, et une seule décide « partiel ».
+#
+# Mesuré le 04/09/2026 sur la page guide : une réponse qui traitait ses **trois** sous-questions
+# sortait badgée « PARTIEL — il manque des éléments : ils sont listés sous "Ce que je ne sais pas" »,
+# et la seule ligne listée était « J'ai retiré 7 phrases de ma réponse ». Pour qui lit, c'est un
+# échec annoncé sur une réponse complète, et la seule chose qu'il puisse en faire est douter de tout
+# le reste.
+#
+# `manque` : une part de la **réponse demandée** qui n'a pas été donnée — une sous-question restée
+# sans affirmation retenue. C'est ce que « Ce que je ne sais pas » nomme, et c'est ce que `complete`
+# mesure : `complete ⟺ found ∧ toutes les sous-questions traitées ∧ aucune limite déclarée par le
+# modèle`.
+#
+# `avis` : un compte rendu de **comment cette réponse a été composée** — des phrases retirées faute
+# de soutien, une relance qui n'a pas eu lieu, une lecture bornée, un renvoi qu'on n'a pas suivi.
+# Rien n'y est promis puis repris : ce qui est affiché reste appuyé par un passage cité, et ce que
+# la personne a demandé reste traité. L'avis n'est pas perdu — il est publié dans `Answer.avis[]`,
+# que les deux fronts rangent avec les garde-fous —, il ne badge simplement plus la réponse.
+# `sans_decoupage` est un manque et non un avis : il dit que la couverture par sous-question n'a
+# **pas pu être mesurée**, et AD-4 est explicite — « aucune facette au barème ⇒ aucune preuve ⇒
+# `complete=False` : l'absence de mesure ne vaut jamais complétude ». C'est la même propriété que
+# les deux autres, constatée sur un barème vide au lieu d'un barème incomplet.
+LACUNES_MANQUES: frozenset[LacuneKind] = frozenset({
+    "facettes_sans_clause",
+    "facettes_sans_reponse",
+    "sans_decoupage",
+})
+LACUNES_AVIS: frozenset[LacuneKind] = frozenset(
+    kind for kind in get_args(LacuneKind) if kind not in LACUNES_MANQUES)
+
 # Story 4.2e — le vocabulaire **fermé** d'une demande de contexte. Il vit ici, avec le type qui le
 # porte, et non dans l'étape : `steps/verifier.py` construit le schéma envoyé au modèle à partir de
 # ces mêmes littéraux (comme `Applicable` ci-dessus, deux copies auraient divergé au premier
@@ -555,6 +585,13 @@ class Answer(DomainModel):
     # n'est pas « ce qui a été compris d'un sinistre », et rien ne l'affiche.
     faits_compris: QuestionScope | None = None
     unknown: list[str] = Field(default_factory=list)
+    # Story 5.6 (L1i) — **additif** : les avis de service, séparés de ce qui manque à la réponse.
+    # Même canal de projection que `unknown[]` (phrases composées par le code, dans la langue de la
+    # réponse), même règle de contenu (ni `block_id`, ni terme cherché, ni document — AD-10/AD-15),
+    # mais une autre lecture : « voici comment j'ai composé cette réponse », pas « voici ce que je
+    # n'ai pas su vous dire ». Les fronts les rangent avec les garde-fous, et ils ne badgent jamais
+    # la réponse « partielle » — c'est `LACUNES_AVIS` qui décide de qui atterrit ici.
+    avis: list[str] = Field(default_factory=list)
     # Même borne que `ClarificationRequise.clarification`, et pour la même raison (revue Codex
     # 2.2, B1) : c'est ce champ que la page conserve dans son historique, et un tour hors borne
     # y est écarté — la question posée disparaîtrait, et l'assistant la reposerait indéfiniment.
@@ -596,12 +633,15 @@ class Answer(DomainModel):
             raise ValueError("found=True n'admet aucun porteur d'absence : ni preuve d'absence "
                              "(reason), ni lecture partielle (lecture_partielle) — une borne se dit "
                              "dans unknown[] avec complete=False")
-        if self.lecture_partielle is not None and not self.unknown:
+        if self.lecture_partielle is not None and not self.unknown and not self.avis:
             # Symétrique de l'invariant « partiel dit ce qui lui manque » : une réponse qui chiffre
             # ce qu'elle a lu doit dire pourquoi cela n'a pas suffi — au minimum la lacune
-            # `lecture_bornee` que *vérifier* dépose.
-            raise ValueError("une lecture partielle dit ce qui lui manque : unknown[] ne peut pas "
-                             "être vide")
+            # `lecture_bornee` que *vérifier* dépose. Story 5.6 (L1i) : cette lacune-là est un avis
+            # de service (elle dit ce que la lecture a fait, pas ce que la réponse a omis), et elle
+            # est publiée dans `avis[]` ; l'exigence porte donc sur les **deux** canaux — ce qui est
+            # interdit reste le compteur de lecture servi sans une seule réserve à côté.
+            raise ValueError("une lecture partielle dit ce qui lui manque : unknown[] et avis[] ne "
+                             "peuvent pas être vides tous les deux")
         if self.found and not self.claims:
             raise ValueError("found=True exige au moins une claim retrouvée et pertinente")
         if not self.found and self.claims:

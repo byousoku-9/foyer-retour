@@ -127,10 +127,11 @@ LACUNE_CONTEXTE_NON_RELU = Lacune(kind="contexte_non_relu")
 def _contexte_non_relu(verification: Verification, *, lecture_bornee: bool) -> Verification:
     """La demande de contexte n'a pas été satisfaite, ou sa reprise a été refusée (story 4.2e).
 
-    Exactement le patron de `relance_abandonnee` (AD-4 : « `complete=True` exige aucune troncature de
-    budget ») : la réponse acquise est servie, mais elle n'est pas donnée pour complète, et la cause
-    typée dit **pourquoi** — sans quoi l'utilisateur lirait « partiel » sans savoir ce qui manque, ce
-    que l'invariant `complete ⟺ found ∧ rien qui manque` du domaine interdit de toute façon.
+    Exactement le patron de `relance_abandonnee` : la réponse acquise est servie, et la cause typée
+    dit ce qui s'est passé — sans quoi l'utilisateur lirait une réserve sans savoir d'où elle vient.
+    Story 5.6 (L1i) : cette cause-là est un avis de service (`LACUNES_AVIS`) — l'affirmation qu'elle
+    concerne vaut déjà `humain` et le verdict s'en déduit —, elle ne force donc plus `complete` ;
+    elle est publiée dans `Answer.avis[]`, avec les garde-fous.
 
     Sur un refus, la lacune ne se pose que si la lecture est **bornée** — c'est la règle exacte
     qu'AD-4 a prise en story 4.2f (`verifier` calcule ses lacunes sur `not found ∧ truncated`) : un
@@ -151,7 +152,7 @@ def _contexte_non_relu(verification: Verification, *, lecture_bornee: bool) -> V
     lacunes = list(verification.lacunes)
     if (verification.found or lecture_bornee) and LACUNE_CONTEXTE_NON_RELU not in lacunes:
         lacunes.append(LACUNE_CONTEXTE_NON_RELU)
-    return verification.model_copy(update={"complete": False, "lacunes": lacunes})
+    return verification.model_copy(update={"lacunes": lacunes})
 
 
 def _cite_une_fondatrice_confirmee(claim: Any, *, corpus: Any, index: Any) -> bool:

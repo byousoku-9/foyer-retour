@@ -437,7 +437,7 @@ async def test_une_demande_de_definition_valide_est_satisfaite_puis_reprise_une_
     # La reprise domine (mêmes claims, mêmes facettes, mêmes blocs cités, aucun manque de plus) :
     # c'est elle qui est servie, et la réponse n'a plus de lacune de contexte.
     assert answer.found and answer.complete
-    assert _lacune() not in answer.unknown
+    assert _lacune() not in answer.unknown and _lacune() not in answer.avis
 
 
 async def test_une_demande_de_renvoi_rouvre_la_cible_du_renvoi(neutre: CorpusNeutre) -> None:
@@ -485,7 +485,7 @@ async def test_une_qualite_que_le_modele_na_pas_enumeree_nest_pas_une_cible(
                                    raison="qualite_non_verifiable"))])
 
     assert fake.remaining_script == 0  # aucune reprise : le script s'arrête à la vérification
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 # --- 3. les cas fermés ----------------------------------------------------------------------------
@@ -506,7 +506,7 @@ async def test_une_categorie_hors_vocabulaire_ne_produit_aucune_demande(
     # La claim visée retombe sur le chemin `humain` déjà écrit ; AD-6 en déduit seule le verdict.
     assert "applicabilite_incomplete" in noms
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_raison_hors_vocabulaire_ne_produit_aucune_demande(neutre: CorpusNeutre) -> None:
@@ -543,7 +543,7 @@ async def test_une_cible_absente_de_lentree_ne_produit_aucune_demande(
     assert "demande_cible_inconnue" in noms and "applicabilite_incomplete" in noms
     assert "satisfaction_demande" not in noms
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_un_objet_de_demande_entierement_vide_nest_pas_une_demande(
@@ -594,7 +594,7 @@ async def test_une_demande_qui_nest_pas_un_objet_ne_tue_pas_le_lot(
     assert "applicabilite_incomplete" in noms
     assert all(c.status.applicable == "humain" for c in answer.claims)
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insatisfaite(
@@ -617,7 +617,7 @@ async def test_une_demande_bien_formee_sur_un_terme_sans_definition_reste_insati
     retrouver = next(s for s in trace.steps if s.name == "retrouver")
     assert "definition_registre" not in neutre.cles(retrouver.opened_block_ids)
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_un_claim_id_jamais_envoye_ne_designe_rien(neutre: CorpusNeutre) -> None:
@@ -639,7 +639,7 @@ async def test_un_claim_id_jamais_envoye_ne_designe_rien(neutre: CorpusNeutre) -
     assert "satisfaction_demande" not in _tous_les_checks(trace)
     assert all(c.status.applicable == "humain" for c in answer.claims)
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_demande_bien_formee_mais_insatisfaite_ferme_sans_reprise(
@@ -657,7 +657,7 @@ async def test_une_demande_bien_formee_mais_insatisfaite_ferme_sans_reprise(
     assert "demande_satisfaite" not in noms and "reprise_unique" not in noms
     assert [s.name for s in trace.steps].count("verifier") == 1
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_satisfaction_partielle_ne_declenche_aucune_reprise(
@@ -689,7 +689,7 @@ async def test_une_satisfaction_partielle_ne_declenche_aucune_reprise(
     assert [s.name for s in trace.steps].count("verifier") == 1
     assert all(c.status.applicable == "humain" for c in answer.claims)
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_sans_place_sous_le_budget_aucune_passe_et_aucun_appel(
@@ -712,7 +712,7 @@ async def test_sans_place_sous_le_budget_aucune_passe_et_aucun_appel(
     noms = _tous_les_checks(trace)
     assert "reprise_sans_place" in noms and "satisfaction_demande" not in noms
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_sans_marge_de_deadline_aucune_passe(neutre: CorpusNeutre,
@@ -734,7 +734,7 @@ async def test_sans_marge_de_deadline_aucune_passe(neutre: CorpusNeutre,
 
     assert fake.remaining_script == 0
     assert "reprise_sans_place" in _tous_les_checks(trace)
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_seconde_demande_est_refusee_sans_boucle(neutre: CorpusNeutre) -> None:
@@ -752,7 +752,7 @@ async def test_une_seconde_demande_est_refusee_sans_boucle(neutre: CorpusNeutre)
     assert noms.count("satisfaction_demande") == 1
     assert [s.name for s in trace.steps].count("verifier") == 2
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 async def test_une_reprise_non_dominante_ne_remplace_pas_lacquis(neutre: CorpusNeutre) -> None:
@@ -772,7 +772,7 @@ async def test_une_reprise_non_dominante_ne_remplace_pas_lacquis(neutre: CorpusN
     # Revue 4.2e (E) : c'était le seul chemin de fermeture du bloc qui servait la réponse pour
     # **complète**. Le jugement retenu est celui rendu AVANT relecture du contexte : il ne peut pas
     # être donné pour complet, et une demande `renvoi` y contredirait en outre AD-1.
-    assert not answer.complete and _lacune() in answer.unknown
+    assert answer.complete and _lacune() in answer.avis
 
 
 # --- 3 bis. ce que la reprise relit, et ce qu'elle ne doit pas perdre (revue 4.2e) ----------------
@@ -870,8 +870,10 @@ async def test_la_reprise_ne_perd_pas_la_lacune_dune_relance_abandonnee(
     assert fake.remaining_script == 0
     noms = _tous_les_checks(trace)
     assert "relance_abandonnee" in noms and "demande_satisfaite" in noms
-    assert answer.found and not answer.complete
-    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
+    # L1i : la relance abandonnée est un avis de service — la réponse reste complète, et la cause
+    # est lisible dans `avis[]` plutôt que sous « Ce que je ne sais pas ».
+    assert answer.found and answer.complete
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
 
 
 async def test_une_demande_insatisfaite_par_le_budget_publie_sa_borne(

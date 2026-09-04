@@ -260,7 +260,7 @@ def test_answer_models() -> None:
     assert fields(answer.LecturePartielle) == {"nodes_read", "blocks_read", "documents"}
     assert fields(answer.Answer) == {
         "found", "complete", "lang", "lang_fallback", "texte", "segments", "claims", "rejected_claims",
-        "reason", "lecture_partielle", "verdict", "faits_compris", "unknown", "clarification",
+        "reason", "lecture_partielle", "verdict", "faits_compris", "unknown", "avis", "clarification",
     }
 
 

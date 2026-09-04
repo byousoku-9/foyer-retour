@@ -15,7 +15,7 @@ from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
-from server.app.domain.answer import AnswerDraft
+from server.app.domain.answer import LACUNES_MANQUES, AnswerDraft
 from server.app.domain.document import Document, Node
 from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
@@ -612,9 +612,11 @@ async def test_found_and_complete_are_computed_by_the_code(mini: Index) -> None:
     v, _s, _f = await _verifier(mini, nominal, [_verdicts(("c1", True))], blocs=["mini:p1:2"])
     assert v.found is True and v.complete is True and v.unknown == []
 
-    # troncature du retrieval ⇒ jamais `complete` (AD-4)
+    # troncature du retrieval : la borne est nommée (`lecture_bornee`) mais c'est un avis de service
+    # (L1i) — la sous-question posée a bien reçu son affirmation, la réponse n'est pas partielle.
     v2, _s2, _f2 = await _verifier(mini, nominal, [_verdicts(("c1", True))], blocs=["mini:p1:2"], truncated=True)
-    assert v2.found is True and v2.complete is False
+    assert v2.found is True and v2.complete is True
+    assert [lacune.kind for lacune in v2.lacunes] == ["lecture_bornee"]
 
     # un segment `limite` est ce que l'ébauche déclare hors de portée : il remplit `unknown`
     avec_limite = AnswerDraft(segments=[{"text": "Segment c1.", "kind": "factuel", "claim_ids": ["c1"]},
@@ -624,10 +626,11 @@ async def test_found_and_complete_are_computed_by_the_code(mini: Index) -> None:
     v3, _s3, _f3 = await _verifier(mini, avec_limite, [_verdicts(("c1", True))], blocs=["mini:p1:2"])
     assert v3.unknown == ["Je ne sais pas pour les frontaliers."] and v3.complete is False
 
-    # un renvoi non résolu sur un bloc cité (AD-4) interdit `complete`
+    # un renvoi non résolu sur un bloc cité est nommé, en avis de service (L1i) : il ne badge pas
     renvoi = _draft(("c1", "t", [("mini:p1:7", "Un renvoi non résolu.")]))
     v4, _s4, _f4 = await _verifier(mini, renvoi, [_verdicts(("c1", True))], blocs=["mini:p1:7"])
-    assert v4.found is True and v4.complete is False
+    assert v4.found is True and v4.complete is True
+    assert [lacune.kind for lacune in v4.lacunes] == ["renvoi_non_resolu"]
 
 
 # --- offsets et line_ids sur un vrai bloc PDF -------------------------------
@@ -956,7 +959,10 @@ async def test_a_factual_sentence_that_says_something_else_than_its_claim_is_nev
         claims=[("c1", "Le délai est de huit jours.", [("mini:p1:2", "huit jours pour déclarer votre arrivée")])])
     v, step, fake = await _verifier(mini, draft, [_verdicts(("c1", True), segments={1: False})])
     assert [s.text for s in v.segments] == ["Le délai est de huit jours."]
-    assert v.found is True and v.complete is False  # une phrase retirée ampute la réponse (AD-4)
+    # La phrase retirée est constatée (`phrases_ecartees`) ; L1i : c'est un avis de service, la
+    # sous-question a bien sa réponse et rien n'est badgé « partiel ».
+    assert v.found is True and v.complete is True
+    assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
     (check,) = [c for c in step.checks if c.name == "segments_non_soutenus"]
     assert "1 phrase(s)" in check.detail
     # le contrôle a bien vu le **texte affiché**, pas seulement l'affirmation
@@ -1158,8 +1164,9 @@ async def test_un_segment_derive_dune_claim_sans_verdict_est_masque(mini: Index)
     assert [c.claim_id for c in v.claims] == ["c2"]
     assert [c.rejection_kind for c in v.rejected_claims] == ["non_pertinente"]
     assert [c for c in step.checks if c.name == "segments_derives_masques"]
-    # le dérivé masqué ampute la réponse : lacune `phrases_ecartees`, donc jamais `complete`
-    assert v.complete is False
+    # le dérivé masqué se dit : lacune `phrases_ecartees` — un avis de service depuis L1i, qui ne
+    # badge plus la réponse « partielle » (la sous-question couverte l'est toujours)
+    assert v.complete is True
     assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
 
 
@@ -1253,9 +1260,9 @@ async def test_un_segment_identique_a_une_claim_non_citable_nest_pas_reaffiche_p
     assert v.found is True and [c.claim_id for c in v.claims] == ["c2"]
     assert [c.rejection_kind for c in v.rejected_claims] == ["non_retrouvee"]
     assert [c for c in step.checks if c.name == "segments_derives_masques"]
-    # éligible via son pointeur citable `c2` : le masquage ampute une réponse voulue, il se dit
+    # éligible via son pointeur citable `c2` : le masquage se dit, en avis de service (L1i)
     assert {"kind": "phrases_ecartees", "n": 1} in [lacune.model_dump() for lacune in v.lacunes]
-    assert v.complete is False
+    assert v.complete is True
 
 
 async def test_un_segment_identique_a_une_claim_excedentaire_est_masque_non_soumis_et_compte(
@@ -2750,7 +2757,9 @@ async def test_a_contradiction_declared_by_the_corpus_settles_nothing(contrat: I
     assert any("arbitrage humain" in e for e in v.verdict.escalate)
     # AD-6 : « les deux passages restent affichés »
     assert {c.claim_id for c in v.claims} == {"c1", "c2"}
-    assert v.complete is False
+    # L1i : la contradiction est nommée (lacune) et **tranchée** par le verdict `ne_tranche_pas` —
+    # c'est lui que l'écran lit. Elle n'a plus à badger la réponse « partielle » par-dessus.
+    assert v.complete is True
     assert [lacune.kind for lacune in v.lacunes] == ["contradiction_non_resolue"]
 
 
@@ -2778,7 +2787,10 @@ async def test_an_unresolved_reference_read_from_the_corpus_settles_nothing(cont
     assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"  # …mais rien ne se tranche
     assert "renvoie" in v.verdict.reason
     assert any("renvoi" in e for e in v.verdict.escalate)
-    assert v.complete is False  # AD-4 : un renvoi non résolu interdit déjà `complete`
+    # L1i : le renvoi ouvert produit `ne_tranche_pas` et sa lacune ; c'est un avis de service, il ne
+    # badge plus « partiel » en plus du verdict.
+    assert v.complete is True
+    assert [lacune.kind for lacune in v.lacunes] == ["renvoi_non_resolu"]
 
 
 # --- story 2.1 : `quote_max_chars` est enfin appliqué, et jamais comme un rejet ---
@@ -2847,10 +2859,11 @@ async def test_une_reponse_complete_na_aucune_lacune(mini: Index) -> None:
 
 
 async def test_une_lecture_bornee_est_nommee_et_nempeche_pas_la_reponse(mini: Index) -> None:
-    """NFR2 : troncature ⇒ `complete=False` et **jamais** d'`AbsenceProof` — la réponse est servie,
-    et la phrase de lecture bornée dit pourquoi elle n'est pas donnée pour complète."""
+    """NFR2 : troncature ⇒ jamais d'`AbsenceProof` — la réponse est servie, et la phrase de lecture
+    bornée dit ce qui n'a pas été lu. Story 5.6 (L1i) : c'est un avis de service — la sous-question
+    posée a bien reçu son affirmation, et rien ne manque à ce qui a été demandé."""
     v, _s, _f = await _verifier(mini, _draft_simple(), [_verdicts(("c1", True))], truncated=True)
-    assert v.found is True and v.complete is False
+    assert v.found is True and v.complete is True
     assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_LECTURE]
     assert v.unknown == []
 
@@ -2869,7 +2882,8 @@ async def test_un_renvoi_non_resolu_est_nomme(mini: Index) -> None:
     autre, introuvable. La phrase ne nomme ni le bloc ni la référence (AD-10, AD-15)."""
     draft = _draft(("c1", "Un renvoi non résolu.", [("mini:p1:7", "Un renvoi non résolu.")]))
     v, _s, _f = await _verifier(mini, draft, [_verdicts(("c1", True))], blocs=["mini:p1:7"])
-    assert v.found is True and v.complete is False
+    # L1i : nommé, publié en avis de service, et sans badge — la question posée a sa réponse.
+    assert v.found is True and v.complete is True
     assert [lacune.model_dump() for lacune in v.lacunes] == [LACUNE_RENVOI]
     lacunes_json = "".join(lacune.model_dump_json() for lacune in v.lacunes)
     assert "article 12" not in lacunes_json and "mini:p1:7" not in lacunes_json
@@ -2930,18 +2944,25 @@ async def test_les_lacunes_ne_sont_jamais_dupliquees(mini: Index) -> None:
 
 
 async def test_complete_se_reduit_a_found_et_manques_vides(mini: Index) -> None:
-    """L'invariant du domaine, vérifié à la source : plus aucune cause d'incomplétude ne vit ailleurs
-    que dans `unknown[]` — c'est ce qui rend `Answer._found_coherence` tenable."""
+    """L'invariant du domaine, vérifié à la source : aucune cause de « partiel » ne vit ailleurs que
+    dans `unknown[]` — c'est ce qui rend `Answer._found_coherence` tenable.
+
+    Story 5.6 (L1i) : « ce qui manque » s'est resserré sur ce qui manque à la **réponse demandée**
+    (`LACUNES_MANQUES`, plus les limites déclarées par le modèle). Une lecture bornée reste
+    constatée et publiée, mais elle ne fait plus « partiel » : la sous-question posée a bien reçu
+    son affirmation, et c'est exactement ce que la pastille annonce.
+    """
     cas = [
         ({}, True),
-        ({"truncated": True}, False),
+        ({"truncated": True}, True),
         ({"nb_facettes": 0}, False),
     ]
     for kwargs, attendu in cas:
         script = [_verdicts(("c1", True), facettes=[] if kwargs.get("nb_facettes") == 0 else None)]
         v, _s, _f = await _verifier(mini, _draft_simple(), script, **kwargs)
         assert v.complete is attendu
-        assert v.complete == (v.found and v.nb_manques == 0)
+        manques = [lacune for lacune in v.lacunes if lacune.kind in LACUNES_MANQUES]
+        assert v.complete == (v.found and not v.unknown and not manques)
 
 
 @pytest.mark.parametrize("tier", ["micro", "reason"])
@@ -3079,7 +3100,9 @@ async def test_une_demande_invalide_laisse_la_reponse_incomplete(contrat: Index)
 
     assert v.demande_contexte is None
     assert [c.name for c in step.checks if c.name == "demande_hors_vocabulaire"]
-    assert v.found is True and v.complete is False
+    # L1i : la claim visée vaut `humain`, le verdict s'en déduit, et la cause est publiée en avis de
+    # service — la réponse n'est pas « partielle » pour autant.
+    assert v.found is True and v.complete is True
     assert [lacune.kind for lacune in v.lacunes] == ["contexte_non_relu"]
     assert all(lacune.n == 0 for lacune in v.lacunes)  # jamais pluralisée : une demande, une seule
 
@@ -3143,7 +3166,10 @@ async def test_une_phrase_non_soutenue_est_retiree_et_le_reste_du_paragraphe_est
     (check,) = [c for c in step.checks if c.name == "phrases_de_claim_retirees"]
     assert check.ok is False and "1 phrase(s)" in check.detail
     assert {lacune.kind: lacune.n for lacune in v.lacunes}["phrases_ecartees"] == 1
-    assert v.complete is False  # une réponse amputée n'est pas une réponse complète
+    # Le témoin de L1i : la phrase retirée est dite, la sous-question est traitée, et rien ne badge
+    # « partiel » — c'est le défaut mesuré sur `g-partir-l1g` (« PARTIEL » sur trois sous-questions
+    # servies, pour sept phrases émondées du brouillon).
+    assert v.complete is True
 
 
 async def test_un_paragraphe_dont_aucune_phrase_nest_soutenue_est_rejete_comme_avant(

@@ -11,6 +11,7 @@ from typing import get_args
 import pytest
 
 from server.app.domain.answer import (
+    LACUNES_AVIS,
     LACUNES_PLURALISEES,
     AbsenceProof,
     AnswerSegment,
@@ -187,13 +188,18 @@ def test_every_lacune_kind_has_a_non_empty_sentence_in_every_served_language() -
 @pytest.mark.parametrize("n,index", [(1, 0), (2, 1)])
 def test_each_pluralized_lacune_renders_singular_and_plural(
         language: str, kind: str, n: int, index: int) -> None:
+    # L1i : une lacune pluralisée est soit un manque (elle badge « partiel » et se lit sous « Ce que
+    # je ne sais pas »), soit un avis de service ; sa phrase est rendue de la même façon des deux
+    # côtés, et c'est cela que ce test mesure.
+    avis = kind in LACUNES_AVIS
     verification = Verification(
         segments=[AnswerSegment(text="Réponse.", kind="factuel", claim_ids=["c1"])],
-        claims=[_claim()], found=True, complete=False, lacunes=[Lacune(kind=kind, n=n)])
+        claims=[_claim()], found=True, complete=avis, lacunes=[Lacune(kind=kind, n=n)])
     answer, _step = restituer(language=language, verification=verification)
     patron = PHRASES_DE_LACUNE[language][kind]
     assert isinstance(patron, tuple)
-    assert answer.unknown == [patron[index].format(n=n)]
+    assert (answer.avis if avis else answer.unknown) == [patron[index].format(n=n)]
+    assert (answer.unknown if avis else answer.avis) == []
 
 
 def test_a_refusal_is_rendered_in_the_selected_language_without_inventing_a_fallback() -> None:
@@ -475,13 +481,16 @@ def test_borner_reports_nothing_when_everything_fits() -> None:
 
 
 # --- ce que *restituer* constate lui-même (story 2.3, revue coordonnée) -----
-def test_un_segment_retire_empeche_complete_et_dit_ce_qui_manque() -> None:
-    """A2 : une réponse amputée ne peut pas être badgée « sûr ».
+def test_un_segment_retire_est_un_avis_de_service_et_non_un_manque() -> None:
+    """A2, amendé par L1i : la retenue est dite, elle ne badge plus la réponse.
 
     *vérifier* exclut délibérément ce cas de son compte `ecartes` : une phrase dont **toutes** les
     claims ont été jugées non pertinentes est soutenue au sens du contrôle groupé, et c'est la règle
-    mécanique d'AD-3 qui la retire — ici, et nulle part ailleurs. Elle disparaissait donc du texte
-    servi avec `complete=True` et un simple `CheckResult`, que l'utilisateur ne voit pas.
+    mécanique d'AD-3 qui la retire — ici, et nulle part ailleurs. Elle disparaissait du texte servi
+    avec `complete=True` et un simple `CheckResult`, que l'utilisateur ne voit pas ; elle est donc
+    constatée et publiée. Story 5.6 (L1i) : dans `avis[]`, parce qu'elle dit ce que le contrôle a
+    fait de l'ébauche et non ce qui manque à la personne — une réponse qui a traité toutes ses
+    sous-questions n'est pas « partielle » parce que le contrôle a émondé le brouillon.
     """
     verification = Verification(
         segments=[AnswerSegment(text="Soutenue.", kind="factuel", claim_ids=["c1"]),
@@ -489,19 +498,70 @@ def test_un_segment_retire_empeche_complete_et_dit_ce_qui_manque() -> None:
         claims=[_claim()], rejected_claims=[_rejet()], found=True, complete=True)
     answer, step = restituer(language="fr", verification=verification)
     assert answer.texte == "Soutenue."
-    assert answer.complete is False
-    assert answer.unknown == [PHRASES_DE_LACUNE["fr"]["segments_retires"]]
+    assert answer.complete is True and answer.unknown == []
+    assert answer.avis == [PHRASES_DE_LACUNE["fr"]["segments_retires"]]
     assert [c.name for c in step.checks] == ["segments_retires"]
+
+
+def test_une_reponse_qui_traite_ses_sous_questions_nest_pas_partielle_pour_des_phrases_retirees() -> None:
+    """Le témoin de L1i, dans la forme exacte où le défaut a été mesuré.
+
+    Run `g-partir-l1g` du 04/09/2026, page guide : les trois sous-questions étaient servies, chaque
+    phrase affichée était appuyée par un passage cité, et la réponse sortait « PARTIEL — il manque
+    des éléments : ils sont listés sous "Ce que je ne sais pas" », dont la seule ligne était « J'ai
+    retiré 7 phrases de ma réponse ». Ce que la personne lisait était un échec sur une réponse
+    complète, et la seule chose qu'elle pouvait en faire était douter du reste.
+    """
+    verification = Verification(
+        segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=True,
+        lacunes=[Lacune(kind="phrases_ecartees", n=7)])
+    answer, _step = restituer(language="fr", verification=verification)
+
+    assert answer.complete is True and answer.unknown == []
+    assert answer.avis == [PHRASES_DE_LACUNE["fr"]["phrases_ecartees"][1].format(n=7)]
+
+
+def test_une_sous_question_sans_reponse_reste_un_manque_et_badge_la_reponse() -> None:
+    """L'autre bord du même témoin : ce qui manque à la demande badge toujours, et se dit toujours."""
+    verification = Verification(
+        segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
+        claims=[_claim()], found=True, complete=False,
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1), Lacune(kind="phrases_ecartees", n=7)])
+    answer, _step = restituer(language="fr", verification=verification)
+
+    assert answer.complete is False
+    assert answer.unknown == [PHRASES_DE_LACUNE["fr"]["facettes_sans_reponse"][0].format(n=1)]
+    assert answer.avis == [PHRASES_DE_LACUNE["fr"]["phrases_ecartees"][1].format(n=7)]
+
+
+def test_une_limite_ecrite_par_le_modele_badge_la_reponse_et_reste_hors_du_texte() -> None:
+    """Le troisième témoin : « les fiches ne détaillent pas… » est une déclaration d'ignorance.
+
+    Elle ne s'affiche jamais dans le texte (aucune citation ne prouve une absence) mais elle dit ce
+    que la personne n'obtiendra pas : c'est un manque, et la réponse n'est pas donnée pour complète.
+    """
+    verification = Verification(
+        segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"]),
+                  AnswerSegment(text="Les fiches ne détaillent pas les frontaliers.", kind="limite")],
+        claims=[_claim()], found=True, complete=True)
+    answer, _step = restituer(language="fr", verification=verification)
+
+    assert answer.texte == "Vous avez huit jours."
+    assert answer.complete is False
+    assert answer.unknown == ["Les fiches ne détaillent pas les frontaliers."]
+    assert answer.avis == []
 
 
 def test_une_lacune_du_code_est_rendue_dans_la_langue_de_la_reponse() -> None:
     base = dict(segments=[AnswerSegment(text="The deadline is eight days.", kind="factuel",
                                         claim_ids=["c1"])],
                 claims=[_claim()], found=True)
-    du_code = Verification(**base, complete=False, lacunes=[Lacune(kind="lecture_bornee")])
+    du_code = Verification(**base, complete=True, lacunes=[Lacune(kind="lecture_bornee")])
     answer, _step = restituer(language="en", verification=du_code)
     assert answer.lang == "en" and answer.lang_fallback is False
-    assert answer.unknown == [PHRASES_DE_LACUNE["en"]["lecture_bornee"]]
+    # L1i : une lecture bornée est un avis de service, projeté dans la même langue par le même code.
+    assert answer.avis == [PHRASES_DE_LACUNE["en"]["lecture_bornee"]]
 
     # Une lacune **du modèle** est rédigée dans la langue de la réponse : aucun repli à signaler.
     du_modele = Verification(**base, complete=False, unknown=["I could not check the fine print."])
@@ -520,25 +580,29 @@ def test_une_reponse_partielle_anglaise_rend_les_causes_dans_leur_ordre() -> Non
         lacunes=[Lacune(kind="lecture_bornee"),
                  Lacune(kind="facettes_sans_reponse", n=2)])
     answer, _ = restituer(language="en", verification=verification)
-    assert answer.unknown == [
-        PHRASES_DE_LACUNE["en"]["lecture_bornee"],
-        PHRASES_DE_LACUNE["en"]["facettes_sans_reponse"][1].format(n=2),
-    ]
+    # L1i : les deux causes sont rendues, dans l'ordre de la chaîne, mais dans deux canaux — seule
+    # la sous-question sans réponse est un manque, et c'est elle seule qui badge « partiel ».
+    assert answer.unknown == [PHRASES_DE_LACUNE["en"]["facettes_sans_reponse"][1].format(n=2)]
+    assert answer.avis == [PHRASES_DE_LACUNE["en"]["lecture_bornee"]]
 
 
 def test_les_deux_canaux_sont_affiches_dans_une_seule_liste() -> None:
-    """Le modèle d'abord, le code ensuite, sans doublon : les deux fronts rendent `unknown[]` tel quel."""
+    """Le modèle d'abord, le code ensuite, sans doublon : les deux fronts rendent `unknown[]` tel quel.
+
+    Story 5.6 (L1i) : « une seule liste » se lit toujours de ce que la personne n'a pas obtenu — les
+    deux canaux (ce que le modèle a déclaré, ce que le code a constaté comme manque) s'y fondent
+    dans cet ordre et sans doublon. Ce qui raconte la fabrication de la réponse part, lui, dans
+    `avis[]`, et n'est pas mêlé à ce qui manque.
+    """
+    manque = PHRASES_DE_LACUNE["fr"]["facettes_sans_reponse"][0].format(n=1)
     verification = Verification(
         segments=[AnswerSegment(text="Vous avez huit jours.", kind="factuel", claim_ids=["c1"])],
         claims=[_claim()], found=True, complete=False,
-        unknown=["Je ne sais rien des frontaliers.", PHRASES_DE_LACUNE["fr"]["lecture_bornee"]],
-        lacunes=[Lacune(kind="lecture_bornee"), Lacune(kind="renvoi_non_resolu")])
+        unknown=["Je ne sais rien des frontaliers.", manque],
+        lacunes=[Lacune(kind="facettes_sans_reponse", n=1), Lacune(kind="renvoi_non_resolu")])
     answer, _step = restituer(language="fr", verification=verification)
-    assert answer.unknown == [
-        "Je ne sais rien des frontaliers.",
-        PHRASES_DE_LACUNE["fr"]["lecture_bornee"],
-        PHRASES_DE_LACUNE["fr"]["renvoi_non_resolu"],
-    ]
+    assert answer.unknown == ["Je ne sais rien des frontaliers.", manque]
+    assert answer.avis == [PHRASES_DE_LACUNE["fr"]["renvoi_non_resolu"]]
 
 
 # --- story 4.2f : le troisième porteur, et sa phrase dans les deux registres ----------------------
@@ -566,7 +630,8 @@ def test_une_lecture_partielle_est_une_reponse_et_non_un_refus() -> None:
     assert (answer.lecture_partielle.nodes_read, answer.lecture_partielle.blocks_read) == (2, 5)
     assert answer.texte == PHRASES_DE_LECTURE_PARTIELLE["guide"]["fr"]
     assert [s.kind for s in answer.segments] == ["limite"]
-    assert answer.unknown == [PHRASES_DE_LACUNE["fr"]["lecture_bornee"]]
+    # L1i : la borne se dit toujours, dans le canal des avis de service.
+    assert answer.unknown == [] and answer.avis == [PHRASES_DE_LACUNE["fr"]["lecture_bornee"]]
     assert [c.claim_id for c in answer.rejected_claims] == ["c2"]
     assert [c.name for c in step.checks] == ["lecture_partielle"]
     assert step.checks[0].ok is False and "2 nœud(s) lu(s)" in step.checks[0].detail
@@ -585,7 +650,7 @@ def test_la_phrase_de_lecture_partielle_existe_dans_les_deux_registres_et_les_qu
                               if registre == REGISTRE_SINISTRE else None)
     assert answer.lang == langue
     assert answer.texte == PHRASES_DE_LECTURE_PARTIELLE[registre][langue]
-    assert answer.texte.strip() and answer.unknown == [PHRASES_DE_LACUNE[langue]["lecture_bornee"]]
+    assert answer.texte.strip() and answer.avis == [PHRASES_DE_LACUNE[langue]["lecture_bornee"]]
 
 
 def test_les_deux_registres_ne_disent_pas_la_meme_chose() -> None:
@@ -633,7 +698,7 @@ def test_une_reponse_retenue_nadmet_pas_de_lecture_partielle() -> None:
     """Une réponse retenue dont la lecture a été bornée dit sa borne dans `unknown[]`, pas ici."""
     verification = Verification(
         segments=[AnswerSegment(text="Une affirmation.", kind="factuel", claim_ids=["c1"])],
-        claims=[_claim()], found=True, complete=False, lacunes=[Lacune(kind="lecture_bornee")])
+        claims=[_claim()], found=True, complete=True, lacunes=[Lacune(kind="lecture_bornee")])
     with pytest.raises(ValueError, match="n'admet pas de LecturePartielle"):
         restituer(language="fr", verification=verification,
                   lecture_partielle=_lecture_partielle())
@@ -671,14 +736,15 @@ def test_la_lacune_de_contexte_non_relu_se_dit_dans_les_quatre_langues(language:
     """
     verification = Verification(
         segments=[AnswerSegment(text="Réponse.", kind="factuel", claim_ids=["c1"])],
-        claims=[_claim()], found=True, complete=False,
+        claims=[_claim()], found=True, complete=True,
         lacunes=[Lacune(kind="contexte_non_relu")])
     answer, _step = restituer(language=language, verification=verification)
 
     patron = PHRASES_DE_LACUNE[language]["contexte_non_relu"]
     assert isinstance(patron, str) and patron.strip()
-    assert answer.unknown == [patron]
-    assert answer.complete is False
+    # L1i : la claim concernée vaut déjà `humain` et le verdict s'en déduit ; la cause se lit avec
+    # les garde-fous, elle ne badge plus la réponse.
+    assert answer.avis == [patron] and answer.unknown == []
     assert "contexte_non_relu" not in LACUNES_PLURALISEES
 
 

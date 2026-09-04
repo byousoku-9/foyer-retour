@@ -31,6 +31,15 @@ l'unique liste affichée (revue coordonnée 2.3, A3). `complete` se réduit alor
 qui manque » — un seul invariant à tenir pour le domaine (`Answer._found_coherence`), une seule
 liste à lire pour l'utilisateur.
 
+**Ce que « partiel » dit, précisé (story 5.6, L1i).** Les causes énumérées ci-dessus ne se lisent
+pas toutes de la même façon, et les badger toutes de la même pastille rendait le mot inutilisable :
+une réponse qui traitait ses trois sous-questions sortait « PARTIEL » parce que le contrôle avait
+retiré sept phrases de l'ébauche. Le partage est celui de `LACUNES_MANQUES` / `LACUNES_AVIS`
+(`domain/answer.py`) : ce qui manque à la **réponse demandée** — une sous-question sans affirmation
+retenue — décide `complete`, avec la limite déclarée par le modèle ; ce qui raconte la **fabrication**
+de la réponse — phrases écartées, segments retirés, relance abandonnée, lecture bornée, renvoi non
+suivi, contexte non relu — reste constaté, nommé et publié (`Answer.avis[]`), sans badge.
+
 Le texte soumis au modèle est celui du corpus, pas celui du draft : c'est ce qui empêche une citation
 « écho » d'être jugée pertinente sur sa propre invention. Question et passages sont délimités par
 `untrusted()` (AD-15).
@@ -59,6 +68,7 @@ from server.app.corpus.text import normalize, normalize_spans
 from server.app.domain.answer import (
     DEMANDE_KINDS,
     DEMANDE_RAISONS,
+    LACUNES_MANQUES,
     RAISONS_CORRIGEABLES,
     AnswerDraft,
     AnswerSegment,
@@ -1881,12 +1891,15 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                        renvois_ouverts=renvois_ouverts, contradiction=contradiction,
                        ecartes=ecartes,
                        contexte_non_relu=demande_refusee) if found or retrieval.truncated else []
-    # Une phrase écartée faute de soutien est une part de la réponse que l'ébauche voulait donner et
-    # qui n'est pas montrée — y compris une limite retirée. La réponse servie est alors amputée :
-    # elle n'est pas donnée pour complète (AD-4, « aucune troncature »). Les six conditions d'AD-4
-    # sont maintenant **toutes** représentées dans l'un des deux canaux : la conjonction se réduit
-    # sans rien perdre, et il n'y a plus deux endroits où « incomplet » se décide.
-    complete = found and not unknown and not lacunes
+    # Story 5.6 (L1i) — « partiel » ne dit plus qu'une chose : une sous-question est restée sans
+    # réponse, ou le modèle a écrit une limite. Les autres causes typées restent nommées, publiées
+    # et lisibles (`Answer.avis[]`), mais elles ne badgent plus la réponse : une phrase retirée
+    # faute de soutien dit **ce que le contrôle a fait de l'ébauche**, pas ce qui manque à la
+    # personne — et le badge le lui présentait comme un échec sur une réponse qui traitait ses trois
+    # sous-questions (mesuré sur `g-partir-l1g`). La conjonction se réduit donc à ce qu'AD-4 mesure
+    # vraiment : `complete ⟺ found ∧ toutes les facettes couvertes ∧ aucune limite déclarée`.
+    manques = [lacune for lacune in lacunes if lacune.kind in LACUNES_MANQUES]
+    complete = found and not unknown and not manques
 
     verification = Verification(
         segments=segments_affiches, claims=claims, rejected_claims=rejetees, found=found,

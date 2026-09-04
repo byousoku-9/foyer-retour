@@ -450,8 +450,10 @@ async def test_the_pipeline_fills_the_retrieval_budget_from_the_settings(index: 
     assert answer.lecture_partielle.blocks_read == 2
     assert answer.lecture_partielle.nodes_read == 1
     assert answer.lecture_partielle.documents == [DOC_ID]
-    # La réponse dit ce qui lui manque, et ce qui a été écarté reste visible.
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    # La réponse dit ce qui lui manque, et ce qui a été écarté reste visible. L1i : la borne de
+    # lecture est un avis de service — elle se lit avec les garde-fous, pas sous « Ce que je ne sais
+    # pas », et elle ne badge pas.
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis
     assert answer.rejected_claims
     assert any(c.name == "lecture_partielle" for c in trace.steps[-1].checks)
 
@@ -478,9 +480,10 @@ async def test_sous_lecture_bornee_une_relance_qui_trouve_bat_un_acquis_vide(ind
     # La relance a été adoptée : la réponse vérifiée est servie, jamais jetée au profit d'un refus.
     assert answer.found is True and answer.reason is None and answer.lecture_partielle is None
     assert [c.claim_id for c in answer.claims] == ["c1"]
-    # La borne se dit alors où AD-4 la veut : dans `unknown[]`, avec `complete=False`.
-    assert answer.complete is False
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    # La borne se dit toujours (L1i : dans `avis[]`, le canal des avis de service) — la réponse,
+    # elle, a bien traité la question posée et n'est pas donnée pour partielle.
+    assert answer.complete is True
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis
 
 
 async def test_a_refusal_without_truncation_stays_a_served_answer(index: Index) -> None:
@@ -763,10 +766,11 @@ async def test_a_retry_that_could_not_be_verified_never_starts_at_all(index: Ind
                                              _verdicts(("c1", True))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0  # aucun appel de relance n'a été payé
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
-    assert answer.complete is False  # AD-4 : une relance empêchée est une troncature
-    # Story 2.3 : et la troncature **se dit**. `complete=False` seul redonnerait un « PARTIEL » nu,
-    # que le domaine refuse désormais (`complete ⟺ found ∧ unknown = []`).
-    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
+    # Story 2.3 : la relance empêchée **se dit**. L1i : elle se dit comme un avis de service — la
+    # réponse servie est celle qui a été vérifiée du premier coup, chacune de ses phrases est
+    # citée, et la question posée est traitée : rien ne justifie de la badger « partielle ».
+    assert answer.complete is True
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert "budget_exceeded" in check.detail and "2 requis" in check.detail
@@ -784,7 +788,7 @@ async def test_a_second_verification_that_never_starts_keeps_the_verified_answer
     assert fake.remaining_script == 0  # la relance a bien été rédigée, la seconde vérification non
     assert trace.retries == 1 and budget.attempts == 6
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
-    assert answer.complete is False
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis  # L1i : dit, non badgé
     verifier = next(s for s in trace.steps if s.name == "verifier")
     (check,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
     assert "budget_exceeded" in check.detail
@@ -922,14 +926,21 @@ async def test_a_max_tokens_draft_is_retried_under_the_output_cap(index: Index) 
                    settings=settings)
 
 
-async def test_an_abandoned_retry_forbids_declaring_the_answer_complete(index: Index) -> None:
-    """AD-4 : `complete=True` exige « aucune troncature de budget » — une relance refusée en est une."""
+async def test_an_abandoned_retry_is_said_without_badging_the_answer(index: Index) -> None:
+    """Story 5.6 (L1i) : une relance refusée est nommée dans `avis[]`, jamais peinte en « partiel ».
+
+    La règle d'AD-4 (« `complete=True` exige aucune troncature de budget ») visait à ne pas vendre
+    pour sûre une réponse qu'on n'a pas pu améliorer. Ce qui atteint la personne, c'est une pastille
+    d'échec sur une réponse dont chaque phrase est citée et dont la question est traitée : la cause
+    reste publiée, elle change simplement de canal.
+    """
     settings = _settings()  # rien ne borne la lecture ici : la seule troncature est la relance
     budget = RequestBudget(deadline_s=300.0, max_attempts=5, max_cost_eur=0.20)
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["arrivée"]), *_lecture(F1, F2),
                                                _rediger(BONNE, MAUVAISE), _verdicts(("c1", True))],
                                        settings=settings, budget=budget)
-    assert answer.found is True and answer.complete is False
+    assert answer.found is True and answer.complete is True
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
 
 
 async def test_an_unserved_document_is_refused_before_any_paid_call(index: Index) -> None:

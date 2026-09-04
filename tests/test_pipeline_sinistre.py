@@ -987,7 +987,7 @@ async def test_a_truncated_read_with_no_surviving_clause_never_proves_an_absence
     assert answer.lecture_partielle is not None
     assert answer.lecture_partielle.blocks_read == 5 and answer.lecture_partielle.nodes_read == 1
     assert answer.lecture_partielle.documents == [DOC_ID]
-    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.unknown
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis  # L1i : un avis de service
     # AD-6/AD-16 : jamais un sinistre sans verdict, et jamais un verdict de remplacement.
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert answer.faits_compris is not None and answer.faits_compris.bien == "mobilier de salon"
@@ -1024,8 +1024,10 @@ async def test_une_contradiction_sur_un_segment_identique_ne_vide_plus_une_lectu
     assert answer.rejected_claims == []
     assert texte in answer.texte
     assert answer.verdict is not None and answer.verdict.value == "couvert"
-    # la lecture reste bornée : la réponse est servie, mais jamais donnée pour complète
-    assert answer.complete is False and trace.truncations >= 1
+    # la lecture reste bornée : la réponse est servie, la borne est dite (L1i : en avis de service,
+    # avec les garde-fous), et la question posée reste traitée — pas de « partiel »
+    assert answer.complete is True and trace.truncations >= 1
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis
     step_verifier = next(s for s in trace.steps if s.name == "verifier")
     assert any(c.name == "segments_derives" for c in step_verifier.checks)
 
@@ -1201,7 +1203,8 @@ async def test_une_fondatrice_omise_sans_place_ne_lance_pas_de_relance_tronquant
     assert [c.claim_id for c in answer.claims] == ["c2"]
     assert any(check.name == "relance_fondatrice_sans_place"
                for step in trace.steps for check in step.checks)
-    assert answer.complete is False
+    # L1i : la relance qui n'a pas eu lieu est publiée en avis de service, jamais badgée.
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
 
 
 async def test_une_relance_saturee_nest_pas_lancee_quand_une_limite_acquise_tomberait(
@@ -1862,7 +1865,8 @@ async def test_une_lecture_bornee_qui_a_des_blocs_reste_un_contexte_honnete(
     assert "prise_en_charge" in neutre.cles(retrouver.opened_block_ids)
     assert retrouver.discarded_block_ids
     assert any(c.name == "lecture_refusee" and not c.ok for c in retrouver.checks)
-    assert trace.truncations == 1 and answer.found and not answer.complete
+    assert trace.truncations == 1 and answer.found
+    assert PHRASES_DE_LACUNE["fr"]["lecture_bornee"] in answer.avis  # L1i : dit, non badgé
 
 
 async def test_une_lecture_sans_le_moindre_bloc_laisse_remonter_le_budget_exceeded(
@@ -2262,9 +2266,9 @@ async def test_une_relance_non_demarree_dit_ce_quelle_a_coute_a_la_reponse(index
         _comprendre(), _rediger(GAR, MAUVAISE),
         _verifier(("c1", True, False, False, False, None))], budget=budget)
     assert fake.remaining_script == 0 and trace.retries == 0
-    assert answer.found is True and answer.complete is False
-    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
-    assert "guide" not in " ".join(answer.unknown)
+    assert answer.found is True
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
+    assert "guide" not in " ".join([*answer.unknown, *answer.avis])
     verifier = next(s for s in trace.steps if s.name == "verifier")
     assert [c.name for c in verifier.checks if c.name == "relance_abandonnee"]
 
@@ -2638,9 +2642,8 @@ async def test_un_second_verifier_qui_echoue_ne_jette_plus_une_reponse_servable(
 
     assert fake.remaining_script == 0
     assert answer.found is True and [c.claim_id for c in answer.claims] == ["c1"]
-    # Servie, mais **jamais donnée pour complète** : la lacune typée de la relance abandonnée.
-    assert answer.complete is False
-    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.unknown
+    # Servie, avec la lacune typée de la relance abandonnée — un avis de service depuis L1i.
+    assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
     abandons = [c for s in trace.steps for c in s.checks if c.name == "relance_abandonnee"]
     assert abandons and "la vérification de la relance a échoué" in abandons[0].detail
     # L'échec reste tracé avec son étape : le coût d'un appel commencé ne disparaît pas (AD-10).
@@ -2814,7 +2817,8 @@ async def test_une_relance_impossible_ne_depense_pas_ses_deux_appels(index: Inde
             index, [_comprendre(), _rediger(GAR, MAUVAISE),
                     _verifier(("c1", True, True, False, False, None))], budget=budget)
         assert fake.remaining_script == 0, "la relance ne doit avoir consommé aucun appel"
-        assert answer.found is True and answer.complete is False
+        assert answer.found is True
+        assert PHRASES_DE_LACUNE["fr"]["relance_abandonnee"] in answer.avis
         verifier = next(s for s in trace.steps if s.name == "verifier")
         (abandon,) = [c for c in verifier.checks if c.name == "relance_abandonnee"]
         assert "temps insuffisant pour la relance" in abandon.detail

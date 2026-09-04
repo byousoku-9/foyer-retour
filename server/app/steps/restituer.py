@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from typing import get_args
 
 from server.app.domain.answer import (
+    LACUNES_MANQUES,
     LACUNES_PLURALISEES,
     AbsenceKind,
     AbsenceProof,
@@ -406,13 +407,37 @@ def _rendre_lacune(lacune: Lacune, language: str) -> str:
 
 
 def _fusionner_inconnues(declarees: list[str], lacunes: list[Lacune], language: str) -> list[str]:
-    """Fusionne les deux canaux dans leur ordre, sans perdre ni dupliquer une lacune du code."""
+    """Fusionne les deux canaux dans leur ordre, sans perdre ni dupliquer une lacune du code.
+
+    Story 5.6 (L1i) : seules les lacunes de `LACUNES_MANQUES` entrent ici — ce qui manque à la
+    réponse demandée. Les avis de service partent par `_avis`, dans l'autre champ.
+    """
     inconnues = list(declarees)
     for lacune in lacunes:
+        if lacune.kind not in LACUNES_MANQUES:
+            continue
         rendue = _rendre_lacune(lacune, language)
         if rendue not in inconnues:
             inconnues.append(rendue)
     return inconnues
+
+
+def _avis(lacunes: list[Lacune], language: str) -> list[str]:
+    """Story 5.6 (L1i) — l'autre moitié du partage : comment cette réponse a été composée.
+
+    Même projection, même ordre, même règle de contenu que les manques ; seule la destination change
+    (`Answer.avis[]`, que les fronts rangent avec les garde-fous). Une phrase retirée faute de
+    soutien, une relance qui n'a pas eu lieu, une lecture bornée : la personne peut toujours le lire,
+    mais ce n'est plus présenté comme un trou dans ce qu'elle a demandé.
+    """
+    rendues: list[str] = []
+    for lacune in lacunes:
+        if lacune.kind in LACUNES_MANQUES:
+            continue
+        rendue = _rendre_lacune(lacune, language)
+        if rendue not in rendues:
+            rendues.append(rendue)
+    return rendues
 
 
 def restituer(*, language: str, lang_fallback: bool = False,
@@ -491,14 +516,15 @@ def restituer(*, language: str, lang_fallback: bool = False,
         phrase = PHRASES_DE_LECTURE_PARTIELLE[registre][language]
         inconnues = (_fusionner_inconnues(list(verification.unknown), list(verification.lacunes),
                                           language) if verification is not None else [])
-        if not inconnues:
+        avis = _avis(list(verification.lacunes), language) if verification is not None else []
+        if not inconnues and not avis:
             # Le domaine le refuserait de toute façon (« une lecture partielle dit ce qui lui
             # manque »), mais il le refuserait par une `ValidationError` pydantic — c'est-à-dire un
             # 500 générique sur le chemin que cette story vient d'ouvrir. Les autres contradictions
             # de contrat de cette fabrique se disent avec ses mots ; celle-ci aussi.
             raise ValueError("restituer avec une LecturePartielle exige une vérification qui dise sa "
-                             "borne (unknown[] ou une lacune) : une réponse qui chiffre sa lecture "
-                             "doit dire pourquoi celle-ci n'a pas suffi")
+                             "borne (unknown[], un manque ou un avis) : une réponse qui chiffre sa "
+                             "lecture doit dire pourquoi celle-ci n'a pas suffi")
         answer = Answer(
             found=False, complete=False, lang=language, lang_fallback=lang_fallback, texte=phrase,
             segments=[AnswerSegment(text=phrase, kind="limite")],
@@ -508,7 +534,7 @@ def restituer(*, language: str, lang_fallback: bool = False,
             # sinistre c'est le `ne_tranche_pas` que la règle (0bis) d'AD-6 a rendu sur zéro clause
             # affichée ; en guide il n'y en a pas.
             verdict=verdict, faits_compris=faits_compris,
-            unknown=inconnues,
+            unknown=inconnues, avis=avis,
             clarification=clarification,
         )
         step.checks.append(CheckResult(
@@ -531,6 +557,7 @@ def restituer(*, language: str, lang_fallback: bool = False,
             # différent restent dues. Les perdre ici serait un dégradé silencieux.
             unknown=_fusionner_inconnues(list(verification.unknown), list(verification.lacunes),
                                          language) if verification is not None else [],
+            avis=_avis(list(verification.lacunes), language) if verification is not None else [],
             clarification=clarification,
         )
         step.checks.append(CheckResult(name="refus", ok=True, detail=reason.kind))
@@ -596,14 +623,20 @@ def restituer(*, language: str, lang_fallback: bool = False,
     # ordre — les deux fronts rendent `unknown[]` sans une ligne de changement.
     declare = list(verification.unknown) + [t for t in limites if t not in verification.unknown]
     unknown = _fusionner_inconnues(declare, lacunes, language)
+    avis = _avis(lacunes, language)
     answer = Answer(
-        found=True, complete=verification.complete and not retires and not limites,
+        # Story 5.6 (L1i) : les segments retirés ici (`retires`) sont un avis de service — la règle
+        # mécanique d'AD-3 appliquée à l'ébauche, pas une sous-question laissée sans réponse. Ils
+        # restent constatés (la lacune `segments_retires` ci-dessus) et lisibles dans `avis[]`, mais
+        # ils ne badgent plus « partiel ». Une **limite écrite par le modèle**, elle, le fait :
+        # c'est lui qui déclare ne pas savoir, et cette déclaration-là est un manque.
+        found=True, complete=verification.complete and not limites,
         lang=language,
         lang_fallback=lang_fallback,
         texte=texte, segments=segments, claims=list(verification.claims),
         rejected_claims=list(verification.rejected_claims), reason=None, verdict=verdict,
         faits_compris=faits_compris,
-        unknown=unknown,
+        unknown=unknown, avis=avis,
         clarification=clarification,
     )
     answer._decision_claims = list(verification._decision_claims)
