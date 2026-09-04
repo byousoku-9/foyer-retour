@@ -515,6 +515,99 @@ async function main() {
           .some((d) => aplatirVue(d).some((x) => x.cls === "conv-selection-question")),
       };
     }
+    // Story 5.6 (L2c) — les chaînes techniques, les libellés des questions, et le bloc 1 après
+    // une réponse. Un serveur qui régresserait remettrait ici exactement ce que Lancelot a lu en
+    // prod : c'est ce corps-là qui est peint, et rien de tout cela ne doit atteindre l'écran.
+    {
+      const sale = reponseVerdict();
+      sale.answer.segments = [
+        { text: "Faits compris — cause : bougie ; puis événement : brûlure.", kind: "transition",
+          claim_ids: [] },
+        { text: "Verdict recalculé : sous conditions.", kind: "factuel", claim_ids: ["c1"] },
+        { text: "La garantie vise l'action subite de la chaleur.", kind: "factuel",
+          claim_ids: ["c1"] },
+        { text: "cg-mini:p9:2 : « action subite de la chaleur ».", kind: "factuel",
+          claim_ids: ["c2"] },
+      ];
+      sale.answer.claims[0].text = "Verdict recalculé : sous conditions.";
+      sale.answer.claims[0].rattachement = "Une bougie tombée sur le canapé.";
+      sale.answer.claims[1].rattachement = "cg-mini:p12:3 : « le bien est occupé ».";
+      sale.answer.verdict.reason =
+        "Clause vérifiée cg-mini:p9:2 : « … » conservée pour le recalcul du verdict.";
+      sale.answer.unknown = ["Le verdict conserve des conditions, des pièces ou des faits non établis.",
+                             "cg-mini:p9:2 : « … »"];
+      const vueSale = SINISTRE.vueVerdict(sale, { doc_id: DOC_ID });
+      const rubriquesSale = resumerTrace(vueSale).rubriques
+        .filter((r) => r.titre === "Ce qui a décidé le verdict")
+        .flatMap((r) => r.lignes.map((l) => l.texte));
+      cas.l2c_technique = {
+        phrase: textesDe(vueSale, "reponse-phrase"),
+        suite: textesDe(vueSale, "reponse-suite"),
+        raison: textesDe(vueSale, "verdict-raison"),
+        raison_dans_la_trace: rubriquesSale,
+        inconnu_ligne: textesDe(vueSale, "inconnu-ligne"),
+        inconnu_liste: aplatirVue(vueSale).filter((n) => n.cls === "inconnu-liste").length,
+        en_clair: textesDe(vueSale, "appui-clair"),
+        rattachement: textesDe(vueSale, "appui-rattachement"),
+        // Aucun identifiant de bloc, nulle part dans ce que la carte affiche hors trace.
+        bloc1_entier: texteEntier(aplatirVue(vueSale)
+          .filter((n) => premiereClasse(n) === "bloc")[0]),
+      };
+      // Sans trace où la ranger, une raison technique ne remonte pas pour autant à l'écran.
+      const saleSansTrace = reponseVerdict();
+      delete saleSansTrace.trace;
+      saleSansTrace.answer.verdict.reason = "Verdict recalculé : sous conditions.";
+      cas.l2c_technique.raison_sans_trace =
+        textesDe(SINISTRE.vueVerdict(saleSansTrace), "verdict-raison");
+      // Une raison ordinaire, elle, reste affichée quand il n'y a nulle part où la replier.
+      const propreSansTrace = reponseVerdict();
+      delete propreSansTrace.trace;
+      cas.l2c_technique.raison_propre_sans_trace =
+        textesDe(SINISTRE.vueVerdict(propreSansTrace), "verdict-raison");
+      // Aucune phrase factuelle du tout : le constat, le verdict, et rien d'inventé.
+      const muet = reponseVerdict();
+      muet.answer.segments = [{ text: "Verdict recalculé : sous conditions.", kind: "factuel",
+                                claim_ids: ["c1"] }];
+      const vueMuette = SINISTRE.vueVerdict(muet, { doc_id: DOC_ID });
+      cas.l2c_technique.muet_phrase = textesDe(vueMuette, "reponse-phrase");
+      cas.l2c_technique.muet_badge = textesDe(vueMuette, "badge verdict-sous_conditions");
+    }
+    {
+      const vueQ = SINISTRE.vueVerdict(conversation, { doc_id: DOC_ID });
+      const platQ = aplatirVue(vueQ);
+      const libre = platQ.filter((n) => n.cls === "conv-reponse-libre")[0];
+      cas.l2c_questions = {
+        titre: platQ.filter((n) => premiereClasse(n) === "conv-questions")
+          .flatMap((n) => (n.enfants || []).filter((e) => e.tag === "h4" || e.tag === "h3")
+            .map((e) => e.texte)),
+        explication: textesDe(vueQ, "conv-explication"),
+        questions: textesDe(vueQ, "conv-selection-question"),
+        boutons: textesDe(vueQ, "conv-repondre"),
+        nom_du_champ: textesDe(vueQ, "conv-libre-nom"),
+        placeholder: (libre.attrs || {}).placeholder,
+        aria: (libre.attrs || {})["aria-label"],
+        envoyer: textesDe(vueQ, "conv-envoyer-libre"),
+      };
+      // Après une réponse : le bloc 1 dit le recalcul, liste les faits apportés, et garde la
+      // réponse du modèle lisible en dessous.
+      const repondu = reponseConversation();
+      repondu.conversation.turn = 1;
+      repondu.conversation.facts.push(
+        { event_id: "f-r", key: "caractère subit", value: "oui", source: "reponse_client",
+          turn: 1, question_id: "q-1", replaces_event_id: null });
+      const vueR = SINISTRE.vueVerdict(repondu, { doc_id: DOC_ID });
+      const bloc1 = aplatirVue(vueR).filter((n) => premiereClasse(n) === "bloc")[0];
+      cas.l2c_maj = {
+        tete: textesDe(bloc1, "maj-tete"),
+        faits: textesDe(bloc1, "maj-fait-val"),
+        corriger: aplatirVue(bloc1).filter((n) => n.cls === "conv-corriger")
+          .map((n) => [n.texte, (n.attrs || {})["data-event-id"]]),
+        phrase: textesDe(bloc1, "reponse-phrase"),
+        suite: textesDe(bloc1, "reponse-suite"),
+        // Au tour 0, rien n'a encore été répondu : aucun bandeau de recalcul.
+        avant: textesDe(SINISTRE.vueVerdict(conversation, { doc_id: DOC_ID }), "maj-tete"),
+      };
+    }
     const avecBascule = JSON.parse(JSON.stringify(conversation));
     avecBascule.conversation.history.push({
       turn: 1, value: "couvert", reason: "qualité confirmée", changed: true,

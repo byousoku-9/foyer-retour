@@ -1498,7 +1498,7 @@ def test_le_fil_affiche_faits_questions_historique_et_copie(cas: dict[str, Any])
     rendu = "\n".join(textes(vue))
     assert "Faits et provenance" in rendu
     assert "source : extrait par le modèle au premier tour" in rendu
-    assert "Prochaines questions décisives" in rendu
+    assert "Pour affiner le verdict" in rendu
     assert "Historique causal du verdict" in rendu
     assert "Copier le dossier" in rendu
     copie = cas["dossier_copie"]
@@ -1697,7 +1697,107 @@ def test_les_questions_decisives_ne_sont_posees_quune_fois(cas: dict[str, Any]) 
     assert fil["dossier_porte_des_questions"] is False
     # Un seul champ libre et un seul jeu de boutons : la mécanique existante, déplacée, pas doublée.
     assert fil["champs_libres"] == 1
-    assert fil["boutons_oui_non"] == ["Oui", "Non", "Ne sait pas"]
+    assert fil["boutons_oui_non"] == ["Oui", "Non", "Je ne sais pas"]
+
+
+# =========================================================================
+# Story 5.6 (L2c) — la réponse en français, jamais un libellé technique à sa place.
+#
+# Ce que Lancelot a lu en prod sur `/sinistre/` : la réponse s'ouvrait sur « Verdict recalculé :
+# sous conditions. », suivie d'une raison portant `axa-lu-optihome-2017:p37:11 : « … »` ; sous
+# chaque clause, « Clause vérifiée conservée pour le recalcul du verdict. » ; et les questions
+# s'appelaient « Les conditions particulières établissent-elles le point exigé ? » avec un
+# « Envoyer la réponse libre » dont personne ne savait à quoi il répondait.
+#
+# Le tour moteur retire ces chaînes du contrat. Ces tests-ci disent que la page ne les afficherait
+# pas même si elles revenaient : c'est la défense en profondeur, et elle porte sur les deux
+# signatures qu'on peut reconnaître sans deviner — un `block_id` `document:pNN:MM`, et le préfixe
+# « Verdict recalculé ».
+# =========================================================================
+
+
+def test_aucune_chaine_technique_natteint_laffichage_principal(cas: dict[str, Any]) -> None:
+    """AC : filtrée de l'affichage principal, rangée dans « Comment cette réponse a été obtenue »."""
+    vu = cas["l2c_technique"]
+    # Bloc 1 : la transition « Faits compris — … » et les deux segments techniques sont écartés ;
+    # il ne reste que la phrase que le modèle a écrite sur le contrat.
+    assert vu["phrase"] == ["La garantie vise l'action subite de la chaleur."]
+    assert vu["suite"] == []
+    assert "cg-mini:p9:2" not in vu["bloc1_entier"]
+    assert "Verdict recalculé" not in vu["bloc1_entier"]
+    assert "Faits compris" not in vu["bloc1_entier"]
+    # La raison n'est pas perdue : elle est rangée, entière, là où l'on documente la décision.
+    assert vu["raison"] == []
+    assert vu["raison_dans_la_trace"] == [
+        "Clause vérifiée cg-mini:p9:2 : « … » conservée pour le recalcul du verdict."]
+    # Bloc 2 : une affirmation technique n'est pas énoncée, et son rattachement s'en va avec elle ;
+    # un rattachement technique tombe seul.
+    assert vu["en_clair"] == ["Une condition reste ouverte."]
+    assert vu["rattachement"] == []
+    # « Ce que je ne sais pas » ne s'affiche que si le moteur l'a écrit : ni la ligne générique
+    # (« Le verdict conserve des conditions… »), ni un identifiant de bloc.
+    assert vu["inconnu_ligne"] == [] and vu["inconnu_liste"] == 0
+
+
+def test_une_raison_technique_ne_remonte_pas_faute_de_trace_ou_la_ranger(
+        cas: dict[str, Any]) -> None:
+    """La seule exception à « elle ne disparaît jamais des deux » (L2b), et elle est délibérée.
+
+    Sans `trace`, il n'y a nulle part où replier la raison, et une raison **en clair** reste donc
+    sous la pastille. Une raison technique, non : la laisser remonter « au cas où » rouvrirait
+    exactement la porte que ce tour ferme.
+    """
+    vu = cas["l2c_technique"]
+    assert vu["raison_sans_trace"] == []
+    assert vu["raison_propre_sans_trace"] == [
+        "Une clause conditionne la garantie (au regard des conditions générales seules)"]
+
+
+def test_sans_phrase_factuelle_le_bloc_dit_le_constat_et_le_verdict(cas: dict[str, Any]) -> None:
+    """AC : « Aucune clause n'a pu être retenue » et le verdict — jamais une chaîne technique."""
+    vu = cas["l2c_technique"]
+    assert vu["muet_phrase"] == ["Aucune clause n'a pu être retenue"]
+    assert vu["muet_badge"] == ["Sous conditions"]
+
+
+def test_les_questions_sont_nommees_par_ce_quelles_servent_et_expliquent_leur_effet(
+        cas: dict[str, Any]) -> None:
+    """AC : titre « Pour affiner le verdict », la phrase d'explication en tête, les libellés.
+
+    « Envoyer la réponse libre » ne disait pas à quoi ce champ répondait, et rien ne disait si la
+    soumission rappelait le modèle. Les deux se lisent maintenant sur l'écran.
+    """
+    vu = cas["l2c_questions"]
+    assert vu["titre"] == ["Pour affiner le verdict"]
+    assert vu["explication"] == [
+        "Vos réponses sont ajoutées au dossier comme des faits et le verdict est recalculé, "
+        "sans relire le contrat ni rappeler le modèle."]
+    # Chaque question s'affiche telle que le moteur l'écrit (`TargetQuestion.text`).
+    assert vu["questions"] == ["Le caractère subit est-il établi ?",
+                               "Le dommage est-il accidentel ?",
+                               "Une option a-t-elle été souscrite ?"]
+    assert vu["boutons"] == ["Oui", "Non", "Je ne sais pas"]
+    assert vu["nom_du_champ"] == ["Préciser un fait"] and vu["aria"] == "Préciser un fait"
+    assert vu["placeholder"] == ("ex. : la garantie dégâts des eaux figure dans mes conditions "
+                                 "particulières")
+    assert vu["envoyer"] == ["Ajouter ce fait"]
+
+
+def test_apres_une_reponse_le_bloc_1_dit_le_recalcul_et_garde_la_reponse_lisible(
+        cas: dict[str, Any]) -> None:
+    """AC : « Verdict mis à jour avec vos réponses », les faits ajoutés, « Corriger » — et la
+    réponse du modèle **reste** en dessous. C'est ce que « Verdict recalculé : sous conditions. »
+    prétendait dire en occupant la place de la réponse."""
+    vu = cas["l2c_maj"]
+    assert vu["tete"] == ["Verdict mis à jour avec vos réponses"]
+    # Seuls les faits que l'assuré a apportés : ceux extraits de sa description sont déjà dits par
+    # « Ce que j'ai compris du sinistre ».
+    assert vu["faits"] == ["caractère subit : oui"]
+    assert vu["corriger"] == [["Corriger", "f-r"]]
+    assert vu["phrase"] == ["La garantie vise l'action subite de la chaleur."]
+    assert vu["suite"] == ["Une condition reste ouverte."]
+    # Tant que rien n'a été répondu, aucun bandeau de recalcul : il n'y aurait rien à y mettre.
+    assert vu["avant"] == []
 
 
 # =========================================================================
@@ -2147,7 +2247,11 @@ def test_le_cas_sans_clause_dit_pas_de_clause_qui_sapplique(rendus: dict[str, An
     """Le cas que Lancelot a vu en prod : « ne tranche pas », des questions, et rien d'autre."""
     vu = rendus["sinistre-sans-clause"]
     assert vu["bloc1"]["verdict"] == "Pas de clause qui s'applique"
-    assert vu["bloc1"]["phrase"].startswith("Aucune garantie des conditions générales")
+    # Story 5.6 (L2c) : le serveur ne rend ici **aucun** segment `factuel` — il n'y a pas de clause
+    # dont dire quoi que ce soit. Le bloc s'ouvre alors sur le constat, jamais sur une chaîne de
+    # service ; ce que le modèle a écrit de sa lecture reste juste en dessous, mot pour mot.
+    assert vu["bloc1"]["phrase"] == "Aucune clause n'a pu être retenue"
+    assert vu["bloc1"]["explications"][0].startswith("Aucune garantie des conditions générales")
     assert vu["bloc2"] is None
     assert vu["bloc4"]["lignes"][0] == "0 citation relue mot pour mot dans le contrat"
     assert vu["bloc4"]["lignes"][1] == "0 phrase retirée"
