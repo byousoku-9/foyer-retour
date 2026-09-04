@@ -918,7 +918,7 @@ async def test_une_facette_declaree_sur_une_ouverture_refusee_ne_compte_pas() ->
     navigation, _fake = _navigation(
         [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 1}},
                        {"name": "ouvrir_noeud", "input": {"node_id": ANNEXE, "facette": 9}}),
-         _fin_de_lecture(), _fin_de_lecture(), _fin_de_lecture()],
+         _fin_de_lecture()],
         facettes=["prise en charge", "délai de signalement"],
         navigation_budget_tokens=1)
 
@@ -930,5 +930,115 @@ async def test_une_facette_declaree_sur_une_ouverture_refusee_ne_compte_pas() ->
     # couverture et ne refuse rien. Une lecture vide se traite avant, par le garde-fou « zéro
     # bloc » des pipelines — pas en redemandant au modèle ce que le schéma exige déjà.
     assert navigation.facettes_rappelees == []
+    # Et la reprise de L1w ne joue pas davantage : ce vide-là vient du **budget**, pas d'une
+    # navigation avortée — le script n'a qu'un tour de clôture, et il suffit.
+    assert navigation.reprises_sur_vide == 0
     check = next(c for c in step.checks if c.name == "facettes_sans_lecture")
     assert check.ok is False and "rang(s) sans lecture : 0, 1" in check.detail
+
+
+# --- 7. la navigation qui n'a rien ouvert, reprise une fois (story 5.7, L1w) ---------------
+
+
+async def test_une_navigation_qui_nouvre_rien_est_reprise_une_fois_puis_repond() -> None:
+    """Le fait mesuré le 04/09/2026 sur le gate Baloise (`gate-baloise-lu-home-2-2024-20`).
+
+    Répétition 2 d'un cas ordinaire dont les deux autres répétitions répondent : deux appels —
+    *comprendre*, puis **un** tour de navigation —, le modèle conclut sans ouvrir un seul nœud, et
+    le pipeline convertit ce vide en « aucune clause du contrat ne traite le sinistre décrit ». Le
+    document ne s'était pas prononcé : personne ne l'avait lu. La lecture repart donc une fois, sur
+    une conversation **neuve** et le même sommaire.
+    """
+    navigation, fake = _navigation(
+        [_fin_de_lecture(),
+         _tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}}),
+         _fin_de_lecture()])
+
+    step = await navigation.lire()
+
+    # La reprise a eu lieu, une fois, et la lecture qui suit rend bien des blocs citables.
+    assert navigation.reprises_sur_vide == 1 and navigation.tours == 3
+    assert navigation.noeuds_ouverts == [SOCLE] and list(navigation.ouverts) == [TITRE, REGLE]
+    # Une conversation neuve : **un seul** message, la demande initiale et le constat — le fil qui
+    # venait de conclure « j'ai fini » n'y est plus, et le préfixe (sommaire compris) n'a pas bougé.
+    reprise = fake.requests[1]["messages"]
+    assert len(reprise) == 1 and reprise[0]["role"] == "user"
+    assert '<untrusted kind="demande">' in reprise[0]["content"]
+    assert "aucun nœud n'a été ouvert" in reprise[0]["content"]
+    assert "ouvre au moins un nœud par sous-question" in reprise[0]["content"]
+    assert fake.requests[1]["system"] == fake.requests[0]["system"]
+    # Le code ne nomme aucun nœud et n'en ouvre aucun : la lecture reste entière au modèle (AD-1).
+    assert SOCLE not in reprise[0]["content"] and ANNEXE not in reprise[0]["content"]
+    # La reprise est **comptée** : ses tours dans ceux de l'étape, sa dépense dans les appels de la
+    # même `StepTrace` — la deadline et le coût se dérivent donc comme avant.
+    assert len(step.calls) == 3
+    check = next(c for c in step.checks if c.name == "navigation_reprise_sur_vide")
+    assert check.ok is True and "1 reprise(s)" in check.detail and "2 bloc(s) citable(s)" in check.detail
+
+
+async def test_une_reprise_restee_vide_ne_boucle_pas_et_laisse_le_refus() -> None:
+    """La contre-épreuve : un document qui se tait vraiment sort en refus, sans troisième appel.
+
+    C'est ce qui distingue « personne n'a lu » de « il n'y a rien à lire », et c'est le pipeline qui
+    tranche ensuite (`zero_hit`) — l'étape, elle, publie ce qu'elle a tenté.
+    """
+    navigation, fake = _navigation([_fin_de_lecture(), _fin_de_lecture()])
+
+    step = await navigation.lire()
+
+    assert navigation.reprises_sur_vide == 1 and navigation.tours == 2
+    assert navigation.ouverts == {} and len(fake.requests) == 2
+    check = next(c for c in step.checks if c.name == "navigation_reprise_sur_vide")
+    assert check.ok is False and "0 bloc(s) citable(s)" in check.detail
+
+
+async def test_une_lecture_qui_a_ouvert_ne_reprend_rien() -> None:
+    """La lecture ordinaire ne paie rien pour cette propriété, et n'en publie même pas le contrôle."""
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}}),
+         _fin_de_lecture()])
+
+    step = await navigation.lire()
+
+    assert navigation.reprises_sur_vide == 0 and navigation.tours == 2 and len(fake.requests) == 2
+    assert [c.name for c in step.checks if c.name == "navigation_reprise_sur_vide"] == []
+
+
+async def test_une_lecture_bornee_par_le_budget_nest_pas_une_navigation_avortee() -> None:
+    """Le budget a refusé les ouvertures : ce vide-là est **le nôtre**, et il ne se retente pas.
+
+    Le pipeline le traite déjà pour ce qu'il est — `truncated`, donc `BudgetExceeded`, jamais un
+    `zero_hit` : aucune absence du document n'est affirmée. Reprendre ferait payer un tour pour se
+    faire refuser la même ouverture.
+    """
+    navigation, fake = _navigation(
+        [_tour_doutils({"name": "ouvrir_noeud", "input": {"node_id": SOCLE, "facette": 0}}),
+         _fin_de_lecture()],
+        navigation_budget_tokens=1)
+
+    step = await navigation.lire()
+
+    assert navigation.ouverts == {} and navigation.refuses != []
+    assert navigation.reprises_sur_vide == 0 and len(fake.requests) == 2
+    check = next(c for c in step.checks if c.name == "navigation_reprise_sur_vide")
+    assert check.ok is False and "0 reprise(s)" in check.detail
+
+
+async def test_les_bornes_de_la_reprise_se_verifient_sans_reseau() -> None:
+    """Les quatre bornes, sur l'objet et sans un appel : réglage, tours, deadline, lecture bornée."""
+    desarmee, _ = _navigation([], navigation_reprises_sur_vide=0)
+    assert desarmee._reprise_de_navigation_vide() is None
+
+    tours_epuises, _ = _navigation([], navigation_max_llm_turns=1)
+    tours_epuises.tours = 1
+    assert tours_epuises._reprise_de_navigation_vide() is None
+
+    hors_delai, _ = _navigation([])
+    hors_delai.request_budget = RequestBudget(deadline_s=0.0, max_attempts=8, max_cost_eur=0.75)
+    assert hors_delai._reprise_de_navigation_vide() is None
+
+    armee, _ = _navigation([])
+    armee.tours = 1
+    assert armee._reprise_de_navigation_vide() is not None
+    # Une seule fois : le second appel ne rend plus rien.
+    assert armee._reprise_de_navigation_vide() is None

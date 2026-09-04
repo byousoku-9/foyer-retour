@@ -53,6 +53,10 @@ def test_defaults_match_spine_hypotheses() -> None:
     assert s.retrieval_variant == "navigation" and s.navigation_tier == "reason"
     assert s.navigation_max_llm_turns == 8 and s.navigation_budget_tokens == 12000
     assert s.navigation_search_limit == 20
+    # Story 5.7 (L1w) : une navigation qui n'a rien ouvert est reprise **une** fois avant
+    # tout refus « zéro hit ». `0` désarmerait la reprise ; 2 paieraient deux fois une
+    # lecture que le document peut réellement ne pas porter.
+    assert s.navigation_reprises_sur_vide == 1
     # Story 5.6 T1b : la place de l'ébauche de navigation, re-dérivée sur les trois réponses A16 du
     # pipeline intégré — et les champs `draft_*` qui doivent la couvrir, puisque la fusion de
     # relance de `pipelines/sinistre.py` s'y borne sans savoir quel étage a rédigé.

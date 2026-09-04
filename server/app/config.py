@@ -1659,6 +1659,18 @@ class Settings(BaseSettings):
     # lever ce cas — la fiche du guide porte la démarche entière —, et deux dépenseraient le budget
     # de lecture sur une facette que le document peut très bien ne pas traiter.
     navigation_ouvertures_reservees_par_facette: int = Field(1, ge=1)
+    # `navigation_reprises_sur_vide` : combien de fois une navigation qui n'a ouvert **aucun** nœud
+    # est reprise — conversation neuve, même sommaire — avant qu'un refus « zéro hit » soit rendu.
+    # Story 5.7 (L1w). Mesuré le 04/09/2026 sur le gate Baloise (`gate-baloise-lu-home-2-2024-20`,
+    # répétition 2 d'un cas dont les deux autres répétitions répondent) : deux appels, `comprendre`
+    # puis **un** tour de navigation, le modèle conclut sans ouvrir quoi que ce soit, et le pipeline
+    # convertit ce vide en « aucune clause du contrat ne traite le sinistre décrit ». Le contrat
+    # n'avait rien dit : personne ne l'avait lu. Une reprise suffit à lever le cas — c'est une
+    # variance de navigation, pas une absence —, et deux paieraient deux fois une lecture que le
+    # document peut réellement ne pas porter. `0` désarme la reprise (le refus d'avant L1w).
+    # Elle ne s'ajoute pas aux bornes : ses tours se comptent dans `navigation_max_llm_turns` et sa
+    # dépense dans le budget de la requête, donc la dérivation de la deadline ne bouge pas.
+    navigation_reprises_sur_vide: int = Field(1, ge=0)
     # AD-9 : Sonnet reste le plancher de tout choix sémantique servi, et la navigation **est** le
     # choix sémantique le plus lourd de la chaîne. `micro` reste réglable pour rejouer l'arbitrage.
     navigation_tier: Literal["micro", "reason"] = "reason"
@@ -2054,6 +2066,7 @@ class Settings(BaseSettings):
             "navigation_search_limit": self.navigation_search_limit,
             "navigation_ouvertures_reservees_par_facette":
                 self.navigation_ouvertures_reservees_par_facette,
+            "navigation_reprises_sur_vide": self.navigation_reprises_sur_vide,
             "navigation_draft_max_claims": self.navigation_draft_max_claims,
             "navigation_draft_max_segments": self.navigation_draft_max_segments,
             "navigation_rediger_max_tokens": self.navigation_rediger_max_tokens,
@@ -2335,7 +2348,7 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "llm_latence_marge_s",
     "raison_publiable_max_chars", "quote_min_chars", "quote_min_ratio", "max_opens",
     "navigation_max_llm_turns", "navigation_budget_tokens", "navigation_search_limit",
-    "navigation_ouvertures_reservees_par_facette",
+    "navigation_ouvertures_reservees_par_facette", "navigation_reprises_sur_vide",
     "navigation_draft_max_claims", "navigation_draft_max_segments",
     "navigation_rediger_max_tokens", "navigation_draft_effort_high", "navigation_tier_reason",
     "variante_nombre_max_part", "node_window", "search_limit", "limite_liee_max",

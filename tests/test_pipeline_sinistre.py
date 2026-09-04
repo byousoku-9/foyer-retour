@@ -282,17 +282,28 @@ def _lecture(*node_ids: str, termes: list[str] | None = None) -> list[dict]:
     for rang, node_id in enumerate(node_ids):
         contenu.append({"type": "tool_use", "id": f"toolu_ouvrir_{rang}", "name": "ouvrir_noeud",
                         "input": {"node_id": node_id}})
-    return [fake_message(model=TIERS["reason"], stop_reason="tool_use", content=contenu),
-            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="J'ai fini de lire.")]
+    tours = [fake_message(model=TIERS["reason"], stop_reason="tool_use", content=contenu),
+             fake_message(model=TIERS["reason"], stop_reason="end_turn", text="J'ai fini de lire.")]
+    if not node_ids:
+        # Story 5.7 (L1w) : une lecture qui n'ouvre **aucun** nœud est reprise une fois avant tout
+        # refus — la conversation repart à neuf sur le même sommaire. Un préambule qui ne cite que
+        # `chercher` en porte donc un tour de plus, et c'est bien un appel : le témoin le compte.
+        tours.append(fake_message(model=TIERS["reason"], stop_reason="end_turn",
+                                  text="Toujours rien à ouvrir."))
+    return tours
 
 
 def _lecture_vide() -> list[dict]:
-    """Le navigateur conclut sans rien ouvrir : un seul tour, aucun bloc citable.
+    """Le navigateur conclut sans rien ouvrir, **deux fois** : aucun bloc citable au bout.
 
-    C'est la forme que prend, sur le chemin servi, « la recherche n'a rapporté aucun bloc » : le
-    pipeline refuse alors avec son verdict, exactement comme avant.
+    C'est la forme que prend, sur le chemin servi, « la recherche n'a rapporté aucun bloc ». Depuis
+    L1w (story 5.7), le premier tour vide n'y suffit plus : le pipeline reprend la navigation une
+    fois — même sommaire, conversation neuve — parce qu'une lecture qui n'a rien ouvert ne prouve
+    aucune absence. C'est la **reprise restée vide** qui rend le refus, avec son verdict, exactement
+    comme avant.
     """
-    return [fake_message(model=TIERS["reason"], stop_reason="end_turn", text="Rien à ouvrir.")]
+    return [fake_message(model=TIERS["reason"], stop_reason="end_turn", text="Rien à ouvrir."),
+            fake_message(model=TIERS["reason"], stop_reason="end_turn", text="Toujours rien.")]
 
 
 # Le budget de lecture qui laisse passer le premier nœud et refuse le second, sur les deux corpus
@@ -2088,9 +2099,19 @@ async def test_an_english_refusal_produced_by_the_sinistre_pipeline_stays_englis
 async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Index) -> None:
     answer, trace, fake = await _run(index, [_comprendre(terms=["zzzz"])],
                                      lecture=_lecture_vide())
-    # Deux appels : *comprendre*, puis le tour de navigation qui conclut sans rien ouvrir. C'est
-    # cette lecture-là — réelle, et vide — qui refuse ; aucun code ne cherche plus à sa place.
-    assert fake.remaining_script == 0 and len(fake.requests) == 2
+    # Trois appels : *comprendre*, le tour de navigation qui conclut sans rien ouvrir, puis la
+    # **reprise** de L1w — une navigation qui n'a rien ouvert ne prouve aucune absence, et elle
+    # repart une fois sur le même sommaire. C'est cette reprise-là, restée vide elle aussi, qui
+    # refuse ; aucun code ne cherche plus à la place du modèle.
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
+    # La reprise est une conversation **neuve** : son premier message est la demande initiale
+    # augmentée du constat, et le préfixe — sommaire compris — n'a pas bougé d'un octet.
+    reprise = fake.requests[2]["messages"]
+    assert len(reprise) == 1 and "aucun nœud n'a été ouvert" in reprise[0]["content"]
+    assert fake.requests[2]["system"] == fake.requests[1]["system"]
+    retrouver = next(s for s in trace.steps if s.name == "retrouver")
+    check = next(c for c in retrouver.checks if c.name == "navigation_reprise_sur_vide")
+    assert check.ok is False and "1 reprise(s)" in check.detail
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
@@ -2099,9 +2120,13 @@ async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Ind
 
 
 async def test_a_request_that_cannot_be_made_autonomous_still_carries_a_verdict(index: Index) -> None:
-    answer, trace, _fake = await _run(index, [_comprendre(clarification="De quel bien parlez-vous ?")],
+    answer, trace, fake = await _run(index, [_comprendre(clarification="De quel bien parlez-vous ?")],
                                      lecture=[])
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    # L1w : la reprise de navigation ne vaut que pour une lecture avortée. Une demande que
+    # *comprendre* n'a pas pu rendre autonome n'ouvre aucune conversation de lecture — donc pas un
+    # appel de plus, et la longueur du script le prouve (comme pour un refus « hors périmètre »).
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
     assert answer.clarification == "De quel bien parlez-vous ?"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert _refus_sans_question(answer.verdict)

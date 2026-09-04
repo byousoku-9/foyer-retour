@@ -164,6 +164,21 @@ EXCLUSIONS_NON_LUES_CONSIGNE = (
     "un nœud est un intertitre, ouvre l'enfant que `sommaire` lui donne. Ce rappel n'a lieu qu'une "
     "fois.")
 
+# Story 5.7 (L1w). Ce que le code dit au modèle quand sa navigation n'a ouvert **aucun** nœud, et
+# c'est la seule chose qu'il ait à dire : il ne nomme pas de nœud, n'en ouvre pas, ne cherche pas à
+# sa place. Le sommaire est déjà dans le préfixe, entier, et il ne bouge pas d'un octet.
+REPRISE_SUR_VIDE_CONSTAT = (
+    "Tu as conclu ta navigation sans qu'un seul `ouvrir_noeud` ait rendu un bloc : **aucun nœud n'a "
+    "été ouvert**. Il n'y a donc rien à citer, et une réponse sans source ne peut pas être servie — "
+    "la question sortirait en « je n'ai trouvé aucune clause », alors que le document ne s'est pas "
+    "prononcé : personne ne l'a lu.")
+REPRISE_SUR_VIDE_CONSIGNE = (
+    "Reprends la lecture depuis le début, avec le même sommaire : **ouvre au moins un nœud par "
+    "sous-question** avec `ouvrir_noeud`, en déclarant son `facette`, avant de conclure. `chercher` "
+    "propose des candidats si tu ne sais pas par où entrer, mais lui seul n'ouvre rien. Si, après "
+    "avoir lu, le document ne traite pas la demande, conclus : ce sera une absence constatée, pas "
+    "une lecture qui n'a pas eu lieu. Cette reprise n'a lieu qu'une fois.")
+
 RAPPEL_TERMINAL = (
     "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
     "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
@@ -349,6 +364,9 @@ class Navigation:
         # conversation, elles aussi, et pour toute la requête : les exclusions générales du contrat
         # ne se redemandent pas à chaque garantie ouverte.
         self.exclusions_rappelees: list[str] = []
+        # Story 5.7 (L1w) : combien de fois la lecture a été **reprise à neuf** parce qu'elle
+        # n'avait ouvert aucun nœud. Borné par `navigation_reprises_sur_vide`.
+        self.reprises_sur_vide = 0
         self._messages: list[dict[str, Any]] = [{
             "role": "user", "content": self._demande()}]
 
@@ -688,6 +706,55 @@ class Navigation:
                 EXCLUSIONS_NON_LUES_CONSIGNE]
         return "\n\n".join(parts) or None
 
+    def _reprise_de_navigation_vide(self) -> str | None:
+        """La navigation qui n'a **rien** ouvert, reprise une fois — sur une conversation neuve.
+
+        Story 5.7 (L1w). Mesuré le 04/09/2026 sur le gate Baloise
+        (`gate-baloise-lu-home-2-2024-20`, répétition 2 d'un cas ordinaire dont les deux autres
+        répétitions répondent) : deux appels — *comprendre*, puis **un** tour de navigation —, le
+        modèle conclut sans ouvrir un seul nœud, et le pipeline convertit ce vide en refus « aucune
+        clause du contrat ne traite le sinistre décrit ». **Un retrieval vide sur une question que
+        *comprendre* a classée `question` n'est pas une absence du document : c'est une navigation
+        avortée**, et la seule différence avec les deux répétitions qui répondent est le tirage.
+
+        **Pourquoi le refus de tour terminal de L1j n'a pas joué**, et pourquoi il ne le devait pas.
+        `_refus_de_tour_terminal` ne mesure la couverture que sur les `facette` **déclarées aux
+        ouvertures** ; zéro ouverture, c'est zéro déclaration, donc aucune mesure — sa garde
+        `if self.facettes_lues` le dit et reste juste : rappeler une facette à qui n'a rien ouvert
+        redemanderait ce que le schéma de `ouvrir_noeud` exige déjà. Le cas d'une lecture **vide**
+        est d'une autre nature — ce n'est pas une sous-question oubliée, c'est la lecture entière
+        qui n'a pas eu lieu — et il se traite ici, avec son propre remède : on ne complète pas un
+        fil qui vient de conclure, on **recommence** la navigation.
+
+        **Une conversation neuve, et c'est le fond du remède.** Le fil qui vient de conclure porte
+        un tour assistant qui dit « j'ai fini » ; le prolonger d'un rappel demande au modèle de se
+        contredire, et c'est le même tirage qui répondrait. On repart donc de la demande initiale,
+        augmentée du constat — le préfixe système (sommaire complet compris) est byte-identique et
+        reste servi au tarif de cache : la reprise ne repaie que ce qu'elle ajoute.
+
+        **Quatre bornes, toutes vérifiables sans réseau.**
+
+        - Rien n'a été ouvert **et** rien n'a été refusé par le budget de lecture : une lecture que
+          le budget a bornée n'est pas une navigation avortée, elle est déjà traitée pour ce qu'elle
+          est (`truncated`, puis `BudgetExceeded` côté pipeline) et n'atteint jamais un `zero_hit`.
+        - La reprise n'a lieu que `navigation_reprises_sur_vide` fois (défaut 1).
+        - Il reste des tours : ils sont comptés dans `navigation_max_llm_turns` comme les autres,
+          donc la dérivation de la deadline ne bouge pas d'un appel.
+        - La deadline de la requête n'est pas épuisée : reprendre pour se faire refuser l'appel
+          suivant ferait payer un tour pour une erreur.
+        """
+        settings = self.settings
+        if self.ouverts or self.refuses:
+            return None
+        if self.reprises_sur_vide >= settings.navigation_reprises_sur_vide:
+            return None
+        if self.tours >= settings.navigation_max_llm_turns:
+            return None
+        if self.request_budget.remaining() <= 0:
+            return None
+        self.reprises_sur_vide += 1
+        return "\n\n".join([REPRISE_SUR_VIDE_CONSTAT, REPRISE_SUR_VIDE_CONSIGNE])
+
     # --- la conversation -------------------------------------------------------------------
 
     async def lire(self) -> StepTrace:
@@ -717,9 +784,17 @@ class Navigation:
                 appels = [b for b in contenu if b.get("type") == "tool_use"]
                 if not appels:
                     rappel = self._refus_de_tour_terminal()
-                    if rappel is None:
+                    if rappel is not None:
+                        self._messages = [*self._messages, {"role": "user", "content": rappel}]
+                        continue
+                    reprise = self._reprise_de_navigation_vide()
+                    if reprise is None:
                         break
-                    self._messages = [*self._messages, {"role": "user", "content": rappel}]
+                    # L1w : une conversation **neuve**, et le préfixe ne bouge pas — la demande
+                    # initiale et le constat en un seul message, l'alternance des rôles étant celle
+                    # que le fournisseur impose (même raison que `REPRISE_ASSISTANT_TRONQUEE`).
+                    self._messages = [{"role": "user",
+                                       "content": "\n\n".join([self._demande(), reprise])}]
                     continue
                 self._messages = [*self._messages, {"role": "user", "content": [
                     {"type": "tool_result", "tool_use_id": appel.get("id"),
@@ -788,6 +863,18 @@ class Navigation:
                 detail=f"{len(restantes)} section(s) d'exclusions attachée(s) aux garanties lues "
                        f"restent fermée(s) ({', '.join(node_id for node_id, _ in restantes) or 'aucune'}) ; "
                        f"{len(self.exclusions_rappelees)} nommée(s) par un refus de tour terminal"))
+        if self.reprises_sur_vide or not self.ouverts:
+            # L1w : publié dans les deux sens, et dans les deux cas où la lecture vide se décide —
+            # la reprise a eu lieu (`ok` dit si elle a ouvert), ou elle n'a pas eu lieu et il faut
+            # pouvoir lire pourquoi un refus « zéro hit » n'a rien retenté. Muet sur une lecture
+            # ordinaire : rien à dire quand la navigation a lu.
+            step.checks.append(CheckResult(
+                name="navigation_reprise_sur_vide", ok=bool(self.ouverts),
+                detail=f"{self.reprises_sur_vide} reprise(s) de navigation sur lecture vide "
+                       f"(au plus {settings.navigation_reprises_sur_vide}, tours et dépense "
+                       f"comptés dans les bornes de l'étape) ; {len(self.ouverts)} bloc(s) "
+                       f"citable(s) à l'arrivée, {len(self.refuses)} refusé(s) par le budget de "
+                       "lecture"))
         step.checks.append(CheckResult(
             name="navigation", ok=True,
             detail=f"{self.tours} tour(s), {len(self.noeuds_ouverts)} nœud(s) ouvert(s) "

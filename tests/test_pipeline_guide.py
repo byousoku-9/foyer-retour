@@ -586,8 +586,12 @@ async def test_une_lecture_qui_nouvre_rien_ne_paie_jamais_de_redaction(index: In
     conversation, donc il coûte — mais une lecture qui n'a rendu aucun bloc citable ne doit toujours
     pas faire payer une rédaction sans source. Le script s'arrête au tour qui clôt la lecture : sa
     longueur **est** l'assertion « aucun appel de *rédiger* »."""
-    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture()])
-    assert fake.remaining_script == 0 and len(fake.requests) == 2
+    answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture(),
+                                             _fin_de_lecture()])
+    # Trois appels : *comprendre*, la lecture qui n'ouvre rien, et sa **reprise** (L1w) — une
+    # navigation qui n'a rien ouvert repart une fois avant tout refus. Ni l'une ni l'autre n'a
+    # ouvert de bloc : aucune rédaction n'est payée, et la longueur du script le prouve.
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.found is False and answer.reason is not None
     # l'`AbsenceProof` dit ce qui a été cherché, jamais que l'information n'existe pas (AD-1/AD-4)
@@ -1012,7 +1016,7 @@ async def test_a_retrieval_emptied_by_the_budget_never_becomes_a_proof_of_absenc
         assert exc.trace.truncations == 1
     # sans troncature, un retrieval vide reste un refus `zero_hit` motivé : rien n'a empêché la recherche
     answer, _trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"]),
-                                               _fin_de_lecture()])
+                                               _fin_de_lecture(), _fin_de_lecture()])
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
 
 
@@ -1317,9 +1321,11 @@ async def test_zero_hit_dictionnaire_non_valide_passe_par_retrouver(index: Index
     assert dico.utilisable is True and dico.court_circuit_actif is False
 
     answer, trace, fake = await _run(index, [_comprendre(terms=["hippopotame", "matricule"]),
-                                             _fin_de_lecture()], dictionnaire=dico)
+                                             _fin_de_lecture(), _fin_de_lecture()],
+                                     dictionnaire=dico)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 2  # aucun appel de *rédiger*
+    # Trois appels, la reprise de L1w comprise, et toujours aucun appel de *rédiger*.
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.reason.variants_count == 1  # les variantes **ont** servi, elles n'ont rien trouvé
@@ -1341,7 +1347,8 @@ async def test_un_dictionnaire_dun_autre_corpus_ne_court_circuite_pas(index: Ind
     perime = _dictionnaire(tmp_path, index, HIPPO, validated=True, source_hash="empreinte-dun-autre-corpus")
     assert perime.validated is True and perime.court_circuit_actif is False
 
-    answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture()],
+    answer, trace, _fake = await _run(index, [_comprendre(terms=["hippopotame"]), _fin_de_lecture(),
+                                              _fin_de_lecture()],
                                       dictionnaire=perime)
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     # Aucune variante n'a été essayée : l'annoncer autrement serait faux (AD-4).
@@ -1372,7 +1379,8 @@ async def test_sans_terme_extrait_rien_nest_court_circuite(index: Index, tmp_pat
     """AD-1 : « aucune absence du corpus n'est affirmée » sans recherche. Zéro terme, c'est zéro
     recherche : le court-circuit d'AD-5 ne peut pas conclure, et le garde-fou de 1.5 tranche après."""
     dico = _dictionnaire(tmp_path, index, HIPPO, validated=True)
-    answer, trace, _fake = await _run(index, [_comprendre(terms=[]), _fin_de_lecture()],
+    answer, trace, _fake = await _run(index, [_comprendre(terms=[]), _fin_de_lecture(),
+                                              _fin_de_lecture()],
                                       dictionnaire=dico)
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.terms_searched == []
@@ -2026,10 +2034,12 @@ async def test_un_perimetre_tronque_ignore_aussi_le_court_circuit_zero_hit(
     """
     dico = _dictionnaire(tmp_path, index, {"hippopotame": []}, validated=True)
     answer, trace, fake = await _run(
-        index, [_comprendre("hors_perimetre", terms=["hippopotame"]), _fin_de_lecture()],
+        index, [_comprendre("hors_perimetre", terms=["hippopotame"]), _fin_de_lecture(),
+                _fin_de_lecture()],
         dictionnaire=dico)
 
-    assert fake.remaining_script == 0 and len(fake.requests) == 2  # aucun appel de *rédiger*
+    # Trois appels, la reprise de L1w comprise, et toujours aucun appel de *rédiger*.
+    assert fake.remaining_script == 0 and len(fake.requests) == 3
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.found is False and answer.reason is not None
     assert answer.reason.kind == "zero_hit"
