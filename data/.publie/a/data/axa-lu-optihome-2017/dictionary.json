@@ -4178,7 +4178,7 @@
     ]
   },
   "schema_version": "1",
-  "validated": false,
-  "validated_at": null,
-  "validated_by": null
+  "validated": true,
+  "validated_at": "2026-09-04T12:05:55Z",
+  "validated_by": "Lancelot Oudin"
 }

@@ -146,9 +146,21 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
                 amorce=index.est_amorce_denumeration(bloc.block_id),
                 amorce_de=index.amorce_qui_introduit(bloc.block_id) or "",
                 condition_section=_condition_de_section(document, noeud)))
+        # Tour D2 (04/09/2026) : la claim qui cite **la condition de section elle-même**, quand
+        # celle-ci renvoie aux conditions particulières, ne peut pas être rendue favorable au
+        # premier tour — les CP ne sont pas au dossier. C'est ce que `_conditions_ouvertes` écrit
+        # (« une condition qui renvoie aux CP ne peut jamais être établie au premier tour ») et ce
+        # que le pipeline produit. Le laisser à `oui` ici rendrait la condition *établie*, lèverait
+        # le plafond de L1e et ferait sortir `couvert` d'un rejeu que le produit ne peut pas rendre.
+        cp_requise = any(
+            clause.condition_section is not None
+            and clause.condition_section.block_id == clause.block_id
+            and clause.condition_section.renvoie_cp
+            for clause in clauses)
         jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
                                  champs=ChampsApplicabilite(
-                                     fait_requis_present=True, qualites_exigees=exigees or [],
+                                     fait_requis_present=True, cp_requise=cp_requise,
+                                     qualites_exigees=exigees or [],
                                      qualites_non_etablies=non_etablies or [])))
     return jugees, ecartees
 
