@@ -2209,6 +2209,15 @@
     enfants.push(noeud("p", "gf gf-regle", "Verdict calculé par des règles fixes, pas par le modèle",
                        [noeud("span", "portee", PORTEE)]));
 
+    // Story 5.6 (L1i) : les avis de service — ce que le contrôle a fait de l'ébauche, une relance
+    // qui n'a pas eu lieu, une lecture bornée. Ils se lisent **ici**, avec les garde-fous, et non
+    // sous « Ce que je ne sais pas » : ce ne sont pas des trous dans ce qui a été demandé, et les y
+    // ranger faisait badger « partiel » une réponse qui traitait toutes ses sous-questions.
+    var avis = tableau(a.avis).map(enClair).filter(function (x) { return x; });
+    for (var v = 0; v < avis.length; v++) {
+      enfants.push(noeud("p", "gf gf-avis", String(avis[v])));
+    }
+
     // M15 : la preuve chiffrée d'une absence, et son pendant sous lecture bornée (story 4.2f).
     var preuve = preuveAbsence(a.reason);
     if (preuve) enfants.push(noeud("p", "preuve", preuve));
@@ -2639,6 +2648,10 @@
       lireRejetee(o.answer.rejected_claims[r], "answer.rejected_claims[" + r + "]");
     }
     exigerListe(o.answer.unknown, estChaine, "answer.unknown");
+    // Story 5.6 (L1i) : le canal des avis de service — comment cette réponse a été composée. Il est
+    // additif, donc lu comme tel : absent, c'est un corps d'avant ce champ ; présent, il est une
+    // liste de chaînes comme `unknown`.
+    if (o.answer.avis !== undefined) exigerListe(o.answer.avis, estChaine, "answer.avis");
     exiger(ouNul(estChaine)(o.answer.clarification), "answer.clarification");
     lireReason(o.answer.reason, "answer.reason");
     lireLecturePartielle(o.answer.lecture_partielle, "answer.lecture_partielle");
@@ -2657,8 +2670,12 @@
            "answer.lecture_partielle");
     exiger(o.answer.found !== true || !estObjet(o.answer.reason), "answer.reason");
     // « Une lecture partielle dit ce qui lui manque » : aucune route ne peut servir ce corps, et le
-    // peindre donnerait un compteur de lecture sans la moindre réserve en face.
-    exiger(!estObjet(o.answer.lecture_partielle) || o.answer.unknown.length > 0, "answer.unknown");
+    // peindre donnerait un compteur de lecture sans la moindre réserve en face. Story 5.6 (L1i) :
+    // la borne d'une lecture est un avis de service (`lecture_bornee`), donc la réserve peut se dire
+    // dans l'un ou l'autre canal — c'est le silence complet qui reste refusé.
+    exiger(!estObjet(o.answer.lecture_partielle)
+           || o.answer.unknown.length > 0
+           || (Array.isArray(o.answer.avis) && o.answer.avis.length > 0), "answer.unknown");
     // `faits_compris` est le seul objet vraiment facultatif de la réponse (`QuestionScope | None` :
     // le guide n'en a pas, et AD-5 n'en publie pas sur une clarification). Présent, il est descendu
     // comme le reste — c'est l'endroit où l'utilisateur vérifie qu'il a été compris, et un
