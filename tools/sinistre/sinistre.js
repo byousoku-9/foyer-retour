@@ -391,6 +391,8 @@
     applicabilite_hors_borne: "des libellés d'applicabilité dépassent leur borne",
     applicabilite_incomplete: "applicabilité non rendue pour une clause décisionnelle",
     citation_ajustee_au_mot: "des citations coupaient un mot en deux : étendues jusqu'à la fin du mot",
+    citation_amorce_liee:
+      "des citations reprennent la phrase qui ouvre une énumération : lues comme le contexte de la clause",
     citations: "citations relues dans le corpus",
     claims_non_citees: "affirmations vérifiées qu'aucune phrase affichée ne reprend",
     clarification_refus_neutralisee:
