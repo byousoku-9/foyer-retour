@@ -17,6 +17,20 @@ from server.app.domain.retrieval import stable_uid
 from .loader import Corpus
 from .text import normalize
 
+# Story 5.7 (L1q). Les articles et la numérotation qui ouvrent un titre de section ne disent rien de
+# ce que la section contient : « 11. Les exclusions générales » et « 3.1.2.2 Exclusions » nomment la
+# même chose. On les retire avant de lire le premier mot.
+_ARTICLES_DE_TITRE: frozenset[str] = frozenset({"le", "la", "les", "l", "de", "des", "du", "d"})
+
+
+def _titre_de_section(titre: str) -> str:
+    """Le titre normalisé, sans sa numérotation ni ses articles de tête."""
+    mots = re.sub(r"^[^a-z]+", "", normalize(titre)).split()
+    while mots and mots[0] in _ARTICLES_DE_TITRE:
+        mots.pop(0)
+    return " ".join(mots)
+
+
 def _couper(text: str, limite: int) -> str:
     """Aperçu borné, coupé sur un mot et marqué — jamais au milieu d'un mot (comme `summary.md`)."""
     if limite <= 0 or not text:
@@ -344,6 +358,125 @@ class Index:
                                     for child in self._node_children[node_id]],
                           blocks=[doc.block(b) for b in block_ids[start:end]],
                           truncated=truncated, next_cursor=next_cursor)
+
+    # --- les exclusions que l'arbre attache à une garantie (L1q) ---------------------------
+
+    def porte_une_garantie(self, node_id: str) -> bool:
+        """Ce nœud porte-t-il, en propre, au moins un bloc typé `garantie` ?
+
+        La question que le refus de tour terminal pose au moment où une lecture s'achève : le modèle
+        a-t-il ouvert de quoi affirmer qu'une garantie joue ? Elle se lit sur le **typage
+        d'ingestion** des blocs directs, jamais sur le titre : un document dont aucun bloc n'est
+        typé `garantie` — le guide — n'en porte aucune, et la règle y est inerte sans cas particulier.
+        """
+        doc = self.corpus.documents[self._nodes[node_id][0]]
+        return any(doc.block(b).kind == "garantie" for b in self._nodes[node_id][1])
+
+    def est_section_dexclusions(self, node_id: str) -> bool:
+        """Ce nœud est-il une **section d'exclusions** ? Deux lectures de l'arbre, jamais du corps.
+
+        Story 5.7 (L1q). Une garantie ne se lit pas sans ce que le contrat en retire, et le contrat
+        range ce retrait à côté d'elle. Deux façons de le nommer, et il faut les deux :
+
+        - **le titre** — « 3.1.2.2 Exclusions », « 11. Les exclusions générales », « Exclusions
+          communes à l'ensemble des garanties » : la numérotation et les articles de tête sont
+          retirés (`_titre_de_section`), puis le titre doit **commencer** par « exclusion ». Un
+          titre qui contient le mot ailleurs (« 1.12.2 les animaux domestiques … à l'exclusion
+          de… ») n'est pas une section, c'est une clause ;
+        - **le typage des blocs** — « 3.1.6.2 Vols exclus », « 3.1.10.3 Dommages exclus », « Sont
+          exclus : » : le titre ne dit rien, mais la majorité des blocs décisionnels que le nœud
+          porte en propre sont typés `exclusion`. Mesuré sur les deux contrats servis, c'est cette
+          seconde lecture qui rattrape la moitié des sections d'exclusions de Baloise, dont aucune
+          ne s'appelle « Exclusions ».
+
+        Les `heading` ne comptent pas dans la majorité : ils sont le titre une seconde fois.
+        """
+        doc = self.corpus.documents[self._nodes[node_id][0]]
+        if _titre_de_section(self._node_titles[node_id]).startswith("exclusion"):
+            return True
+        kinds = [doc.block(b).kind for b in self._nodes[node_id][1]
+                 if doc.block(b).kind != "heading"]
+        return bool(kinds) and kinds.count("exclusion") * 2 > len(kinds)
+
+    def exclusions_generales(self, doc_id: str) -> list[str]:
+        """Les sections d'exclusions que le contrat écrit **pour toutes ses garanties**.
+
+        Ce sont celles que l'arbre place le plus **haut** : « 2.10 Exclusions » chez AXA (profondeur
+        2, quand les exclusions d'une garantie sont à 4), « 11. Les exclusions générales » chez
+        Baloise (profondeur 1, quand les siennes sont à 2 et 3). Le critère est la profondeur
+        minimale parmi les sections d'exclusions **nommées par leur titre** : le typage majoritaire,
+        lui, remonte trop haut — un nœud de garanties optionnelles dont la moitié du corps est faite
+        d'exclusions passerait pour les exclusions du contrat.
+
+        Un document qui n'en porte aucune rend une liste vide, et rien n'est demandé.
+        """
+        candidats = [node_id for node_id, (doc, _blocs) in self._nodes.items()
+                     if doc == doc_id
+                     and _titre_de_section(self._node_titles[node_id]).startswith("exclusion")]
+        if not candidats:
+            return []
+        haut = min(self._profondeur(node_id) for node_id in candidats)
+        return [node_id for node_id in candidats if self._profondeur(node_id) == haut]
+
+    def exclusions_de_la_garantie(self, node_id: str) -> list[str]:
+        """Les sections d'exclusions que l'arbre attache à ce nœud de garantie, sans les générales.
+
+        On remonte la chaîne des ancêtres depuis le nœud lui-même et, à **chaque** niveau, on prend
+        les frères et les enfants directs qui sont des sections d'exclusions. Le voisinage immédiat
+        ne suffit pas : le contrat AXA range le dégât des eaux sous « 3.1.2.1 Etendue de la
+        garantie », et c'est `a3.1.2.2 Exclusions` — frère du **parent**, pas de la feuille — qui
+        dit ce que la garantie retire ; Baloise, lui, range « Exclusions spécifiques à la garantie »
+        **dans** le nœud de la garantie.
+
+        La chaîne s'arrête d'elle-même à la racine, et rien n'est descendu : une section d'exclusions
+        vaut par elle-même et par ses enfants, dont la lecture la couvre (`couvre_la_section`).
+        """
+        vus: list[str] = []
+        courant: str | None = node_id
+        while courant is not None:
+            parent = self._node_parents.get(courant)
+            # Les frères **et** les enfants directs : les deux rangements du corpus servi. AXA met
+            # « 3.1.2.2 Exclusions » à côté de « 3.1.2.1 Etendue de la garantie » ; Baloise met
+            # « Exclusions spécifiques à la garantie » **dans** le nœud de la garantie (`s7.1.1`
+            # sous `s7.1`). Ni l'un ni l'autre n'est le cas particulier de l'autre.
+            freres = self._node_children.get(parent, []) if parent is not None else []
+            for frere in [*freres, *self._node_children.get(courant, [])]:
+                if frere == courant or frere in vus or self._profondeur(frere) < 2:
+                    # Un frère de profondeur 1 est une **partie** du contrat, pas une section
+                    # attachée à cette garantie : chez Baloise, « 8. Les garanties optionnelles du
+                    # propriétaire non occupant » a un corps majoritairement fait d'exclusions et
+                    # serait remonté comme telle. Les exclusions du contrat entier, elles, ont leur
+                    # règle (`exclusions_generales`) et sont demandées une fois.
+                    continue
+                if self.est_section_dexclusions(frere):
+                    vus.append(frere)
+            courant = parent
+        return vus
+
+    def couvre_la_section(self, section_id: str, noeuds_ouverts: Iterable[str]) -> bool:
+        """La section est-elle lue ? Elle-même, ou n'importe lequel de ses descendants.
+
+        Une section d'exclusions ne porte pas toujours de bloc en propre — « 11. Les exclusions
+        générales » de Baloise est un intertitre dont `ouvrir_noeud` refuse l'ouverture, et ce sont
+        ses deux enfants qui portent le texte. Exiger le nœud lui-même demanderait une lecture que
+        le code refuse par ailleurs.
+        """
+        ouverts = set(noeuds_ouverts)
+        garde = [section_id]
+        while garde:
+            courant = garde.pop()
+            if courant in ouverts:
+                return True
+            garde.extend(self._node_children.get(courant, []))
+        return False
+
+    def _profondeur(self, node_id: str) -> int:
+        """Le nombre d'ancêtres du nœud — la profondeur **de l'arbre**, pas le `level` déclaré."""
+        n, courant = 0, self._node_parents.get(node_id)
+        while courant is not None:
+            n += 1
+            courant = self._node_parents.get(courant)
+        return n
 
     def unite_de_renvoi(self, block_id: str) -> list[str]:
         """Unité locale minimale d'une cible de renvoi, sans fermeture récursive.

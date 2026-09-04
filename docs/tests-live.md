@@ -4722,3 +4722,25 @@ du gate `-14` (cas bougie) reste identique, trois `ne_tranche_pas` : la règle n
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 
 **Ronde `-17` du 04/09/2026 13:13-13:32** (orchestrateur, `S = 6a4c10e`, campagnes `epic5-gate-<doc>-17`, ancrage `epic5-final-anchor-18` 3/3) : Baloise 9/9 (2,02 €), AXA 3/3 (0,65 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=b937020a…` / `prompts_digest=4f0c8e67…`. Rondes précédentes du matin : `-14` (AXA rouge par stabilité du cas bougie, cause L1o), `-16` (Baloise rouge par stabilité du congélateur, cause L1p ; AXA incident réseau). Générations `data/.publie/{a,b}` commises ensemble (`fb56a3c`) ; certificat Baloise ré-épinglé.
+
+## Tour L1q (04/09/2026) — une garantie lue oblige à lire ce que le contrat en retire
+
+Correctif hors ligne, aucun appel API. `Index` sait désormais lire sur l'arbre les **sections
+d'exclusions** attachées à un nœud de garantie (frères d'un ancêtre chez AXA, enfants du nœud chez
+Baloise) et les **exclusions générales** du contrat (`a2.10`, `s13`) ; la navigation refuse **une
+fois** le tour terminal quand une garantie a été ouverte sans elles, et publie `exclusions_non_lues`
+dans les deux sens. `pipeline_digest` passe à `f9f6328a…` (`prompts_digest` inchangé,
+`4f0c8e67…`) : les trois gates du dépôt portent encore `b937020a…`, la dette est reconduite et le
+re-gate revient à l'orchestrateur.
+
+- gate-a-relancer: lux-guide pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+
+**Fixtures live à ré-enregistrer (dette ouverte, clé requise).** Le refus de tour terminal ajoute un
+message à la conversation de navigation : la clé de requête des tours suivants change, et les deux
+rejeux `tests/test_sinistre_live.py` (`test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses`,
+`test_preflight_nominal_passe_et_un_depassement_reste_refuse`) tombent en `FixtureMissing`. C'est la
+signature attendue d'un correctif qui change ce que le modèle voit, pas un défaut du correctif —
+mais elle n'est **pas** payable hors ligne. Commande : `uv run pytest tests/test_sinistre_live.py`
+avec `ANTHROPIC_API_KEY` renseignée, avant toute autre mesure du tour suivant.

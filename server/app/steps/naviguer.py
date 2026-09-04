@@ -143,6 +143,27 @@ FACETTE_SANS_LECTURE_CONSIGNE = (
     "ne traite pas l'une d'elles, conclus : elle restera sans réponse, et ce sera honnête. Ce "
     "rappel n'a lieu qu'une fois.")
 
+# Story 5.7 (L1q). Combien de sections d'exclusions le refus nomme au plus. Même nature que
+# `FACETTE_NOEUDS_PROCHES_MAX` : une **forme de message**, pas une politique. Un nœud de garantie du
+# corpus servi en attache jusqu'à 18 (Baloise, `s8.1`) ; les lister toutes rendrait le message plus
+# long que la lecture qu'il demande, et le budget de lecture est de toute façon la vraie borne.
+EXCLUSIONS_NOMMEES_MAX = 6
+# Le refus, dans la forme du précédent : le constat du code, les nœuds délimités (AD-15), la
+# consigne. Le code ne nomme aucune exclusion comme applicable — il dit seulement que le contrat en
+# écrit, à côté de ce qui a été lu, et qu'une garantie ne se lit pas sans elles.
+EXCLUSIONS_NON_LUES_CONSTAT = (
+    "Tu allais conclure sur une garantie, mais **{n} section(s) d'exclusions que le contrat attache "
+    "à ce que tu as lu n'ont été ouvertes par aucun `ouvrir_noeud`** de cette conversation. Une "
+    "garantie lue sans ce que le contrat en retire n'est pas une garantie lue : la réponse dirait "
+    "« je n'ai pas regardé les exclusions », ce qui est exactement ce qu'un gestionnaire attend de "
+    "toi.")
+EXCLUSIONS_NON_LUES_CONSIGNE = (
+    "Ouvre-les avec `ouvrir_noeud`, en déclarant le `facette` que la garantie concernée visait. "
+    "Une exclusion ouverte qui **ne joue pas** sur ces faits se cite et s'écarte dans ta rédaction "
+    "— c'est une réponse, pas un aveu ; une exclusion jamais ouverte laisse la question entière. Si "
+    "un nœud est un intertitre, ouvre l'enfant que `sommaire` lui donne. Ce rappel n'a lieu qu'une "
+    "fois.")
+
 RAPPEL_TERMINAL = (
     "Voilà ce que ton appel a rendu : c'était ta dernière lecture, la boucle d'outils est close. "
     "Rends maintenant l'ébauche `AnswerDraft` en JSON, sans appel d'outil, avec les blocs que "
@@ -324,6 +345,10 @@ class Navigation:
         # Les facettes nommées par le refus de tour terminal — **une seule** fois par
         # conversation, toutes ensemble.
         self.facettes_rappelees: list[int] = []
+        # Les sections d'exclusions nommées par le refus de tour terminal — **une seule** fois par
+        # conversation, elles aussi, et pour toute la requête : les exclusions générales du contrat
+        # ne se redemandent pas à chaque garantie ouverte.
+        self.exclusions_rappelees: list[str] = []
         self._messages: list[dict[str, Any]] = [{
             "role": "user", "content": self._demande()}]
 
@@ -551,6 +576,46 @@ class Navigation:
                 break
         return proches
 
+    def exclusions_non_lues(self) -> list[tuple[str, str]]:
+        """Les sections d'exclusions dues par ce qui a été lu et qu'aucune ouverture n'a couvertes.
+
+        Story 5.7 (L1q). Mesuré en prod le 04/09/2026 sur les plaques à induction : la navigation a
+        ouvert l'étendue de la garantie incendie et rien d'autre, et la réponse servie l'a dit
+        elle-même — « ma lecture n'a pas porté sur les exclusions générales ». La règle est celle de
+        la couverture des facettes (L1j), appliquée à l'autre moitié d'une garantie : **ouvrir un
+        nœud de garantie oblige à ouvrir ce que le contrat en retire, avant le tour terminal.**
+
+        Deux sources, toutes deux lues sur l'arbre et jamais sur le texte
+        (`Index.exclusions_de_la_garantie`, `Index.exclusions_generales`) :
+
+        - les sections d'exclusions que l'arbre attache à chaque nœud de garantie ouvert — frères
+          d'un ancêtre chez AXA, enfants du nœud chez Baloise ;
+        - les exclusions **générales** du contrat, dues dès qu'une garantie a été ouverte et
+          comptées **une fois par requête** : elles ne dépendent d'aucune garantie en particulier,
+          et les redemander garantie par garantie ferait payer la même lecture plusieurs fois.
+
+        Une section est couverte par sa propre ouverture ou par celle de n'importe lequel de ses
+        descendants (`Index.couvre_la_section`) : un intertitre ne s'ouvre pas, ce sont ses enfants
+        qui portent le texte. L'ordre est celui de la lecture, puis les générales — ce que le modèle
+        vient de lire d'abord, le contrat entier ensuite.
+        """
+        garanties = [node_id for node_id in self.noeuds_ouverts
+                     if self.index.porte_une_garantie(node_id)]
+        if not garanties:
+            return []
+        dues: list[str] = []
+        for node_id in garanties:
+            for section in self.index.exclusions_de_la_garantie(node_id):
+                if section not in dues:
+                    dues.append(section)
+        for section in self.index.exclusions_generales(self.doc_id):
+            if section not in dues:
+                dues.append(section)
+        titres = {n.node_id: n.title for n in self.corpus.documents[self.doc_id].nodes}
+        return [(section, titres.get(section, ""))
+                for section in dues
+                if not self.index.couvre_la_section(section, self.noeuds_ouverts)]
+
     def _refus_de_tour_terminal(self) -> str | None:
         """Le tour terminal refusé **une fois** pour une sous-question qu'aucune lecture n'a visée.
 
@@ -575,40 +640,53 @@ class Navigation:
         `_ouvrir` refusera coûterait un tour pour rien) ; et la facette n'a pas déjà été rappelée.
         """
         settings = self.settings
-        if self.facettes_rappelees or self.tours >= settings.navigation_max_llm_turns:
+        if self.tours >= settings.navigation_max_llm_turns:
             return None
         if self.tokens_lus >= settings.navigation_budget_tokens:
             return None
-        if not self.facettes_lues:
-            # **Aucune déclaration n'est pas une couverture nulle : c'est l'absence de mesure.**
-            # `facette` est obligatoire au schéma de `ouvrir_noeud` : une conversation servie par le
-            # fournisseur en porte une à chaque ouverture, et n'en porter aucune veut dire que rien
-            # n'a été ouvert du tout — cas que le garde-fou « zéro bloc » des deux pipelines traite
-            # déjà, avant qu'une rédaction soit payée. Refuser ici sur cette base-là ferait payer un
-            # tour à une lecture vide pour lui redemander ce que le schéma exige déjà, et la
-            # réponse serait la même. Le remède d'un signal absent est le schéma, pas le rappel.
-            return None
-        manquantes = self.facettes_sans_lecture()
-        if not manquantes:
-            return None
-        self.facettes_rappelees = list(manquantes)
-        # **Toutes** les facettes sans lecture dans le même message, et non une par tour : la
-        # reprise est unique (une boucle ferait payer au budget ce que le document ne contient
-        # peut-être pas), et le rejeu du 04/09/2026 en avait deux — l'école et le logement.
-        # AD-15 : les libellés viennent de *comprendre* (une sortie de modèle) et les titres du
-        # document servi ; les deux voyagent délimités, jamais concaténés en clair dans une consigne.
-        corps = json.dumps(
-            [{"rang": rang, "sous_question": self.parsed.facettes[rang],
-              "noeuds_les_plus_proches": [
-                  {"node_id": node_id, "titre": titre}
-                  for node_id, titre in self.noeuds_proches_de_la_facette(rang)]}
-             for rang in manquantes],
-            ensure_ascii=False, sort_keys=True)
-        return "\n\n".join([
-            FACETTE_SANS_LECTURE_CONSTAT.format(n=len(manquantes)),
-            untrusted("facettes_sans_lecture", corps),
-            FACETTE_SANS_LECTURE_CONSIGNE.format(
-                reservees=settings.navigation_ouvertures_reservees_par_facette)])
+        parts: list[str] = []
+        # **Aucune déclaration n'est pas une couverture nulle : c'est l'absence de mesure.**
+        # `facette` est obligatoire au schéma de `ouvrir_noeud` : une conversation servie par le
+        # fournisseur en porte une à chaque ouverture, et n'en porter aucune veut dire que rien
+        # n'a été ouvert du tout — cas que le garde-fou « zéro bloc » des deux pipelines traite
+        # déjà, avant qu'une rédaction soit payée. Refuser ici sur cette base-là ferait payer un
+        # tour à une lecture vide pour lui redemander ce que le schéma exige déjà, et la
+        # réponse serait la même. Le remède d'un signal absent est le schéma, pas le rappel.
+        manquantes = self.facettes_sans_lecture() if self.facettes_lues else []
+        if manquantes and not self.facettes_rappelees:
+            self.facettes_rappelees = list(manquantes)
+            # **Toutes** les facettes sans lecture dans le même message, et non une par tour : la
+            # reprise est unique (une boucle ferait payer au budget ce que le document ne contient
+            # peut-être pas), et le rejeu du 04/09/2026 en avait deux — l'école et le logement.
+            # AD-15 : les libellés viennent de *comprendre* (une sortie de modèle) et les titres du
+            # document servi ; les deux voyagent délimités, jamais concaténés en clair.
+            corps = json.dumps(
+                [{"rang": rang, "sous_question": self.parsed.facettes[rang],
+                  "noeuds_les_plus_proches": [
+                      {"node_id": node_id, "titre": titre}
+                      for node_id, titre in self.noeuds_proches_de_la_facette(rang)]}
+                 for rang in manquantes],
+                ensure_ascii=False, sort_keys=True)
+            parts += [
+                FACETTE_SANS_LECTURE_CONSTAT.format(n=len(manquantes)),
+                untrusted("facettes_sans_lecture", corps),
+                FACETTE_SANS_LECTURE_CONSIGNE.format(
+                    reservees=settings.navigation_ouvertures_reservees_par_facette)]
+        # L1q : la seconde cause, refusée une fois elle aussi, et dans le **même** message quand les
+        # deux se présentent — un tour refusé coûte un tour, et deux refus consécutifs coûteraient
+        # deux fois ce que le budget de lecture doit payer.
+        exclusions = self.exclusions_non_lues() if not self.exclusions_rappelees else []
+        if exclusions:
+            self.exclusions_rappelees = [node_id for node_id, _ in exclusions]
+            nommees = exclusions[:EXCLUSIONS_NOMMEES_MAX]
+            corps_exclusions = json.dumps(
+                [{"node_id": node_id, "titre": titre} for node_id, titre in nommees],
+                ensure_ascii=False, sort_keys=True)
+            parts += [
+                EXCLUSIONS_NON_LUES_CONSTAT.format(n=len(exclusions)),
+                untrusted("exclusions_non_lues", corps_exclusions),
+                EXCLUSIONS_NON_LUES_CONSIGNE]
+        return "\n\n".join(parts) or None
 
     # --- la conversation -------------------------------------------------------------------
 
@@ -698,6 +776,18 @@ class Navigation:
                        f"{', '.join(str(rang) for rang in sans_lecture) or 'aucun'} ; "
                        f"{len(self.facettes_rappelees)} tour(s) terminal(aux) refusé(s) pour cette "
                        "cause"))
+        # L1q : l'autre moitié d'une garantie lue, publiée dans les deux sens comme la couverture des
+        # sous-questions. `ok=False` quand une section reste fermée **après** le rappel : ce n'est
+        # pas un reproche — le modèle peut avoir jugé qu'elle ne vise pas le cas — mais le fait qui
+        # explique une réponse qui ne cite aucune exclusion, et sans lequel « le contrat n'exclut
+        # rien ici » ne se distingue pas de « personne n'a ouvert la section ».
+        restantes = self.exclusions_non_lues()
+        if self.exclusions_rappelees or restantes:
+            step.checks.append(CheckResult(
+                name="exclusions_non_lues", ok=not restantes,
+                detail=f"{len(restantes)} section(s) d'exclusions attachée(s) aux garanties lues "
+                       f"restent fermée(s) ({', '.join(node_id for node_id, _ in restantes) or 'aucune'}) ; "
+                       f"{len(self.exclusions_rappelees)} nommée(s) par un refus de tour terminal"))
         step.checks.append(CheckResult(
             name="navigation", ok=True,
             detail=f"{self.tours} tour(s), {len(self.noeuds_ouverts)} nœud(s) ouvert(s) "
