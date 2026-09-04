@@ -1465,6 +1465,19 @@ window.CHAT = (function () {
       ]));
     }
 
+    // Story 5.6 (L1i) : les avis de service — comment cette reponse a ete composee — se lisent avec
+    // le pied, et **jamais** sous « Ce que je ne sais pas ». Une reponse qui traitait ses trois
+    // sous-questions sortait « PARTIEL » et n'avait a lister que « J'ai retire 7 phrases de ma
+    // reponse » : la personne y lisait un echec sur une reponse complete. Le fait reste dit, il ne
+    // se lit plus comme un trou dans ce qu'elle a demande.
+    var avis = (a && Array.isArray(a.avis)) ? a.avis : [];
+    if (avis.length) {
+      enfants.push(noeud("div", "avis", null, [
+        noeud("strong", null, "Comment j'ai composé cette réponse"),
+        noeud("ul", null, null, avis.map(function (x) { return noeud("li", null, String(x)); }))
+      ]));
+    }
+
     var etat = etatReponse(a);
     // Le badge, puis la phrase qui le rend explicite : elle se compose sur ce que cette vue vient de
     // poser (la liste des inconnues, la preuve d'absence), jamais sur ce que le corps promettait.
@@ -1899,6 +1912,8 @@ window.CHAT = (function () {
   function verifierAnswer(a) {
     var claims = verifierClaims(a.claims, "answer.claims");
     var unknown = listeDeChaines(a.unknown, "answer.unknown");
+    // Story 5.6 (L1i) : le canal des avis de service, a valeur par defaut comme `unknown`.
+    var avis = listeDeChaines(a.avis, "answer.avis");
     verifierSegments(a.segments, "answer.segments");
     if (defaut(a.texte, "answer.texte") !== undefined) exigerChaine(a.texte, "answer.texte");
     var lang = defaut(a.lang, "answer.lang");
@@ -1941,7 +1956,12 @@ window.CHAT = (function () {
     // « Une lecture partielle dit ce qui lui manque » : le domaine l'exige, donc aucune route ne
     // peut servir ce corps. Peindre un compteur de lecture sans la moindre réserve donnerait à lire
     // « je n'ai pas tout lu » sans jamais dire ce qui manque — la moitié muette de la réponse.
-    if (estObjet(a.lecture_partielle) && unknown.length === 0) throw illisible("answer.unknown");
+    // Story 5.6 (L1i) : la borne d'une lecture partielle est la lacune `lecture_bornee`, un avis de
+    // service — elle se dit donc dans `avis[]`. L'exigence porte sur les deux canaux, comme dans le
+    // domaine : ce qui reste interdit est le compteur de lecture servi sans la moindre reserve.
+    if (estObjet(a.lecture_partielle) && unknown.length === 0 && avis.length === 0) {
+      throw illisible("answer.unknown");
+    }
     // « found=True exige au moins une claim retrouvée et pertinente » ∧ « found=False exige claims=[] ».
     if (a.found !== (claims.length > 0)) throw illisible("answer.claims");
     // « claims[] ne contient que des claims retrouvee ∧ pertinente ».

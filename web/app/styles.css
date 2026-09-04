@@ -503,7 +503,7 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 
 /* Une reponse du serveur est faite d'elements, pas d'un bloc de texte : la conservation des
    retours a la ligne se replie sur les paragraphes eux-memes. */
-.msg.bot .seg, .msg.bot .clarif, .msg.bot .inconnu { white-space: normal; }
+.msg.bot .seg, .msg.bot .clarif, .msg.bot .inconnu, .msg.bot .avis { white-space: normal; }
 .msg.bot .seg-txt { margin: 0; white-space: pre-wrap; }
 .msg .seg + .seg { margin-top: 12px; }
 
@@ -530,9 +530,11 @@ textarea { min-height: 100px; resize: vertical; line-height: 1.6; }
 
 .msg .preuve { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
 
-.msg .inconnu { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); font-size: 13px; }
-.msg .inconnu > strong { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: var(--micro); margin-bottom: 5px; }
-.msg .inconnu ul { margin: 0; padding-left: 18px; }
+.msg .inconnu, .msg .avis { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border); font-size: 13px; }
+.msg .inconnu > strong, .msg .avis > strong { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: var(--micro); margin-bottom: 5px; }
+.msg .inconnu ul, .msg .avis ul { margin: 0; padding-left: 18px; }
+/* Story 5.6 (L1i) : les avis de service se lisent comme une note de fabrication, pas comme un manque. */
+.msg .avis { color: var(--muted); }
 
 .msg .pied {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
