@@ -21,7 +21,7 @@ from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
-from server.app.llm.models import EFFORT_PAR_PROMPT, TIERS
+from server.app.llm.models import EFFORT, EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt
 from server.app.steps.verifier import (
@@ -391,12 +391,11 @@ async def test_relevance_is_one_grouped_reason_call_with_delimited_content(mini:
     found = UNTRUSTED.findall(msg["content"])
     # AD-4 : un seul appel, et il porte tout ce que le contrôle a besoin de juger — la question, ses
     # facettes (arrêtées par *comprendre*, jamais redécoupées ici), les affirmations avec leurs
-    # passages, l'inventaire de ce que la lecture a ouvert (L1h), puis **chaque phrase telle qu'elle
-    # serait affichée**
+    # passages, puis **chaque phrase telle qu'elle serait affichée**. L1l : l'inventaire des blocs
+    # lus (L1h) est désarmé par défaut, et le message est de nouveau exactement celui-là.
     kinds = [kind for kind, _ in found]
-    assert kinds[:5] == ["question", "facette", "claim", "claim", "claim"]
-    assert kinds[-3:] == ["segment", "segment", "segment"]
-    assert set(kinds[5:-3]) == {"lu"}  # l'inventaire vit entre les affirmations et les segments
+    assert kinds == ["question", "facette", "claim", "claim", "claim",
+                     "segment", "segment", "segment"]
     assert json.loads(found[1][1]) == {"facette": 0, "libelle": "facette 1"}
     # rien hors des balises : le contenu non fiable est intégralement délimité (AD-15)
     assert UNTRUSTED.sub("", msg["content"]).strip() == ""
@@ -512,9 +511,7 @@ async def test_claims_beyond_the_bound_are_declared_unevaluated_never_guessed(mi
     # citation a été retrouvée) et part au contrôle des phrases — c'est le rejet de pertinence qui le
     # retirera ensuite de l'affichage.
     kinds = [kind for kind, _ in UNTRUSTED.findall(req["messages"][0]["content"])]
-    assert kinds[:3] == ["question", "facette", "claim"]
-    assert kinds[-2:] == ["segment", "segment"]
-    assert set(kinds[3:-2]) == {"lu"}  # l'inventaire de ce qui a été lu (L1h)
+    assert kinds == ["question", "facette", "claim", "segment", "segment"]
     assert [c.claim_id for c in v.claims] == ["c1"]
     (rejet,) = v.rejected_claims
     assert rejet.claim_id == "c2" and rejet.status.pertinente is None and "non évaluée" in rejet.motif
@@ -2980,7 +2977,9 @@ async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(
         mini, draft, [message],
         settings=_settings(baseline_tiers=True, verifier_tier=tier))
     assert fake.messages.requests[0]["model"] == TIERS[tier]
-    expected_effort = "medium" if tier == "reason" else None
+    # L1l : sur le palier `reason`, l'effort servi est la dérogation nommée du prompt `verifier`
+    # (`low`), pas le défaut du palier — `micro` n'accepte pas `effort` et n'en reçoit aucun.
+    expected_effort = EFFORT_PAR_PROMPT["verifier"] if tier == "reason" else None
     assert fake.messages.requests[0].get("output_config", {}).get("effort") == expected_effort
     assert step.tier == tier
 
@@ -3407,9 +3406,14 @@ async def test_linventaire_ne_porte_ni_titre_ni_bloc_hors_budget(mini: Index) ->
     Un titre ne se cite pas seul (AD-3) : le proposer serait proposer une désignation que le code
     rejetterait à coup sûr. La borne, elle, protège le coût — c'est elle qui tient l'entrée du
     contrôle sous ce que le tour s'est donné pour majorant.
+
+    L1l : le mécanisme est **désarmé par défaut** (voir le témoin suivant), si bien que ce témoin
+    arme explicitement la borne qu'il mesure. C'est ce qui garde les quatre portes du rattachement
+    éprouvées le jour où une mesure les réarmera.
     """
     draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
-    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))],
+                                      settings=_settings(verifier_inventaire_max_tokens=1400))
     lus = [json.loads(charge) for kind, charge in UNTRUSTED.findall(
         fake.requests[0]["messages"][0]["content"]) if kind == "lu"]
     assert "mini:p1:1" not in [bloc["block_id"] for bloc in lus]  # le `heading` est exclu
@@ -3421,6 +3425,51 @@ async def test_linventaire_ne_porte_ni_titre_ni_bloc_hors_budget(mini: Index) ->
     restreints = [json.loads(charge) for kind, charge in UNTRUSTED.findall(
         fake.requests[0]["messages"][0]["content"]) if kind == "lu"]
     assert 0 < len(restreints) < len(lus)
+
+
+# --- le contrôle du guide tient dans le temps d'un appel (story 5.6, L1l) -----------------
+
+
+async def test_le_controle_du_guide_part_desarme_a_leffort_bas_et_avec_le_delai_derive(
+        mini: Index) -> None:
+    """Les trois leviers du tour L1l, sur l'appel réellement servi — un seul témoin, un seul appel.
+
+    Mesure qui les impose, rejeu L1j du 04/09/2026 08 h 45 (`.audit/llm-calls.jsonl`, run
+    `b8fe51e1`) : l'appel de *vérifier* rend `output_tokens = 6 144` **dont `thinking_tokens =
+    6 144`**, `stop_reason = max_tokens`, zéro caractère de JSON — puis la relance expire sur les
+    78 s de `llm_timeout_s`, avec 112,2 s de deadline encore disponibles.
+
+    (a) **L'inventaire est désarmé par défaut**, et le message retrouve son octet d'avant L1h : il
+        est byte-identique à celui que rend `verifier_inventaire_max_tokens = 0`, la valeur dont le
+        témoin (d) du rattachement prouve déjà qu'elle rend le message d'avant le tour.
+    (b) **L'effort de cet appel est `low`**, pas le `medium` du palier `reason`. Sur Sonnet 5 la
+        réflexion est adaptative et `budget_tokens` refusé : rien ne la borne que `max_tokens`,
+        qu'elle partage avec le contrat JSON — et une réflexion qui prend tout ne rend rien.
+    (c) **Le délai de l'appel dépasse `llm_timeout_s`** quand la deadline le permet encore : le
+        plafond d'un appel ne décide plus à la place de la deadline.
+    """
+    draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
+    _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+    (req,) = fake.requests
+
+    # (a) — aucun bloc `lu`, et l'octet exact de l'avant-L1h.
+    contenu = req["messages"][0]["content"]
+    assert [kind for kind, _ in UNTRUSTED.findall(contenu) if kind == "lu"] == []
+    _v, _step, desarme = await _verifier(mini, draft, [_verdicts(("c1", True))],
+                                         settings=_settings(verifier_inventaire_max_tokens=0))
+    assert contenu == desarme.requests[0]["messages"][0]["content"]
+
+    # (b) — l'effort servi est la dérogation du prompt, pas le défaut du palier. Les deux chemins
+    #       gardent la leur : celle du sinistre n'a pas été touchée pour régler celle du guide.
+    assert req["output_config"]["effort"] == EFFORT_PAR_PROMPT["verifier"] == "low"
+    assert EFFORT_PAR_PROMPT["verifier"] != EFFORT["reason"]
+    assert EFFORT_PAR_PROMPT["verifier_sinistre"] == "low"
+
+    # (c) — `_budget()` porte 100 s de deadline pour un `llm_timeout_s` de 78 : le délai servi est
+    #       `restant - llm_latence_marge_s`, donc au-dessus de la borne que L1j avait franchie.
+    settings = _settings()
+    assert settings.llm_timeout_s < req["timeout"] <= 100.0
+    assert req["timeout"] == pytest.approx(100.0 - settings.llm_latence_marge_s, abs=1.0)
 
 
 # --- aucun identifiant dans un texte affiché (story 5.6, L1j) -----------------------------

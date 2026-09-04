@@ -4595,3 +4595,70 @@ pas celles du code courant : **rien à ré-épingler**, et il est vert.
 - gate-a-relancer: lux-guide pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
+
+## 4 septembre 2026 — tour L1l : le contrôle du guide tient dans le temps d'un appel
+
+**Un seul appel servi** (`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, serveur local 8878) :
+`POST /api/v1/chat`, la question du matin de Lancelot, profil famille / 2 enfants / salarié / louer /
+départ — exactement celle du rejeu L1j. Dépense **0,2514 €**. Sortie brute :
+`automation/runs/20260902-structure-index/proto/g-partir-l1l.json` ; lecture chiffrée dans
+`automation/runs/20260902-structure-index/proto/lecture.md`.
+
+**Résultat : HTTP 200 en 88,1 s**, `complete=true`, `unknown=[]`, `deadline_remaining_s = 201,9`.
+La borne que le tour s'était donnée — 200, trois sous-questions servies, ≤ 120 s au total et ≤ 60 s
+pour *vérifier* — est tenue sur les quatre points.
+
+### La mesure d'abord : ce que l'audit dit du 503 de L1j
+
+`.audit/llm-calls.jsonl`, run `b8fe51e1`, appel `verifier` :
+
+```
+effort = medium   max_tokens = 6144
+output_tokens = 6144   dont thinking_tokens = 6144   stop_reason = max_tokens
+```
+
+**La totalité de la sortie est de la réflexion, et pas un caractère de JSON n'est écrit** — d'où la
+`LlmParse`, d'où la relance, d'où les 78 s de `llm_timeout_s` franchies une seconde fois pour 139 s
+en tout. Le tour croyait l'effort déjà à `low` ; il était à `medium`. Ce n'est pas l'entrée qui a
+grossi : c'est le mode d'échec déjà mesuré et déjà tranché pour `verifier_sinistre` à T1d/T10.
+
+### Ce que le même appel rend après correctif
+
+| | L1j (`medium`, inventaire armé) | L1l (`low`, inventaire désarmé) |
+|---|---|---|
+| entrée du message | 6 091 | **4 642** puis 4 588 (−24 %) |
+| sortie | 6 144 | **621** puis 1 215 |
+| dont réflexion | **6 144 (100 % du plafond)** | **388** puis 933 (6 % puis 20 %) |
+| `stop_reason` | `max_tokens` | `end_turn`, `end_turn` |
+| durée de *vérifier* | 139 s, rien de servi | **6,8 s** puis 13,8 s |
+| total HTTP | 177,8 s → 503 `timeout` | **88,1 s → 200** |
+
+Les 42,5 s et 0,106 € du second couple `rediger`/`verifier` sont la **relance ciblée d'AD-3**
+(2 affirmations perdant plus de 34 % de leurs phrases) : elle est revenue moins bonne
+(`relance_moins_bonne`, 3 affirmations contre 4) et la première vérification fait foi. Résidu connu
+depuis L1g, toujours pas mesuré sur plusieurs questions.
+
+### Suite hermétique
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest -q` → **code de sortie 0**. `ruff check
+server tests` vert, `git diff --check` vert.
+
+**Les huit fixtures live ont été réenregistrées** (0,697 €, majorant annoncé 2 €). Elles étaient déjà
+rouges avant ce tour — L1j avait changé le schéma de `ouvrir_noeud`, donc `tools_sha256`, et la dette
+était reconduite par L1k. Ce tour touche le même jeu pour une seconde raison : l'effort et le message
+du vérificateur entrent tous deux dans la clé de requête enregistrée. Le schéma de sortie du
+vérificateur, lui, **ne change pas**. Détail : `test_pipeline_live` (0,1769 €), `test_sinistre_live`
+(0,1351 €), les six cas de `test_langues_live` (0,0562 à 0,0836 € chacun). Le certificat Baloise
+(`tests/test_parsing_baloise.py`) épingle les empreintes de l'artefact de gate, pas celles du code
+courant : **rien à ré-épingler**, et il est vert.
+
+### Dette déclarée : les trois gates, reconduits
+
+`config.py`, `llm/models.py`, `llm/budget.py`, `llm/client.py` et `steps/verifier.py` changent :
+`pipeline_digest` passe à `a7164ce9…`, `prompts_digest` à `4f0c8e67…` (aucun prompt n'est touché par
+ce tour ; l'empreinte suit le cycle). AD-7 sert donc les documents avec `gate_perime` tant que le
+re-gate live n'est pas fait ; il revient à l'orchestrateur, `data/.publie` n'a pas été touché.
+
+- gate-a-relancer: lux-guide pipeline_digest=a7164ce9a4bc0575cf96539a6006c3b8df2eb2151f55e2360f22734f1c7d1d1b
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=a7164ce9a4bc0575cf96539a6006c3b8df2eb2151f55e2360f22734f1c7d1d1b
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a7164ce9a4bc0575cf96539a6006c3b8df2eb2151f55e2360f22734f1c7d1d1b

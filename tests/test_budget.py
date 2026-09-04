@@ -285,3 +285,55 @@ def test_la_validation_de_configuration_et_lexecution_lisent_la_meme_derivation(
                       settings.rediger_max_tokens, settings.comprendre_max_tokens,
                       settings.retrouver_outils_max_tokens)
     assert settings.duree_majoree_pour(plus_longue) <= settings.llm_timeout_s
+
+
+def test_le_plafond_dun_appel_ne_coupe_plus_une_requete_que_la_deadline_permettait() -> None:
+    """L1l — le rejeu du 04/09/2026 08 h 45, rejoué sur l'horloge et sans réseau.
+
+    Chiffres du rejeu (`proto/g-partir-l1j.json`) : `llm_timeout_s = 78`, l'appel de *vérifier* les
+    franchit, et il restait **112,2 s de deadline**. La requête sort en 503 `timeout` sur un plafond
+    qui garde contre un appel **pendu**, pas contre un appel long — trois étapes sur quatre avaient
+    abouti, et la personne n'a rien reçu.
+
+    Les quatre bords de la dérivation, dans l'ordre où ils mordent.
+    """
+    from server.app.config import Settings
+
+    settings = Settings(_env_file=None, anthropic_api_key="")
+    borne, marge = settings.llm_timeout_s, settings.llm_latence_marge_s
+    facteur = settings.verifier_delai_facteur
+    assert facteur > 1.0  # sans quoi le témoin ne prouverait rien du cas servi
+
+    def budget(restant: float) -> RequestBudget:
+        b = RequestBudget(deadline_s=restant, max_attempts=4, max_cost_eur=1.0)
+        return b
+
+    # (a) Le cas du rejeu : 112,2 s restantes, la borne étire jusqu'à `restant - marge`.
+    delai = budget(112.2).timeout_for_call(borne, facteur=facteur, marge=marge)
+    assert delai == pytest.approx(112.2 - marge, abs=0.2)
+    assert delai > borne  # ce que L1j n'avait pas, et qui lui aurait servi la réponse
+
+    # (b) Le facteur est un plafond, pas une licence : au large, il borne l'étirement.
+    delai = budget(borne * facteur * 4).timeout_for_call(borne, facteur=facteur, marge=marge)
+    assert delai == pytest.approx(borne * facteur, abs=0.2)
+
+    # (c) L'étirement ne **raccourcit** jamais : à peine plus de marge que de temps restant, le
+    #     délai reste celui d'avant L1l — un facteur qui rendrait moins que sa propre borne serait
+    #     devenu un plafond plus court que celui qu'il étire.
+    restant = marge + 1.0
+    delai = budget(restant).timeout_for_call(borne, facteur=facteur, marge=marge)
+    assert delai == pytest.approx(min(borne, restant), abs=0.2)
+
+    # (d) L'étirement ne **dépasse** jamais la deadline : c'est elle qui coupe, avec l'erreur
+    #     existante (AD-16), et le résultat retombe exactement sur `min(borne, restant)`.
+    for restant in (borne / 2, borne - 1.0):
+        delai = budget(restant).timeout_for_call(borne, facteur=facteur, marge=marge)
+        assert delai == pytest.approx(restant, abs=0.2)
+        assert delai <= restant
+
+    # (e) `facteur = 1.0` — donc tout appel qui ne demande rien — rend la formule d'avant, à
+    #     l'identique, quel que soit le temps restant.
+    for restant in (5.0, borne, 300.0):
+        b = budget(restant)
+        assert (b.timeout_for_call(borne, facteur=1.0, marge=marge)
+                == pytest.approx(b.timeout_for_call(borne), abs=0.2))

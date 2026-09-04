@@ -380,6 +380,32 @@ class Settings(BaseSettings):
     # mesure. Ce délai borne l'**appel**, pas la chaîne — la chaîne, c'est `deadline_s`, qui est
     # re-dérivée avec (250 → 290).
     llm_timeout_s: float = Field(78.0, gt=0)
+    # --- Story 5.6 (L1l) — le plafond d'un appel ne décide plus à la place de la deadline --------
+    # De combien l'appel de *vérifier* peut au plus étirer `llm_timeout_s` **quand la deadline le
+    # permet encore**. Le délai effectif de cet appel vaut alors
+    # `min(llm_timeout_s × ce facteur, deadline restante − llm_latence_marge_s)`, jamais moins que
+    # `llm_timeout_s` et jamais plus que la deadline restante (`RequestBudget.timeout_for_call`).
+    #
+    # **Pourquoi.** Rejeu L1j du 04/09/2026 08 h 45 (`proto/g-partir-l1j.json`) : la requête sort en
+    # 503 `timeout` avec **112,2 s de deadline encore disponibles**. Ce n'est pas la chaîne qui a
+    # manqué de temps, c'est le plafond d'un appel — 78 s — qui a coupé le dernier appel qu'il
+    # restait à faire. `llm_timeout_s` majore la durée d'écriture de la plus longue sortie d'étape
+    # (`_coherence`) : c'est un garde-fou contre un appel **pendu**, pas un budget de latence. Lui
+    # faire refuser une requête que la deadline pouvait servir, c'est lui faire dire ce qu'il ne sait
+    # pas — et la personne ne reçoit rien, alors que trois étapes sur quatre avaient abouti.
+    #
+    # **Pourquoi seulement *vérifier*.** C'est le **dernier** appel de la chaîne : le temps qu'il
+    # emprunte n'est plus dû à personne, et l'étirement ne peut retarder aucune étape suivante. Sur
+    # une étape intermédiaire, le même facteur volerait à *vérifier* le temps de conclure — la
+    # deadline resterait tenue, la réponse ne serait pas rendue pour autant.
+    #
+    # **Valeur : 2,0.** Un appel de *vérifier* qui n'a pas fini au double du temps qu'il faut pour
+    # écrire sa plus longue sortie (78 s ≥ 6 144 / 85 + 5) est en peine, pas en train d'écrire. Le
+    # garde-fou contre l'appel pendu reste donc borné, et la deadline reste le seul plafond dur : la
+    # marge de latence est retirée du temps restant pour que l'échec, s'il arrive, soit encore
+    # **servi** en `timeout` par le serveur plutôt que subi par le navigateur (AD-11, AD-16).
+    # `1.0` rend exactement le comportement d'avant L1l.
+    verifier_delai_facteur: float = Field(2.0, ge=1.0)
     # Débit de sortie **minoré** du fournisseur, réflexion comprise, tel que l'audit le mesure :
     # 89,4 tokens/s en régression sur les quatre appels du vérificateur sinistre (89 à 95 selon
     # l'appel, ordonnée à l'origine ≈ 0). 85 le minore de 5 % — un minorant, parce qu'il sert à
@@ -590,7 +616,24 @@ class Settings(BaseSettings):
     # laissé de côté. La borne est en tokens et non en blocs parce que c'est le coût qu'elle protège
     # (AD-9, NFR4) — un bloc de contrat et un bloc de fiche n'ont pas la même taille. `0` désarme
     # l'inventaire : le contrôle retrouve alors exactement le message d'avant L1h, à l'octet près.
-    verifier_inventaire_max_tokens: int = Field(1400, ge=0)
+    #
+    # **0 depuis le 04/09/2026 (L1l) : l'inventaire est désarmé par défaut, et c'est la mesure qui
+    # le dit.** Le rejeu L1h (`g-partir-l1h.json`) est le seul où le mécanisme ait tourné en ligne :
+    # le contrôle y a désigné **deux** blocs lus, et le code n'en a suivi **aucun**
+    # (`rattachements_ignores` = 2, zéro rattachement sur deux désignés). Le rejeu L1j a payé la même
+    # entrée sur une lecture trois fois plus grosse — 37 blocs ouverts au lieu de 5 — et n'a rien
+    # rendu du tout : `vérifier` y consomme 6 091 tokens de message et **6 144 tokens de réflexion
+    # pour zéro caractère de JSON** (`stop_reason=max_tokens`), puis expire à la relance
+    # (`.audit/llm-calls.jsonl`, run `b8fe51e1`). Un inventaire pèse deux fois dans cet appel : sur
+    # l'entrée, qu'il grossit, et sur la réflexion, qui a d'autant plus à lire avant de juger.
+    # Une propriété implémentée et prouvée hermétiquement qui n'a jamais produit d'effet en ligne ne
+    # vaut pas la sortie d'un appel : elle attend une mesure qui la justifie.
+    #
+    # **Rien n'est retiré du code.** Les quatre portes du rattachement, leur ventilation par cause et
+    # leurs témoins restent en place ; une valeur > 0 réarme le mécanisme sans toucher au code, et
+    # c'est exactement ce qu'il faudra faire le jour où l'on saura *pourquoi* les deux désignations
+    # de L1h ont été refusées. À `0`, le message du contrôle est byte-identique à celui d'avant L1h.
+    verifier_inventaire_max_tokens: int = Field(0, ge=0)
     # Combien de phrases une réponse peut au plus faire **rattacher** par la vérification. Un
     # rattachement est une citation que le rédacteur n'a pas écrite : elle est prouvée par le code,
     # mais elle reste un chemin par lequel la réponse s'allonge sans que la rédaction l'ait voulu.
@@ -1981,6 +2024,7 @@ class Settings(BaseSettings):
         return {
             "deadline_s": self.deadline_s,
             "llm_timeout_s": self.llm_timeout_s,
+            "verifier_delai_facteur": self.verifier_delai_facteur,
             "llm_output_tokens_per_s_min": self.llm_output_tokens_per_s_min,
             "llm_latence_marge_s": self.llm_latence_marge_s,
             "client_abort_margin_s": self.client_abort_margin_s,
@@ -2271,7 +2315,8 @@ SEUILS_DEXPLOITATION: frozenset[str] = frozenset({
 })
 
 SEUILS_DE_GATE: frozenset[str] = frozenset({
-    "deadline_s", "llm_timeout_s", "llm_output_tokens_per_s_min", "llm_latence_marge_s",
+    "deadline_s", "llm_timeout_s", "verifier_delai_facteur", "llm_output_tokens_per_s_min",
+    "llm_latence_marge_s",
     "raison_publiable_max_chars", "quote_min_chars", "quote_min_ratio", "max_opens",
     "navigation_max_llm_turns", "navigation_budget_tokens", "navigation_search_limit",
     "navigation_ouvertures_reservees_par_facette",
