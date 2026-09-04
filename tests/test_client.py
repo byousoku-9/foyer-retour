@@ -141,9 +141,9 @@ async def test_request_shape_micro_no_effort_temperature_zero() -> None:
     assert req["output_config"]["format"]["type"] == "json_schema"
     assert req["output_config"]["format"]["schema"]["required"] == ["mot"]
     assert req["max_tokens"] == _settings().llm_max_output_tokens
-    # `min(llm_timeout_s, restant)` : le plafond par appel vaut 78 s depuis T1d, et le
-    # budget du témoin en laisse 100 — c'est donc le plafond qui borne.
-    assert 0 < req["timeout"] <= _settings().llm_timeout_s
+    # Le délai dérivé (L1x) : le budget du témoin laisse 100 s, donc `restant - marge` — jamais
+    # `llm_timeout_s`, qui n'est plus qu'un plancher. Le corps, lui, n'en sait rien.
+    assert _settings().llm_timeout_s < req["timeout"] <= 100.0
     assert "tools" not in req
 
 
@@ -860,3 +860,103 @@ def test_oserror_reste_absent_de_la_table_des_erreurs_fournisseur() -> None:
     with pytest.raises(OSError) as exc:
         map_provider_error(OSError(28, "No space left on device"))
     assert exc.value.errno == 28
+
+
+# --- le délai d'un appel se dérive de la deadline, pour tous les appels (story 5.6, L1x) ---
+
+
+ETAPES = [  # les cinq étapes du pipeline, avec le palier et le plafond de sortie de chacune
+    ("comprendre", "micro", 512),
+    ("retrouver", "reason", 1024),
+    ("naviguer", "reason", 2048),
+    ("rediger", "reason", 4096),
+    ("verifier", "reason", 6144),
+]
+
+
+async def _delai_servi(nom: str, tier: str, max_tokens: int, deadline_s: float) -> float:
+    """Le délai que le SDK reçoit réellement pour un appel de cette étape."""
+    client, fake = _client([fake_message(model=TIERS[tier])])
+    await client.parse(tier=tier, system_prefix="préfixe stable",
+                       messages=[{"role": "user", "content": "q"}], output_model=Mot,
+                       budget=_budget(deadline_s=deadline_s, max_cost=1.0),
+                       step=StepTrace(name=nom), max_tokens=max_tokens)
+    return fake.requests[0]["timeout"]
+
+
+async def test_le_delai_derive_est_le_meme_pour_les_cinq_etapes() -> None:
+    """L1x — prod `86459ec` du 04/09/2026 18 h 38 : `timeout` après 93 s, sur une deadline de 290 s.
+
+    L1l avait dérivé le délai pour le seul appel de *vérifier*. L'appel coupé en production n'était
+    pas celui-là — navigation ou rédaction, cache à froid — et il a franchi les 78 s de
+    `llm_timeout_s` alors que la requête avait encore plus de trois minutes. Le plafond par appel
+    décidait donc toujours à la place de la deadline pour quatre étapes sur cinq.
+
+    Ce que ce témoin tient : à temps restant égal, les cinq étapes reçoivent le **même** délai, quel
+    que soit leur palier ou leur plafond de sortie — le chemin outils de la navigation compris. Une
+    étape qui reprendrait un plafond à elle le ferait rougir.
+    """
+    settings = _settings()
+    DEADLINE = 200.0  # au large : le facteur borne l'étirement avant que la deadline le fasse
+    delais = [await _delai_servi(nom, tier, max_tokens, DEADLINE)
+              for nom, tier, max_tokens in ETAPES]
+
+    # Le chemin outils (navigation, AD-1) passe par `tool_turn`, pas par `parse` : il dérive le même
+    # délai ou la généralisation ne tiendrait que sur quatre appels.
+    client, fake = _client([fake_message(model=SONNET)])
+    await client.tool_turn(tier="reason", system_prefix="préfixe stable",
+                           messages=[{"role": "user", "content": "q"}],
+                           tools=[{"name": "chercher", "input_schema": {"type": "object"}}],
+                           budget=_budget(deadline_s=DEADLINE, max_cost=1.0),
+                           step=StepTrace(name="naviguer"), max_tokens=2048)
+    delais.append(fake.requests[0]["timeout"])
+
+    attendu = settings.llm_timeout_s * settings.llm_timeout_facteur
+    for delai in delais:
+        assert delai == pytest.approx(attendu, abs=0.5)
+        assert delai > settings.llm_timeout_s  # ce que L1j puis la prod du 18 h 38 n'avaient pas
+
+
+async def test_le_delai_derive_ne_descend_jamais_sous_la_borne_ni_ne_depasse_le_restant() -> None:
+    """Les deux bords, mesurés sur le délai **envoyé**, pas sur la formule.
+
+    `llm_timeout_s` reste le plancher (le garde-fou contre un appel pendu), la deadline restante
+    la borne dure : un appel ne peut plus échouer sur un plafond arbitraire tant que la requête a du
+    temps, et quand elle n'en a plus il échoue par la deadline, avec l'erreur existante (AD-16).
+    """
+    settings = _settings()
+    # 256 tokens : l'écriture majorée tient en 8 s, si bien que le refus d'avant-envoi
+    # (`exiger_le_temps_decrire`) ne précède pas la dérivation, même sur le budget le plus court.
+    for deadline in (20.0, 60.0, 90.0, 150.0, 290.0):
+        delai = await _delai_servi("comprendre", "micro", 256, deadline)
+        assert delai <= deadline  # jamais au-delà de ce que la requête a vraiment
+        assert delai >= min(settings.llm_timeout_s, delai)  # le plancher, quand la deadline le porte
+        assert delai == pytest.approx(
+            min(max(settings.llm_timeout_s,
+                    min(settings.llm_timeout_s * settings.llm_timeout_facteur,
+                        deadline - settings.llm_latence_marge_s)), deadline), abs=0.5)
+    # Au large, le plancher n'est jamais le résultat : c'est le facteur qui borne.
+    assert await _delai_servi("comprendre", "micro", 256, 290.0) > settings.llm_timeout_s
+
+
+async def test_le_delai_nentre_ni_dans_le_corps_ni_dans_la_cle_de_fixture() -> None:
+    """Deux appels qui n'attendent pas le même temps restent le **même** appel.
+
+    C'est ce qui laisse les fixtures enregistrées intactes : le délai dépend de l'horloge, pas de la
+    requête. Le témoin le prouve par le cache d'évals — la clé est celle du corps — et par les deux
+    corps envoyés, identiques hors du `timeout` que le SDK reçoit en argument.
+    """
+    cache = MemoryResponseCache()
+    client, fake = _client([fake_message(model=HAIKU)], cache=cache)
+    await _call(client, budget=_budget(deadline_s=290.0), max_tokens=256)
+    second = await _call(client, budget=_budget(deadline_s=30.0), max_tokens=256)
+    assert len(fake.requests) == 1  # le second appel est servi par la fixture, à délai différent
+    assert second.usage.cached_response is True
+
+    client, fake = _client([fake_message(model=HAIKU), fake_message(model=HAIKU)])
+    await _call(client, budget=_budget(deadline_s=290.0), max_tokens=256)
+    await _call(client, budget=_budget(deadline_s=30.0), max_tokens=256)
+    large, court = fake.requests
+    assert large["timeout"] != court["timeout"]
+    assert {k: v for k, v in large.items() if k != "timeout"} == \
+           {k: v for k, v in court.items() if k != "timeout"}

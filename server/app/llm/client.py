@@ -494,6 +494,28 @@ class LlmClient:
         self._noter_campagne(usage)
         return usage.cost_eur
 
+    def _delai_dappel(self, budget: RequestBudget) -> float:
+        """Le délai servi au SDK pour **un** appel du pipeline, dérivé de la deadline restante.
+
+        L1l avait dérivé ce délai pour le seul appel de *vérifier*, par un paramètre que l'étape
+        passait. L1x le rend à tous : c'est le client — le seul endroit qui envoie — qui le calcule,
+        au moment de l'envoi, sur le temps que la requête a encore. Les cinq étapes reçoivent donc
+        la **même** dérivation, et aucune ne peut la nommer autrement que les autres.
+
+        `llm_timeout_s` reste le plancher (le garde-fou contre un appel **pendu**),
+        `llm_timeout_facteur` le multiplicateur, la deadline restante la borne dure : un appel ne
+        peut plus échouer sur un plafond arbitraire tant que la requête a du temps, et quand elle
+        n'en a plus il échoue par la deadline, avec l'erreur que l'API sait déjà rendre (AD-16).
+
+        Le délai ne touche ni au corps envoyé, ni à la clé de cache d'évals, ni au certificat de
+        fixture : il dépend de l'horloge, pas de la requête, et deux appels qui n'attendent pas le
+        même temps restent le même appel.
+        """
+        settings = self._settings
+        return budget.timeout_for_call(settings.llm_timeout_s,
+                                       facteur=settings.llm_timeout_facteur,
+                                       marge=settings.llm_latence_marge_s)
+
     def new_budget(self, deadline_s: float | None = None) -> RequestBudget:
         """Budget d'une requête, réglé sur les seuils actifs (AD-9 : deadline, appels, euros).
 
@@ -528,9 +550,8 @@ class LlmClient:
         prompt_cache: bool = True,
         trusted_line_uids: tuple[str, ...] = (),
         validation_context: dict[str, Any] | None = None,
-        delai_facteur: float = 1.0,
     ) -> LlmResult[T]:
-        """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide.
+        """Un appel structuré : préfixe caché, délai dérivé de la deadline, 1 retry sur parse invalide.
 
         `thinking` part **tel quel** au fournisseur (`{"type": "adaptive"}` sur Claude 5, où
         `budget_tokens` est refusé). Il entre dans le corps audité et dans la clé de cache d'évals :
@@ -619,13 +640,7 @@ class LlmClient:
             # temps qui reste au lieu du plafond de délai.
             budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
                                            etape=step.name)
-            # L1l : `delai_facteur` étire la borne d'un appel **nommé** dans le temps que la
-            # deadline laisse encore (voir `RequestBudget.timeout_for_call`). Il ne touche ni au
-            # corps envoyé, ni à la clé de cache d'évals, ni au certificat de fixture : le délai
-            # dépend de l'horloge, pas de la requête, et deux appels qui n'attendent pas le même
-            # temps restent le même appel.
-            timeout = budget.timeout_for_call(settings.llm_timeout_s, facteur=delai_facteur,
-                                              marge=settings.llm_latence_marge_s)
+            timeout = self._delai_dappel(budget)
             kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                       "messages": msgs, "output_config": output_config, "timeout": timeout}
             if tools is not None:
@@ -855,7 +870,7 @@ class LlmClient:
         # temps qui reste au lieu du plafond de délai.
         budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
                                        etape=step.name)
-        timeout = budget.timeout_for_call(settings.llm_timeout_s)
+        timeout = self._delai_dappel(budget)
         kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                   "messages": messages, "tools": tools, "timeout": timeout}
         if thinking is not None:

@@ -380,32 +380,42 @@ class Settings(BaseSettings):
     # mesure. Ce délai borne l'**appel**, pas la chaîne — la chaîne, c'est `deadline_s`, qui est
     # re-dérivée avec (250 → 290).
     llm_timeout_s: float = Field(78.0, gt=0)
-    # --- Story 5.6 (L1l) — le plafond d'un appel ne décide plus à la place de la deadline --------
-    # De combien l'appel de *vérifier* peut au plus étirer `llm_timeout_s` **quand la deadline le
-    # permet encore**. Le délai effectif de cet appel vaut alors
+    # --- Story 5.6 (L1l, généralisé en L1x) — le plafond d'un appel ne décide plus à la place ----
+    #     de la deadline, pour **tous** les appels du pipeline.
+    # De combien un appel peut au plus étirer `llm_timeout_s` **quand la deadline le permet
+    # encore**. Le délai effectif d'un appel vaut alors
     # `min(llm_timeout_s × ce facteur, deadline restante − llm_latence_marge_s)`, jamais moins que
-    # `llm_timeout_s` et jamais plus que la deadline restante (`RequestBudget.timeout_for_call`).
+    # `llm_timeout_s` et jamais plus que la deadline restante (`RequestBudget.timeout_for_call`),
+    # calculé au moment de l'envoi sur le temps qui reste vraiment.
     #
     # **Pourquoi.** Rejeu L1j du 04/09/2026 08 h 45 (`proto/g-partir-l1j.json`) : la requête sort en
     # 503 `timeout` avec **112,2 s de deadline encore disponibles**. Ce n'est pas la chaîne qui a
     # manqué de temps, c'est le plafond d'un appel — 78 s — qui a coupé le dernier appel qu'il
     # restait à faire. `llm_timeout_s` majore la durée d'écriture de la plus longue sortie d'étape
     # (`_coherence`) : c'est un garde-fou contre un appel **pendu**, pas un budget de latence. Lui
-    # faire refuser une requête que la deadline pouvait servir, c'est lui faire dire ce qu'il ne sait
-    # pas — et la personne ne reçoit rien, alors que trois étapes sur quatre avaient abouti.
+    # faire refuser une requête que la deadline pouvait servir, c'est lui faire dire ce qu'il ne
+    # sait pas — et la personne ne reçoit rien, alors que trois étapes sur quatre avaient abouti.
     #
-    # **Pourquoi seulement *vérifier*.** C'est le **dernier** appel de la chaîne : le temps qu'il
-    # emprunte n'est plus dû à personne, et l'étirement ne peut retarder aucune étape suivante. Sur
-    # une étape intermédiaire, le même facteur volerait à *vérifier* le temps de conclure — la
-    # deadline resterait tenue, la réponse ne serait pas rendue pour autant.
+    # **Pourquoi tous les appels, et non plus le seul *vérifier* (L1x).** L1l n'avait étiré que le
+    # dernier appel, au motif que le temps qu'il emprunte n'est plus dû à personne. Prod `86459ec`
+    # du 04/09/2026 18 h 38 a montré ce que ce raisonnement laissait passer : une question guide à
+    # trois sous-questions sort en `timeout` après **93 s** et 0,10 € — sur une deadline de 290 s.
+    # L'appel coupé n'était pas *vérifier* : c'était navigation ou rédaction, cache à froid. Le
+    # plafond que L1l avait retiré au dernier appel décidait toujours à la place de la deadline
+    # pour les quatre autres. Un appel intermédiaire qui étire **emprunte** bien du temps aux
+    # suivants, mais il ne l'emprunte que dans la deadline, qui reste la borne dure et qui refuse
+    # déjà avant chaque étape (`budget.remaining() <= 0`) et avant chaque envoi
+    # (`exiger_le_temps_decrire`) : l'étape suivante n'est pas surprise, elle est bornée. Le seul
+    # échange est de servir une réponse lente plutôt qu'un 503 rapide, et c'est la deadline — pas un
+    # plafond par appel — qui a été promise à la personne.
     #
-    # **Valeur : 2,0.** Un appel de *vérifier* qui n'a pas fini au double du temps qu'il faut pour
-    # écrire sa plus longue sortie (78 s ≥ 6 144 / 85 + 5) est en peine, pas en train d'écrire. Le
+    # **Valeur : 2,0.** Un appel qui n'a pas fini au double du temps qu'il faut pour écrire la plus
+    # longue sortie d'étape (78 s ≥ 6 144 / 85 + 5) est en peine, pas en train d'écrire. Le
     # garde-fou contre l'appel pendu reste donc borné, et la deadline reste le seul plafond dur : la
     # marge de latence est retirée du temps restant pour que l'échec, s'il arrive, soit encore
     # **servi** en `timeout` par le serveur plutôt que subi par le navigateur (AD-11, AD-16).
-    # `1.0` rend exactement le comportement d'avant L1l.
-    verifier_delai_facteur: float = Field(2.0, ge=1.0)
+    # `1.0` rend exactement le comportement d'avant L1l, sur tous les appels.
+    llm_timeout_facteur: float = Field(2.0, ge=1.0)
     # Débit de sortie **minoré** du fournisseur, réflexion comprise, tel que l'audit le mesure :
     # 89,4 tokens/s en régression sur les quatre appels du vérificateur sinistre (89 à 95 selon
     # l'appel, ordonnée à l'origine ≈ 0). 85 le minore de 5 % — un minorant, parce qu'il sert à
@@ -2051,7 +2061,7 @@ class Settings(BaseSettings):
         return {
             "deadline_s": self.deadline_s,
             "llm_timeout_s": self.llm_timeout_s,
-            "verifier_delai_facteur": self.verifier_delai_facteur,
+            "llm_timeout_facteur": self.llm_timeout_facteur,
             "llm_output_tokens_per_s_min": self.llm_output_tokens_per_s_min,
             "llm_latence_marge_s": self.llm_latence_marge_s,
             "client_abort_margin_s": self.client_abort_margin_s,
@@ -2344,7 +2354,7 @@ SEUILS_DEXPLOITATION: frozenset[str] = frozenset({
 })
 
 SEUILS_DE_GATE: frozenset[str] = frozenset({
-    "deadline_s", "llm_timeout_s", "verifier_delai_facteur", "llm_output_tokens_per_s_min",
+    "deadline_s", "llm_timeout_s", "llm_timeout_facteur", "llm_output_tokens_per_s_min",
     "llm_latence_marge_s",
     "raison_publiable_max_chars", "quote_min_chars", "quote_min_ratio", "max_opens",
     "navigation_max_llm_turns", "navigation_budget_tokens", "navigation_search_limit",
