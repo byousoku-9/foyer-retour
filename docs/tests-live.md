@@ -4506,3 +4506,5 @@ l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et i
 - gate-a-relancer: lux-guide pipeline_digest=aa3f6d141d56379e187aaaabc3eba8db61f900056ce7c61469a85ca194a97d70
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=aa3f6d141d56379e187aaaabc3eba8db61f900056ce7c61469a85ca194a97d70
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+**Ronde `-12` du 04/09/2026 02:33-02:53** (orchestrateur, `S = 83c257a`, campagnes `epic5-gate-<doc>-12`, ancrage `epic5-final-anchor-13` sur `g-luxtrust-prix` 3/3) : Baloise 9/9 (2,53 €), AXA 3/3 (0,36 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=0ff7573b…` / `prompts_digest=ca306d38…` (ceux de l'image). Ronde `-11` précédente sur `3f12de3` : Baloise 8/9 (faux refus `b-bougie-canape` par amorces ambiguës, cause corrigée en L1f), AXA 3/3, guide 3/3. Générations `data/.publie/{a,b}` commises ensemble (`a50e3de`) ; certificat Baloise ré-épinglé.
