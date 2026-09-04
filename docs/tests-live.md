@@ -4737,6 +4737,35 @@ re-gate revient à l'orchestrateur.
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
 
+## Tour L1q, suite (04/09/2026) — deux natures d'exigence, la garantie sœur, la sous-question fondue
+
+Trois correctifs de code, deux fixtures live et **un** rejeu payant.
+
+**Fixtures ré-enregistrées** (dette du premier billet L1q, payée). `test_the_candle_case_…` : le
+nouveau run **prouve** le correctif des exclusions — `a2.10` est ouverte, `p22:5` est citée et
+écartée (`applicable="non"`) là où le run de la veille disait « ma lecture n'a pas porté sur les
+exclusions générales » — et le verdict reste `ne_tranche_pas` avec la question sur le caractère
+subit. `test_preflight_…` n'était pas une fixture mais un **script** : il porte une seconde fin de
+lecture, le premier tour terminal étant désormais refusé une fois. Deux écarts du **témoin** ont été
+corrigés au passage : `_au_mieux_disant` ne lisait ni `amorce` (L1o) ni `amorce_de` (L1q), et il
+établissait par fiat la condition d'applicabilité de section que le run cite maintenant (`p34:4`) —
+c'est-à-dire le contenu des conditions particulières, que le pipeline ne lit pas à J+1.
+
+**Rejeu payant du guide** (0,3368 €, serveur local 8878, question d'installation de
+`retours-1400/`). Quatre sous-questions découpées par *comprendre* dans l'ordre de la question,
+**quatre affirmations, une par sous-question**, chacune sur ses propres fiches — arrivée, logement,
+banque, **école** (`fecole:3`, `fecole:9`) —, `found=true`, `complete=true`, aucune affirmation
+rejetée. Le refus de couverture de L1j n'a pas eu à jouer : les quatre fiches ont été ouvertes.
+Détail et limites dans `automation/runs/20260903-lisibilite/proto/lecture.md`.
+
+`pipeline_digest` passe à `3a829d0c…` (`prompts_digest` inchangé, `4f0c8e67…` : aucun prompt n'a
+été touché de tout le tour, et aucune fixture n'a donc été invalidée par là). Les trois gates du
+dépôt portent toujours `b937020a…` : la dette est reconduite, le re-gate revient à l'orchestrateur.
+
+- gate-a-relancer: lux-guide pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=b937020a255210d2d9bab5089ab05b187e1af8e4c30c6931908555c5e2eb1fad
+
 **Fixtures live à ré-enregistrer (dette ouverte, clé requise).** Le refus de tour terminal ajoute un
 message à la conversation de navigation : la clé de requête des tours suivants change, et les deux
 rejeux `tests/test_sinistre_live.py` (`test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses`,
