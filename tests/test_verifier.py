@@ -2128,6 +2128,83 @@ async def test_a_clause_that_writes_no_quality_still_reaches_a_yes(contrat: Inde
     assert not [c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]
 
 
+# --- L1n : le texte de la clause décide, la liste du modèle ne fait qu'ajouter ---------------
+# Le fragment que le run réel du 24/08 citait pour tout établir : authentique, et il ne dit aucune
+# des deux qualités que la clause du socle écrit.
+FRAGMENT_MUET = "Une bougie a mis le feu au mobilier de salon"
+
+
+async def test_une_qualite_du_texte_est_exigee_meme_si_le_modele_ne_rend_aucune_exigence(
+        contrat: Index) -> None:
+    """Story 5.7 (L1n), témoin (a) : `qualites_exigees: []` et deux établies **rejetées**.
+
+    Le trou que le gate AXA `-14` a rendu visible. Le modèle range « soudain » et « subite » dans les
+    seules **établies**, avec un fragment authentique mais muet : le code les refuse
+    (`fait_cite_hors_sujet`) et elles ne sont donc établies par rien — mais elles n'étaient pas non
+    plus dans les exigées, et « le modèle en a parlé » suffisait à empêcher le code d'aller les lire
+    dans le texte. Deux qualités écrites par la clause disparaissaient du dossier, et la garantie
+    passait `oui`. Depuis L1n, ce que la clause exige se lit dans son texte : les deux qualités sont
+    exigées, aucune n'est établie, la clause vaut `humain` et le verdict `ne_tranche_pas`.
+    """
+    draft = _draft(("c1", "Le mobilier brûlé est couvert.", [("cg:p1:1", Q_GARANTIE)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None, [],
+                                         [(SOUDAIN, FRAGMENT_MUET), (SUBITE, FRAGMENT_MUET)]),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "humain"
+    assert len([c for c in step.checks if c.name == "fait_cite_hors_sujet"]) == 2
+    assert len([c for c in step.checks if c.name == "qualite_de_la_clause_non_enumeree"]) == 2
+    assert v.verdict is not None and v.verdict.value == "ne_tranche_pas"
+    assert v.verdict.missing.faits == ["caractère « soudain » exigé par la clause citée",
+                                       "caractère « subite » exigé par la clause citée"]
+    assert all(any(libelle in q for q in v.verdict.ask_client)
+               for libelle in v.verdict.missing.faits)
+
+
+async def test_une_qualite_listee_que_le_texte_n_ecrit_pas_est_ignoree(contrat: Index) -> None:
+    """Story 5.7 (L1n), témoin (b) : la liste du modèle ne peut qu'**ajouter** à ce que le texte écrit.
+
+    L'autre moitié de la règle, et la seule qui aille dans le sens permissif : `cg:p1:7` n'écrit ni
+    « intentionnel » ni « acte », et une qualité que ses mots porteurs ne retrouvent nulle part dans
+    les passages cités n'est pas une exigence de cette clause-là. La laisser peser rendrait
+    l'applicabilité tributaire d'un libellé que rien ne corrobore — exactement le reproche
+    symétrique. Elle est ignorée, comptée dans la trace, et la clause garde son `oui`.
+    """
+    draft = _draft(("c1", "Le vol de vélos au garage est couvert.", [("cg:p1:7", Q_CONTREDIT_A)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft, [_applicabilite(("c1", True, False, False, None,
+                                         ["caractère intentionnel de l'acte"], []),
+                                        verdicts=[("c1", True)])])
+    assert v.claims[0].status.applicable == "oui"
+    assert [c for c in step.checks if c.name == "qualite_hors_du_texte_de_la_clause" and not c.ok]
+    assert v.verdict is not None and v.verdict.missing.faits == []
+
+
+async def test_le_debordement_reste_etabli_par_le_rattachement_apres_l1n(contrat: Index) -> None:
+    """Story 5.7 (L1n), témoin (c) : S2/robinet ne bouge pas.
+
+    « rupture, fissure ou débordement de ces installations » est écrit par la clause — donc retenu
+    par le nouveau filtre — et ne porte aucun qualificatif de `QUALIFICATIFS` : il reste établi par
+    le rattachement de la claim (L1c), et le verdict reste celui de la table sur cette clause.
+    C'est la borne du correctif : L1n durcit ce que la clause exige, il ne referme pas la porte que
+    L1 et L1c ont ouverte pour le vocabulaire du contrat.
+    """
+    draft = _draft_rattache(
+        "c1",
+        "Le contrat couvre l'écoulement de l'eau des installations hydrauliques par suite de "
+        "débordement.",
+        "Un robinet resté ouvert est un débordement de ces installations.",
+        [("cg:p1:18", Q_DEGATS_DES_EAUX)])
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [QUALITE_DEBORDEMENT], []),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_ROBINET, blocs=["cg:p1:18"])
+    assert v.claims[0].status.applicable == "oui"
+    assert not [c for c in step.checks if c.name == "qualite_hors_du_texte_de_la_clause"]
+    assert v.verdict is not None and v.verdict.missing.faits == []
+
+
 async def test_une_garantie_qui_renvoie_aux_conditions_particulieres_ne_rend_jamais_couvert(
         contrat: Index) -> None:
     """Story 5.6 (T18) : la forme mesurée du `couvert` de la ronde Baloise `-7` (17:53-18:09).

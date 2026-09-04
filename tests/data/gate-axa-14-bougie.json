@@ -1,0 +1,111 @@
+{
+ "source": "automation/runs/20260903-lisibilite/gate-axa-lu-optihome-2017-14.json",
+ "cas": "s-bougie-canape",
+ "generated_at": "2026-09-04T09:12:24Z",
+ "repetitions": [
+  {
+   "repetition": 1,
+   "verdict_observe": "ne_tranche_pas",
+   "claims": [
+    {
+     "claim_id": "c1",
+     "applicable": "non",
+     "applicable_reason": "faits_contraires",
+     "blocs": [
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:7",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:12",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c4",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:4"
+     ]
+    }
+   ],
+   "rejetees": []
+  },
+  {
+   "repetition": 2,
+   "verdict_observe": "ne_tranche_pas",
+   "claims": [
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:12",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:7",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    }
+   ],
+   "rejetees": [
+    {
+     "claim_id": "c1",
+     "raison": "non_soutenue"
+    }
+   ]
+  },
+  {
+   "repetition": 3,
+   "verdict_observe": "sous_conditions",
+   "claims": [
+    {
+     "claim_id": "c1",
+     "applicable": "oui",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:7",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "axa-lu-optihome-2017:p34:12",
+      "axa-lu-optihome-2017:p34:6"
+     ]
+    }
+   ],
+   "rejetees": []
+  }
+ ]
+}
