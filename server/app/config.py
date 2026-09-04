@@ -1048,7 +1048,7 @@ class Settings(BaseSettings):
     # 0,15 € et ces trois plafonds pourront redescendre ensemble. Le maintien au chaud de T5
     # (`prefix_keepalive_*`) rend le chemin froid rare en production ; il ne le rend pas impossible,
     # et un plafond n'a pas le droit de parier dessus.
-    max_cost_eur_per_request: float = Field(1.30, ge=0)
+    max_cost_eur_per_request: float = Field(2.50, ge=0)
     # **0,25 €, et non 0,05.** `cout_eleve` est de l'**observabilité** (AD-10), pas un garde-fou : il
     # doit désigner une requête anormale. À 0,05 € il se levait au sortir de *retrouver* — 0,0427 € à
     # son second tour, 0,0548 € avant *rédiger* — c'est-à-dire sur toutes les requêtes, ce qui n'est

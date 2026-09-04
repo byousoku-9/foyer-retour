@@ -120,7 +120,7 @@ corpus réingérés et gates à rejouer derrière. **L'état servi se lit sur `G
 jamais ici.
 
 **Ce que Sonnet coûte** *(03/09/2026)*. Un sinistre nominal facture ≈ 0,199 € à préfixe chaud,
-≈ 0,67 € à froid ; le plafond par requête passe à 1,30 €. L'écart tient au préfixe : depuis que le
+≈ 0,67 € à froid ; le plafond par requête passe à 1,30 €, puis à 2,50 € le 04/09/2026 (la navigation lit désormais les exclusions et reprend une lecture vide ; une première requête à cache froid dépassait 1,30 €). L'écart tient au préfixe : depuis que le
 modèle navigue, c'est le **premier tour** qui écrit le sommaire complet dans le cache, au tarif
 d'écriture. Prochain gisement, inchangé : borner ce sommaire (AD-9). Mesures : `docs/tests-live.md`.
 
