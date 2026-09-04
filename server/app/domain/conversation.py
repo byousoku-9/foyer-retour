@@ -15,11 +15,18 @@ from .answer import Answer, AnswerSegment
 from .document import DomainModel
 from .question import Faits, QuestionScope
 from .verdict import (
+    QUESTION_CONDITIONS_PARTICULIERES,
+    QUESTION_OPTION,
     ClaimJugee,
     MissingPackage,
     Verdict,
     applicabilites_des_claims,
+    conditions_de_section_ouvertes,
     decider,
+    question_de_fait,
+    question_de_qualite,
+    question_de_section,
+    questions_du_paquet_typees,
 )
 
 FACT_KEY_MAX = 256
@@ -243,7 +250,63 @@ def _initial_conflicts(facts: list[FactEvent]) -> list[FactConflict]:
     return conflicts
 
 
+def _cle_de_section(block_id: str) -> str:
+    """La condition écrite en tête d'une section est un fait **distinct** du paquet des CP.
+
+    Les deux questions portent sur les conditions particulières, et elles ne demandent pas la même
+    chose : l'une demande ce qu'elles prévoient (montants, franchises), l'autre si elles mentionnent
+    **cette** garantie — c'est celle-là qui plafonne le verdict (L1e). Leur donner la même clé les
+    faisait s'écraser l'une l'autre, et c'est la question décisive qui disparaissait.
+    """
+    return f"conditions_particulieres:{block_id}"
+
+
+def _texte_question_cp(claim: ClaimJugee, ouvertes: dict[str, object], paquet: dict[str, str]) -> str:
+    """La question des conditions particulières **de cette claim**, dans les mots du contrat.
+
+    Quand une condition de section est ouverte sur l'une de ses clauses, c'est elle que la question
+    nomme (« Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ? ») :
+    la personne reconnaît la garantie dont il s'agit. Sinon la clause renvoie aux CP sans les
+    qualifier, et c'est la question du paquet manquant qui vaut.
+    """
+    for clause in claim.clauses:
+        condition = clause.condition_section
+        if condition is not None and condition.block_id in ouvertes:
+            return question_de_section(condition)
+    return paquet.get("conditions_particulieres", QUESTION_CONDITIONS_PARTICULIERES)
+
+
+def _cle_de_claim_cp(claim: ClaimJugee, ouvertes: dict[str, object]) -> str:
+    for clause in claim.clauses:
+        condition = clause.condition_section
+        if condition is not None and condition.block_id in ouvertes:
+            return _cle_de_section(condition.block_id)
+    return "conditions_particulieres"
+
+
 def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[TargetQuestion]:
+    """Les questions du fil, dites avec **les mots du moteur** et non ceux de la table (L1g).
+
+    Le défaut que cette fonction portait : elle réécrivait chaque demande dans le vocabulaire du
+    recalcul. « Les conditions particulières établissent-elles le point exigé ? » ne nomme ni la
+    garantie, ni la pièce, ni ce que la personne doit aller regarder — c'est la ligne de la table
+    d'AD-6 rendue visible, là où le verdict avait déjà formulé la question lisible
+    (`Verdict.ask_client`, story 5.7 L1e). Le fil ne formule donc plus rien : il **reprend**
+    `verdict.question_de_*` / `questions_du_paquet_typees`, l'unique vocabulaire, et n'ajoute que le
+    rattachement décisionnel — `claim_id` et `expected_value` — dont la table a besoin et que le
+    texte ne porte pas.
+
+    Deux claims qui réclament la même pièce ne font pas deux questions : le même texte affiché deux
+    fois est la même demande. Elles fusionnent alors en **une** question de dossier (`claim_id=None`),
+    que `_recompute` applique aux claims qui l'avaient réellement déclarée.
+    """
+    retenues = [claim for claim in claims if claim.retenue]
+    etat = {claim_id: value for claim_id, (value, _reason)
+            in applicabilites_des_claims(retenues).items()}
+    ouvertes = {condition.block_id: condition
+                for condition in conditions_de_section_ouvertes(retenues, etat=etat)}
+    paquet_typees = questions_du_paquet_typees(retenues, verdict.missing)
+    paquet = dict(paquet_typees)
     candidates: list[tuple[QuestionKind, str, str, str | None, str | None]] = []
     for claim in claims:
         if claim.champs is None:
@@ -251,43 +314,76 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
         champs = claim.champs
         if (champs.fait_manquant or "").strip():
             fact = champs.fait_manquant.strip()
-            candidates.append(("fait", f"Pouvez-vous confirmer ce fait : {fact} ?", fact,
-                               claim.claim_id, fact))
+            candidates.append(("fait", question_de_fait(fact), fact, claim.claim_id, fact))
         for quality in champs.qualites_non_etablies:
-            candidates.append(("fait", f"L'événement présente-t-il cette qualité : {quality} ?",
-                               quality, claim.claim_id, quality))
+            candidates.append(("fait", question_de_qualite(quality), quality,
+                               claim.claim_id, quality))
         if champs.option_requise:
-            candidates.append(("option", "L'option requise était-elle souscrite à la date du sinistre ?",
+            candidates.append(("option", paquet.get("option", QUESTION_OPTION),
                                "option_requise", claim.claim_id, None))
         if champs.cp_requise:
             candidates.append(("conditions_particulieres",
-                               "Les conditions particulières établissent-elles le point exigé ?",
-                               "conditions_particulieres", claim.claim_id, None))
-    for text in verdict.ask_client:
+                               _texte_question_cp(claim, ouvertes, paquet),
+                               _cle_de_claim_cp(claim, ouvertes), claim.claim_id, None))
+    # Les questions du moteur, **typées par identité** et non par mots-clés : ce sont exactement les
+    # textes que `verdict.py` vient de composer, retrouvés tels quels dans `ask_client`. La condition
+    # de section passe **devant** le paquet manquant : c'est elle qui plafonne le verdict, donc celle
+    # que la personne doit lire en premier — le paquet, lui, est dû quel que soit le verdict.
+    cles_du_paquet = {"option": "option_requise",
+                      "conditions_particulieres": "conditions_particulieres",
+                      "avenant_date": "avenant_date"}
+    connues: dict[str, tuple[QuestionKind, str]] = {
+        question_de_section(condition): ("conditions_particulieres", _cle_de_section(block_id))
+        for block_id, condition in ouvertes.items()}
+    sections = set(connues)
+    connues.update({texte: (kind, cles_du_paquet[kind]) for kind, texte in paquet_typees})
+    for text in sorted(verdict.ask_client, key=lambda t: t not in sections):
+        connue = connues.get(text)
+        if connue is not None:
+            kind, cle = connue
+            candidates.append((kind, text, cle, None, None))
+            continue
         lower = text.casefold()
         if "option" in lower:
             item = ("option", text, "option_requise", None, None)
-        elif "conditions particulières" in lower:
+        elif "conditions particulières" in lower or "condition posée en tête" in lower:
             item = ("conditions_particulieres", text, "conditions_particulieres", None, None)
         elif "avenant" in lower or "pris effet" in lower:
-            item = ("avenant_date",
-                    "Les pièces établissent-elles la date d'effet et l'absence ou le contenu "
-                    "des avenants applicables ?", "avenant_date", None, None)
+            # Le texte du moteur, tel quel : la version précédente le réécrivait en « Les pièces
+            # établissent-elles… », une phrase que rien n'avait formulée et qui ne disait plus
+            # quelles pièces ni pourquoi.
+            item = ("avenant_date", text, "avenant_date", None, None)
         else:
             # Une question factuelle sans claim cible serait visible mais décisionnellement morte :
             # les faits/qualités des claims ont déjà produit leurs questions liées ci-dessus.
             continue
         candidates.append(item)
     result: list[TargetQuestion] = []
-    seen: set[tuple[str, str, str | None]] = set()
+    position: dict[tuple[str, str], int] = {}
+    emis: set[str] = set()
     for kind, text, key, claim_id, expected in candidates:
         bounded = _fact_key(key)
-        signature = (kind, bounded.casefold(), claim_id)
-        if signature in seen:
+        rang = position.get((kind, " ".join(text.split()).casefold()))
+        if rang is not None:
+            # Le même texte déjà posé. Venant d'une **autre** claim, c'est la demande du dossier et
+            # elle se délie de sa claim ; venant du moteur sans cible (`ask_client`), la question
+            # liée le couvre déjà et le doublon disparaît.
+            existante = result[rang]
+            if claim_id is not None and existante.claim_id not in (None, claim_id):
+                delie = _id("question", kind, existante.fact_key, None)
+                if delie not in emis:
+                    emis.discard(existante.question_id)
+                    emis.add(delie)
+                    result[rang] = existante.model_copy(update={
+                        "question_id": delie, "claim_id": None})
             continue
-        seen.add(signature)
+        question_id = _id("question", kind, bounded, claim_id)
+        if question_id in emis:
+            continue  # même pièce, même cible : une seule question, la première formulée
+        emis.add(question_id)
+        position[(kind, " ".join(text.split()).casefold())] = len(result)
         result.append(TargetQuestion(
-            question_id=_id("question", kind, bounded, claim_id), text=text, kind=kind,
+            question_id=question_id, text=text, kind=kind,
             fact_key=bounded, claim_id=claim_id, expected_value=expected))
     return result
 
@@ -354,9 +450,51 @@ def _response_by_question(state: ContinuationState) -> dict[str, ResponseMeaning
             if event.question_id is not None}
 
 
+def _vise(question: TargetQuestion, claim: ClaimJugee) -> bool:
+    """La question porte-t-elle sur cette claim ?
+
+    Story 5.7 (L1g). Une question **de dossier** (`claim_id=None`) n'est pas une question sans cible :
+    c'est la même demande, posée par plusieurs claims, fusionnée pour n'être lue qu'une fois
+    (`_question_candidates`). Elle vise donc les claims qui l'avaient déclarée — reconnues au libellé
+    qu'elles portent, ou à la pièce qu'elles subordonnent —, jamais toutes : répondre « non » à un
+    fait qu'une seule clause exige ne doit pas dégrader celles qui ne l'exigeaient pas. Une question
+    qu'aucune claim ne réclame (le paquet manquant d'AD-6, dû quel que soit le verdict) ne vise rien
+    ici, et `_cibles` la rend alors à toutes les claims, comme avant.
+
+    Le test se fait toujours sur les claims **de base**, jamais sur les copies que `_recompute`
+    amende : une qualité que le recalcul vient de retirer reste la qualité que la question demandait.
+    """
+    if question.claim_id is not None:
+        return question.claim_id == claim.claim_id
+    champs = claim.champs
+    if champs is None:
+        return False
+    if question.kind == "fait":
+        expected = question.expected_value
+        return expected is not None and (
+            expected == (champs.fait_manquant or "").strip()
+            or expected in champs.qualites_non_etablies)
+    if question.kind == "option":
+        return champs.option_requise
+    if question.kind == "conditions_particulieres":
+        return champs.cp_requise
+    return False
+
+
+def _cibles(question: TargetQuestion, claims: list[ClaimJugee],
+            vises: dict[str, set[str]]) -> list[ClaimJugee]:
+    vise = vises.get(question.question_id) or set()
+    if question.claim_id is not None or vise:
+        return [claim for claim in claims if claim.claim_id in vise]
+    return list(claims)
+
+
 def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPackage]:
     answers = _response_by_question(state)
     questions = {q.question_id: q for q in state.questions}
+    vises = {question.question_id:
+             {claim.claim_id for claim in state.base_claims if _vise(question, claim)}
+             for question in state.questions}
     contested_keys = {conflict.key.casefold() for conflict in state.conflicts
                       if conflict.status == "ouvert"}
     claims = [claim.model_copy(deep=True) for claim in state.base_claims]
@@ -365,11 +503,11 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
         if claim.champs is None:
             continue
         relevant = [(questions[qid], meaning) for qid, meaning in answers.items()
-                    if qid in questions and questions[qid].claim_id == claim.claim_id
+                    if qid in questions and claim.claim_id in vises[qid]
                     and questions[qid].kind == "fait"]
         negatives = [q for q, meaning in relevant if meaning == ResponseMeaning.NEGATIVE]
         positives = [q for q, meaning in relevant if meaning == ResponseMeaning.AFFIRMATIVE]
-        contested = next((q for q in state.questions if q.claim_id == claim.claim_id
+        contested = next((q for q in state.questions if claim.claim_id in vises[q.question_id]
                           and (q.fact_key.casefold() in contested_keys
                                or (q.expected_value or "").casefold() in contested_keys)), None)
         if negatives:
@@ -382,7 +520,7 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
             if claim.champs.fait_manquant in confirmed:
                 claim.champs.fait_manquant = None
             required = [q for q in state.questions
-                        if q.claim_id == claim.claim_id and q.kind == "fait"]
+                        if claim.claim_id in vises[q.question_id] and q.kind == "fait"]
             if required and all(answers.get(q.question_id) == ResponseMeaning.AFFIRMATIVE
                                 for q in required):
                 claim.champs.fait_requis_present = True
@@ -393,7 +531,7 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
         meaning = answers.get(question.question_id)
         if meaning not in {ResponseMeaning.AFFIRMATIVE, ResponseMeaning.NEGATIVE}:
             continue
-        targets = [c for c in claims if question.claim_id is None or c.claim_id == question.claim_id]
+        targets = _cibles(question, claims, vises)
         if question.kind == "option":
             missing.options_souscrites = False
             for claim in targets:
@@ -468,13 +606,39 @@ def _inconnues_du_tour(initial: Answer, *, found: bool, complete: bool) -> list[
     return ["Le verdict conserve des conditions, des pièces ou des faits non établis."]
 
 
+LABELS_VERDICT = {
+    "couvert": "couvert", "non_couvert": "non couvert",
+    "sous_conditions": "sous conditions", "ne_tranche_pas": "ne tranche pas",
+}
+
+
+def amorce_de_recalcul(verdict: Verdict) -> str:
+    """La seule phrase que le tour de suivi écrit lui-même — et elle dit ce qu'elle a fait."""
+    return ("Verdict mis à jour avec vos réponses, sans relire le contrat : "
+            f"{LABELS_VERDICT[verdict.value]}.")
+
+
 def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict) -> Answer:
-    """Restitution sans modèle dont aucun texte figé ne peut contredire le verdict courant."""
-    labels = {
-        "couvert": "couvert", "non_couvert": "non couvert",
-        "sous_conditions": "sous conditions", "ne_tranche_pas": "ne tranche pas",
-    }
-    texte = f"Verdict recalculé : {labels[verdict.value]}. {verdict.reason}"
+    """Le texte du modèle **conservé**, précédé de ce que la réponse du client a changé (L1g).
+
+    Ce que cette fonction faisait, et que la lecture du 04/09 a montré : elle jetait la réponse. Le
+    texte du premier tour — les phrases du modèle, la transition, le rattachement aux faits — était
+    remplacé par « Verdict recalculé : sous conditions. <raison de la table> », et le `text` de
+    chaque clause par « Clause vérifiée conservée pour le recalcul du verdict. ». La personne qui
+    répondait à une question perdait donc la réponse qu'elle venait de lire, au profit de la
+    projection de l'état interne. C'est une lecture de la table d'AD-6, pas une réponse.
+
+    La règle qui l'avait motivée reste entière : **aucun texte figé ne peut contredire le verdict
+    courant**. Elle est tenue autrement, et plus exactement. Ce que le premier tour a écrit est un
+    compte rendu du contrat (« ce que disent les conditions générales »), que la réponse du client
+    n'invalide pas — elle ajoute une pièce au dossier. Ce qui pourrait contredire le verdict courant,
+    c'est la **conclusion** ; elle est donc réénoncée en tête, dans une phrase qui dit d'où elle
+    vient et ce qu'elle n'a pas fait (« sans relire le contrat »), et le statut d'applicabilité de
+    chaque clause est recalculé sur ses champs — ce que le front affiche sous la clause. La raison
+    technique de la table, elle, n'a jamais eu sa place dans une phrase servie : elle vit dans
+    `verdict.reason` et dans la trace, sous « Comment cette réponse a été obtenue ».
+    """
+    prefixe = amorce_de_recalcul(verdict)
     resolutions = applicabilites_des_claims(claims)
     judged = {claim.claim_id: resolution for claim, resolution in
               ((claim, resolutions.get(claim.claim_id)) for claim in claims)}
@@ -486,24 +650,21 @@ def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict
             status.applicable, status.applicable_reason = resolution
         else:
             status.applicable, status.applicable_reason = None, None
-        verified.append(claim.model_copy(update={
-            "text": "Clause vérifiée conservée pour le recalcul du verdict.", "status": status,
-        }, deep=True))
+        verified.append(claim.model_copy(update={"status": status}, deep=True))
     rejected = []
     for claim in initial.rejected_claims:
         status = claim.status.model_copy(update={
             "applicable": None, "applicable_reason": None}, deep=True)
-        rejected.append(claim.model_copy(update={
-            "text": "Affirmation écartée au premier tour, conservée pour l'audit.",
-            "status": status,
-        }, deep=True))
+        rejected.append(claim.model_copy(update={"status": status}, deep=True))
     found = bool(verified)
     complete = found and verdict.value in {"couvert", "non_couvert"}
+    corps = initial.texte.strip()
     answer = initial.model_copy(update={
         "found": found,
         "complete": complete,
-        "texte": texte,
-        "segments": [AnswerSegment(text=texte, kind="limite")],
+        "texte": f"{prefixe}\n\n{corps}" if corps else prefixe,
+        "segments": [AnswerSegment(text=prefixe, kind="limite"),
+                     *[segment.model_copy(deep=True) for segment in initial.segments]],
         "claims": verified,
         "rejected_claims": rejected,
         "unknown": _inconnues_du_tour(initial, found=found, complete=complete),

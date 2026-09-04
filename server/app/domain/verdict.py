@@ -395,7 +395,16 @@ def _qualites_a_confirmer(claims: list[ClaimJugee], *, deja: list[str]) -> list[
     return [libelle for libelle in fusion if libelle not in deja]
 
 
-def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> list[str]:
+QUESTION_OPTION = "Quelles options et extensions ont été souscrites ?"
+QUESTION_CONDITIONS_PARTICULIERES = ("Que prévoient les conditions particulières "
+                                     "(montants, franchises, biens désignés) ?")
+QUESTION_AVENANT_DATE = (
+    "À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? "
+    "Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.")
+
+
+def questions_du_paquet_typees(claims: list[ClaimJugee],
+                               missing: MissingPackage) -> list[tuple[str, str]]:
     """Ce qu'il faut demander au client parce que le verdict ne lit que les conditions générales.
 
     Une question par pièce manquante d'AD-6, et rien qui dépende du modèle : un verdict rendu « au
@@ -405,25 +414,33 @@ def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> l
     diligence à un préalable. La troisième couvre les deux pièces restantes : les annoncer manquantes
     dans `missing` sans jamais les demander laissait le gestionnaire devant quatre pièces absentes et
     deux questions (revue 1.8).
+
+    Story 5.7 (L1g) : chaque question sort **typée** — le `QuestionKind` du fil de conversation —
+    parce que deux lecteurs en ont besoin des deux moitiés. `ask_client` n'en garde que le texte ;
+    `domain.conversation` a besoin du type pour rattacher la réponse à la bonne ligne de la table
+    d'AD-6, et il reprend le texte sans le réécrire.
     """
-    out: list[str] = []
+    out: list[tuple[str, str]] = []
     if missing.options_souscrites:
-        question = "Quelles options et extensions ont été souscrites ?"
+        question = QUESTION_OPTION
         if any(c.champs is not None and c.champs.option_requise for c in claims):
             question += " Une clause citée ne joue qu'à cette condition."
-        out.append(question)
+        out.append(("option", question))
     if missing.conditions_particulieres:
-        question = "Que prévoient les conditions particulières (montants, franchises, biens désignés) ?"
+        question = QUESTION_CONDITIONS_PARTICULIERES
         if any(c.champs is not None and c.champs.cp_requise for c in claims):
             question += " Une clause citée y renvoie."
-        out.append(question)
+        out.append(("conditions_particulieres", question))
     if missing.avenants or missing.date_effet:
-        out.append("À quelle date le contrat a-t-il pris effet, et un avenant l'a-t-il modifié depuis ? "
-                   "Le sinistre doit tomber dans la période garantie, dans la version alors en vigueur.")
+        out.append(("avenant_date", QUESTION_AVENANT_DATE))
     return out
 
 
-def _conditions_de_section_ouvertes(claims: list[ClaimJugee], *,
+def _questions_du_paquet(claims: list[ClaimJugee], missing: MissingPackage) -> list[str]:
+    return [texte for _kind, texte in questions_du_paquet_typees(claims, missing)]
+
+
+def conditions_de_section_ouvertes(claims: list[ClaimJugee], *,
                                     etat: dict[str, Applicable]) -> list[ConditionDeSection]:
     """Les conditions d'applicabilité de section qu'aucune affirmation retenue n'établit (L1e).
 
@@ -464,13 +481,32 @@ def _conditions_de(claim: ClaimJugee, ouvertes: set[str]) -> list[ConditionDeSec
     return trouvees
 
 
+def question_de_section(condition: ConditionDeSection) -> str:
+    """La question posée au client par une condition de section — le témoin choisit les mots.
+
+    Story 5.7 (L1g) : cette formulation est **la** formulation. `ask_client` la publie et le fil de
+    conversation la repose telle quelle (`domain.conversation`) ; il n'existe pas de seconde façon de
+    demander la même pièce, donc pas de dérive possible entre ce que le verdict réclame et ce que la
+    personne lit.
+    """
+    return (f"Vos conditions particulières mentionnent-elles la garantie « {condition.titre} » ?"
+            if condition.renvoie_cp else
+            f"La condition posée en tête de « {condition.titre} » est-elle remplie ?")
+
+
+def question_de_fait(libelle: str) -> str:
+    """Le fait qu'une clause exige et que les faits déclarés ne disent pas, demandé au client."""
+    return f"Pouvez-vous confirmer ce fait : {libelle} ?"
+
+
+def question_de_qualite(libelle: str) -> str:
+    """La qualité qu'une clause subordonne à l'événement, demandée au client dans ses mots."""
+    return f"L'événement présente-t-il cette qualité : {libelle} ?"
+
+
 def _questions_de_section(conditions: list[ConditionDeSection]) -> list[str]:
-    """Une question par condition de section ouverte — les mots suivent le témoin, pas la règle."""
-    return [
-        (f"Vos conditions particulières mentionnent-elles la garantie « {condition.titre} » ?"
-         if condition.renvoie_cp else
-         f"La condition posée en tête de « {condition.titre} » est-elle remplie ?")
-        for condition in conditions]
+    """Une question par condition de section ouverte, dans l'ordre où elles sont apparues."""
+    return [question_de_section(condition) for condition in conditions]
 
 
 def questions_du_paquet_manquant(missing: MissingPackage | None = None) -> list[str]:
@@ -630,7 +666,7 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     # devant les faits — c'est elle qui plafonne le verdict, et elle est due quel que soit ce que le
     # modèle a cité. Elle entre dans le décompte de `place` pour la même raison que `paquet` : ce que
     # `missing.faits` annonce, `ask_client` doit pouvoir le demander.
-    sections_ouvertes = _conditions_de_section_ouvertes(retenues, etat=etat)
+    sections_ouvertes = conditions_de_section_ouvertes(retenues, etat=etat)
     conditions_ouvertes = {condition.block_id for condition in sections_ouvertes}
     questions_section = _questions_de_section(sections_ouvertes)
     manquants = _libelles_manquants(

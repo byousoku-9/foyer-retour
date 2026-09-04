@@ -788,7 +788,8 @@ def _nom_de_claim(claim: Claim, position: int) -> str:
 
 def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
                       inactionnables: set[str],
-                      facettes_decouvertes: Sequence[int] = ()) -> str | None:
+                      facettes_decouvertes: Sequence[int] = (),
+                      phrases_a_reecrire: dict[str, list[int]] | None = None) -> str | None:
     """Motif composé par **notre** code, transmis tel quel à la relance de *rédiger* (AD-3).
 
     Il est délimité par `untrusted()` dans *rédiger* : ce texte mêle nos phrases à des `block_id`, et
@@ -807,10 +808,21 @@ def _motif_de_relance(rejetees: list[RejectedClaim], noms: dict[str, str],
     seul, il ne déclencherait pas de relance (`pipelines.commun.relance_utile`) et ne serait donc
     jamais lu.
     """
+    a_reecrire = phrases_a_reecrire or {}
     actionnables = [c for c in rejetees if c.claim_id not in inactionnables]
-    if not actionnables:
+    if not actionnables and not a_reecrire:
         return None
     lignes = [f"- {noms[claim.claim_id]} : {claim.motif}" for claim in actionnables]
+    # Story 5.6 (L1g) — l'amputation phrase par phrase, dite au modèle avec **les rangs** qu'elle a
+    # retirés. Sans eux, la relance ne sait pas où le paragraphe a cédé et rallonge au hasard ; avec
+    # eux, la consigne est exécutable et tient en une phrase : une phrase, un passage.
+    lignes += [f"- {noms.get(claim_id, claim_id)} : les phrases n° "
+               + ", ".join(str(rang + 1) for rang in rangs)
+               + " du paragraphe ont été retirées faute d'un passage qui les dise — réécris chaque "
+                 "phrase à partir d'un passage cité, une phrase par passage, dans l'ordre utile à "
+                 "la personne ; ne rétablis ni transition ni synthèse qu'aucun passage ne porte, "
+                 "et fais porter les connecteurs par des phrases soutenues"
+               for claim_id, rangs in a_reecrire.items()]
     lignes += [f"- sous-question n° {rang} : aucune affirmation retenue ne la traite ; rends-en une, "
                "bornée à ce que les blocs de cette sous-question disent — un paragraphe plus court "
                "sur chacune vaut mieux qu'un paragraphe complet sur l'une d'elles"
@@ -1296,6 +1308,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     segments_amputes: dict[int, str] = {}
     claims_amputees = 0
     phrases_de_claim_retirees = 0
+    phrases_a_reecrire: dict[str, list[int]] = {}
     for claim, _quotes, _edition in evaluees:
         unites = phrases_de_claim.get(claim.claim_id, [])
         retires = phrases_retirees.get(claim.claim_id, set())
@@ -1311,6 +1324,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             continue
         if verdicts.get(claim.claim_id) is not True:
             continue  # déjà écartée par le jugement global : il n'y a rien à amputer
+        if len(retires) > settings.claim_phrases_retirees_ratio_max * len(unites):
+            # L1g : au-delà du seuil, ce qui reste n'est plus une réponse plus courte. On sert quand
+            # même l'amputation — elle est soutenue, et une relance peut échouer —, mais on demande
+            # au modèle de refaire le paragraphe une phrase par passage (`_motif_de_relance`).
+            phrases_a_reecrire[claim.claim_id] = sorted(retires)
         textes_amputes[claim.claim_id] = " ".join(gardees)
         for i, decoupe in portes.items():
             segments_amputes[i] = " ".join(u for r, u in enumerate(decoupe) if r not in retires)
@@ -1321,7 +1339,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             name="phrases_de_claim_retirees", ok=False,
             detail=f"{phrases_de_claim_retirees} phrase(s) de {claims_amputees} affirmation(s) "
                    "retenue(s) avancent plus que les passages joints : retirées du texte affiché, "
-                   "l'affirmation et ses citations restent"))
+                   "l'affirmation et ses citations restent"
+                   + (f" ; {len(phrases_a_reecrire)} d'entre elles en perdent plus de "
+                      f"{settings.claim_phrases_retirees_ratio_max:.0%} : la relance unique d'AD-3 "
+                      "est demandée, chaque phrase réécrite à partir d'un passage"
+                      if phrases_a_reecrire else "")))
+
     # Le texte réellement affichable : les segments du draft, ceux d'une affirmation amputée portant
     # la même amputation. C'est cette liste, et non `draft.segments`, que la suite juge et publie.
     segments_affichables = [
@@ -1660,9 +1683,12 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         # été retrouvée dans l'entrée réellement envoyée. C'est le pipeline — pas cette étape — qui
         # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).
         demande_contexte=demande,
+        phrases_a_reecrire=phrases_a_reecrire,
         motif=_motif_de_relance(rejetees, noms, inactionnables,
                                 [rang for rang in range(len(parsed.facettes))
-                                 if rang not in set(facettes_couvertes)]) if rejetees else None,
+                                 if rang not in set(facettes_couvertes)],
+                                phrases_a_reecrire=phrases_a_reecrire)
+        if rejetees or phrases_a_reecrire else None,
     )
     verification._decision_claims = affichables
     step.checks.append(CheckResult(

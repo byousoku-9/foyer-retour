@@ -544,6 +544,14 @@ class Settings(BaseSettings):
     # le modèle rend et ce que le code accepte (un rang hors liste ne retire rien). 12 tient le plus
     # long paragraphe mesuré (1 163 caractères, 8 phrases) avec de la marge.
     claim_phrases_max: int = Field(12, ge=1)
+    # Story 5.6 (L1g) — la fraction de phrases qu'une affirmation retenue peut perdre au jugement
+    # phrase par phrase (L1d) **avant** que le squelette qui reste ne vaille plus d'être servi.
+    # Mesuré le 04/09/2026 sur la question « avant de partir au Luxembourg » : 7 phrases retirées,
+    # trois phrases sans lien entre elles servies à leur place. Retirer une phrase de liaison est le
+    # bon geste ; en retirer la moitié laisse un texte que personne n'a écrit. Au-delà du seuil, une
+    # **unique** relance est demandée avec les rangs retirés nommés (`steps.verifier`), et c'est la
+    # relance d'AD-3 déjà bornée par le pipeline — jamais un second appel de plus.
+    claim_phrases_retirees_ratio_max: float = Field(0.34, gt=0.0, le=1.0)
     # L'appel `reason` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
@@ -1978,6 +1986,7 @@ class Settings(BaseSettings):
             "qualite_mot_min_chars": self.qualite_mot_min_chars,
             "rattachement_max_chars": self.rattachement_max_chars,
             "claim_phrases_max": self.claim_phrases_max,
+            "claim_phrases_retirees_ratio_max": self.claim_phrases_retirees_ratio_max,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
@@ -2206,6 +2215,7 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "verifier_thinking_reserve_tokens", "fait_manquant_max_chars", "ask_client_max",
     "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
     "qualite_mot_min_chars", "rattachement_max_chars", "claim_phrases_max",
+    "claim_phrases_retirees_ratio_max",
     "historique_max_turns",
     "relance_sur_non_pertinence",
     "quote_max_chars", "draft_max_segments", "draft_max_claims", "draft_max_definitions",

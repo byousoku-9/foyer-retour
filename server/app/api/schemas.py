@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from server.app.config import Settings
 from server.app.domain.answer import Answer, AnswerSegment
@@ -407,14 +407,24 @@ class SinistreConversationResponse(SinistreResponse):
 
 
 class SinistreFollowupRequest(BaseModel):
-    """Suivi sans modèle : le jeton fait autorité après vérification HMAC."""
+    """Suivi sans modèle : le jeton fait autorité après vérification HMAC.
 
-    model_config = ConfigDict(extra="forbid")
+    Story 5.7 (L1g) — **`fait_libre`**. Le champ que la page nomme « réponse libre » n'est pas un
+    tour de dialogue : c'est un **fait précisé par le client**, enregistré tel quel dans l'état signé
+    (`FactEvent.source = "reponse_client"`) et relu par la table d'AD-6, jamais par un modèle. Le
+    contrat le nomme donc `fait_libre`, et `value` reste accepté sous ce nom pour les appelants
+    existants — les deux désignent le même champ, borné à 500 caractères. Sur une `correction` ou une
+    `resolution`, le même champ porte la version corrigée du fait : c'est la même nature, dite au même
+    endroit.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     doc_id: str = Field(min_length=1, max_length=DOC_ID_MAX, pattern=DOC_ID_PATTERN)
     token: str = Field(min_length=1, max_length=60_000)
     action: Literal["reponse", "correction", "resolution"] = "reponse"
-    value: str | None = Field(None, max_length=500)
+    value: str | None = Field(None, max_length=500,
+                              validation_alias=AliasChoices("value", "fait_libre"))
     question_id: str | None = Field(None, max_length=80)
     fact_key: str | None = Field(None, max_length=FACT_KEY_MAX)
     replaces_event_id: str | None = Field(None, max_length=80)

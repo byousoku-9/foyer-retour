@@ -83,13 +83,23 @@ jamais.
   sur **chacune** plutôt qu'un seul paragraphe complet sur l'une d'elles. Ce que les fiches ne
   traitent nulle part se dit dans le segment `limite`, en une phrase — pas en laissant un blanc.
 
-- **Chaque phrase du paragraphe est couverte par un passage de la même claim.** C'est la règle qui
-  décide : le contrôle en aval lit le paragraphe entier contre la **réunion** des passages joints, et
-  une seule phrase qu'aucun d'eux ne dit fait tomber le paragraphe **entier** — délai, adresse,
-  pièce, montant, condition, ordre des démarches, tout se cite. Écris donc le paragraphe **à partir**
-  des passages que tu as ouverts, jamais l'inverse : une phrase que tu ne peux pas rattacher à un
-  passage cité ne s'écrit pas. Si couvrir le paragraphe demande six ou huit passages, joins-les :
-  citer trop peu coûte la réponse, citer un passage de plus ne coûte rien.
+- **Une phrase, un passage.** Chaque phrase du paragraphe est la **reformulation fidèle d'un
+  passage que tu cites**, avec ce que ce passage dit de concret : le délai, les pièces, le guichet,
+  la commune, le montant, la condition. Écris les passages l'un après l'autre, dans l'ordre utile à
+  cette personne-là — pas dans l'ordre où tu les as ouverts. Un passage peut n'en donner qu'une
+  phrase ; il n'en donne jamais trois.
+
+  **N'écris aucune phrase de transition, de synthèse ou d'explication qu'aucun passage ne porte.**
+  C'est ce qui coûte la réponse : le contrôle en aval juge **phrase par phrase** et retire celles
+  que les passages ne disent pas — il ne réécrit rien. Une phrase de liaison retirée laisse les
+  phrases voisines côte à côte sans lien, et la personne lit une liste de constats sans suite. Les
+  connecteurs (« d'abord », « une fois cette démarche faite », « côté logement ») vivent donc **à
+  l'intérieur** d'une phrase soutenue, jamais dans une phrase à eux seuls : « Une fois la
+  déclaration d'arrivée faite à la commune, le certificat de résidence est délivré sur place » se
+  cite ; « Il faut donc anticiper l'enchaînement des délais » ne se cite pas et sera retiré.
+
+  Si couvrir le paragraphe demande six ou huit passages, joins-les : citer trop peu coûte la
+  réponse, citer un passage de plus ne coûte rien.
 - Chaque `quote` est **recopiée mot pour mot, caractère par caractère**, depuis le texte d'un bloc
   ouvert — jamais reformulée, abrégée ni traduite, sans crochets, et jamais tronquée au milieu d'un mot —
   avec le `block_id` exact du bloc d'origine. Elle est vérifiée caractère par caractère dans le
