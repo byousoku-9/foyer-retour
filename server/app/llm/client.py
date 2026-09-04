@@ -528,6 +528,7 @@ class LlmClient:
         prompt_cache: bool = True,
         trusted_line_uids: tuple[str, ...] = (),
         validation_context: dict[str, Any] | None = None,
+        delai_facteur: float = 1.0,
     ) -> LlmResult[T]:
         """Un appel structuré : préfixe caché, timeout borné par la deadline, 1 retry sur parse invalide.
 
@@ -618,7 +619,13 @@ class LlmClient:
             # temps qui reste au lieu du plafond de délai.
             budget.exiger_le_temps_decrire(settings.duree_majoree_pour(max_tokens),
                                            etape=step.name)
-            timeout = budget.timeout_for_call(settings.llm_timeout_s)
+            # L1l : `delai_facteur` étire la borne d'un appel **nommé** dans le temps que la
+            # deadline laisse encore (voir `RequestBudget.timeout_for_call`). Il ne touche ni au
+            # corps envoyé, ni à la clé de cache d'évals, ni au certificat de fixture : le délai
+            # dépend de l'horloge, pas de la requête, et deux appels qui n'attendent pas le même
+            # temps restent le même appel.
+            timeout = budget.timeout_for_call(settings.llm_timeout_s, facteur=delai_facteur,
+                                              marge=settings.llm_latence_marge_s)
             kwargs: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "system": system,
                                       "messages": msgs, "output_config": output_config, "timeout": timeout}
             if tools is not None:

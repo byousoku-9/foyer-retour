@@ -47,9 +47,40 @@ class RequestBudget:
         """Secondes restantes avant la deadline (peut être négatif)."""
         return self.deadline_s - (time.monotonic() - self._t0)
 
-    def timeout_for_call(self, llm_timeout_s: float) -> float:
-        """Timeout à passer au SDK : min(llm_timeout_s, deadline restante)."""
-        return min(llm_timeout_s, self.remaining())
+    def timeout_for_call(self, llm_timeout_s: float, *, facteur: float = 1.0,
+                         marge: float = 0.0) -> float:
+        """Timeout à passer au SDK : min(llm_timeout_s, deadline restante).
+
+        Story 5.6 (L1l) — `facteur` **étire** cette borne pour un appel nommé, jamais pour tous, et
+        seulement dans le temps que la deadline laisse déjà :
+
+            min( max( llm_timeout_s, min(llm_timeout_s × facteur, restant − marge) ), restant )
+
+        Le rejeu L1j (04/09/2026, `proto/g-partir-l1j.json`) a sorti une requête en 503 `timeout`
+        avec **112,2 s de deadline encore disponibles** : l'appel de *vérifier* avait franchi les
+        78 s de `llm_timeout_s`, qui majore la durée d'écriture de la plus longue sortie d'étape et
+        garde donc contre un appel **pendu** — pas contre un appel long. Trois étapes sur quatre
+        avaient abouti ; la personne n'a rien reçu, sur un plafond qui n'était pas celui qu'on avait
+        promis de tenir. `deadline_s` est ce plafond-là, et il reste le seul dur : `restant` borne le
+        résultat en dernier, si bien qu'un appel étiré finit coupé par la deadline avec l'erreur que
+        l'API sait déjà rendre, jamais au-delà.
+
+        Les deux gardes qui encadrent la dérivation :
+
+        - `max(llm_timeout_s, …)` — l'étirement ne **raccourcit** jamais. Sans lui, un `restant` un
+          peu supérieur à `marge` rendrait un délai de quelques secondes là où la borne par défaut
+          en donnait 78, et le facteur serait devenu un plafond plus court que celui qu'il étire.
+        - `min(…, restant)` — l'étirement ne **dépasse** jamais la deadline. Le cas où la borne par
+          défaut excède déjà le temps restant retombe alors exactement sur `min(llm_timeout_s,
+          restant)`, la formule d'avant L1l.
+
+        `facteur = 1.0` (le défaut, donc tous les appels sauf celui qui le demande) rend cette
+        formule d'avant à l'identique, quels que soient `marge` et `restant`.
+        """
+        restant = self.remaining()
+        if facteur <= 1.0:
+            return min(llm_timeout_s, restant)
+        return min(max(llm_timeout_s, min(llm_timeout_s * facteur, restant - marge)), restant)
 
     def exiger_le_temps_decrire(self, duree_majoree: float, *, etape: str) -> None:
         """Refuse **avant l'envoi** un appel que le temps restant ne peut pas laisser aboutir.
