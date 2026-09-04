@@ -1058,7 +1058,7 @@ class Settings(BaseSettings):
     # 0,15 € et ces trois plafonds pourront redescendre ensemble. Le maintien au chaud de T5
     # (`prefix_keepalive_*`) rend le chemin froid rare en production ; il ne le rend pas impossible,
     # et un plafond n'a pas le droit de parier dessus.
-    max_cost_eur_per_request: float = Field(2.50, ge=0)
+    max_cost_eur_per_request: float = Field(3.50, ge=0)
     # **0,25 €, et non 0,05.** `cout_eleve` est de l'**observabilité** (AD-10), pas un garde-fou : il
     # doit désigner une requête anormale. À 0,05 € il se levait au sortir de *retrouver* — 0,0427 € à
     # son second tour, 0,0548 € avant *rédiger* — c'est-à-dire sur toutes les requêtes, ce qui n'est
@@ -1111,7 +1111,7 @@ class Settings(BaseSettings):
     # froids (≈ 0,67 €). `--repeat 5` (32,50 €) et le profil `full` restent refusés sans
     # `--max-cost` explicite. `live_budget_eur` bouge avec, à la même valeur : c'est le plus petit
     # des deux que `evals/run.py` confronte au majorant.
-    evals_max_cost_eur: float = Field(20.0, ge=0)
+    evals_max_cost_eur: float = Field(60.0, ge=0)
     # Story 4.5 (FR41) — **où vit l'artefact machine des résultats publiés**, relativement à `data/`.
     #
     # Le **nom** est l'unique autorité partagée par l'écrivain (`server/evals/publication.py`) et le
@@ -1158,7 +1158,7 @@ class Settings(BaseSettings):
     # ce défaut est le filet de celui qui l'oublie, pas l'autorisation de s'en passer.
     # 12,00 € depuis le 02/09/2026 16 h 50, avec `evals_max_cost_eur` : 15 exécutions × 0,75 €.
     # 20,00 € depuis le 03/09/2026 (T7), avec `evals_max_cost_eur` : 15 exécutions × 1,30 €.
-    live_budget_eur: float = Field(20.00, gt=0)
+    live_budget_eur: float = Field(60.00, gt=0)
     live_campaign_id: str | None = Field(None, min_length=1, max_length=128)
 
     # Client LLM (story 1.3, AD-9) : sortie maximale d'un appel, marge de deadline exigée pour le retry sur parse
