@@ -746,3 +746,58 @@ def test_a_real_quality_of_the_same_clause_is_still_asked() -> None:
     # `sous_conditions` ne tient pas à L1m — la règle (2) ne compte comme « clause ouverte » qu'une
     # condition, une franchise ou une exclusion, jamais une seconde garantie `humain`.
     assert verdict.value != "couvert"
+
+
+# --- L1o : une amorce d'énumération n'est pas une clause qui décide -------------------------
+def _amorce(kind: str, *, block_id: str = "d:p1:9", **kw) -> ClauseCitee:
+    return _clause(kind, block_id=block_id, **kw).model_copy(update={"amorce": True})
+
+
+def test_une_amorce_dexclusion_citee_seule_ne_fonde_plus_un_non_couvert() -> None:
+    """Story 5.7 (L1o) : la phrase qui annonce des exclusions n'en est pas une.
+
+    L'entrée est celle de la règle (1) d'AD-6 — une exclusion `applicable="oui"` dont la portée
+    couvre le nœud du cas —, et c'est ce que la même claim rendait avant le correctif : `non_couvert`
+    sur « Sont exclus : », c'est-à-dire sur une phrase dont aucun item n'a été cité. Une amorce ne
+    laisse aucune clause qui décide : la claim vaut `None`, elle sort de la table, et le verdict est
+    celui que la garantie seule fonde.
+    """
+    garantie = _claim("c1", "garantie", _champs())
+    sans_la_regle = ClaimJugee(claim_id="c2", champs=_champs(),
+                               clauses=[_amorce("exclusion").model_copy(update={"amorce": False})])
+    assert applicable_de_claim(sans_la_regle) == "oui"
+    assert decider([garantie, sans_la_regle], ask_client_max=ASK_MAX,
+                   missing=PAQUET_ETABLI).value == "non_couvert"
+
+    amorce = ClaimJugee(claim_id="c2", clauses=[_amorce("exclusion")], champs=_champs())
+    assert applicable_de_claim(amorce) is None
+    assert amorce.kind is None and amorce.clauses_decisionnelles == []
+    assert applicabilites_des_claims([garantie, amorce])["c2"] == (None, None)
+    assert decider([garantie, amorce], ask_client_max=ASK_MAX,
+                   missing=PAQUET_ETABLI).value == "couvert"
+
+
+def test_une_amorce_seule_ne_fonde_rien_meme_sans_autre_claim() -> None:
+    """La borne du même geste : hors de la table, une amorce n'y entre pas non plus comme fondatrice.
+
+    C'est la règle (0bis) d'AD-6 lue à la lettre — « aucune claim affichée de kind garantie ou
+    exclusion » —, et elle vaut ici parce que `kind` se lit désormais sur les clauses qui décident.
+    Une affirmation réduite à l'annonce d'une énumération est affichée avec sa citation, et le
+    verdict dit qu'aucune clause fondatrice n'a été retenue plutôt que d'en inventer une.
+    """
+    verdict = decider([ClaimJugee(claim_id="c1", clauses=[_amorce("garantie")], champs=_champs())],
+                      ask_client_max=ASK_MAX, missing=PAQUET_ETABLI)
+    assert verdict.value == "ne_tranche_pas"
+    assert "aucun n'est confirmé comme garantie ou exclusion fondatrice" in verdict.reason
+
+
+@pytest.mark.parametrize("defaut", [{}, {"confirmed": False}, {"portee": set()}])
+def test_lamorce_jointe_a_son_item_laisse_lapplicabilite_de_litem(defaut: dict) -> None:
+    """L1f joint l'amorce à son item ; L1o veut que l'item décide **seul**, quel que soit l'état
+    de l'amorce — une portée absente ou un typage non confirmé sur l'annonce ne rend plus `humain`
+    une clause dont l'item, lui, est complet."""
+    item = _clause("garantie", block_id="d:p1:1")
+    seul = ClaimJugee(claim_id="c1", clauses=[item], champs=_champs())
+    duo = ClaimJugee(claim_id="c1", clauses=[_amorce("garantie", **defaut), item], champs=_champs())
+    assert applicable_de_claim(duo) == applicable_de_claim(seul) == "oui"
+    assert duo.kind == "garantie"

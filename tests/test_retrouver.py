@@ -29,6 +29,7 @@ from server.app.domain import (
     RetrievalBudget,
 )
 from server.app.domain.errors import BudgetExceeded
+from server.app.domain.verdict import KINDS_DECISIONNELS
 from server.app.domain.question import ParsedQuestion, QuestionScope
 from server.app.llm.models import TIERS
 from server.app.llm.budget import RequestBudget
@@ -359,6 +360,63 @@ def test_lamorce_introduit_immediatement_son_item_sur_les_deux_rangements_du_cor
     doc = index.corpus.documents[baloise]
     titre = next(b.block_id for b in doc.blocks if b.kind == "heading")
     assert not any(index.introduit_immediatement(titre, b.block_id) for b in doc.blocks)
+
+
+def test_une_amorce_se_reconnait_a_ce_quelle_precede_ses_items() -> None:
+    """Story 5.7 (L1o) : la question inverse de `amorce_de_lenumeration`, et ses deux fermetures.
+
+    Le verdict a besoin de savoir si **ce bloc-ci** ouvre une énumération : citée seule, une amorce
+    est le contexte d'une clause, pas une clause. Les deux rangements sont ceux de L1f — AXA range
+    ses périls dans des feuilles enfants, Baloise range ses exclusions dans une liste du même nœud.
+
+    Les deux fermetures sont celles qui font la précision de la règle, et chacune vient d'une mesure
+    sur les contrats servis. **Précéder ses items** : `p29:10` est le dernier bloc citable de `2.18`
+    et il *suit* les sept items — c'est l'épilogue de l'énumération, pas son annonce, et le tenir
+    pour une amorce sortirait une vraie condition de la table. **N'être pas soi-même un item** : un
+    bloc que l'ingestion a rangé en `list` est un item, quoi qu'il ait autour de lui.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    baloise, axa = "baloise-lu-home-2-2024", "axa-lu-optihome-2017"
+    # Nœud parent (AXA) et même nœud (Baloise) : l'annonce est reconnue, ses items ne le sont pas.
+    assert index.est_amorce_denumeration(f"{axa}:p34:6")
+    assert not index.est_amorce_denumeration(f"{axa}:p34:12")
+    assert index.est_amorce_denumeration(f"{baloise}:p12:8")
+    assert not index.est_amorce_denumeration(f"{baloise}:p12:9")
+    # L'épilogue qui suit les items n'est pas l'amorce ; celle qui les précède l'est.
+    assert not index.est_amorce_denumeration(f"{axa}:p29:10")
+    assert index.est_amorce_denumeration(f"{axa}:p29:2")
+    # Un bloc `list` est un item, et un titre n'ouvre rien : le code ne fabrique pas d'unité de
+    # lecture à partir d'un titre, ici comme dans les deux méthodes voisines.
+    assert index.corpus.documents[axa].block(f"{axa}:p5:3").structural_kind == "list"
+    assert not index.est_amorce_denumeration(f"{axa}:p5:3")
+    assert not any(index.est_amorce_denumeration(b.block_id)
+                   for b in index.corpus.documents[baloise].blocks if b.kind == "heading")
+    # Un bloc inconnu ne lève pas : il n'introduit rien et ne se cite pas.
+    assert not index.est_amorce_denumeration("d:p1:1")
+
+
+def test_le_rayon_daction_de_la_regle_des_amorces_est_mesure_sur_les_deux_contrats() -> None:
+    """Story 5.7 (L1o) — combien de clauses la règle sort de la table, mesuré le 04/09/2026.
+
+    Une amorce citée seule vaut `applicable=None` : la règle *retire* de la table des blocs que
+    l'ingestion a typés décisionnels, et son rayon d'action doit donc se voir. Sur les deux contrats
+    servis, 72 blocs décisionnels sur 1 247 sont des amorces, et **70 d'entre eux finissent par un
+    deux-points** — la structure dit ici ce que la ponctuation dirait, sans jamais la lire. Les deux
+    autres sont l'endroit exact où les deux lectures divergent : une amorce dont l'extraction a perdu
+    le deux-points (`p36:6`, « Ne sont toutefois pas couverts les dommages »), que le texte aurait
+    manquée, et une condition qui n'annonce rien (`p62:11`), que la structure retient à tort. Le
+    témoin épingle les trois nombres pour qu'une réingestion ou un retypage se voie.
+    """
+    index = Index(load_corpus(ROOT / "data", allow_ungated=True))
+    mesures, sans_deux_points = {}, []
+    for doc_id in ("axa-lu-optihome-2017", "baloise-lu-home-2-2024"):
+        doc = index.corpus.documents[doc_id]
+        decisionnels = [b for b in doc.blocks if b.kind in KINDS_DECISIONNELS]
+        amorces = [b for b in decisionnels if index.est_amorce_denumeration(b.block_id)]
+        sans_deux_points += [b.block_id for b in amorces if not b.text.rstrip().endswith(":")]
+        mesures[doc_id] = (len(decisionnels), len(amorces))
+    assert mesures == {"axa-lu-optihome-2017": (785, 51), "baloise-lu-home-2-2024": (462, 21)}
+    assert sans_deux_points == ["axa-lu-optihome-2017:p36:6", "axa-lu-optihome-2017:p62:11"]
 
 
 def test_le_rayon_daction_des_amorces_non_uniques_est_une_minorite_nommee() -> None:

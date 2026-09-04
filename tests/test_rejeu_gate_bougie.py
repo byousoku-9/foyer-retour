@@ -20,7 +20,8 @@ import pytest
 
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
-from server.app.domain.verdict import ChampsApplicabilite, ClaimJugee, decider
+from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee,
+                                       applicable_de_claim, decider)
 from server.app.steps.verifier import _mots_qualifiants, _qualites_de_la_clause, _clauses_citees
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,8 @@ def corpus() -> Corpus:
     return load_corpus(ROOT / "data", allow_ungated=True)
 
 
-def _rejouer(repetition: dict, *, corpus: Corpus, index: Index) -> tuple[str, list[ClaimJugee]]:
+def _rejouer(repetition: dict, *, corpus: Corpus, index: Index,
+             l1o: bool = True) -> tuple[str, list[ClaimJugee]]:
     """La répétition rejouée : champs canoniques + qualités **dérivées du texte** (L1n), puis AD-6.
 
     Un `applicable` observé se réécrit sans ambiguïté en champs typés : `oui` = fait requis présent
@@ -46,6 +48,11 @@ def _rejouer(repetition: dict, *, corpus: Corpus, index: Index) -> tuple[str, li
     jugees: list[ClaimJugee] = []
     for claim in repetition["claims"]:
         clauses = _clauses_citees(claim["blocs"], corpus=corpus, index=index)
+        if not l1o:
+            # Le corpus est celui du run, le code ne l'est plus : `l1o=False` rejoue la lecture qui
+            # était en vigueur le 04/09, où une amorce d'énumération décidait comme une clause. C'est
+            # la seule façon de reproduire une signature mesurée sous un correctif qui la corrige.
+            clauses = [clause.model_copy(update={"amorce": False}) for clause in clauses]
         observe = claim["applicable"]
         exigees = _qualites_de_la_clause(clauses, nommees="", place=8) if observe != "non" else []
         jugees.append(ClaimJugee(
@@ -62,10 +69,12 @@ def test_la_reconstruction_reproduit_la_signature_mesuree_du_gate(corpus: Corpus
 
     Les qualités dérivées du texte ne changent aucun des trois verdicts observés — elles ne
     referment que des `oui` portés par une clause qui écrit un qualificatif, et aucune des trois
-    répétitions n'en a. Le rejeu rend donc exactement la signature du rapport.
+    répétitions n'en a. Le rejeu rend donc exactement la signature du rapport, à la lecture du jour
+    du run (`l1o=False`) : c'est la mesure, et c'est elle que le correctif de L1o fait bouger.
     """
     index = Index(corpus)
-    rejoues = [_rejouer(r, corpus=corpus, index=index)[0] for r in RAPPORT["repetitions"]]
+    rejoues = [_rejouer(r, corpus=corpus, index=index, l1o=False)[0]
+               for r in RAPPORT["repetitions"]]
     assert rejoues == [r["verdict_observe"] for r in RAPPORT["repetitions"]]
     assert rejoues == ["ne_tranche_pas", "ne_tranche_pas", "sous_conditions"]
 
@@ -92,31 +101,35 @@ def test_l1n_rend_identiques_les_exigences_de_la_clause_qui_porte_le_cas(corpus:
     assert set(_mots_qualifiants(" ".join(exigences[0]))) >= {"soudain", "subit"}
 
 
-def test_ce_qui_fait_encore_diverger_le_cas_est_une_claim_reduite_a_l_amorce(corpus: Corpus) -> None:
-    """Le reste à faire, épinglé plutôt que perdu — et il n'est pas une affaire de qualités.
+def test_l1o_fait_converger_les_trois_repetitions_du_gate(corpus: Corpus) -> None:
+    """Le témoin de L1o : le même cas, le même corpus, **trois verdicts identiques**.
 
-    La divergence du gate `-14` ne tient pas à l'item `p34:12`, `humain` aux trois répétitions, mais
+    La divergence du gate `-14` ne tenait pas à l'item `p34:12`, `humain` aux trois répétitions, mais
     à une affirmation réduite à la **seule amorce** de l'énumération, `p34:6` — « La Compagnie assure
     les biens désignés, contre les périls suivants : ». Cette phrase n'énonce aucun péril et n'écrit
-    aucun qualificatif : le texte ne donne au code rien à exiger, et le modèle l'a jugée `non`
-    (rép. 1), non soutenue (rép. 2), puis `oui` (rép. 3) — et c'est ce `oui` seul qui fait basculer
-    la table en `sous_conditions` par la condition de section de L1e.
+    aucun qualificatif : le texte ne donnait au code rien à exiger (L1n ne pouvait donc pas fermer ce
+    chemin), et le modèle l'a jugée `non` (rép. 1), non soutenue (rép. 2), puis `oui` (rép. 3) — ce
+    `oui` seul faisant basculer la table en `sous_conditions` par la condition de section de L1e.
 
-    L1n ne peut donc pas fermer ce chemin : il lit ce que la clause écrit, et celle-ci n'écrit rien.
-    Ce qu'il faudra, c'est la règle jumelle sur la **structure** — une amorce citée seule est le
-    contexte d'une clause, pas une clause (`Index.amorce_de_lenumeration`, déjà employée par
-    `corpus.ebauche`). Ce témoin échouera le jour où elle sera posée : c'est le signal attendu.
+    L1o la sort de la table sur la **structure** : citée seule, elle ne laisse aucune clause qui
+    décide, la claim vaut `applicable=None`, et le verdict ne dépend plus de ce que le modèle en
+    aura pensé ce jour-là. Les deux lectures sont rejouées côte à côte : c'est la même entrée qui
+    divergeait et qui converge.
     """
     index = Index(corpus)
-    verdicts = []
+    avant = [_rejouer(r, corpus=corpus, index=index, l1o=False)[0] for r in RAPPORT["repetitions"]]
+    apres = []
     for repetition in RAPPORT["repetitions"]:
         verdict, jugees = _rejouer(repetition, corpus=corpus, index=index)
-        verdicts.append(verdict)
+        apres.append(verdict)
         for jugee in jugees:
             if [c.block_id for c in jugee.clauses] == [AMORCE]:
-                assert jugee.clauses[0].qualificatifs == []
-    assert len(set(verdicts)) == 2, (
-        "les trois répétitions ne convergent pas encore : voir la règle de structure ci-dessus")
+                assert jugee.clauses[0].amorce is True
+                assert jugee.clauses_decisionnelles == []
+                assert applicable_de_claim(jugee) is None
+                assert jugee.kind is None
+    assert len(set(avant)) == 2  # la mesure : le même cas rendait deux verdicts
+    assert apres == ["ne_tranche_pas"] * 3
     seules_amorces = {r["repetition"]: [c["applicable"] for c in r["claims"] if c["blocs"] == [AMORCE]]
                       for r in RAPPORT["repetitions"]}
     assert seules_amorces == {1: ["non"], 2: [], 3: ["oui"]}

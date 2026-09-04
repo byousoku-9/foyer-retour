@@ -387,8 +387,14 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     for claim in answer.claims:
         assert claim.status.retrouvee is True and claim.status.pertinente is True
         assert claim.status.edition  # « édition juin 2017 — actualité non vérifiée »
+        # Story 5.7 (L1o) : « décisionnelle » se lit désormais sur la structure autant que sur le
+        # `kind`. Une **amorce d'énumération** — ici `p34:6`, « La Compagnie assure les biens
+        # désignés, contre les périls suivants : », que ce run cite seule — est typée `garantie` par
+        # l'ingestion et n'énonce pourtant aucun péril : la claim qui n'a cité qu'elle est un
+        # contexte, `applicable=None`, hors de la table. C'est ce que l'attendu dit maintenant.
         decisionnelle = any(documents[index.doc_of(q.block_id)].block(q.block_id).kind
                             in ("garantie", "exclusion", "condition", "franchise")
+                            and not index.est_amorce_denumeration(q.block_id)
                             for q in claim.quotes)
         assert (claim.status.applicable in ("oui", "non", "humain")) is decisionnelle
         for q in claim.quotes:

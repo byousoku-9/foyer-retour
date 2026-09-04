@@ -24,8 +24,11 @@ from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT, EFFORT_PAR_PROMPT, TIERS
 from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt
+from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee, applicable_de_claim,
+                                       decider)
 from server.app.steps.verifier import (
     BLOC_INCONNU,
+    _clauses_citees,
     ChampsApplicabiliteRendus,
     DemandeRendue,
     SortieVerifierSinistre,
@@ -3603,3 +3606,67 @@ async def test_un_texte_sans_identifiant_ne_publie_pas_le_controle(mini: Index) 
 
     assert verification.segments[0].text == "Segment c1."
     assert not [c for c in step.checks if c.name == "identifiants_retires"]
+
+
+# --- L1o : une amorce d'énumération est un contexte, jamais une clause qui décide ------------
+BALOISE = "baloise-lu-home-2-2024"
+AMORCE_EXCLUSION = f"{BALOISE}:p12:8"  # « Sont exclus : »
+ITEM_EXCLUSION = f"{BALOISE}:p12:9"  # les exclusions que cette phrase annonce
+ITEM_GARANTIE = f"{BALOISE}:p12:6"  # « l'incendie, l'explosion, l'implosion, … »
+
+
+def _jugee(claim_id: str, blocs: list[str], *, reel: Index, l1o: bool = True) -> ClaimJugee:
+    """Une claim jugée sur les **vrais** blocs, avec les champs les plus engageants du modèle.
+
+    `l1o=False` rejoue la lecture d'avant le correctif — la même entrée, la même structure, mais une
+    amorce qui décide comme une clause : c'est la seule façon de montrer ce que la règle change.
+    """
+    clauses = _clauses_citees(blocs, corpus=reel.corpus, index=reel)
+    if not l1o:
+        clauses = [clause.model_copy(update={"amorce": False}) for clause in clauses]
+    return ClaimJugee(claim_id=claim_id, clauses=clauses, retenue=True,
+                      champs=ChampsApplicabilite(fait_requis_present=True))
+
+
+def test_une_amorce_dexclusion_citee_seule_nest_pas_une_exclusion_applicable(reel: Index) -> None:
+    """Story 5.7 (L1o), contre-épreuve : « Sont exclus : » n'exclut rien tant que l'item manque.
+
+    L'amorce du gate AXA était une garantie ; la règle est structurelle, donc elle vaut au même
+    titre dans l'autre sens et sur l'autre contrat. Baloise range son amorce et ses items dans le
+    **même nœud** — l'autre des deux rangements que lit `Index.introduit_immediatement`. Avant L1o,
+    une affirmation réduite à `p12:8` était une exclusion `applicable="oui"`, c'est-à-dire l'entrée
+    exacte de la règle (1) d'AD-6 : il suffisait que sa portée couvre le cas pour rendre
+    `non_couvert` sur une phrase qui n'exclut rien. Elle vaut désormais `None` et sort de la table ;
+    la garantie du cas, elle, n'a pas bougé.
+    """
+    avant = _jugee("c2", [AMORCE_EXCLUSION], reel=reel, l1o=False)
+    assert applicable_de_claim(avant) == "oui" and avant.kind == "exclusion"
+
+    apres = _jugee("c2", [AMORCE_EXCLUSION], reel=reel)
+    assert apres.clauses[0].amorce is True
+    assert apres.clauses_decisionnelles == [] and apres.kind is None
+    assert applicable_de_claim(apres) is None
+
+    garantie = _jugee("c1", [ITEM_GARANTIE], reel=reel)
+    verdict = decider([garantie, apres], ask_client_max=6)
+    assert verdict.value == decider([garantie], ask_client_max=6).value
+    assert verdict.value != "non_couvert"
+
+
+def test_un_item_cite_avec_son_amorce_garde_lapplicabilite_quil_avait(reel: Index) -> None:
+    """Story 5.7 (L1o), la borne : L1f joint l'amorce à son item, L1o ne la lui retire pas.
+
+    Une amorce citée **avec** son item reste ce qu'AD-3 dit d'elle depuis L1f — le contexte de cet
+    item —, et l'item décide seul. L'applicabilité de la claim est donc exactement celle qu'elle
+    aurait sur le seul item, avant comme après le correctif : la règle n'a d'effet que sur une
+    affirmation qui n'a rien cité d'autre que l'annonce.
+    """
+    item = _jugee("c1", [ITEM_EXCLUSION], reel=reel)
+    duo = _jugee("c1", [AMORCE_EXCLUSION, ITEM_EXCLUSION], reel=reel)
+    assert [c.block_id for c in duo.clauses] == [AMORCE_EXCLUSION, ITEM_EXCLUSION]
+    assert [c.block_id for c in duo.clauses_decisionnelles] == [ITEM_EXCLUSION]
+    assert applicable_de_claim(duo) == applicable_de_claim(item) == "oui"
+    assert duo.kind == item.kind == "exclusion"
+    # Et la lecture d'avant rendait déjà cela : l'item n'a rien perdu au passage.
+    assert applicable_de_claim(_jugee("c1", [AMORCE_EXCLUSION, ITEM_EXCLUSION], reel=reel,
+                                      l1o=False)) == "oui"
