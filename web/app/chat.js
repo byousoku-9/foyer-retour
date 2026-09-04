@@ -972,6 +972,8 @@ window.CHAT = (function () {
       "des phrases que les passages joints n'établissaient pas sont soutenues par un passage lu ailleurs : conservées, la citation a été ajoutée",
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_etablie_par_qualification: "une qualité que la clause nomme est remplie par le fait déclaré",
+    qualite_hors_du_texte_de_la_clause:
+      "une qualité rendue comme exigée n'est écrite par aucun passage cité : ignorée",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
     rattachement_contradictoire: "une phrase rattachée à deux passages différents : aucun n'est retenu",
