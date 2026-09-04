@@ -1,0 +1,132 @@
+{
+  "schema_version": "1",
+  "doc_id": "baloise-lu-home-2-2024",
+  "note": "Relecture assistée du 04/09/2026, décidée par Lancelot Oudin, exécutée par l'orchestrateur ; 83 blocs que T1/T2 n'avaient pas confirmés",
+  "blocks": {
+    "baloise-lu-home-2-2024:p11:2": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s5"
+    },
+    "baloise-lu-home-2-2024:p13:16": {
+      "kind": "garantie",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s7.5"
+    },
+    "baloise-lu-home-2-2024:p15:15": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s8.1.2"
+    },
+    "baloise-lu-home-2-2024:p15:16": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s8.1.2"
+    },
+    "baloise-lu-home-2-2024:p16:7": {
+      "kind": "exclusion",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s8.1.5"
+    },
+    "baloise-lu-home-2-2024:p16:8": {
+      "kind": "exclusion",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s8.1.5"
+    },
+    "baloise-lu-home-2-2024:p23:2": {
+      "kind": "garantie",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s9.2"
+    },
+    "baloise-lu-home-2-2024:p23:30": {
+      "kind": "exclusion",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s9.3.3"
+    },
+    "baloise-lu-home-2-2024:p26:6": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s11.1"
+    },
+    "baloise-lu-home-2-2024:p26:12": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s11.1.3"
+    },
+    "baloise-lu-home-2-2024:p27:7": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s11.2"
+    },
+    "baloise-lu-home-2-2024:p30:15": {
+      "kind": "garantie",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s12.7"
+    },
+    "baloise-lu-home-2-2024:p37:10": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.2"
+    },
+    "baloise-lu-home-2-2024:p37:15": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.3"
+    },
+    "baloise-lu-home-2-2024:p37:19": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.3"
+    },
+    "baloise-lu-home-2-2024:p37:23": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.4"
+    },
+    "baloise-lu-home-2-2024:p37:24": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.4"
+    },
+    "baloise-lu-home-2-2024:p37:25": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.4"
+    },
+    "baloise-lu-home-2-2024:p37:26": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.4"
+    },
+    "baloise-lu-home-2-2024:p38:1": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.4"
+    },
+    "baloise-lu-home-2-2024:p39:8": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.5"
+    },
+    "baloise-lu-home-2-2024:p39:10": {
+      "kind": "garantie",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s15.6"
+    },
+    "baloise-lu-home-2-2024:p41:13": {
+      "kind": "garantie",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s16.2"
+    },
+    "baloise-lu-home-2-2024:p44:7": {
+      "kind": "condition",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s17.12"
+    },
+    "baloise-lu-home-2-2024:p47:1": {
+      "kind": "exclusion",
+      "kind_source": "manual",
+      "scope_node_id": "baloise-lu-home-2-2024:s17.17.1"
+    }
+  }
+}
