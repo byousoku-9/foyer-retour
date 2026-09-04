@@ -995,6 +995,7 @@ window.CHAT = (function () {
     lecture_refusee: "des sections sont restées fermées : le budget de lecture n'en laissait pas la place",
     tours_epuises: "plafond de tours de lecture atteint : la lecture est déclarée bornée",
     facettes_sans_lecture: "sous-questions de votre demande pour lesquelles au moins une section a été ouverte, et celles qui n'ont reçu aucune lecture",
+    exclusions_non_lues: "sections d'exclusions que le contrat attache aux garanties lues, et celles qui sont restées fermées",
     identifiants_retires: "des identifiants de sections écrits dans le texte ont été retirés de la réponse affichée",
     tour_terminal_force: "une dernière section a été ouverte avant la rédaction, dans les bornes de lecture",
     tour_terminal_repris: "un tour de lecture tronqué par sa propre sortie a été redemandé une fois dans le même fil",
