@@ -79,6 +79,30 @@ function releverBlocs(peint) {
       verdict_cls: (peint.querySelectorAll(".badge")[0] || { className: "" }).className,
       raison: peint.querySelectorAll(".verdict-raison").map(ligne),
       inconnu: peint.querySelectorAll(".inconnu-ligne").map(ligne),
+      // Story 5.6 (L2e) — ce qui a été examiné puis écarté : l'intitulé, et chaque phrase avec sa
+      // raison courte. Le rang du bloc dans le bloc 1 dit qu'il vient bien **après** le corps.
+      // Le bandeau de recalcul : ce que l'assuré a apporté, tel qu'il se lit.
+      maj_tete: peint.querySelectorAll(".maj-tete").map(ligne),
+      maj_faits: peint.querySelectorAll(".maj-fait-val").map(ligne),
+      ecartees_tete: peint.querySelectorAll(".ecartees-tete").map(ligne),
+      ecartees: peint.querySelectorAll(".ecartee").map((li) => [
+        ligne(li.querySelectorAll(".ecartee-raison")[0] || { textContent: "" }),
+        ligne(li.querySelectorAll(".ecartee-txt")[0] || { textContent: "" }),
+      ]),
+      apres_le_corps: (() => {
+        const enfants = reponse.childNodes.filter((n) => !n.estTexte);
+        const rang = enfants.findIndex((n) => n.className.indexOf("reponse-ecartees") !== -1);
+        if (rang < 0) return null;
+        return enfants.slice(0, rang).filter(
+          (n) => n.className.indexOf("reponse-suite") !== -1).length;
+      })(),
+      // Aucune phrase du corps n'est écrite deux fois, à la lettre près.
+      corps_sans_doublon: (() => {
+        const dits = peint.querySelectorAll(".reponse-phrase").concat(
+          peint.querySelectorAll(".reponse-suite")).flatMap(
+            (n) => ligne(n).split(/(?<=\.)\s+(?=[A-ZÀ-Þ])/));
+        return dits.length === new Set(dits).size;
+      })(),
     },
     // Bloc 2 — les clauses : chemin, paragraphe, partie surlignée, phrase en clair, retrait.
     bloc2: appuis && appuis.querySelectorAll(".appui").map((carte) => ({
@@ -137,7 +161,10 @@ function main() {
     const { SINISTRE, elements } = charger();
     // Le corps passe par la **lecture stricte** d'AD-11 avant d'être peint : un corps figé qui ne
     // tiendrait pas le contrat serait une preuve sans valeur.
-    const lu = SINISTRE.lireReponse ? SINISTRE.lireReponse(corps) : corps;
+    // Un corps de **suivi** porte un dossier : il passe par la lecture qui le lit, sans quoi le
+    // tour 1 se peindrait comme un tour 0 et ne prouverait rien de ce que le tour ajoute.
+    const lire = corps.conversation ? SINISTRE.lireReponseConversation : SINISTRE.lireReponse;
+    const lu = lire ? lire(corps) : corps;
     const peint = SINISTRE.peindre(
       SINISTRE.vueVerdict(lu, { doc_id: "axa", source_url: "https://example.invalid/axa.pdf" }),
       elements.resultat);

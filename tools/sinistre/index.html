@@ -302,6 +302,21 @@
   .maj-fait { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13.5px; }
   .maj-fait-val { overflow-wrap: anywhere; }
   .maj-fait .conv-corriger { grid-column: auto; grid-row: auto; }
+  /* Story 5.6 (L2e) : ce que la table a examiné puis écarté, après le corps de la réponse et
+     jamais dedans. L'intitulé est une petite capitale grise — il ouvre une lecture secondaire —,
+     et chaque phrase porte sa raison courte en tête, dans une puce qui la sépare du texte. */
+  .reponse-ecartees { margin: 16px 0 0; max-width: var(--lecture); }
+  .ecartees-tete {
+    margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted);
+  }
+  .ecartees-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .ecartee { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+  .ecartee-raison {
+    display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--muted); white-space: nowrap;
+  }
   .inconnu-tete {
     display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
     color: var(--muted); margin: 14px 0 4px;
@@ -450,7 +465,8 @@
     .reponse-phrase { font-size: 19px; }
     .appui { padding: 12px 13px; }
     .appui-chemin { overflow-wrap: anywhere; }
-    .appui-texte, .appui-clair, .appui-amorce, .appui-rattachement, .reponse-suite, .rej-txt { overflow-wrap: anywhere; }
+    .appui-texte, .appui-clair, .appui-amorce, .appui-rattachement, .reponse-suite, .rej-txt,
+    .ecartee-txt { overflow-wrap: anywhere; }
     .reponse-tete { gap: 10px; }
   }
 </style>

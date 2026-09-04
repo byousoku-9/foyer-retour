@@ -1523,8 +1523,10 @@ def test_les_handlers_rendus_selectionnent_verrouillent_et_ignorent_l_obsolete(
     assert handlers["questions"] == 3
     assert handlers["choix_corps"]["question_id"] == "q-2"
     assert handlers["choix_corps"]["value"] == "oui"
-    assert handlers["libre_corps"]["question_id"] == "q-3"
-    assert handlers["libre_corps"]["value"] == "preuve jointe"
+    # Story 5.6 (L2e) — le fait libre part **sans** `question_id` : il n'est la réponse d'aucune
+    # question, et le coller à celle qui était sélectionnée l'affichait sous son intitulé.
+    assert "question_id" not in handlers["libre_corps"]
+    assert handlers["libre_corps"]["fait_libre"] == "preuve jointe"
     assert handlers["appels_apres_double_clic"] == 1
     assert all(handlers["verrouilles"])
     assert handlers["mises_a_jour"] == 3
@@ -2154,11 +2156,16 @@ def test_la_duree_annoncee_na_pas_de_seuil_serveur_correspondant() -> None:
 
 # --- les corps figés, rendus bloc par bloc -------------------------------
 #
-# `tests/data/front/*.json` porte quatre réponses **complètes** — un cas couvert, un cas sous
-# conditions, un cas où aucune clause ne s'applique, et la réponse que la production a rendue sur le
-# robinet oublié —, construites sur les blocs réels du contrat AXA (`tests/data/axa/*.txt`).
+# `tests/data/front/*.json` porte cinq réponses **complètes** — un cas couvert, un cas sous
+# conditions, un cas où aucune clause ne s'applique, la réponse que la production a rendue sur le
+# robinet oublié, et ce même corps au **tour 1** —, construites sur les blocs réels du contrat AXA
+# (`tests/data/axa/*.txt`).
 # `tests/js/sinistre_rendus.mjs` les fait traverser la lecture stricte d'AD-11 puis la peinture, et
 # relève ce que chacun des quatre blocs montre.
+#
+# Story 5.6 (L2e) — `sinistre-robinet-suivi.json` est ce même corps augmenté du dossier d'un tour 1
+# (deux faits apportés, dont un fait libre sans `question_id`, et la mention de recalcul publiée
+# deux fois). Les trois défauts du parcours du 03/09 s'y voient ensemble.
 #
 # Story 5.6 (L2d) — `sinistre-robinet-reel.json` est le corps **réel** de la route de production
 # (`automation/runs/20260903-lisibilite/prod-final/s2-robinet.json`), copié sans retouche. Les deux
@@ -2190,7 +2197,8 @@ def rendus() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("nom", ["sinistre-couvert", "sinistre-sous-conditions",
-                                 "sinistre-sans-clause", "sinistre-robinet-reel"])
+                                 "sinistre-sans-clause", "sinistre-robinet-reel",
+                                 "sinistre-robinet-suivi"])
 def test_les_quatre_blocs_tiennent_sur_une_reponse_entiere(rendus: dict[str, Any],
                                                            nom: str) -> None:
     """L'ordre est le même quelle que soit la forme de la réponse, et rien n'est replié avant les
@@ -2444,3 +2452,89 @@ def test_aria_busy_est_pose_avant_la_premiere_peinture_de_lattente() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     verrou = source.index("verrouiller(true);\n        var attente = suivreAttente(null);")
     assert verrou > 0
+
+
+# --- story 5.6 (L2e) : ce qui s'applique, ce qui est écarté, le fait libre ----
+#
+# L'orchestrateur a piloté la vraie page sur le vrai serveur sur trois tours (candidat `a565a8d`,
+# transcriptions dans `automation/runs/20260903-lisibilite/parcours/`). Trois défauts de front, tous
+# dans le bloc 1, et tous du même genre : la page disait quelque chose que le code n'avait pas
+# décidé.
+#
+#   1. le corps mêlait ce qui s'applique et ce qui a été écarté. « Le robinet laissé ouvert […] est
+#      une installation ou un appareil hydraulique visé par cette exclusion » se lisait au milieu de
+#      la réponse alors que la table avait jugé cette exclusion `applicable = non` ;
+#   2. « Préciser un fait » partait comme la réponse à la question sélectionnée, et s'affichait sous
+#      son intitulé : « défaut de réparation ou d'entretien à l'origine du sinistre : Le voisin du
+#      dessous a fait constater… » ;
+#   3. « Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions. » était
+#      écrit deux fois de suite en bas du corps après deux tours.
+#
+# `sinistre-robinet-suivi.json` est le corps réel du robinet, augmenté du dossier d'un tour 1 : les
+# trois défauts s'y voient ensemble, ce qu'aucune fixture minimale ne fait.
+
+
+def test_les_phrases_des_clauses_ecartees_sortent_du_corps(rendus: dict[str, Any]) -> None:
+    """Le corps ne garde que les affirmations `oui` / `humain` ; les `non` se lisent après lui.
+
+    L'appariement passe par `claim_ids` des segments, jamais par le texte : c'est `c6`
+    (`applicable = non`, `hors_portee`) qui porte les deux phrases sorties, et rien d'autre du
+    corps ne bouge — la condition d'application de la section (`c1`, `humain`) reste à sa place.
+    """
+    vu = rendus["sinistre-robinet-reel"]["bloc1"]
+    assert vu["ecartees_tete"] == ["Clauses examinées qui ne s'appliquent pas ici"]
+    raisons = [r for r, _ in vu["ecartees"]]
+    phrases = [t for _, t in vu["ecartees"]]
+    assert raisons == ["portée", "portée"], "la raison courte vient d'`applicable_reason`"
+    assert phrases[0].startswith("La garantie de responsabilité civile immeuble exclut")
+    assert phrases[1].startswith("L'inondation subie par le voisin")
+    # Elles ont bien **quitté** le corps : ni le titre, ni les explications ne les portent.
+    corps = " ".join([vu["phrase"]] + vu["explications"])
+    for phrase in phrases:
+        assert phrase not in corps
+    # Et la section vient après le corps, jamais dedans.
+    assert vu["apres_le_corps"] == len(vu["explications"])
+    # Le titre reste la première phrase d'une garantie applicable.
+    assert vu["phrase"].startswith(
+        "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment")
+
+
+def test_une_reponse_sans_clause_ecartee_nouvre_aucune_section(rendus: dict[str, Any]) -> None:
+    """Rien n'est inventé quand il n'y a rien à écarter — et une phrase que **deux** affirmations
+    citent, dont une seule est écartée, reste dans le corps : la sortir en dirait plus que la table
+    n'a décidé. C'est le cas `sous-conditions` (`cl1` applicable, `cl2` hors portée)."""
+    for nom in ("sinistre-couvert", "sinistre-sous-conditions", "sinistre-sans-clause"):
+        vu = rendus[nom]["bloc1"]
+        assert vu["ecartees_tete"] == [], nom
+        assert vu["ecartees"] == [], nom
+        assert vu["apres_le_corps"] is None, nom
+    assert rendus["sinistre-sous-conditions"]["bloc1"]["phrase"].startswith(
+        "Le contrat peut couvrir ce dégât")
+
+
+def test_un_fait_libre_se_lit_comme_une_precision_pas_comme_une_reponse(
+        rendus: dict[str, Any]) -> None:
+    """Un fait sans `question_id` n'est la réponse d'aucune question : il se dit tel quel.
+
+    La réponse à une question garde, elle, son intitulé — c'est ce qui la rend corrigeable et
+    traçable jusqu'à la question qui l'a posée.
+    """
+    vu = rendus["sinistre-robinet-suivi"]["bloc1"]
+    assert vu["maj_tete"] == ["Verdict mis à jour avec vos réponses"]
+    assert vu["maj_faits"] == [
+        "garantie dégâts des eaux : oui",
+        "Vous avez précisé : Le voisin du dessous a fait constater des dégâts sur son plafond "
+        "pour 2 500 euros"]
+
+
+def test_une_phrase_identique_nest_jamais_ecrite_deux_fois_dans_le_corps(
+        rendus: dict[str, Any]) -> None:
+    """Le serveur publiait la mention de recalcul une fois par tour ; il corrige l'accumulation, et
+    la page ne redit de toute façon jamais mot pour mot ce qu'elle vient d'écrire."""
+    mention = "Verdict mis à jour avec vos réponses, sans relire le contrat : sous conditions."
+    vu = rendus["sinistre-robinet-suivi"]["bloc1"]
+    corps = " ".join([vu["phrase"]] + vu["explications"])
+    assert corps.count(mention) == 1
+    for nom in ("sinistre-couvert", "sinistre-sous-conditions", "sinistre-sans-clause",
+                "sinistre-robinet-reel", "sinistre-robinet-suivi"):
+        assert rendus[nom]["bloc1"]["corps_sans_doublon"] is True, nom

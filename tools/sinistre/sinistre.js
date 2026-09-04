@@ -224,6 +224,11 @@
     hors_portee: "sa portée contractuelle ne couvre pas le cas déclaré",
     faits_contraires: "les faits déclarés ne correspondent pas aux conditions de la clause"
   };
+  // Story 5.6 (L2e) — la même raison, en deux mots. Le bloc 1 la met **en tête** de chaque phrase
+  // mise à l'écart : la phrase entière du statut y serait plus longue que la phrase qu'elle
+  // qualifie. Les deux tables lisent le même champ du presenter (`applicable_reason`), jamais un
+  // texte deviné, et une raison hors table ne reçoit aucun mot — l'absence de marque est honnête.
+  var RAISONS_COURTES = { hors_portee: "portée", faits_contraires: "faits contraires" };
 
   function statutTexte(status) {
     if (!status) return "";
@@ -1721,10 +1726,18 @@
   function phrasesModele(answer) {
     var factuels = [];
     var limites = [];
+    // Story 5.6 (L2e) — une phrase **exactement identique** ne s'affiche qu'une fois. Le parcours
+    // du 03/09 a montré « Verdict mis à jour avec vos réponses, sans relire le contrat : sous
+    // conditions. » deux fois de suite en bas du corps : le serveur accumulait un segment par tour.
+    // Il corrige l'accumulation ; la page ne redit jamais mot pour mot ce qu'elle vient d'écrire,
+    // quelle qu'en soit la cause. Une phrase seulement *proche* d'une autre reste intacte : ce
+    // filtre ne compare pas des sens, il retire des doublons.
+    var vues = Object.create(null);
     tableau(answer && answer.segments).forEach(function (seg) {
       if (!estObjetPlat(seg)) return;
       var texte = enClair(seg.text);
-      if (!texte) return;
+      if (!texte || vues[texte] === true) return;
+      vues[texte] = true;
       if (seg.kind === "factuel") {
         factuels.push({ texte: texte, claims: tableau(seg.claim_ids).filter(function (id) {
           return typeof id === "string" && id;
@@ -1813,8 +1826,17 @@
     var apportes = faitsApportes(conversation);
     if (!apportes.length) return null;
     var lignes = apportes.map(function (f) {
+      // Story 5.6 (L2e) — un fait libre n'est la réponse d'**aucune** question : il vient du champ
+      // « Préciser un fait ». L'écrire « <clé de la question> : <valeur> » le rangeait sous la
+      // question sélectionnée, qu'il ne visait pas — le parcours du 03/09 affichait « défaut de
+      // réparation ou d'entretien à l'origine du sinistre : Le voisin du dessous a fait constater
+      // des dégâts sur son plafond pour 2 500 euros ». Un fait sans `question_id` se lit donc pour
+      // ce qu'il est : une précision que l'assuré a apportée de lui-même.
+      var texte = f.question_id
+        ? String(f.key) + " : " + String(f.value)
+        : "Vous avez précisé : " + String(f.value);
       return noeud("li", "maj-fait", null, [
-        noeud("span", "maj-fait-val", String(f.key) + " : " + String(f.value)),
+        noeud("span", "maj-fait-val", texte),
         noeud("button", "conv-corriger", "Corriger", null,
               { "data-fact-key": String(f.key), "data-event-id": String(f.event_id) })
       ]);
@@ -1822,6 +1844,70 @@
     return noeud("div", "reponse-maj", null, [
       noeud("p", "maj-tete", "Verdict mis à jour avec vos réponses"),
       noeud("ul", "maj-liste", null, lignes)
+    ]);
+  }
+
+  // ---------- ce qui s'applique, et ce qui a été écarté (story 5.6, L2e) ----------
+  //
+  // Le corps du bloc 1 mêlait les deux. Sur le parcours du 03/09, il écrivait « Le robinet laissé
+  // ouvert à l'origine du débordement est une installation ou un appareil hydraulique visé par
+  // cette exclusion » — au milieu de la réponse, sans une marque — alors que la table avait jugé
+  // cette exclusion `applicable = non` et que le bloc 2 le disait dans son statut. Le lecteur y
+  // lisait une exclusion qui joue contre lui ; c'est le contraire de ce que le code a décidé.
+  //
+  // Les phrases des affirmations écartées quittent donc le corps et se lisent **après** lui, sous
+  // leur propre intitulé, chacune précédée de la raison courte que le presenter publie. Rien n'est
+  // retranché : ce qui a été examiné et écarté reste à l'écran, à sa place, qui n'est pas celle de
+  // la réponse. L'appariement phrase ↔ affirmation passe par `claim_ids`, jamais par le texte.
+
+  var TITRE_ECARTEES = "Clauses examinées qui ne s'appliquent pas ici";
+
+  /** `claim_id → ClaimStatus`, tel que le presenter le publie. */
+  function statutsParClaim(answer) {
+    var par = Object.create(null);
+    tableau(answer && answer.claims).forEach(function (c) {
+      if (c && typeof c.claim_id === "string") par[c.claim_id] = c.status || null;
+    });
+    return par;
+  }
+
+  /**
+   * Une phrase est écartée quand **toutes** les affirmations qu'elle cite ont été jugées
+   * inapplicables. Une seule affirmation `oui` ou `humain` la garde dans le corps : la phrase parle
+   * alors aussi de ce qui s'applique, et la sortir dirait d'elle plus que la table n'a décidé. Une
+   * phrase que le moteur ne rattache à aucune affirmation reste dans le corps — sans `claim_ids`,
+   * il n'y a rien qui atteste qu'elle a été écartée.
+   */
+  function phraseEcartee(phrase, statuts) {
+    if (!phrase.claims.length) return false;
+    for (var i = 0; i < phrase.claims.length; i++) {
+      var st = statuts[phrase.claims[i]];
+      if (!st || st.applicable !== "non") return false;
+    }
+    return true;
+  }
+
+  /** La raison courte de la première affirmation qui en publie une de la table ; sinon rien. */
+  function raisonCourte(phrase, statuts) {
+    for (var i = 0; i < phrase.claims.length; i++) {
+      var st = statuts[phrase.claims[i]];
+      var r = st && st.applicable_reason;
+      if (r && Object.prototype.hasOwnProperty.call(RAISONS_COURTES, r)) return RAISONS_COURTES[r];
+    }
+    return "";
+  }
+
+  function ecarteesVue(ecartees, statuts) {
+    if (!ecartees.length) return null;
+    return noeud("div", "reponse-ecartees", null, [
+      noeud("p", "ecartees-tete", TITRE_ECARTEES),
+      noeud("ul", "ecartees-liste", null, ecartees.map(function (phrase) {
+        var raison = raisonCourte(phrase, statuts);
+        var enfants = raison ? [noeud("span", "ecartee-raison", raison)] : [];
+        return noeud("li", "ecartee", null, enfants.concat([
+          noeud("span", "ecartee-txt", phrase.texte)
+        ]));
+      }))
     ]);
   }
 
@@ -1850,14 +1936,21 @@
     var verdict = a.verdict || null;
     var v = libelleVerdict(verdict && verdict.value, sansClause);
     var phrases = phrasesModele(a);
-    var factuels = phrases.factuels.map(function (f) { return f.texte; });
+    var statuts = statutsParClaim(a);
+    var ecartees = phrases.factuels.filter(function (f) { return phraseEcartee(f, statuts); });
+    var retenues = phrases.factuels.filter(function (f) { return !phraseEcartee(f, statuts); });
+    // Tout sortir viderait la réponse : le corps dirait « Aucune clause n'a pu être retenue » sous
+    // un verdict qui, lui, s'appuie sur ces phrases. La mise à l'écart n'a de sens que comme mise à
+    // l'écart d'un **reste** ; sans reste, le corps garde tout et le bloc 2 dit les statuts.
+    if (!retenues.length) { retenues = phrases.factuels; ecartees = []; }
+    var factuels = retenues.map(function (f) { return f.texte; });
     // Sans une seule phrase factuelle, le bloc dit le constat et le verdict — jamais une chaîne
     // de service à la place d'une réponse. Ce que le modèle a écrit sur les limites de sa lecture
     // reste dessous, en explication : le constat le résume, il ne le remplace pas. Les phrases
     // `limite` viennent après les factuelles, donc le rang du titre vaut sur la liste entière.
     var corps = factuels.length
       ? reponseVue(factuels.concat(phrases.limites),
-                   indexPhraseReponse(phrases.factuels, citationsParClaim(r)))
+                   indexPhraseReponse(retenues, citationsParClaim(r)))
       : reponseVue([AUCUNE_PHRASE_RETENUE].concat(phrases.limites), 0);
     var phrase = corps.length ? corps[0] : null;
     var badge = noeud("span", "badge verdict-" + v.cle, v.texte);
@@ -1867,6 +1960,9 @@
     var maj = majParReponses(r.conversation);
     if (maj) enfants.push(maj);
     enfants = enfants.concat(corps.slice(1));
+    // Après le corps, jamais dedans : ce qui a été examiné et écarté se lit une fois la réponse lue.
+    var vueEcartees = ecarteesVue(ecartees, statuts);
+    if (vueEcartees) enfants.push(vueEcartees);
 
     var raisonBrute = verdict ? String(verdict.reason || "").trim() : "";
     var raison = enClair(raisonBrute);
@@ -3454,11 +3550,13 @@
     });
     racine.querySelectorAll(".conv-envoyer-libre").forEach(function (bouton) {
       bouton.addEventListener("click", function () {
-        var qid = questionSelectionnee();
         var input = racine.querySelector(".conv-reponse-libre");
         var value = input && String(input.value || "").trim();
         if (!value) { annoncer("Écrivez une réponse avant de l'envoyer."); return; }
-        envoyer({ action: "reponse", question_id: qid, value: value });
+        // Story 5.6 (L2e) — le fait libre part **sans** `question_id` : c'est un fait indépendant
+        // du dossier, pas la réponse à la question sélectionnée. Il porte le nom que le contrat
+        // serveur lui donne déjà, `fait_libre` (alias de `value`, cf. `SinistreFollowupRequest`).
+        envoyer({ action: "reponse", fait_libre: value });
       });
     });
     racine.querySelectorAll(".conv-corriger").forEach(function (bouton) {
@@ -3725,6 +3823,9 @@
     // rendu la traversent avant d'être peints — un corps figé qui ne tiendrait pas le contrat
     // serait une preuve sans valeur.
     lireReponse: lireReponse,
+    // Story 5.6 (L2e) : la même lecture stricte pour un corps de **suivi** — un tour 1 figé porte
+    // un dossier, et le peindre sans lui perdrait exactement ce que ce tour ajoute.
+    lireReponseConversation: lireReponseConversation,
     soumettre: soumettre,
     soumettreConversation: soumettreConversation,
     soumettreProgression: soumettreProgression,
