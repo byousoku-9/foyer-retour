@@ -113,6 +113,22 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
         if any(not bloc.kind_confirmed for bloc in decisionnels):
             ecartees.append(claim.claim_id)
             continue
+        # Story 5.7 (L1q). La seconde chose que ce helper ne peut pas choisir : **le contenu des
+        # conditions particulières.** Une claim qui cite le bloc de la condition d'applicabilité de
+        # sa propre section — ici `p34:4`, « Les présentes conditions spéciales sont applicables si
+        # les conditions particulières mentionnent que la garantie “incendie et périls assimilés”
+        # est accordée » — reçoit du rejeu `fait_requis_present=true`, ce qui revient à décréter que
+        # les CP la mentionnent. Le pipeline, lui, la rend `humain` (T18 : le texte renvoie aux CP,
+        # et rien ne les lit à J+1). Laissée dans le rejeu, elle **établit** la condition de section
+        # et rouvre la règle (3) : le témoin mesurerait alors une propriété que le produit n'atteint
+        # jamais. Elle est mise de côté comme le typage non confirmé, et rendue à l'appelant.
+        conditions_de_section = {
+            documents[index.doc_of(bloc.block_id)].condition_de_section_applicable(
+                documents[index.doc_of(bloc.block_id)].node_of(bloc.block_id))
+            for bloc in decisionnels}
+        if any(bloc.block_id in conditions_de_section for bloc in decisionnels):
+            ecartees.append(claim.claim_id)
+            continue
         clauses = []
         for bloc in decisionnels:
             document = documents[index.doc_of(bloc.block_id)]
@@ -121,9 +137,14 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
                 block_id=bloc.block_id, kind=bloc.kind, kind_confirmed=bloc.kind_confirmed,
                 portee=document.scope_nodes(bloc.block_id), node_id=noeud,
                 socle=document.node_scope_kind(noeud) == "commun",
-                # Story 5.7 (L1e) : le rejeu doit lire la même chose que `steps.verifier._clauses_citees`
-                # — sans quoi il prouverait une propriété **plus faible** que celle du pipeline, sur
-                # des clauses que le code sert déjà autrement.
+                # Story 5.7 (L1e, puis L1o et L1q) : le rejeu doit lire la même chose que
+                # `steps.verifier._clauses_citees` — sans quoi il prouverait une propriété **plus
+                # faible** que celle du pipeline, sur des clauses que le code sert déjà autrement.
+                # L'amorce d'énumération (L1o) et l'amorce qui introduit l'item (L1q) en font partie :
+                # sans la première, `p34:6` passerait ici pour une garantie qui décide ; sans la
+                # seconde, deux périls frères ne seraient pas reconnus pour sœurs.
+                amorce=index.est_amorce_denumeration(bloc.block_id),
+                amorce_de=index.amorce_qui_introduit(bloc.block_id) or "",
                 condition_section=_condition_de_section(document, noeud)))
         jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
                                  champs=ChampsApplicabilite(
@@ -247,7 +268,13 @@ async def test_preflight_nominal_passe_et_un_depassement_reste_refuse(
         fin_de_lecture = fake_message(
             model=modele_attendu("retrouver_outils", settings), stop_reason="end_turn",
             text="J'ai lu ce qu'il faut.")
-        navigation = [outils, fin_de_lecture]
+        # Story 5.7 (L1q) : **deux** fins de lecture, et c'est le correctif qui l'impose. Le nœud
+        # ouvert ci-dessus porte une garantie (`3.1.1.1.6`) et aucune section d'exclusions n'a été
+        # lue : le premier tour terminal est refusé une fois, avec les sections que le contrat
+        # attache à ce qui vient d'être lu. Le script ne les ouvre pas — ce n'est pas ce que ce
+        # témoin mesure — et se contente de reconclure, ce qui prouve au passage la borne du
+        # correctif : le refus n'a lieu **qu'une** fois, il ne boucle pas et ne mange pas le budget.
+        navigation = [outils, fin_de_lecture, fin_de_lecture]
         rediger = fake_message(model=modele_attendu("rediger", settings), text=json.dumps({
             "segments": [{"text": "La garantie vise l'action subite de la chaleur.",
                           "kind": "factuel", "claim_ids": ["c1"]}],
@@ -463,15 +490,26 @@ async def test_the_candle_case_gets_a_conservative_verdict_on_the_exact_clauses(
     assert any(clause.block_id == f"{DOC_ID}:p34:12"
                for jugee in sans_qualite_jugees for clause in jugee.clauses), \
         "la garantie de l'article 3.1.1.1.6 a disparu du rejeu : le témoin ne prouve plus rien"
-    # Et ce que le mieux-disant a mis de côté l'a été pour la **seule** raison qu'aucun jeu de champs
-    # ne peut lever — la règle (2) d'`applicable_de_claim`, `kind` décisionnel non confirmé. La
-    # raison est re-dérivée ici, à partir du corpus, et non lue sur le helper qui l'a appliquée.
+    # Et ce que le mieux-disant a mis de côté l'a été pour l'une des **deux** raisons qu'aucun jeu de
+    # champs ne peut lever : la règle (2) d'`applicable_de_claim` (`kind` décisionnel non confirmé),
+    # ou la condition d'applicabilité de la section elle-même (L1q). Les deux raisons sont
+    # re-dérivées ici, à partir du corpus, et non lues sur le helper qui les a appliquées.
     for claim_id in ecartees:
         claim = next(c for c in answer.claims if c.claim_id == claim_id)
         blocs = [documents[index.doc_of(q.block_id)].block(q.block_id) for q in claim.quotes]
-        assert any(bloc.kind in KINDS_DECISIONNELS and not bloc.kind_confirmed for bloc in blocs), (
-            f"claim {claim_id} écartée du rejeu sans que son typage soit en cause : le mieux-disant "
-            "escamote une claim que la table aurait dû juger")
+        typage = any(bloc.kind in KINDS_DECISIONNELS and not bloc.kind_confirmed for bloc in blocs)
+        # Story 5.7 (L1q). La claim cite le bloc de la condition d'applicabilité de sa propre
+        # section : lui donner `fait_requis_present=true` reviendrait à décréter ce que disent les
+        # conditions particulières, que le pipeline ne lit pas à J+1 (T18, L1e). Le produit la rend
+        # `humain` ; aucun jeu de champs n'a le droit de faire mieux.
+        condition = any(
+            bloc.block_id == documents[index.doc_of(bloc.block_id)]
+            .condition_de_section_applicable(
+                documents[index.doc_of(bloc.block_id)].node_of(bloc.block_id))
+            for bloc in blocs if bloc.kind in KINDS_DECISIONNELS)
+        assert typage or condition, (
+            f"claim {claim_id} écartée du rejeu sans que son typage ni la condition de sa section "
+            "soient en cause : le mieux-disant escamote une claim que la table aurait dû juger")
 
     # (5bis) Revue Codex 1.8 (B3, tour 3) : l'énumération des qualités ne repose plus sur la parole du
     # modèle. Le code relit le **texte** de la clause citée, et sur la garantie réelle de l'article
