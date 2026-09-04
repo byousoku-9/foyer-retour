@@ -2576,3 +2576,47 @@ def test_aria_busy_est_pose_avant_la_premiere_peinture_de_lattente() -> None:
     ui = (REPO_ROOT / "web" / "app" / "ui.js").read_text("utf-8")
     envoi = _corps(ui, "function envoyer(texteForce) {")
     assert envoi.index("verrouillerSaisie(true);") < envoi.index("window.CHAT.vueAttente(")
+
+
+def test_louverture_dun_refus_se_lit_apres_la_phrase_qui_refuse(cas: dict[str, Any]) -> None:
+    """Tour G1, témoin (c) côté page : un refus juste dit ensuite ce qu'il peut traiter.
+
+    Le serveur compose l'ouverture (« Je peux vous aider sur : … ») dans `Answer.clarification`,
+    faute d'un cinquième kind d'absence — le registre des phrases de refus est une table par kind, et
+    en ajouter un est un changement de contrat que ce tour ne fait pas. La page, elle, ne peut pas
+    les rendre au même endroit : une clarification est une **question posée**, elle précède la phrase
+    de refus ; une ouverture la **suit**, sinon « je peux vous aider sur… » arriverait avant « cette
+    question sort de ce que couvre le guide ». Le kind de l'absence est ce qui les distingue.
+    """
+    ouverture = cas["vue_refus_ouverture"]
+    assert ouverture["clarification"] == "Je peux vous aider sur : Administratif, Logement, Sante."
+    ordre = ouverture["ordre_des_blocs"]
+    bloc = next(c for c in ordre if c and c.startswith("clarif"))
+    assert "clarif-ouverture" in bloc
+    assert ordre.index(bloc) > ordre.index("seg"), "l'ouverture suit la phrase de refus"
+    assert ordre.index(bloc) > ordre.index("preuve"), "…et la preuve chiffrée de l'absence"
+
+    # Une vraie clarification n'a pas bougé : elle reste la première chose lue, sans l'intitulé de
+    # l'ouverture — c'est une question, pas une proposition.
+    clar = cas["vue_clarification"]
+    ordre_clar = clar["ordre_des_blocs"]
+    assert ordre_clar[0] == "clarif" and "clarif-ouverture" not in " ".join(x or "" for x in ordre_clar)
+
+
+def test_le_renvoi_vers_le_simulateur_exige_un_chiffre_et_une_reponse(cas: dict[str, Any]) -> None:
+    """Tour G1 : « le montant exact dépend de votre situation », dit là où c'est vrai.
+
+    Les fiches d'impôt disent les classes, les abattements et le régime des impatriés ; aucune ne
+    porte le montant dû par un ménage donné, et le site a un simulateur qui le calcule. La phrase est
+    donc du **service**, écrite par la page : le contrat de l'API publie des fiches et un booléen
+    `comparateur`, il n'a pas d'action « ouvrir le simulateur ».
+
+    Ses deux gardes comptent autant qu'elle : sans chiffre dans la question, elle promettrait un
+    calcul que personne ne demande ; sur un refus, elle renverrait vers un outil pour une question à
+    laquelle le guide vient de dire qu'il ne répond pas.
+    """
+    note = cas["note_simulateur"]
+    assert note["chiffree"] and "onglet Simulateur" in note["chiffree"]
+    assert "dépend de votre situation" in note["chiffree"]
+    assert note["sans_chiffre"] is None
+    assert note["refus_chiffre"] is None
