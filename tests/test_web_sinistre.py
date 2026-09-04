@@ -2152,12 +2152,19 @@ def test_la_duree_annoncee_na_pas_de_seuil_serveur_correspondant() -> None:
         "plutôt que sur la constante `DUREE_ANNONCEE_S`")
 
 
-# --- les trois corps figés, rendus bloc par bloc -------------------------
+# --- les corps figés, rendus bloc par bloc -------------------------------
 #
-# `tests/data/front/*.json` porte trois réponses **complètes** — un cas couvert, un cas sous
-# conditions, un cas où aucune clause ne s'applique —, construites sur les blocs réels du contrat
-# AXA (`tests/data/axa/*.txt`). `tests/js/sinistre_rendus.mjs` les fait traverser la lecture stricte
-# d'AD-11 puis la peinture, et relève ce que chacun des quatre blocs montre.
+# `tests/data/front/*.json` porte quatre réponses **complètes** — un cas couvert, un cas sous
+# conditions, un cas où aucune clause ne s'applique, et la réponse que la production a rendue sur le
+# robinet oublié —, construites sur les blocs réels du contrat AXA (`tests/data/axa/*.txt`).
+# `tests/js/sinistre_rendus.mjs` les fait traverser la lecture stricte d'AD-11 puis la peinture, et
+# relève ce que chacun des quatre blocs montre.
+#
+# Story 5.6 (L2d) — `sinistre-robinet-reel.json` est le corps **réel** de la route de production
+# (`automation/runs/20260903-lisibilite/prod-final/s2-robinet.json`), copié sans retouche. Les deux
+# défauts lus à l'écran s'y voient tous les deux, et rien d'autre que ce corps ne les porte : les
+# fixtures taillées à la main n'ont ni clause d'ouverture de section citée avant la garantie, ni
+# énumération coupée en deux blocs par la mise en page du PDF.
 #
 # Ce que ces cas prouvent et que les fixtures minimales ne prouvent pas : la refonte tient sur des
 # réponses entières, avec des paragraphes de contrat réels — dont un qui dépasse le seuil de
@@ -2183,7 +2190,7 @@ def rendus() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("nom", ["sinistre-couvert", "sinistre-sous-conditions",
-                                 "sinistre-sans-clause"])
+                                 "sinistre-sans-clause", "sinistre-robinet-reel"])
 def test_les_quatre_blocs_tiennent_sur_une_reponse_entiere(rendus: dict[str, Any],
                                                            nom: str) -> None:
     """L'ordre est le même quelle que soit la forme de la réponse, et rien n'est replié avant les
@@ -2259,6 +2266,122 @@ def test_le_cas_sans_clause_dit_pas_de_clause_qui_sapplique(rendus: dict[str, An
         "Termes cherchés : souillure, déjection, animal domestique, canapé — "
         "12 variantes essayées, 1457 passages parcourus"]
     assert vu["bloc4"]["etat"] == ["inconnu"]
+
+
+# --- story 5.6 (L2d) : le titre répond, l'amorce reste avec son item ------
+#
+# Lancelot a lu la capture de la réponse robinet rendue par le code de L2c
+# (`automation/runs/20260903-lisibilite/reel-l2c/sinistre-light-1200.png`). Deux défauts, tous deux
+# de lecture et non de contrat :
+#
+#   1. le titre du bloc 1 était « Les présentes conditions spéciales sont applicables si… » —
+#      la première phrase factuelle rendue, qui est la **condition d'application** de la section ;
+#      un assuré qui cherche s'il est couvert lisait d'abord à quelle condition la section vaut ;
+#   2. sept cartes pour quatre appuis : le PDF coupe chaque énumération entre la phrase qui
+#      l'appelle (« … c'est-à-dire : ») et ses items, et la page en faisait deux cartes portant le
+#      même chemin, la même phrase en clair et deux boutons « Voir la page ».
+
+
+def test_lamorce_ne_se_fond_que_si_les_trois_conditions_tiennent(cas: dict[str, Any]) -> None:
+    """La règle est déterministe, et chacune de ses trois conditions est nécessaire.
+
+    Une fusion devinée est plus grave que la carte de trop qu'elle évite : elle rangerait un appui
+    distinct sous un autre, sous un verdict. Le cas fait donc varier **un seul point à la fois** —
+    l'affirmation, l'adjacence des blocs, le chemin, ce qui atteste que le bloc en appelle un
+    autre — et n'accepte la fusion que quand les trois tiennent ensemble.
+    """
+    vu = cas["l2d_amorce"]
+    assert vu["fondue"] == {
+        "cartes": 1,
+        "amorces": ["La Compagnie assure les biens désignés c'est-à-dire :"],
+        "blocs": [["cg-mini:p9:2", "cg-mini:p9:3"]]}
+    # « contexte » est ce que le moteur dit d'un bloc qui n'est pas décisif seul : il vaut le
+    # deux-points, et une amorce sans ponctuation d'appel se fond quand même.
+    assert vu["statut_contexte"]["cartes"] == 1
+    assert vu["statut_contexte"]["blocs"] == [["cg-mini:p9:2", "cg-mini:p9:3"]]
+    for garde in ("claims_differentes", "non_adjacents", "chemin_different", "sans_appel"):
+        assert vu[garde]["cartes"] == 2, garde
+        assert vu[garde]["amorces"] == [], garde
+        assert all(len(b) == 1 for b in vu[garde]["blocs"]), garde
+
+
+def test_le_titre_de_la_reponse_est_la_phrase_qui_repond_pas_la_condition(
+        rendus: dict[str, Any]) -> None:
+    """La phrase en grand est la première rattachée à une affirmation dont la citation principale
+    est une `garantie`. La condition n'est pas perdue pour autant : elle reste dans le corps, à sa
+    place — la première des explications, comme le modèle l'a écrite."""
+    vu = rendus["sinistre-robinet-reel"]["bloc1"]
+    assert vu["phrase"].startswith(
+        "Le contrat assure les biens désignés contre les dégâts des eaux, c'est-à-dire notamment")
+    assert vu["explications"][0].startswith(
+        "Les présentes conditions spéciales sont applicables si les conditions particulières")
+    # Aucune phrase du modèle ne disparaît : les dix segments factuels et la limite sont tous à
+    # l'écran, le titre plus les explications groupées par trois.
+    assert vu["explications"] and all(vu["explications"])
+
+
+def test_le_titre_reste_la_premiere_phrase_quand_rien_ne_la_designe(
+        rendus: dict[str, Any]) -> None:
+    """La règle ne déplace jamais une réponse dont la première phrase répond déjà, et elle ne
+    s'applique pas du tout à un refus : sans affirmation, il n'y a pas de citation principale à
+    lire, et le constat garde sa place."""
+    assert rendus["sinistre-couvert"]["bloc1"]["phrase"].startswith(
+        "Le contrat couvre les brûlures faites au mobilier")
+    assert rendus["sinistre-sous-conditions"]["bloc1"]["phrase"].startswith(
+        "Le contrat peut couvrir ce dégât")
+    assert rendus["sinistre-sans-clause"]["bloc1"]["phrase"] == "Aucune clause n'a pu être retenue"
+
+
+def test_lamorce_dune_enumeration_se_fond_dans_la_carte_de_son_item(
+        rendus: dict[str, Any]) -> None:
+    """Neuf citations, six cartes : les trois amorces rejoignent l'item qu'elles annoncent.
+
+    Chaque fusion se prouve sur les trois choses qui étaient doublées à l'écran — une seule phrase
+    en clair, un seul bouton « Voir la page », et l'amorce en ligne au-dessus du paragraphe — et sur
+    la seule chose qui devait grandir : le bouton ouvre désormais **les deux** blocs.
+    """
+    cartes = rendus["sinistre-robinet-reel"]["bloc2"]
+    assert len(cartes) == 6
+    assert [c["amorce"] for c in cartes] == [
+        "",
+        "La Compagnie assure les biens désignés contre les dégâts des eaux c\u2019est-à-dire :",
+        "La Compagnie étend sans supplément de prime la portée de la garantie :",
+        "",
+        "La Compagnie garantit la responsabilité civile qu\u2019un Assuré pourrait encourir sur la "
+        "base des articles 1382 à 1386 du Code civil, à l\u2019égard d\u2019un tiers, en raison de "
+        "dommages causés par le fait :",
+        "",
+    ]
+    fondue = cartes[1]
+    assert fondue["paragraphe"].startswith("• l\u2019écoulement de l\u2019eau des installations")
+    assert fondue["ouvre_le_pdf"] == ["Voir la page 37 dans le PDF"]
+    assert fondue["blocs_ouverts"] == [["axa-lu-optihome-2017:p37:13",
+                                        "axa-lu-optihome-2017:p37:14"]]
+    # Une carte, une phrase en clair : c'était la répétition la plus visible de la capture.
+    assert fondue["en_clair"].startswith("Le contrat assure les biens désignés")
+    assert cartes[2]["blocs_ouverts"] == [["axa-lu-optihome-2017:p38:3",
+                                           "axa-lu-optihome-2017:p38:4"]]
+    assert cartes[4]["blocs_ouverts"] == [["axa-lu-optihome-2017:p50:2",
+                                           "axa-lu-optihome-2017:p50:3"]]
+    # Ce qui n'est pas une amorce reste une carte à soi : la condition d'ouverture de la section
+    # (p37:11) et l'exclusion de responsabilité civile (p50:18) ne se fondent dans rien.
+    assert cartes[0]["type"] == "condition" and cartes[0]["blocs_ouverts"] == [
+        ["axa-lu-optihome-2017:p37:11"]]
+    assert cartes[5]["type"] == "exclusion"
+    # Et le compte des citations relues ne bouge pas : neuf passages ont bien été vérifiés.
+    assert rendus["sinistre-robinet-reel"]["bloc4"]["lignes"][0] == (
+        "9 citations relues mot pour mot dans le contrat")
+
+
+def test_aucune_fusion_sur_les_corps_figes_sans_enumeration_coupee(
+        rendus: dict[str, Any]) -> None:
+    """Les trois corps d'avant n'ont aucune amorce : leurs cartes sont inchangées, aucune n'a
+    absorbé sa voisine. Deux blocs qu'aucune adjacence ne relie ne se fondent jamais."""
+    for nom in ("sinistre-couvert", "sinistre-sous-conditions"):
+        cartes = rendus[nom]["bloc2"]
+        assert len(cartes) == 2
+        assert [c["amorce"] for c in cartes] == ["", ""]
+        assert all(len(c["blocs_ouverts"][0]) == 1 for c in cartes)
 
 
 def test_lattente_se_met_a_jour_en_place_et_non_par_repeinture(cas: dict[str, Any]) -> None:

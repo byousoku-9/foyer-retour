@@ -573,6 +573,55 @@ async function main() {
       cas.l2c_technique.muet_badge = textesDe(vueMuette, "badge verdict-sous_conditions");
     }
     {
+      // Story 5.6 (L2d) — la fusion de l'amorce, et les gardes qui l'empêchent. Une réponse à deux
+      // clauses, variée sur un seul point à la fois : c'est la règle qu'on éprouve, pas un rendu.
+      const CHEMIN = ["3 L'assurance des biens", "3.1.4 Dégâts des eaux"];
+      function bloc(id, texte, extra) {
+        return clause(id, texte, Object.assign({ chemin: CHEMIN, texte_bloc: texte }, extra || {}));
+      }
+      function deuxClauses(amorce, item, memeClaim) {
+        const r = reponseVerdict();
+        r.answer.segments = [{ text: "Le contrat assure les biens désignés.", kind: "factuel",
+                               claim_ids: ["c1"] }];
+        r.answer.rejected_claims = [];
+        r.answer.claims = memeClaim
+          ? [claim("c1", "Le contrat assure les biens désignés.",
+                   [amorce.block_id, item.block_id], STATUT_OUI)]
+          : [claim("c1", "Le contrat assure les biens désignés.", [amorce.block_id], STATUT_OUI),
+             claim("c2", "Une autre affirmation.", [item.block_id], STATUT_OUI)];
+        r.sources = [Object.assign({}, amorce, { claim_id: "c1" }),
+                     Object.assign({}, item, { claim_id: memeClaim ? "c1" : "c2" })];
+        return r;
+      }
+      function releve(amorce, item, memeClaim) {
+        const vue = SINISTRE.vueVerdict(deuxClauses(amorce, item, memeClaim), { doc_id: DOC_ID });
+        return { cartes: aplatirVue(vue).filter((n) => premiereClasse(n) === "appui").length,
+                 amorces: textesDe(vue, "appui-amorce"),
+                 blocs: aplatirVue(vue).filter((n) => n.cls === "cl-ouvrir")
+                   .map((n) => JSON.parse(n.attrs["data-block-ids"])) };
+      }
+      const AMORCE = bloc("cg-mini:p9:2", "La Compagnie assure les biens désignés c'est-à-dire :");
+      const ITEM = bloc("cg-mini:p9:3", "• l'écoulement de l'eau des installations ;");
+      cas.l2d_amorce = {
+        fondue: releve(AMORCE, ITEM, true),
+        // Deux affirmations distinctes : deux appuis, quoi qu'en dise la mise en page du PDF.
+        claims_differentes: releve(AMORCE, ITEM, false),
+        // Un bloc sauté : l'adjacence typographique n'est plus établie.
+        non_adjacents: releve(AMORCE, bloc("cg-mini:p9:5", "• l'écoulement de l'eau ;"), true),
+        // Une autre section : le PDF ne les enchaîne pas.
+        chemin_different: releve(
+          Object.assign({}, AMORCE, { chemin: ["3 L'assurance des biens", "3.1.9 Frais annexes"] }),
+          ITEM, true),
+        // Ni « : » ni « contexte » : rien n'atteste que ce bloc en appelle un autre.
+        sans_appel: releve(bloc("cg-mini:p9:2", "La Compagnie assure les biens désignés."),
+                           ITEM, true),
+        // Le moteur publie « contexte » : il dit lui-même que ce bloc n'est pas décisif seul.
+        statut_contexte: releve(
+          bloc("cg-mini:p9:2", "La Compagnie assure les biens désignés.", { status: "contexte" }),
+          ITEM, true),
+      };
+    }
+    {
       const vueQ = SINISTRE.vueVerdict(conversation, { doc_id: DOC_ID });
       const platQ = aplatirVue(vueQ);
       const libre = platQ.filter((n) => n.cls === "conv-reponse-libre")[0];

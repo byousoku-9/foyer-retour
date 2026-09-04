@@ -86,6 +86,8 @@ function releverBlocs(peint) {
       chemin: ligne(carte.querySelectorAll(".appui-chemin")[0] || { textContent: "" }),
       page: ligne(carte.querySelectorAll(".appui-page")[0] || { textContent: "" }),
       type: ligne(carte.querySelectorAll(".appui-kind")[0] || { textContent: "" }),
+      // L'amorce fondue (L2d) : la phrase qui appelle l'énumération, au-dessus du paragraphe.
+      amorce: ligne(carte.querySelectorAll(".appui-amorce")[0] || { textContent: "" }),
       paragraphe: ligne(carte.querySelectorAll(".appui-texte")[0] || { textContent: "" }),
       // Un bloc long : l'extrait porte sa marque, et le paragraphe entier — posé masqué — porte
       // la même. Les deux se relèvent, et le bouton dit lequel est visible.
@@ -95,6 +97,9 @@ function releverBlocs(peint) {
         .map((n) => n.getAttribute("hidden")),
       en_clair: ligne(carte.querySelectorAll(".appui-clair")[0] || { textContent: "" }),
       ouvre_le_pdf: carte.querySelectorAll(".cl-ouvrir").map(ligne),
+      // Ce que le bouton ouvre : une carte qui a fondu son amorce ouvre les **deux** blocs.
+      blocs_ouverts: carte.querySelectorAll(".cl-ouvrir").map(
+        (b) => JSON.parse(b.getAttribute("data-block-ids") || "[]")),
     })),
     // Bloc 3 — ce qui manque : questions, faits exigés, pièces non lues.
     bloc3: manques && {
