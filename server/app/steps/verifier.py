@@ -315,10 +315,26 @@ def _qualifie_par_la_clause(qualite: str, preuve_norm: str, *, min_chars: int) -
     """
     if _mots_qualifiants(qualite):
         return False
+    return _ecrite_par_la_clause(qualite, preuve_norm, min_chars=min_chars)
+
+
+def _ecrite_par_la_clause(qualite: str, texte_norm: str, *, min_chars: int) -> bool:
+    """Le libellé d'une qualité est-il **écrit par le texte** qu'on lui oppose ?
+
+    Story 5.7 (L1n). Chacun de ses mots porteurs — ceux que `_mots_significatifs` retient, donc ni
+    « caractère » ni « événement » — se relit dans le texte normalisé, par préfixe de mot comme
+    partout ailleurs. Deux appelants, deux textes : `_qualifie_par_la_clause` l'oppose aux
+    **citations vérifiées** (il ouvre une porte, il doit être strict) ; le contrôle des qualités
+    rendues l'oppose au **texte des blocs cités** (il en ferme une, et le texte entier est le plus
+    conservateur des deux — il ignore moins).
+
+    Une qualité dont aucun mot n'est porteur (« nature de l'événement ») n'est écrite par aucun
+    texte : elle ne dit pas ce qu'elle exige, et rien ne pourrait l'établir (`_dit_la_qualite`).
+    """
     mots = _mots_significatifs(qualite, min_chars=min_chars)
     if not mots:
         return False
-    return all(re.search(rf"\b{re.escape(mot)}", preuve_norm) for mot in mots)
+    return all(re.search(rf"\b{re.escape(mot)}", texte_norm) for mot in mots)
 
 
 def _propositions(texte: str) -> list[str]:
@@ -374,7 +390,7 @@ def _qualification_affirmee(rattachement: str, *, faits_norm: str, preuve_norm: 
 
 
 def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: int) -> list[str]:
-    """Les qualités que **le texte de la clause** exige et que le modèle n'a pas nommées (B3, tour 3).
+    """Les qualités que **le texte de la clause** exige et que le dossier n'a pas encore (B3, tour 3).
 
     Le contrôle des deux listes ne valait que ce que valait la première : rien n'obligeait le modèle à
     énumérer. Rendre `"qualites_exigees": []` sur une clause qui écrit « par un événement soudain,
@@ -395,11 +411,22 @@ def _qualites_de_la_clause(clauses: list[ClauseCitee], *, nommees: str, place: i
     contraire — fait requis absent **et** aucun fait manquant nommé, donc `applicable="non"` — n'exige
     rien de ce cas, et le code n'invente aucune question à son sujet (« si le périmètre n'est pas bon,
     les deux listes sont vides »).
+
+    **L1n : ce que la clause exige ne dépend plus du tout de ce que le modèle a listé.** `nommees` ne
+    porte plus les libellés *rendus* mais ceux que le dossier **retient** — qualités tenues pour
+    établies, qualités déjà en défaut, fait manquant. Un qualificatif du texte est donc exigé dans
+    tous les cas ; la seule chose que `nommees` évite, c'est de poser deux fois la même question.
+    Mesuré sur le gate AXA `-14` : le même cas rendait `ne_tranche_pas`, `ne_tranche_pas` puis
+    `sous_conditions` selon que le vérificateur listait ou non « soudain » et « subite » — deux
+    lectures d'un même texte, deux verdicts. Le texte, lui, ne varie pas d'une répétition à l'autre.
     """
     attendus: dict[str, str] = {}
     for clause in clauses:
         for racine, mot in _mots_qualifiants(" ".join(clause.qualificatifs)).items():
             attendus.setdefault(racine, mot)
+    # L1n : `nommees` ne dit plus « le modèle en a parlé » mais « le dossier le tient pour établi ou
+    # le demande déjà ». Un qualificatif du texte est donc toujours exigé ; `deja` ne sert qu'à ne pas
+    # poser deux fois la même question sous deux libellés.
     deja = set(_mots_qualifiants(nommees))
     libelles = [f"caractère « {mot} » exigé par la clause citée"
                 for racine, mot in attendus.items() if racine not in deja]
@@ -2484,7 +2511,32 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 return bool(libelle.strip()) and qualifie_un_fait and _qualifie_par_la_clause(
                     libelle, preuve_norm, min_chars=settings.qualite_mot_min_chars)
 
-            exigees = [q.strip() for q in a.qualites_exigees if q.strip()]
+            # L1n : **le texte de la clause décide de ce qu'elle exige, pas la liste du modèle.** La
+            # liste rendue ne peut plus qu'*ajouter* à ce que le code lit ; une qualité dont les mots
+            # porteurs ne se relisent dans aucun des blocs cités n'est pas une exigence de cette
+            # clause et n'a donc pas à peser sur son applicabilité. Le texte relu est celui des blocs
+            # entiers, non les seules citations : entre ignorer trop et ignorer trop peu, on ignore
+            # le moins.
+            texte_des_clauses = " ".join(
+                corpus.documents[index.doc_of(clause.block_id)].block(clause.block_id).text_norm
+                for clause in clauses.get(a.claim_id, []))
+            exigees: list[str] = []
+            hors_du_texte = 0
+            for q in (q.strip() for q in a.qualites_exigees):
+                if not q:
+                    continue
+                if _ecrite_par_la_clause(q, texte_des_clauses,
+                                         min_chars=settings.qualite_mot_min_chars):
+                    exigees.append(q)
+                else:
+                    hors_du_texte += 1
+            if hors_du_texte:
+                step.checks.append(CheckResult(
+                    name="qualite_hors_du_texte_de_la_clause", ok=False,
+                    # Comme les autres traces de ce fichier : un compte et le statut appliqué, jamais
+                    # le libellé — c'est du texte de modèle, il ne se publie pas ici.
+                    detail=f"{hors_du_texte} qualité(s) rendue(s) comme exigée(s) ne sont écrites par "
+                           "aucun passage cité : elles sont ignorées"))
             non_etablies: list[str] = []
             for q in exigees:
                 if normalize(q) in etablies:
@@ -2531,8 +2583,13 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 # demandée au client. Reste dehors le seul cas où compléter serait faux : fait requis
                 # absent **et** aucun fait manquant, c'est-à-dire un fait connu et contraire (⇒ `non`).
                 # Une clause qui ne vise pas ce sinistre n'exige rien de lui.
-                nommees = " ".join([*exigees, *(q.qualite for q in a.qualites_etablies),
-                                    a.fait_manquant or ""])
+                # L1n : « déjà nommée » se lit sur ce que le dossier **retient**, pas sur ce que le
+                # modèle a écrit. Une qualité rangée dans les établies dont le fragment a été rejeté
+                # (`fait_cite_introuvable`, `fait_cite_hors_sujet`) n'établit rien et n'était pas
+                # dans les exigées : elle masquait pourtant le qualificatif du texte, et la clause
+                # passait `oui` sur une qualité que personne n'avait établie. Ne comptent donc que
+                # les qualités tenues pour établies, celles déjà en défaut, et le fait manquant.
+                nommees = " ".join([*non_etablies, *etablies, a.fait_manquant or ""])
                 for libelle in _qualites_de_la_clause(clauses.get(a.claim_id, []), nommees=nommees,
                                                       place=settings.qualites_exigees_max):
                     if libelle not in exigees:
