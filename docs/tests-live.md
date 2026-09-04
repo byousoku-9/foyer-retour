@@ -4908,3 +4908,5 @@ sur les cas de ce genre, et c'est le comportement voulu.
 Aucune fixture live n'a été réenregistrée : ni les prompts, ni les schémas d'outils, ni aucun appel
 ne sont touchés. Le seul seuil ajouté (`negation_fenetre_mots`) est lu par du code de vérification,
 jamais annoncé au fournisseur.
+
+**Ronde `-21` du 04/09/2026 19:30-19:55** (orchestrateur, `S = fea9bda`, campagnes `epic5-gate-<doc>-21`, ancrage `epic5-final-anchor-22` 3/3) : Baloise 9/9 (3,19 €), AXA 3/3 (1,52 €), guide 3/3 (0,12 €), tous `evals_ok=true` sur `pipeline_digest=13c3d7c6…` / `prompts_digest=86823cbf…`. Rondes de l'après-midi : `-18` (cigarette : « exclu » à tort par la règle 3bis ; bougie instable → L1u), `-19` (bougie AXA : vérificateur hésitant sur une exigence niée par la déclaration → L1v), `-20` (cigarette : navigation vide → zero_hit → L1w). Générations `data/.publie/{a,b}` commises ensemble (`7093ccc`) ; certificat Baloise ré-épinglé.
