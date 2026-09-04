@@ -150,11 +150,15 @@
   .conv-liste-questions { display: grid; gap: 6px; }
   .conv-selection-question { margin: 0; padding: 8px 10px; text-align: left; }
   .conv-selection-question[aria-pressed="true"] { outline: 2px solid var(--accent); }
-  .conv-provenance-exigence { font-size: 12px; color: var(--muted); }
+  /* Story 5.6 (L2c) : ce que répondre déclenche, dit avant les questions et non après. */
+  .conv-explication { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-2);
+                      max-width: var(--lecture); }
+  .conv-libre { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .conv-libre-nom { flex: 0 0 auto; margin: 0; font-size: 13px; color: var(--ink-2); }
   .conv-reponse-commune { border-left: 3px solid var(--bord); padding-left: 12px; margin-top: 10px; }
   .conv-reponses, .conv-choix, .conv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .conv-reponses button, .conv-choix button, .conv-actions button { margin: 0; padding: 6px 10px; }
-  .conv-reponse-libre { flex: 1 1 220px; width: auto; }
+  .conv-reponse-libre { flex: 1 1 260px; width: auto; }
   .conv-conflits { border: 1px solid #a16207; border-radius: 8px; padding: 10px; }
   .conv-historique { margin-top: 14px; }
   .conv-actions { margin-top: 14px; }
@@ -290,6 +294,14 @@
   }
   .reponse-suite { margin: 0 0 10px; max-width: var(--lecture); color: var(--ink-2); }
   .inconnu-ligne { margin: 14px 0 0; font-size: 13.5px; color: var(--muted); max-width: var(--lecture); }
+  /* Story 5.6 (L2c) : le recalcul se lit en tête du bloc 1, avec les faits que l'assuré a donnés. */
+  .reponse-maj { margin: 0 0 14px; padding: 10px 12px; border-left: 3px solid var(--accent);
+                 background: var(--panel-2); border-radius: 0 8px 8px 0; }
+  .maj-tete { margin: 0; font-weight: 600; font-size: 14px; }
+  .maj-liste { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+  .maj-fait { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13.5px; }
+  .maj-fait-val { overflow-wrap: anywhere; }
+  .maj-fait .conv-corriger { grid-column: auto; grid-row: auto; }
   .inconnu-tete {
     display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
     color: var(--muted); margin: 14px 0 4px;

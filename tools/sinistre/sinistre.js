@@ -157,6 +157,43 @@
   };
   var NE_TRANCHE_PAS_SANS_CLAUSE = "Pas de clause qui s'applique";
 
+  // Story 5.6 (L2c) — le filtre des chaînes techniques, en **défense en profondeur**.
+  //
+  // Ce que Lancelot a lu en prod : la réponse s'ouvrait sur « Verdict recalculé : sous conditions. »
+  // suivie d'un identifiant de bloc (`axa-lu-optihome-2017:p37:11 : « … »`). Ce sont des chaînes de
+  // service — elles disent à un développeur *par quel chemin* le verdict est tombé, jamais ce que le
+  // contrat prévoit pour le sinistre. Le tour moteur les retire du contrat ; la page ne les affiche
+  // plus **quoi qu'il arrive**, parce qu'un serveur qui régresse ne doit pas pouvoir remettre une
+  // référence de bloc en tête de la réponse d'un assuré.
+  //
+  // Deux signatures, et deux seulement — on ne devine pas « ça fait technique » :
+  //   - un `block_id` du corpus, de la forme `document:pNN:MM` (AD-2) ;
+  //   - le préfixe « Verdict recalculé », que la table AD-6 compose au recalcul.
+  // Ce qui est filtré n'est pas perdu : la raison du verdict se range dans « Comment cette réponse
+  // a été obtenue », avec le reste de ce qui documente la décision.
+  var RE_BLOCK_ID = /[^\s:«»"]+:p\d+:\d+/;
+  var RE_VERDICT_RECALCULE = /^\s*verdict\s+recalcul/i;
+
+  function estTechnique(texte) {
+    var t = String(texte || "");
+    return RE_BLOCK_ID.test(t) || RE_VERDICT_RECALCULE.test(t);
+  }
+
+  /** La chaîne, ou `""` si elle est technique. Un seul point de passage pour tout ce qui s'affiche. */
+  function enClair(texte) {
+    var t = String(texte || "").trim();
+    return estTechnique(t) ? "" : t;
+  }
+
+  // Le bloc 1 sans une seule phrase du modèle. Ce n'est pas une phrase de repli qui *ressemble* à
+  // une réponse : c'est le constat, à côté du verdict, que rien n'a pu être retenu.
+  var AUCUNE_PHRASE_RETENUE = "Aucune clause n'a pu être retenue";
+
+  // « Ce que je ne sais pas » ne se compose pas ici. Le moteur écrivait une ligne générique, vraie
+  // de tous les « sous conditions » et qui n'apprenait rien — elle est retirée du contrat par le
+  // tour moteur, et la page ne la réaffiche pas si elle revenait.
+  var RE_INCONNU_GENERIQUE = /^\s*le verdict conserve des conditions/i;
+
   /**
    * Le libellé d'un verdict. `sansClause` distingue les deux « ne tranche pas ».
    *
@@ -1132,10 +1169,16 @@
     return tableau(c.facts).filter(function (f) { return f && !exclus[f.event_id]; });
   }
 
+  // Story 5.6 (L2c) — un seul intitulé pour les questions, quel que soit le chemin qui les porte :
+  // la conversation (`TargetQuestion.text`) ou, à défaut, `verdict.ask_client`. « Prochaines
+  // questions décisives » et « Questions à poser au client » nommaient l'objet du moteur ; l'assuré
+  // veut savoir à quoi elles servent — elles affinent le verdict qu'il vient de lire.
+  var TITRE_QUESTIONS = "Pour affiner le verdict";
+
   /**
-   * Les questions décisives et leur mécanique de réponse : sélection, Oui / Non / Ne sait pas,
-   * réponse libre. Extrait de `conversationVue()` sans rien changer à ses classes ni à ses
-   * `data-*` — c'est **le** mécanisme existant, déplacé, pas un second formulaire.
+   * Les questions décisives et leur mécanique de réponse : sélection, Oui / Non / Je ne sais pas,
+   * champ « Préciser un fait ». Extrait de `conversationVue()` sans rien changer à ses classes ni à
+   * ses `data-*` — c'est **le** mécanisme existant, déplacé, pas un second formulaire.
    */
   function questionsVue(conversation) {
     var actives = tableau(conversation && conversation.questions).filter(function (q) {
@@ -1148,23 +1191,38 @@
         "data-question-text": String(q.text), "aria-pressed": index === 0 ? "true" : "false"
       });
     });
-    return section("conv-questions", "Prochaines questions décisives", [
+    return section("conv-questions", TITRE_QUESTIONS, [
+      // Story 5.6 (L2c) — la phrase d'explication vient **avant** les questions, parce que c'est
+      // elle qui dit ce qu'un clic déclenche. Lancelot l'a demandée mot pour mot en lisant l'écran
+      // de prod : « quand je soumets, ça met à jour la réponse sans appel au modèle ? pas clair ».
+      // Elle remplace « ces questions viennent des exigences des clauses… », qui disait d'où elles
+      // venaient — ce que personne ne demandait — et taisait ce qui allait se passer.
+      noeud("p", "conv-explication",
+            "Vos réponses sont ajoutées au dossier comme des faits et le verdict est recalculé, " +
+            "sans relire le contrat ni rappeler le modèle."),
       noeud("div", "conv-liste-questions", null, selections),
-      noeud("p", "conv-provenance-exigence",
-            "Ces questions viennent des exigences des clauses ou des pièces du dossier ; " +
-            "vos réponses restent des faits du tour client."),
       noeud("div", "conv-reponse-commune", null, [
         noeud("p", "conv-question-contexte", String(actives[0].text), null,
               { "data-selected-question-id": String(actives[0].question_id) }),
         noeud("div", "conv-reponses", null, [
           noeud("button", "conv-repondre", "Oui", null, { "type": "button", "data-value": "oui" }),
           noeud("button", "conv-repondre", "Non", null, { "type": "button", "data-value": "non" }),
-          noeud("button", "conv-repondre", "Ne sait pas", null,
-                { "type": "button", "data-value": "inconnu" }),
+          // « Je ne sais pas » : c'est l'assuré qui répond, pas un dossier qu'on annote.
+          noeud("button", "conv-repondre", "Je ne sais pas", null,
+                { "type": "button", "data-value": "inconnu" })
+        ]),
+        // « Envoyer la réponse libre » ne disait pas *à quoi* le champ répondait — Lancelot a
+        // demandé « réponse ouverte à quoi ? ». Le champ est nommé par ce qu'il attend, et son
+        // exemple montre la forme d'un fait ; le bouton dit ce que le clic ajoute.
+        noeud("div", "conv-libre", null, [
+          noeud("label", "conv-libre-nom", "Préciser un fait", null,
+                { "for": "conv-reponse-libre" }),
           noeud("input", "conv-reponse-libre", null, null,
-                { "type": "text", "maxlength": "500", "aria-label": "Réponse libre" }),
-          noeud("button", "conv-envoyer-libre", "Envoyer la réponse libre", null,
-                { "type": "button" })
+                { "type": "text", "id": "conv-reponse-libre", "maxlength": "500",
+                  "aria-label": "Préciser un fait",
+                  "placeholder": "ex. : la garantie dégâts des eaux figure dans mes conditions " +
+                                 "particulières" }),
+          noeud("button", "conv-envoyer-libre", "Ajouter ce fait", null, { "type": "button" })
         ])
       ])
     ]);
@@ -1489,19 +1547,89 @@
   // --- bloc 1 : la réponse -------------------------------------------------
 
   /**
+   * Les phrases du modèle, telles qu'il les a écrites — jamais `answer.texte` recomposé.
+   *
+   * Story 5.6 (L2c). `answer.texte` est la concaténation de **tous** les segments : il porte donc
+   * la transition « Faits compris — cause : … ; puis événement : … », qui est un écho de la saisie
+   * et que le dossier redit déjà champ par champ. Elle ouvrait la réponse et repoussait la première
+   * phrase du contrat sous la ligne de flottaison. Le bloc 1 lit désormais `segments` :
+   *
+   *   - `factuel` — ce que le contrat prévoit, et, juste derrière chaque clause, le **rattachement**
+   *     aux faits que *restituer* pose comme son propre segment (`steps/restituer.py`). Deux phrases
+   *     qui se suivent, la clause puis le lien avec le sinistre : c'est l'ordre de lecture naturel ;
+   *   - `limite` — ce que la lecture n'a pas trouvé. Ce n'est pas un fait retenu, donc cela ne fait
+   *     jamais la première phrase, mais c'est une phrase du modèle : elle s'explique en dessous ;
+   *   - `transition` — écarté.
+   *
+   * Tout ce qui est technique est retiré ici (`enClair`), avant même d'être mis en forme.
+   */
+  function phrasesModele(answer) {
+    var factuels = [];
+    var limites = [];
+    tableau(answer && answer.segments).forEach(function (seg) {
+      if (!estObjetPlat(seg)) return;
+      var texte = enClair(seg.text);
+      if (!texte) return;
+      if (seg.kind === "factuel") factuels.push(texte);
+      else if (seg.kind === "limite") limites.push(texte);
+    });
+    return { factuels: factuels, limites: limites };
+  }
+
+  /**
    * La réponse en clair : la première phrase en grand, puis l'explication.
    *
-   * Le texte vient **entier** du serveur (AD-3 : il est composé des segments vérifiés) et la page
-   * ne recompose rien — elle le coupe en phrases pour lui donner une hiérarchie de lecture. Toutes
-   * les phrases restent affichées : les suivantes se groupent par trois, ce qui donne des
-   * paragraphes qui se lisent, sans jamais retrancher la fin d'une réponse longue.
+   * Les phrases viennent **entières** du serveur et la page n'en recompose aucune — elle leur donne
+   * une hiérarchie de lecture. Toutes restent affichées : les suivantes se groupent par trois, ce
+   * qui donne des paragraphes qui se lisent, sans jamais retrancher la fin d'une réponse longue.
    */
-  function reponseVue(texte) {
-    var phrases = paragraphes(String(texte || ""), 1);
+  function reponseVue(phrases) {
     if (!phrases.length) return [];
-    var suite = paragraphes(phrases.slice(1).join(" "), 3);
-    return [noeud("p", "reponse-phrase", phrases[0])].concat(
-      suite.map(function (p) { return noeud("p", "reponse-suite", p); }));
+    var corps = [noeud("p", "reponse-phrase", phrases[0])];
+    for (var i = 1; i < phrases.length; i += 3) {
+      corps.push(noeud("p", "reponse-suite", phrases.slice(i, i + 3).join(" ")));
+    }
+    return corps;
+  }
+
+  /**
+   * Les faits que l'assuré a lui-même apportés, dans l'ordre où il les a donnés.
+   *
+   * Ce sont les réponses aux questions du bloc 3 et les corrections : ce qui distingue le verdict
+   * affiché de celui du premier tour. Les faits extraits de la description initiale n'en sont pas —
+   * ils sont déjà dits par « Ce que j'ai compris du sinistre ».
+   */
+  var SOURCES_REPONSE_CLIENT = { reponse_client: true, correction: true, resolution: true };
+
+  function faitsApportes(conversation) {
+    return faitsRetenus(conversation).filter(function (f) {
+      return f && SOURCES_REPONSE_CLIENT[f.source] === true;
+    });
+  }
+
+  /**
+   * Story 5.6 (L2c) — après une réponse, le bloc 1 dit **d'où vient** le verdict affiché.
+   *
+   * « Verdict recalculé : sous conditions. » était la seule trace du recalcul, écrite comme un log
+   * et posée à la place de la réponse. Le recalcul se dit ici, en tête du bloc, avec les faits que
+   * l'assuré a apportés et le bouton qui les corrige — et la réponse du modèle reste entière en
+   * dessous. Le bouton porte les mêmes classe et `data-*` que celui du dossier : `brancherConversation`
+   * le trouve par sélecteur sur toute la racine peinte, il n'y a pas un second mécanisme.
+   */
+  function majParReponses(conversation) {
+    var apportes = faitsApportes(conversation);
+    if (!apportes.length) return null;
+    var lignes = apportes.map(function (f) {
+      return noeud("li", "maj-fait", null, [
+        noeud("span", "maj-fait-val", String(f.key) + " : " + String(f.value)),
+        noeud("button", "conv-corriger", "Corriger", null,
+              { "data-fact-key": String(f.key), "data-event-id": String(f.event_id) })
+      ]);
+    });
+    return noeud("div", "reponse-maj", null, [
+      noeud("p", "maj-tete", "Verdict mis à jour avec vos réponses"),
+      noeud("ul", "maj-liste", null, lignes)
+    ]);
   }
 
   /**
@@ -1518,27 +1646,49 @@
    * Ce n'est pas une suppression : sans première phrase, il n'y a plus rien pour dire pourquoi, et
    * la raison **reste** sous la pastille. Et si la trace ne se peint pas — un corps sans `trace` —,
    * il n'y a nulle part où la replier : elle reste ici aussi. Elle ne disparaît jamais des deux.
+   *
+   * Story 5.6 (L2c) — une exception à cette dernière règle, et une seule : une raison **technique**
+   * ne remonte jamais à l'écran principal, même sans trace où la ranger. C'est le défaut lu en
+   * prod ; le garder « au cas où » reviendrait à laisser une porte ouverte à ce qu'on corrige.
    */
   function blocReponse(reponse, sansClause, replier) {
-    var a = (reponse || {}).answer || {};
+    var r = reponse || {};
+    var a = r.answer || {};
     var verdict = a.verdict || null;
     var v = libelleVerdict(verdict && verdict.value, sansClause);
-    var corps = reponseVue(a.texte);
+    var phrases = phrasesModele(a);
+    // Sans une seule phrase factuelle, le bloc dit le constat et le verdict — jamais une chaîne
+    // de service à la place d'une réponse. Ce que le modèle a écrit sur les limites de sa lecture
+    // reste dessous, en explication : le constat le résume, il ne le remplace pas.
+    var corps = reponseVue(phrases.factuels.length
+      ? phrases.factuels.concat(phrases.limites)
+      : [AUCUNE_PHRASE_RETENUE].concat(phrases.limites));
     var phrase = corps.length ? corps[0] : null;
     var badge = noeud("span", "badge verdict-" + v.cle, v.texte);
     // La pastille se lit **à côté** de la première phrase : le verdict et la phrase qui l'énonce
     // sont une seule information, et les séparer par trois paragraphes en faisait deux.
-    var enfants = [noeud("div", "reponse-tete", null, phrase ? [phrase, badge] : [badge])]
-      .concat(corps.slice(1));
+    var enfants = [noeud("div", "reponse-tete", null, phrase ? [phrase, badge] : [badge])];
+    var maj = majParReponses(r.conversation);
+    if (maj) enfants.push(maj);
+    enfants = enfants.concat(corps.slice(1));
 
-    var raison = verdict ? String(verdict.reason || "").trim() : "";
-    if (raison && !(phrase && replier && replier(raison))) {
+    var raisonBrute = verdict ? String(verdict.reason || "").trim() : "";
+    var raison = enClair(raisonBrute);
+    // Rangée dans « Comment cette réponse a été obtenue » dès qu'il y a une première phrase — ou,
+    // si elle est technique, **toujours** : elle documente encore la décision, elle ne se lit
+    // simplement plus comme la réponse. Faute de trace où la ranger, une raison en clair reste
+    // sous la pastille ; une raison technique, elle, ne remonte jamais.
+    var rangee = !!(raisonBrute && replier && (phrase || !raison) && replier(raisonBrute));
+    if (raison && !rangee) {
       enfants.push(noeud("p", "verdict-raison", raison));
     }
 
     // « Ce que je ne sais pas » : une ligne sous la réponse. Le tour moteur le rend en une phrase ;
-    // tant qu'il en rend plusieurs, la liste reste compacte plutôt que d'être tronquée.
-    var inconnus = tableau(a.unknown).filter(function (x) { return String(x || "").trim(); });
+    // tant qu'il en rend plusieurs, la liste reste compacte plutôt que d'être tronquée. Elle ne
+    // s'affiche que si le moteur l'a **écrite** : ni chaîne technique, ni ligne générique.
+    var inconnus = tableau(a.unknown).map(enClair).filter(function (x) {
+      return x && !RE_INCONNU_GENERIQUE.test(x);
+    });
     if (inconnus.length === 1) {
       enfants.push(noeud("p", "inconnu-ligne", "Ce que je ne sais pas : " + String(inconnus[0])));
     } else if (inconnus.length > 1) {
@@ -1571,6 +1721,22 @@
    *   2. l'appariement positionnel de `clausesParClaim()` — le contrat d'AD-11 seul ;
    *   3. la liste plate, avec le seul statut que `statutDeBloc()` peut fixer sans deviner.
    */
+  /**
+   * Story 5.6 (L2c) — la ligne en clair d'une clause est **la phrase du modèle**, ou rien.
+   *
+   * `claim.text` puis `claim.rattachement`, dans cet ordre : ce que le contrat écrit, puis le lien
+   * avec les faits déclarés. Si `text` manque ou porte une chaîne technique, la clause se lit avec
+   * son chemin et sa citation, sans phrase inventée — et son rattachement s'en va avec elle, parce
+   * qu'un lien avec les faits sous une affirmation qu'on ne peut pas énoncer n'a rien à quoi se
+   * rattacher. Un rattachement technique tombe seul, la clause et sa phrase restent.
+   */
+  function enClairEntree(entree) {
+    var texte = enClair(entree.texte);
+    entree.texte = texte;
+    entree.rattachement = texte ? enClair(entree.rattachement) : "";
+    return entree;
+  }
+
   function appuisDe(reponse) {
     var r = reponse || {};
     var a = r.answer || {};
@@ -1589,8 +1755,8 @@
     if (tousIdentifies) {
       return { degrade: false, ambigus: 0, entrees: sources.map(function (s) {
         var c = parId[s.claim_id];
-        return { src: s, texte: String(c.text || ""), status: c.status || null,
-                 rattachement: String(c.rattachement || "") };
+        return enClairEntree({ src: s, texte: c.text, status: c.status || null,
+                               rattachement: c.rattachement });
       }) };
     }
 
@@ -1599,8 +1765,8 @@
       var entrees = [];
       appariees.forEach(function (e) {
         e.clauses.forEach(function (s) {
-          entrees.push({ src: s, texte: String(e.text || ""), status: e.status || null,
-                         rattachement: String(e.rattachement || "") });
+          entrees.push(enClairEntree({ src: s, texte: e.text, status: e.status || null,
+                                       rattachement: e.rattachement }));
         });
       });
       return { entrees: entrees, degrade: false, ambigus: 0 };
@@ -1768,7 +1934,9 @@
       var demandes = tableau(verdict && verdict.ask_client)
         .filter(function (q) { return String(q || "").trim(); });
       if (demandes.length) {
-        enfants.push(section("ask", "Questions à poser au client", [liste("ask-liste", demandes)]));
+        // Sans conversation ouverte, rien n'est cliquable : les questions du moteur se lisent
+        // telles qu'il les écrit, sous le même intitulé, et l'écran ne promet aucun recalcul.
+        enfants.push(section("ask", TITRE_QUESTIONS, [liste("ask-liste", demandes)]));
       }
     }
 
