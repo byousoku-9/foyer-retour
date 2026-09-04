@@ -1229,7 +1229,12 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # T19 : et les qualités de **personne** que la clause écrit, lues à la même source. Elles
             # rejoignent `qualificatifs` dans `_qualites_de_la_clause` : ce que la clause exige et que
             # le modèle n'a nommé nulle part devient une qualité non établie, donc `humain`.
-            qualites_personne=_qualites_de_personne(block.text)))
+            qualites_personne=_qualites_de_personne(block.text),
+            # L1o : ce bloc ouvre-t-il une énumération ? Lu sur l'**arbre** comme la portée et le
+            # socle (`Index.est_amorce_denumeration`). Une amorce reste une clause citée — son texte
+            # qualifie ses items (L1n) et sa section les conditionne (L1e) —, mais elle ne décide
+            # rien par elle-même : citée seule, elle laisse la claim hors de la table.
+            amorce=index.est_amorce_denumeration(block_id)))
     return clauses
 
 

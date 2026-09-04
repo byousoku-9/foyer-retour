@@ -197,6 +197,11 @@ class ClauseCitee(DomainModel):
     # sur les claims. `None` quand la section de la clause n'en porte pas — la garantie est alors
     # inconditionnelle au regard de la structure du contrat.
     condition_section: ConditionDeSection | None = None
+    # Story 5.7 (L1o) : ce bloc **ouvre** une énumération — il introduit ses items et n'énonce rien
+    # par lui-même (`Index.est_amorce_denumeration`, lu sur l'arbre comme le `kind` et la portée).
+    # Une amorce reste une clause citée, avec son texte et ses qualificatifs ; elle n'est pas une
+    # clause qui **décide** (`ClaimJugee.clauses_decisionnelles`).
+    amorce: bool = False
 
 
 class ClaimJugee(DomainModel):
@@ -216,10 +221,29 @@ class ClaimJugee(DomainModel):
     contredit: bool = False  # `Block.relation.contredit` vise un bloc cité par une autre claim retenue
 
     @property
+    def clauses_decisionnelles(self) -> list[ClauseCitee]:
+        """Les clauses qui **décident** : toutes sauf les amorces d'énumération (story 5.7, L1o).
+
+        Une amorce — « La Compagnie assure les biens désignés, contre les périls suivants : » —
+        n'énonce ni garantie, ni exclusion, ni condition : elle annonce les items qui, eux, les
+        énoncent. Citée **seule** par une affirmation, elle laisse donc cette liste vide et la claim
+        vaut `applicable=None` : elle est affichée avec sa citation, hors de la table. Citée **avec**
+        son item (L1f), elle reste ce qu'elle est — le contexte de l'item —, et l'item décide seul :
+        l'applicabilité est exactement celle qu'il avait.
+
+        Elle n'est pas retirée de `clauses` pour autant. Son texte reste lu partout ailleurs — les
+        qualificatifs qu'elle écrit sont ceux de ses items (L1n), la condition de sa section est
+        celle de la garantie (L1e) —, et l'affaiblir là aurait rendu `oui` des claims que ces deux
+        règles ferment.
+        """
+        return [clause for clause in self.clauses if not clause.amorce]
+
+    @property
     def kind(self) -> str | None:
         """Le kind décisionnel de la claim — un seul, garanti par le contrôle « une clause par
         affirmation » de *vérifier* (D6) ; `None` si elle ne cite aucune clause décisionnelle."""
-        return self.clauses[0].kind if self.clauses else None
+        decisionnelles = self.clauses_decisionnelles
+        return decisionnelles[0].kind if decisionnelles else None
 
 
 def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = None) -> Applicable | None:
@@ -227,9 +251,9 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
 
     Ordre de dérivation (D1 de la spec 1.8), du plus prudent au plus engageant :
 
-    1. aucune clause décisionnelle citée ⇒ `None` — une définition ou un paragraphe n'a pas
-       d'applicabilité, et lui en prêter une ferait entrer dans la table une claim qui n'y a rien à
-       faire ;
+    1. aucune clause décisionnelle citée ⇒ `None` — une définition, un paragraphe ou une **amorce
+       d'énumération** n'a pas d'applicabilité, et lui en prêter une ferait entrer dans la table une
+       claim qui n'y a rien à faire ;
     2. un bloc cité sans `kind` confirmé ⇒ `humain` — AD-6, littéralement : « une claim décisionnelle
        dont le bloc n'a pas de `kind` confirmé est traitée `applicable="humain"` » ;
     3. une clause décisionnelle **sans portée** ⇒ `humain` — la table compare des portées (règle 1) et
@@ -253,6 +277,14 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
     L'ordre compte : (5) précède (6) parce qu'une clause qui ne s'applique pas au cas rend sans objet
     l'option dont elle dépendrait par ailleurs.
 
+    **(1) et les amorces d'énumération (story 5.7, L1o).** La règle est lue sur
+    `clauses_decisionnelles`, jamais sur `clauses` : une amorce introduit des items, elle n'énonce
+    rien. Citée seule, elle ne laisse aucune clause qui décide et la claim vaut `None` — c'est le
+    même geste que le paragraphe et la définition, tenu cette fois sur la **structure** du document
+    plutôt que sur le `kind` du bloc. Mesuré sur le gate AXA `-14` du 04/09 : jugée `non`, puis non
+    soutenue, puis `oui` sur trois répétitions du même cas, `p34:6` faisait à elle seule diverger le
+    verdict entre `ne_tranche_pas` et `sous_conditions`.
+
     **Pourquoi (5) est fermé à `condition` et `franchise` (revue 1.8).** Sur une garantie ou une
     exclusion, « le fait exigé est connu et contraire » se lit sans ambiguïté : la clause ne vise pas
     ce cas (l'exclusion de la page 46 vise le bâtiment des extensions, le sinistre porte sur le
@@ -264,17 +296,18 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
     condition ou une franchise dont le fait exigé n'est pas établi vaut donc `humain`, quel que soit
     `fait_manquant` — politique conservatrice, comme la règle (2) elle-même.
     """
-    if not claim.clauses:
+    clauses = claim.clauses_decisionnelles
+    if not clauses:
         return None
-    if any(not c.kind_confirmed for c in claim.clauses):
+    if any(not c.kind_confirmed for c in clauses):
         return "humain"
-    if any(not c.portee for c in claim.clauses):
+    if any(not c.portee for c in clauses):
         return "humain"
     # Une exclusion dont la portée déclarée ne couvre aucun nœud du cas est inapplicable par
     # construction, indépendamment du jugement du modèle sur les faits. Une portée absente a déjà
     # rendu `humain` ci-dessus ; un cas sans nœud prouvé ne permet pas non plus cette conclusion.
     if (claim.kind == "exclusion" and noeuds_du_cas
-            and all(clause.portee.isdisjoint(noeuds_du_cas) for clause in claim.clauses)):
+            and all(clause.portee.isdisjoint(noeuds_du_cas) for clause in clauses)):
         return "non"
     champs = claim.champs
     if champs is None:

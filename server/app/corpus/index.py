@@ -394,6 +394,71 @@ class Index:
             return directs.index(amorce_id) + 1 == directs.index(item_id)
         return self.amorce_de_lenumeration(item_id) == amorce_id
 
+    def est_amorce_denumeration(self, block_id: str) -> bool:
+        """Ce bloc **ouvre** une énumération : il introduit les items, il n'en est pas un.
+
+        Story 5.7 (L1o). `amorce_de_lenumeration` et `introduit_immediatement` répondent déjà à
+        « de quelle amorce cet item dépend-il ? » ; la question inverse manquait, et c'est elle dont
+        le verdict a besoin : une amorce **citée seule** est le contexte d'une clause, pas une
+        clause. Mesuré sur le gate AXA `-14` du 04/09 : une affirmation réduite à `p34:6`, « La
+        Compagnie assure les biens désignés, contre les périls suivants : », a valu `non`, puis rien,
+        puis `oui` sur trois répétitions du même cas — le contrat n'y assure aucun péril, il annonce
+        la liste de ceux qu'il assure, et le modèle n'avait rien de stable à juger.
+
+        Le prédicat se lit sur l'**arbre** et sur le rangement d'ingestion, jamais sur le texte : le
+        code ne cherche ni les deux-points ni « suivants ». Les deux rangements sont ceux
+        qu'`introduit_immediatement` nomme déjà, et chacun demande que le bloc **précède** ses items :
+
+        - **le nœud parent** (`_amorce_du_noeud`) : les items sont les nœuds enfants, tous feuilles à
+          un seul bloc, et l'amorce est le dernier bloc citable du nœud qui les précède dans l'ordre
+          de lecture — AXA range ainsi ses six périls sous `a3.1.1.1` ;
+        - **le même nœud** : le bloc ouvre le corps de son nœud et **tout** ce qui le suit y est une
+          liste, c'est-à-dire les items eux-mêmes. Baloise range ainsi « Sont exclus : » (`p12:8`) et
+          la liste d'exclusions qui la complète (`p12:9`).
+
+        Deux exigences font toute la précision de la règle, et chacune vient d'une mesure sur le
+        corpus servi. **Précéder ses items** : sans elle, `_tete_denumeration` rendait le dernier
+        bloc du nœud, c'est-à-dire l'épilogue qui *suit* l'énumération — « Toute renonciation de la
+        part de la Compagnie à un recours n'a d'effet que… » (`p29:10`) passait pour l'amorce de
+        `2.18`, et une vraie condition serait sortie de la table. **N'être pas soi-même une liste** :
+        un bloc `list` est un item, jamais une amorce. Une amorce n'est par ailleurs jamais un titre,
+        ici comme dans les deux méthodes voisines.
+
+        Sur les deux contrats servis, 72 blocs décisionnels sur 1247 sont ainsi reconnus ; 70 d'entre
+        eux finissent par un deux-points, et les deux autres sont une amorce dont l'extraction a perdu
+        la ponctuation et une condition qui n'en est pas une — la structure dit donc ici ce que la
+        ponctuation dirait, sans en dépendre.
+        """
+        entry = self._by_block.get(block_id)
+        if entry is None or entry.block.kind == "heading" or entry.block.structural_kind == "list":
+            return False
+        if self._amorce_du_noeud(entry.node_id) == block_id:
+            return True
+        corps = [b for b in self._nodes[entry.node_id][1]
+                 if self._by_block[b].block.kind != "heading"]
+        if not corps or corps[0] != block_id or len(corps) == 1:
+            return False
+        return all(self._by_block[b].block.structural_kind == "list" for b in corps[1:])
+
+    def _amorce_du_noeud(self, node_id: str) -> str | None:
+        """Le bloc qui ouvre l'énumération **portée par les enfants** de ce nœud, ou `None`.
+
+        `_tete_denumeration` établit que le nœud est une énumération (tous ses enfants sont des
+        feuilles à un seul bloc citable) ; il rend en revanche le *dernier* bloc citable du nœud,
+        ce qui suffit à `enumeration_de` — servir l'unité de lecture — mais pas à dire qui introduit
+        quoi. L'amorce est le dernier bloc citable qui **précède** le premier item dans l'ordre de
+        lecture ; un nœud dont tout le corps suit ses items n'a pas d'amorce.
+        """
+        if self._tete_denumeration(node_id) is None:
+            return None
+        items = [self._nodes[enfant][1][0] for enfant in self._node_children.get(node_id, [])]
+        if not items:
+            return None
+        premier = min(self._by_block[item].rank for item in items)
+        avant = [b for b in self._nodes[node_id][1]
+                 if self._by_block[b].block.kind != "heading" and self._by_block[b].rank < premier]
+        return avant[-1] if avant else None
+
     def amorce_de_lenumeration(self, block_id: str) -> str | None:
         """La phrase qui **ouvre** l'énumération dont ce bloc est l'item, ou `None`.
 
