@@ -2552,11 +2552,6 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                                     effort=(EFFORT_PAR_PROMPT.get(
                                         "verifier_sinistre" if sinistre else "verifier")
                                         if MODEL_CAPS[model_for(step.tier)]["effort"] else None),
-                                    # L1l : le seul appel de la chaîne qui puisse emprunter à la
-                                    # deadline sans rien retarder — c'est le dernier. Le plafond
-                                    # d'un appel ne fait plus échouer une requête que la deadline
-                                    # pouvait servir (`config.verifier_delai_facteur`).
-                                    delai_facteur=settings.verifier_delai_facteur,
                                     trusted_line_uids=trusted_line_uids,
                                     # Ce que nous avons soumis : `SortieVerifier` s'en sert pour exiger
                                     # la totalité des verdicts. Aucun appel de plus (AD-9) — c'est le

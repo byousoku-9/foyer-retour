@@ -301,7 +301,7 @@ def test_le_plafond_dun_appel_ne_coupe_plus_une_requete_que_la_deadline_permetta
 
     settings = Settings(_env_file=None, anthropic_api_key="")
     borne, marge = settings.llm_timeout_s, settings.llm_latence_marge_s
-    facteur = settings.verifier_delai_facteur
+    facteur = settings.llm_timeout_facteur
     assert facteur > 1.0  # sans quoi le témoin ne prouverait rien du cas servi
 
     def budget(restant: float) -> RequestBudget:
@@ -331,8 +331,8 @@ def test_le_plafond_dun_appel_ne_coupe_plus_une_requete_que_la_deadline_permetta
         assert delai == pytest.approx(restant, abs=0.2)
         assert delai <= restant
 
-    # (e) `facteur = 1.0` — donc tout appel qui ne demande rien — rend la formule d'avant, à
-    #     l'identique, quel que soit le temps restant.
+    # (e) `facteur = 1.0` rend la formule d'avant, à l'identique, quel que soit le temps restant :
+    #     c'est par cette valeur, et par elle seule, que la généralisation L1x se désarme.
     for restant in (5.0, borne, 300.0):
         b = budget(restant)
         assert (b.timeout_for_call(borne, facteur=1.0, marge=marge)

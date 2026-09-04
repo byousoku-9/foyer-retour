@@ -3705,7 +3705,8 @@ async def test_le_controle_du_guide_part_desarme_a_leffort_bas_et_avec_le_delai_
         réflexion est adaptative et `budget_tokens` refusé : rien ne la borne que `max_tokens`,
         qu'elle partage avec le contrat JSON — et une réflexion qui prend tout ne rend rien.
     (c) **Le délai de l'appel dépasse `llm_timeout_s`** quand la deadline le permet encore : le
-        plafond d'un appel ne décide plus à la place de la deadline.
+        plafond d'un appel ne décide plus à la place de la deadline. Depuis L1x, l'appel le tient
+        de la dérivation commune du client, et non plus d'un facteur que cette étape nommait.
     """
     draft = _draft_paragraphe(PARAGRAPHE_L1H, [("mini:p1:2", QUOTE_ARRIVEE)])
     _v, _step, fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
@@ -3726,6 +3727,7 @@ async def test_le_controle_du_guide_part_desarme_a_leffort_bas_et_avec_le_delai_
 
     # (c) — `_budget()` porte 100 s de deadline pour un `llm_timeout_s` de 78 : le délai servi est
     #       `restant - llm_latence_marge_s`, donc au-dessus de la borne que L1j avait franchie.
+    #       Les cinq étapes reçoivent le même (témoins L1x dans `tests/test_client.py`).
     settings = _settings()
     assert settings.llm_timeout_s < req["timeout"] <= 100.0
     assert req["timeout"] == pytest.approx(100.0 - settings.llm_latence_marge_s, abs=1.0)
