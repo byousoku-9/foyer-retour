@@ -461,6 +461,8 @@
     relance_facette_sans_place: "sous-question sans réponse : aucune place pour une relance qui conserve les acquis",
     facettes_non_couvertes: "des sous-questions posées ne sont pas couvertes",
     fait_cite_hors_sujet: "un fragment cité pour une qualité n'en emploie aucun mot",
+    fait_cite_nie_par_la_declaration: "un fragment cité pour une qualité ne la nomme, dans les faits déclarés, que sous une négation",
+    exigence_niee_par_la_declaration: "les faits déclarés ne nomment ce que la clause citée exige que sous une négation : le fait exigé est tenu pour contraire",
     fait_cite_introuvable: "une qualité dite établie ne cite aucun fragment des faits déclarés",
     faits_compris_hors_borne: "des faits compris dépassent leur borne",
     hors_objet_incoherent: "une affirmation dite hors de l'objet de la question porte une applicabilité qui vise ce cas, ou répond à une sous-question : le motif est écarté",
