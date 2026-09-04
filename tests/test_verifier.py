@@ -30,6 +30,7 @@ from server.app.steps.verifier import (
     DemandeRendue,
     SortieVerifierSinistre,
     _lignes_du_bloc,
+    retirer_identifiants,
     verifier,
 )
 from tests.llm_fake import FakeAnthropic, fake_message
@@ -3420,3 +3421,59 @@ async def test_linventaire_ne_porte_ni_titre_ni_bloc_hors_budget(mini: Index) ->
     restreints = [json.loads(charge) for kind, charge in UNTRUSTED.findall(
         fake.requests[0]["messages"][0]["content"]) if kind == "lu"]
     assert 0 < len(restreints) < len(lus)
+
+
+# --- aucun identifiant dans un texte affiché (story 5.6, L1j) -----------------------------
+
+
+def test_le_motif_didentifiant_se_derive_des_documents_servis() -> None:
+    """La fonction pure, sur la phrase réelle du rejeu du 04/09/2026 (08 h 15).
+
+    Aucune forme d'identifiant n'est écrite dans le code (`f…`, `p…`, `s…`) : seul le `doc_id` sert,
+    et il vient du corpus. Un préfixe qu'aucune lecture n'a servi ne retire donc rien — c'est ce qui
+    empêche la règle de manger un mot de la prose.
+    """
+    phrase = ("Les places sont limitées en période de rentrée. lux-guide:farrivee Trouver un bon "
+              "logement demande aussi de s'y prendre tôt.")
+    texte, n = retirer_identifiants(phrase, prefixes=["lux-guide"])
+    assert n == 1
+    assert texte == ("Les places sont limitées en période de rentrée. Trouver un bon logement "
+                     "demande aussi de s'y prendre tôt.")
+    # Le bloc numéroté et le nœud d'un contrat passent par le même motif, sans règle propre.
+    assert retirer_identifiants("Voir axa-lu-optihome-2017:p34:12.",
+                                prefixes=["axa-lu-optihome-2017"]) == ("Voir.", 1)
+    # Rien à retirer quand le document servi n'est pas celui-là : pas de motif générique qui
+    # attraperait « 8:30 » ou un mot suivi de deux-points.
+    assert retirer_identifiants(phrase, prefixes=["axa-lu-optihome-2017"]) == (phrase, 0)
+    assert retirer_identifiants("Ouvert de 8:30 à 17:00.", prefixes=["mini"]) == (
+        "Ouvert de 8:30 à 17:00.", 0)
+
+
+async def test_un_identifiant_ecrit_dans_le_texte_affiche_est_retire_et_compte(mini: Index) -> None:
+    """Le témoin de bout en bout : la phrase servie n'en porte plus, et la trace le dit.
+
+    L'identifiant n'affirme rien : aucune citation ne le porte ni ne le contredit, et il traversait
+    le contrôle phrase par phrase sans rougir.
+    """
+    draft = _draft(("c1", f"{ARRIVEE} mini:p1:2", [("mini:p1:2", ARRIVEE)]))
+    draft.segments[0].text = f"{ARRIVEE} mini:p1:2"
+    draft = draft.model_copy(update={"claims": [
+        draft.claims[0].model_copy(update={"rattachement": "Ce délai vaut ici (mini:p1:2)."})]})
+
+    verification, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+
+    assert verification.segments[0].text == ARRIVEE
+    assert verification.claims[0].text == ARRIVEE
+    assert verification.claims[0].rattachement == "Ce délai vaut ici ()."
+    (check,) = [c for c in step.checks if c.name == "identifiants_retires"]
+    assert check.ok is False and check.detail.startswith("3 identifiant(s)")
+
+
+async def test_un_texte_sans_identifiant_ne_publie_pas_le_controle(mini: Index) -> None:
+    """La contre-épreuve : le chemin ordinaire ne bouge pas d'un octet, ni check ni texte."""
+    draft = _draft(("c1", ARRIVEE, [("mini:p1:2", ARRIVEE)]))
+
+    verification, step, _fake = await _verifier(mini, draft, [_verdicts(("c1", True))])
+
+    assert verification.segments[0].text == "Segment c1."
+    assert not [c for c in step.checks if c.name == "identifiants_retires"]

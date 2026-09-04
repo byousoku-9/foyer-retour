@@ -4557,3 +4557,41 @@ que le re-gate live n'est pas fait ; il revient à l'orchestrateur, `data/.publi
 - gate-a-relancer: lux-guide pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=0ff7573bd782b6eecb905b58e4b2933b489391dd638e7e54bbab3b833ec5a44a
+
+## 4 septembre 2026 — tour L1j : un rejeu guide, et un 503 qui dit où passe le temps
+
+**Un seul appel servi** (`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, serveur local 8878) :
+`POST /api/v1/chat`, question du matin de Lancelot, profil famille / 2 enfants / salarié / louer /
+départ. Dépense **0,293 €**. Sortie brute :
+`automation/runs/20260902-structure-index/proto/g-partir-l1j.json` ; lecture chiffrée dans
+`automation/runs/20260902-structure-index/proto/lecture.md`.
+
+**Résultat : HTTP 503 `timeout`** (`APITimeoutError`) à **177,8 s**, après 38,7 s de chaîne publiée.
+
+| étape | ms | € |
+|---|---|---|
+| `comprendre` | 4 003 | 0,0053 |
+| `retrouver` (2 tours, 3 nœuds, 37 blocs, 4 886/12 000 tokens) | 5 980 | 0,0680 |
+| `rediger` (tour terminal) | 28 759 | 0,1163 |
+| `verifier` | jamais publié — 139 s puis `APITimeoutError` | — |
+
+Ce n'est **pas** la deadline de requête : `deadline_remaining_s = 112,2` à l'échec. C'est
+`llm_timeout_s = 78,0`, le plafond d'un appel, franchi par *vérifier* sur une lecture trois fois plus
+grosse qu'au rejeu de 08 h 15 (37 blocs contre 5). Reprise différée
+`verifier-depasse-son-plafond-dappel-des-que-la-lecture-couvre-toutes-les-facettes`,
+`target_story: 5.7`, `severity: high`.
+
+Ce que le rejeu **prouve** en positif : la couverture des sous-questions par la lecture est réparée —
+`facettes_sans_lecture` rend `3 sous-question(s) sur 3 … rang(s) sans lecture : aucun`, et
+`noeuds_du_profil` passe de 0 à 2 fiches suggérées ouvertes sur 4. Aucun tour terminal n'a eu à être
+refusé : le champ `facette` obligatoire au schéma de `ouvrir_noeud` a suffi.
+
+Digests du rejeu : `pipeline_digest=1c54ab2c…`, `prompts_digest=4f0c8e67…` (les deux bougent — code
+de navigation et prompts de navigation touchés). Les trois documents restent donc `gate_perime` : la
+dette de gate est **reconduite**, aucun gate n'a été relancé, `data/.publie` n'a pas été touché. Le
+certificat Baloise (`tests/test_parsing_baloise.py`) épingle les empreintes de l'artefact de gate,
+pas celles du code courant : **rien à ré-épingler**, et il est vert.
+
+- gate-a-relancer: lux-guide pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1c54ab2c0641b88f2ded1b7847cd2a8aa62d8c2fa8ca0c7b26836e425860994c
