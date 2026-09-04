@@ -4720,3 +4720,5 @@ du gate `-14` (cas bougie) reste identique, trois `ne_tranche_pas` : la règle n
 - gate-a-relancer: lux-guide pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+
+**Ronde `-17` du 04/09/2026 13:13-13:32** (orchestrateur, `S = 6a4c10e`, campagnes `epic5-gate-<doc>-17`, ancrage `epic5-final-anchor-18` 3/3) : Baloise 9/9 (2,02 €), AXA 3/3 (0,65 €), guide 3/3 (0,11 €), tous `evals_ok=true` sur `pipeline_digest=b937020a…` / `prompts_digest=4f0c8e67…`. Rondes précédentes du matin : `-14` (AXA rouge par stabilité du cas bougie, cause L1o), `-16` (Baloise rouge par stabilité du congélateur, cause L1p ; AXA incident réseau). Générations `data/.publie/{a,b}` commises ensemble (`fb56a3c`) ; certificat Baloise ré-épinglé.
