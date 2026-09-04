@@ -341,6 +341,12 @@ def relance_utile(verification: Verification, settings: Settings) -> bool:
     exemples de motifs sont tous des défauts de citation — et non une évidence : le seuil
     `relance_sur_non_pertinence` la rend explicite et mesurable par les questions-témoins (4.2).
     """
+    if verification.phrases_a_reecrire:
+        # Story 5.6 (L1g) : un troisième cas, et il est du même ordre que le premier. Le paragraphe
+        # servi n'est pas « une affirmation de moins » mais un texte amputé de ses liaisons, que
+        # personne n'a écrit tel quel ; seul le modèle peut le refaire, une phrase par passage. Il ne
+        # coûte pas un appel de plus : c'est la relance unique d'AD-3, déjà bornée par le pipeline.
+        return True
     if not verification.rejected_claims:
         return False
     if not verification.found:

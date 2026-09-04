@@ -453,6 +453,12 @@ class Verification(DomainModel):
     # AD-1 fait de *retrouver* le seul détenteur des outils, et une étape qui satisferait elle-même
     # sa demande rouvrirait le corpus depuis le contrôle des citations.
     demande_contexte: DemandeContexte | None = None
+    # Story 5.6 (L1g) : les affirmations dont le jugement phrase par phrase (L1d) a retiré plus que
+    # `claim_phrases_retirees_ratio_max`, et **quels rangs**. Ce qui reste alors n'est pas une
+    # réponse plus courte, c'est un squelette : des phrases dont les liaisons ont sauté. Le code ne
+    # réécrit rien (AD-1) — il nomme les rangs dans le motif et laisse la relance unique d'AD-3
+    # refaire le paragraphe, une phrase par passage. Clé = `claim_id`, valeur = rangs retirés triés.
+    phrases_a_reecrire: dict[str, list[int]] = Field(default_factory=dict)
     # Story 3.7 : état exact qui a alimenté AD-6. Il voyage seulement entre *vérifier*, le pipeline
     # et la fabrique du jeton signé ; il n'est jamais sérialisé dans l'ancien contrat ``Answer``.
     _decision_claims: list[ClaimJugee] = PrivateAttr(default_factory=list)

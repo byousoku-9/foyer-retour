@@ -287,6 +287,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:70f27dbfbbcf9636": {
+    "certificate": {
+      "messages_sha256": "a7613718250ffb9a0073a144ac7945ab64d0f168233d5a6b12a88bd9480c02cc",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:70f27dbfbbcf9636",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"pt\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cehotc2VFDuBdK9ftjEkR",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1349,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:716e8a94aa86bf34": {
     "request": "claude-haiku-4-5-20251001:716e8a94aa86bf34",
     "response": {
@@ -1275,6 +1314,47 @@
         "output_tokens": 793,
         "output_tokens_details": {
           "thinking_tokens": 662
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:21f7e96c4a66a409": {
+    "certificate": {
+      "messages_sha256": "88bebfeb09a7f1c973edccceaf0fa4848df9d60dd51fe67e4527bca2877d9395",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:21f7e96c4a66a409",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehosC82nnDc7KrMrBeQX",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8282,
+        "inference_geo": "global",
+        "input_tokens": 1241,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
@@ -2372,6 +2452,48 @@
       }
     }
   },
+  "claude-sonnet-5:9d81acb63073d99a": {
+    "certificate": {
+      "messages_sha256": "5e0aa9bc9bf48a51f798fc76cd136b6fecefb4c2f42bb250306f03c0318486d4",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:9d81acb63073d99a",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"No Luxemburgo existem três vias possíveis para escolarizar os filhos, e a escolha deve começar antes mesmo da mudança de casa.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"A inscrição na comuna geralmente precede a inscrição escolar, e as vagas nas secções mais procuradas podem esgotar-se com um ano de antecedência, por isso convém verificar a disponibilidade da secção linguística pretendida, não apenas do estabelecimento. Antes de partir do país de origem, é preciso pedir à escola de origem um certificado de anulação de matrícula e os boletins dos últimos anos, pois quase sempre são exigidos e muito mais difíceis de obter depois da partida. O início do ano letivo situa-se no começo de setembro.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]},{\"text\":\"Existem três vias: o ensino público luxemburguês, gratuito, que alfabetiza em luxemburguês e depois introduz o alemão e o francês, e integra bem as crianças que chegam jovens, embora para uma chegada mais tardia a barreira linguística seja real; as escolas europeias e internacionais, com acesso prioritário para filhos de funcionários das instituições europeias e propinas (minerval) para as demais famílias, além de escolas internacionais públicas gratuitas com secções anglófona, francófona ou germanófona muito procuradas; e estabelecimentos privados com bacharelado internacional ou currículos estrangeiros, com custos significativos.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"No Luxemburgo existem três vias possíveis para escolarizar os filhos, e a escolha deve começar antes mesmo da mudança de casa. Existem três vias: o ensino público luxemburguês, gratuito, que alfabetiza em luxemburguês e depois introduz o alemão e o francês, e integra bem as crianças que chegam jovens, embora para uma chegada mais tardia a barreira linguística seja real; as escolas europeias e internacionais, com acesso prioritário para filhos de funcionários das instituições europeias e propinas (minerval) para as demais famílias, além de escolas internacionais públicas gratuitas com secções anglófona, francófona ou germanófona muito procuradas; e estabelecimentos privados com bacharelado internacional ou currículos estrangeiros, com custos significativos. A inscrição na comuna geralmente precede a inscrição escolar, e as vagas nas secções mais procuradas podem esgotar-se com um ano de antecedência, por isso convém verificar a disponibilidade da secção linguística pretendida, não apenas do estabelecimento. Antes de partir do país de origem, é preciso pedir à escola de origem um certificado de anulação de matrícula e os boletins dos últimos anos, pois quase sempre são exigidos e muito mais difíceis de obter depois da partida. O início do ano letivo situa-se no começo de setembro.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement. Trois voies coexistent, très différentes.\"},{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français. Il intègre remarquablement bien les enfants arrivés jeunes. Pour une arrivée plus tardive, en revanche, la barrière linguistique est réelle\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval. Il existe par ailleurs des écoles internationales publiques, gratuites, avec des sections anglophone, francophone ou germanophone, très demandées. Enfin, des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti. La rentrée se situe au début du mois de septembre.\"}],\"facette\":0,\"rattachement\":\"lux-guide:fecole\"}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehosLNP3Qs9t5C5oktBS",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 9972,
+        "inference_geo": "global",
+        "input_tokens": 1409,
+        "output_tokens": 1677,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:a14c78fa3119e792": {
     "certificate": {
       "messages_sha256": "79c2213bb99752a4c44726ebbd001057c5aed3f7dc1645b1146a6fc9c1e033bb",
@@ -2470,11 +2592,11 @@
       "content": [
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Onde devo matricular os meus filhos na escola no Luxemburgo?\",\"clarification\":null,\"language\":\"pt\",\"terms\":[\"scolarisation\",\"inscription scolaire\",\"école\"],\"themes\":[],\"facettes\":[\"inscription scolaire des enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Onde devo matricular os meus filhos na escola no Luxemburgo?\",\"clarification\":null,\"language\":\"pt\",\"terms\":[\"scolarisation\",\"inscription scolaire\",\"enfants\",\"école\"],\"themes\":[],\"facettes\":[\"inscription scolaire des enfants\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CehMQQ8ZmKtCL8XCAxgZ1",
+      "id": "msg_011CehorrjUJ4LEBrSRj3kZ6",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -2490,7 +2612,7 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 91,
-        "output_tokens": 135,
+        "output_tokens": 139,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2525,6 +2647,48 @@
         "inference_geo": "global",
         "input_tokens": 2883,
         "output_tokens": 1026,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:bc188c16e84eb767": {
+    "certificate": {
+      "messages_sha256": "dbff31996ae8991fc9647860b1bfd5299b242f10c7c6c9d103f97bca1b7b0ae6",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "ffdfafb00e65c5e48070dbcb254a0731ff9287396053eabc06dec061be97fd91",
+      "system_sha256": "a2377fdb68362c120a37c3deed507920f3926f22639a19008437d6830646ca04",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:bc188c16e84eb767",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true},{\"segment\":1,\"soutenu\":true},{\"segment\":2,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CehotPDogy8UjetfczeBR",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5214,
+        "inference_geo": "global",
+        "input_tokens": 2476,
+        "output_tokens": 129,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2608,6 +2772,59 @@
         "output_tokens": 1274,
         "output_tokens_details": {
           "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:dfed23fdee08b048": {
+    "certificate": {
+      "messages_sha256": "5e50aa665a05da0c67994a40ede80af7461fef74fedcf33e2925b4a238342c38",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "02fea8cfa901bf21f5f34dc61147fbb04fbff0a48ca2a44b34695ecb01883b69",
+      "tools_sha256": "8bcbde5dd8c5938707cbe825c910f242603ccea58949ede9d2971049dc516e69",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:dfed23fdee08b048",
+    "response": {
+      "content": [
+        {
+          "signature": "EosCCpABCBEYAipALORHF3ipUoP18z7xFXMz8qpg0fssHoxUy5oaKEoyVuYhp5SU4/eEUSkG21wACTnkAmDTk2WTneOoZYA4EseCbzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaag6dQGEgwo3v9uW9EvDPyiYpYaDJOYhKJgn7Zg6rb98iIweP6sOVjVJl2L9i30iyjiTyjXy0sIa+jHxdNtjcM1M1PxgEp6jejW8mxEkpwsA5p+KigV8rWa2PvpUVVTT3wI9EK3mS8uYbXpvChKp9tuWRXG0nzwqY78UTmbGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_012EckyR1R7cea5jYuctnB7Q",
+          "input": {
+            "node_id": "lux-guide:fecole"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cehos3iGdSLEuQ8bGFxC7",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8282,
+        "inference_geo": "global",
+        "input_tokens": 178,
+        "output_tokens": 75,
+        "output_tokens_details": {
+          "thinking_tokens": 11
         },
         "service_tier": "standard"
       }

@@ -151,10 +151,14 @@ def test_reponse_ciblee_recalcule_ad6_sans_modifier_l_historique() -> None:
     assert updated.answer.verdict.value == "couvert"
     assert updated.history[-1].changed is True
     assert updated.facts[-1].question_id == question.question_id
-    assert updated.answer.texte.startswith("Verdict recalculé : couvert.")
-    assert updated.answer.segments == [
-        updated.answer.segments[0].model_copy()]  # une seule restitution déterministe
+    # L1g : le texte du modèle est **conservé**, précédé de la seule phrase que le tour écrit.
+    assert updated.answer.texte.startswith(
+        "Verdict mis à jour avec vos réponses, sans relire le contrat : couvert.")
+    assert state.answer.texte in updated.answer.texte
     assert updated.answer.segments[0].kind == "limite"
+    assert updated.answer.segments[1:] == state.answer.segments
+    assert [claim.text for claim in updated.answer.claims] == [
+        claim.text for claim in state.answer.claims]
 
 
 def test_ne_sait_pas_reste_inconnu_et_le_rejeu_est_deterministe() -> None:
@@ -783,10 +787,70 @@ def test_api_suivi_restitue_un_answer_coherent_et_preserve_ses_clauses() -> None
         assert followup.status_code == 200
         body = followup.json()
         verdict = body["answer"]["verdict"]["value"].replace("_", " ")
-        assert f"Verdict recalculé : {verdict}." in body["answer"]["texte"]
-        assert all(claim["text"] == "Clause vérifiée conservée pour le recalcul du verdict."
-                   for claim in body["answer"]["claims"])
+        premier = first.json()["answer"]
+        assert body["answer"]["texte"].startswith(
+            f"Verdict mis à jour avec vos réponses, sans relire le contrat : {verdict}.")
+        assert premier["texte"] in body["answer"]["texte"]
+        assert [c["text"] for c in body["answer"]["claims"]] == [
+            c["text"] for c in premier["claims"]]
+        assert [c.get("rattachement") for c in body["answer"]["claims"]] == [
+            c.get("rattachement") for c in premier["claims"]]
+        # La raison technique de la table reste lisible, mais dans la trace seulement.
+        restituer = next(s for s in body["trace"]["steps"] if s["name"] == "restituer")
+        assert body["answer"]["verdict"]["reason"] in restituer["checks"][0]["detail"]
         assert body["sources"], "les clauses vérifiées restent disponibles à la copie et à l'UX"
+
+
+LIBELLES_TECHNIQUES = ("point exigé", "Clause vérifiée conservée", "Verdict recalculé :",
+                       "conservée pour l'audit")
+
+
+def _champs_affiches(payload: dict) -> list[str]:
+    """Tout ce que la page met sous les yeux d'une personne, et rien d'autre."""
+    answer = payload["answer"]
+    textes = [answer["texte"], *(s["text"] for s in answer["segments"]), *answer["unknown"]]
+    for claim in (*answer["claims"], *answer["rejected_claims"]):
+        textes.append(claim["text"])
+        textes.append(claim.get("rattachement") or "")
+    verdict = answer.get("verdict") or {}
+    textes += [verdict.get("reason", ""), *verdict.get("ask_client", []),
+               *verdict.get("escalate", []), *(verdict.get("missing") or {}).get("faits", [])]
+    textes += [source["quote"] for source in payload.get("sources", [])]
+    textes += [question["text"] for question in payload.get("conversation", {}).get("questions", [])]
+    return textes
+
+
+def test_aucun_libelle_technique_n_atteint_un_champ_affiche() -> None:
+    """Témoin hermétique L1g : la mécanique du recalcul ne se lit nulle part sur la page.
+
+    Le tour 0 comme le tour de suivi passent par le même contrôle. Ce n'est pas une interdiction de
+    vocabulaire : c'est la preuve que rien de ce que produit `domain.conversation` — la projection de
+    l'état — ne se substitue à un texte destiné à être lu.
+    """
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = Double((_reponse(corpus), _trace()))
+        first = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"})
+        premier = first.json()
+        conversation = premier["conversation"]
+        question = next(q for q in conversation["questions"] if q["status"] == "active")
+        suivi = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "question_id": question["question_id"], "fait_libre": "oui",
+        }).json()
+    for payload in (premier, suivi):
+        for texte in _champs_affiches(payload):
+            for libelle in LIBELLES_TECHNIQUES:
+                assert libelle not in texte, f"libellé technique servi : {texte!r}"
+    # Et les questions sont bien celles que le moteur a formulées, mot pour mot.
+    lisibles = set(premier["answer"]["verdict"]["ask_client"])
+    for q in conversation["questions"]:
+        if q["kind"] != "fait":
+            assert q["text"] in lisibles, q["text"]
 
 
 def test_seuils_conversation_alignent_settings_api_domaine_et_trace() -> None:

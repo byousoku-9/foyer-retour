@@ -1262,7 +1262,11 @@ def run_followup(state: ContinuationState, action: ConversationAction, *, settin
             detail="état décisif vérifié avant recalcul par la table AD-6")]),
         StepTrace(name="restituer", checks=[CheckResult(
             name="verdict_recalcule", ok=True,
-            detail=f"tour {updated.turn} rendu déterministement")]),
+            # L1g : la raison de la table est **ici**, sous « Comment cette réponse a été obtenue »,
+            # et non dans le texte servi — c'est le compte rendu du contrat que la personne relit.
+            detail=f"tour {updated.turn} rendu déterministement : "
+                   f"{updated.answer.verdict.value if updated.answer.verdict else 'sans verdict'} — "
+                   f"{updated.answer.verdict.reason if updated.answer.verdict else ''}")]),
     ]
     trace = Trace(
         request_id=request_id, pipeline=PIPELINE, variant=VARIANT, intent="suivi", steps=steps,
