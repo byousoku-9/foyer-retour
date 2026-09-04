@@ -9,13 +9,14 @@ import re
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from server.app.api.presenter import STATUT_RATTACHEE, STATUT_VERIFIEE, _statut_de
 from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
 from server.app.corpus.text import normalize
-from server.app.domain.answer import LACUNES_MANQUES, AnswerDraft
+from server.app.domain.answer import BLOCS_ECARTES_MAX, LACUNES_MANQUES, AnswerDraft, VerifiedQuote
 from server.app.domain.document import Document, Node
 from server.app.domain.question import Faits, ParsedQuestion
 from server.app.domain.retrieval import RetrievalResult
@@ -38,6 +39,7 @@ from server.app.steps.verifier import (
 )
 from server.app.pipelines.commun import relance_utile
 from tests.llm_fake import FakeAnthropic, fake_message
+from tests.rejeu_gate import citation_entiere
 
 ROOT = Path(__file__).resolve().parents[1]
 HAIKU = TIERS["reason"]  # alias historique : le plancher sémantique est désormais Sonnet
@@ -2706,6 +2708,62 @@ async def test_an_applicable_exclusion_covering_the_case_excludes_it(contrat: In
     assert [c.status.applicable for c in v.claims] == ["oui", "oui"]
 
 
+async def test_une_exclusion_rattachee_a_un_fait_declare_conclut_a_lexclusion(
+        contrat: Index) -> None:
+    """Story 5.7 (L1r) : **une exclusion établie conclut « exclu ».**
+
+    La portée déclarée d'une exclusion est son propre nœud — « 3.1.6.2.1 les vols simples » —, jamais
+    celui de la garantie qu'elle écarte : l'intersection avec les nœuds du cas était vide sur les cinq
+    exclusions de la batterie du 03/09/2026, et `s10-intention` (« j'ai mis le feu à mon canapé
+    exprès ») sortait `ne_tranche_pas` alors qu'il citait l'exclusion de faute intentionnelle et la
+    rattachait aux faits. Ce que le rattachement montre est plus direct qu'une portée : cette
+    clause-là a rencontré ce sinistre-là. Ici `cg:p1:2` porte sur `cg:ext` — hors du nœud du cas — et
+    le rattachement relie « le mobilier de salon » déclaré au vocabulaire de la clause.
+    """
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("Le dommage par la chaleur est exclu.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Le dommage par la chaleur est exclu.", [("cg:p1:2", Q_EXCLUSION)])])
+    draft = draft.model_copy(update={"claims": [
+        c.model_copy(update={"rattachement": (
+            "Le feu au mobilier de salon est un dégât occasionné au bâtiment par la chaleur."
+            if c.claim_id == "c2" else None)}) for c in draft.claims]})
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", False, False, False, "origine de la chaleur"),
+        verdicts=[("c1", True), ("c2", True)])])
+    # Le modèle a pourtant nommé un fait manquant : la règle (3bis) passe devant, parce que la
+    # réponse **affichée** tient l'exclusion pour rencontrée.
+    assert [c.status.applicable for c in v.claims] == ["oui", "oui"]
+    assert v.verdict is not None and v.verdict.value == "non_couvert"
+
+
+async def test_un_rattachement_dexclusion_etranger_aux_faits_ne_conclut_pas(contrat: Index) -> None:
+    """La contre-épreuve de L1r : le rattachement doit nommer un fait **de la déclaration**.
+
+    Même clause, même claim retenue, même jeu de champs — mais le rattachement parle d'une chaudière
+    dont les faits déclarés ne disent pas un mot. Rien ne relie alors la clause au cas, et
+    la porte de L1r reste fermée : « exclu » ne se tire pas d'une phrase que la déclaration ne
+    porte pas. La clause retombe alors sur la lecture ordinaire de sa portée — `cg:ext`, hors du
+    nœud du cas —, exactement comme avant ce tour.
+    """
+    draft = _draft_libre(
+        ("La garantie couvre le mobilier.", "factuel", ["c1"]),
+        ("Le dommage par la chaleur est exclu.", "factuel", ["c2"]),
+        claims=[("c1", "La garantie couvre le mobilier.", [("cg:p1:1", Q_GARANTIE)]),
+                ("c2", "Le dommage par la chaleur est exclu.", [("cg:p1:2", Q_EXCLUSION)])])
+    draft = draft.model_copy(update={"claims": [
+        c.model_copy(update={"rattachement": (
+            "La surchauffe de la chaudière est un dégât occasionné au bâtiment par la chaleur."
+            if c.claim_id == "c2" else None)}) for c in draft.claims]})
+    v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
+        ("c1", True, False, False, None), ("c2", False, False, False, "origine de la chaleur"),
+        verdicts=[("c1", True), ("c2", True)])])
+    assert [c.status.applicable for c in v.claims] == ["oui", "non"]
+    assert v.claims[1].status.applicable_reason == "hors_portee"
+    assert v.verdict is not None and v.verdict.value != "non_couvert"
+
+
 async def test_an_exclusion_out_of_scope_does_not_bite(contrat: Index) -> None:
     """AD-2 : `Document.scope_nodes()` est l'unique calcul de « la portée couvre le cas »."""
     draft = _draft_libre(
@@ -3616,13 +3674,61 @@ ITEM_EXCLUSION = f"{BALOISE}:p12:9"  # les exclusions que cette phrase annonce
 ITEM_GARANTIE = f"{BALOISE}:p12:6"  # « l'incendie, l'explosion, l'implosion, … »
 
 
+def test_les_exigences_se_lisent_dans_litem_cite_et_pas_dans_tout_le_bloc(reel: Index) -> None:
+    """Story 5.7 (L1r) : un bloc d'énumération porte plusieurs clauses, l'item cité n'en est qu'une.
+
+    `p12:6` du contrat Baloise aligne neuf périls sous une même puce par ligne — « l'incendie »,
+    « le choc d'un véhicule … dont le conducteur n'est ni vous-même, ni une personne **vivant
+    habituellement** dans le logement assuré », « l'action **subite** de la chaleur ou le contact
+    **direct** avec le feu ». Lire le bloc entier faisait porter à l'incendie les qualités de ses
+    voisins : mesuré le 03/09/2026 sur `b01-incendie` (feu de cuisine), le dossier réclamait le
+    caractère « subite », le caractère « direct » et l'appartenance au foyer de l'assuré sur une
+    affirmation qui ne citait que « l'incendie ».
+    """
+    bloc = "baloise-lu-home-2-2024:p12:6"
+    texte = reel.corpus.documents[reel.doc_of(bloc)].block(bloc).text
+    debut = texte.index("l’incendie")
+    incendie = VerifiedQuote(block_id=bloc, quote=texte[debut:debut + 10], start=debut,
+                             end=debut + 10, text_start=debut, text_end=debut + 10)
+    (clause,) = _clauses_citees([incendie], corpus=reel.corpus, index=reel)
+    assert clause.qualificatifs == [] and clause.qualites_personne == []
+
+    # Contre-épreuve : l'item qui **écrit** ces qualités les garde, et une clause d'une seule phrase
+    # n'en perd aucune — citée à moitié, elle les cumule toujours (`_passages_cites`).
+    chaleur = texte.index("l’action subite")
+    item = VerifiedQuote(block_id=bloc, quote=texte[chaleur:chaleur + 15], start=chaleur,
+                         end=chaleur + 15, text_start=chaleur, text_end=chaleur + 15)
+    (clause_chaleur,) = _clauses_citees([item], corpus=reel.corpus, index=reel)
+    assert sorted(clause_chaleur.qualificatifs) == ["direct", "subite"]
+
+
+def test_une_declaration_decarts_trop_longue_est_tronquee_jamais_refusee() -> None:
+    """Story 5.7 (L1r) : la borne d'un accessoire ne décide pas du sort de la réponse.
+
+    Mesuré le 03/09/2026 sur `s06-deux` — une déclaration qui porte **deux** sinistres, donc deux
+    fois plus de blocs lus : le tour terminal a rendu 41 écarts, `Field(max_length=32)` a levé, et la
+    requête est sortie en `llm_parse` (503) après 211 s sans qu'aucun des deux sinistres ne soit
+    traité. Ce que le schéma annonce ne bouge pas ; ce qui change est la sanction.
+    """
+    ecartes = [{"block_id": f"cg:p1:{i}", "motif": "hors sujet"}
+               for i in range(BLOCS_ECARTES_MAX + 9)]
+    draft = AnswerDraft.model_validate({"segments": [], "claims": [], "blocs_ecartes": ecartes})
+    assert len(draft.blocs_ecartes) == BLOCS_ECARTES_MAX and draft.blocs_ecartes_tronques == 9
+    # Le compte ne va ni au fournisseur (il n'est pas dans le schéma), ni dans la conversation que la
+    # suite de la chaîne relit (il n'est pas dans `model_dump()`) : deux fixtures live du guide sont
+    # tombées sur ce seul octet.
+    assert "blocs_ecartes_tronques" not in TypeAdapter(AnswerDraft).json_schema()["properties"]
+    assert "blocs_ecartes_tronques" not in draft.model_dump()
+
+
 def _jugee(claim_id: str, blocs: list[str], *, reel: Index, l1o: bool = True) -> ClaimJugee:
     """Une claim jugée sur les **vrais** blocs, avec les champs les plus engageants du modèle.
 
     `l1o=False` rejoue la lecture d'avant le correctif — la même entrée, la même structure, mais une
     amorce qui décide comme une clause : c'est la seule façon de montrer ce que la règle change.
     """
-    clauses = _clauses_citees(blocs, corpus=reel.corpus, index=reel)
+    clauses = _clauses_citees([citation_entiere(b, corpus=reel.corpus, index=reel) for b in blocs],
+                              corpus=reel.corpus, index=reel)
     if not l1o:
         clauses = [clause.model_copy(update={"amorce": False}) for clause in clauses]
     return ClaimJugee(claim_id=claim_id, clauses=clauses, retenue=True,

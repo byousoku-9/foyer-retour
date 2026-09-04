@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from .document import DomainModel
 from .langue import LANGUES_SERVIES
@@ -278,6 +279,47 @@ class AnswerDraft(DomainModel):
     # a lus n'a rien à écarter, et le champ reste vide. Il n'entre dans aucune projection affichée —
     # ni segment, ni claim, ni source — parce qu'écarter n'est pas répondre.
     blocs_ecartes: list[BlocEcarte] = Field(default_factory=list, max_length=BLOCS_ECARTES_MAX)
+    # Story 5.7 (L1r) : combien d'écarts déclarés le validateur ci-dessous a laissés de côté. C'est un
+    # compte pour la trace, la même moitié traçable que `BlocEcarte` : `steps.naviguer` le publie.
+    #
+    # Il est invisible partout ailleurs, et les deux garde-fous sont nécessaires. `SkipJsonSchema` le
+    # retire du schéma **envoyé** — le modèle n'a rien à renseigner ici, et un champ de plus
+    # réécrirait le préfixe caché de toutes les étapes qui rendent une ébauche. `exclude=True` le
+    # retire de `model_dump()` : l'ébauche est **sérialisée dans la conversation** que la suite de la
+    # chaîne relit, et une clé de plus y changeait l'empreinte des messages — mesuré à
+    # l'enregistrement, deux fixtures live du guide sont tombées sur ce seul octet. Il ne va pas non
+    # plus dans le digest, comme `blocs_ecartes` lui-même.
+    blocs_ecartes_tronques: SkipJsonSchema[int] = Field(default=0, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _borner_les_ecarts(cls, data: Any) -> Any:
+        """Une liste trop longue est **tronquée**, jamais refusée (story 5.7, L1r).
+
+        `blocs_ecartes` est une déclaration accessoire : elle trace ce que la rédaction n'a pas
+        rapporté, elle ne porte ni segment, ni claim, ni citation, et elle n'entre pas dans le
+        digest. La borner par `Field(max_length=…)` seule en faisait pourtant un motif d'échec
+        **terminal** : mesuré le 03/09/2026 sur `s06-deux` — une déclaration qui contient deux
+        sinistres, donc deux fois plus de blocs lus —, la sortie rendait 41 écarts et la requête est
+        ressortie en `llm_parse` (503) après 211 secondes, sans qu'aucun des deux sinistres ne soit
+        traité. La borne d'un accessoire ne peut pas décider du sort de la réponse.
+
+        La borne reste **annoncée** au modèle : `max_length` la publie dans le schéma
+        (`maxItems: 32`), et ce validateur s'exécute avant la validation de champ — le schéma envoyé
+        ne bouge pas d'un octet, seule la sanction change. Ce qui est écarté est compté, jamais
+        deviné : `blocs_ecartes_tronques` porte le surplus jusqu'à la trace.
+
+        Rien d'autre du schéma de l'ébauche n'est borné en nombre — ni `segments`, ni `claims`, ni
+        leurs `quotes` : le seul autre `Field(max_length=…)` de liste du projet vit sur
+        `SortieComprendre`, où il borne des libellés que l'étape écarte déjà un par un.
+        """
+        if not isinstance(data, dict):
+            return data
+        ecartes = data.get("blocs_ecartes")
+        if not isinstance(ecartes, list) or len(ecartes) <= BLOCS_ECARTES_MAX:
+            return data
+        return {**data, "blocs_ecartes": ecartes[:BLOCS_ECARTES_MAX],
+                "blocs_ecartes_tronques": len(ecartes) - BLOCS_ECARTES_MAX}
 
     @model_validator(mode="after")
     def _draft_coherence(self) -> AnswerDraft:

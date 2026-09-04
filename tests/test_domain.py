@@ -239,7 +239,10 @@ def test_answer_models() -> None:
     # T11 (03/09/2026) : `blocs_ecartes` est **facultatif** et n'entre dans aucune projection
     # affichée — écarter n'est pas répondre. Il rend traçable la décision que le tour terminal
     # prend bloc par bloc sur l'inventaire que le code lui sert.
-    assert fields(answer.AnswerDraft) == {"segments", "claims", "blocs_ecartes"}
+    # L1r : `blocs_ecartes_tronques` est le compte du surplus tronqué — hors du schéma envoyé au
+    # modèle (`SkipJsonSchema`) et hors du digest, comme `blocs_ecartes` lui-même.
+    assert fields(answer.AnswerDraft) == {"segments", "claims", "blocs_ecartes",
+                                          "blocs_ecartes_tronques"}
     assert fields(answer.BlocEcarte) == {"block_id", "motif"}
     assert fields(answer.AbsenceProof) == {"kind", "terms_searched", "variants_count", "blocks_scanned", "documents"}
     # `clarification_requise` amende AD-4 (story 1.5) : `found=False` exige un `reason`, et aucun des

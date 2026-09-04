@@ -345,11 +345,24 @@ async def _run(index: Index, script: list, *, settings: Settings | None = None,
     return answer, trace, fake
 
 
+def _refus_sans_question(verdict) -> bool:
+    """Story 5.7 (L1r) : un **refus** annonce le paquet entier et ne demande rien.
+
+    Le paquet manquant reste dit — le dossier n'a rien lu, il ne peut rien annoncer d'autre —, mais
+    réclamer les conditions particulières, les options et la date d'effet ferait croire qu'une fois
+    ces trois pièces fournies la question serait tranchée. Elle ne le serait pas : la demande est
+    hors du périmètre d'un contrat habitation, ou n'a pas pu être rendue autonome. Ce qui reste à
+    faire est dit une fois — par la clarification, ou par l'escalade.
+    """
+    return verdict.ask_client == [] and verdict.missing.conditions_particulieres is True
+
+
 def _questions_attendues(verdict) -> bool:
     """AD-6 : « toujours avec le paquet manquant **et les questions à poser** ».
 
     Les quatre pièces annoncées manquantes doivent chacune avoir sa question — sans quoi le
-    gestionnaire lit quatre absences et se voit demander deux choses (revue 1.8).
+    gestionnaire lit quatre absences et se voit demander deux choses (revue 1.8). Vaut pour un
+    verdict **rendu sur des clauses** ; un refus, lui, ne demande rien (`_refus_sans_question`).
     """
     questions = " ".join(verdict.ask_client).lower()
     return ("options" in questions and "conditions particulières" in questions
@@ -2047,7 +2060,7 @@ async def test_an_out_of_scope_request_is_refused_after_one_reason_call(index: I
     assert answer.found is False and answer.reason is not None
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
     assert answer.verdict.escalate  # AD-16 : le dossier repart à la main, ce n'est pas un repli
-    assert _questions_attendues(answer.verdict)
+    assert _refus_sans_question(answer.verdict)
     # le texte servi parle du **contrat**, pas du guide (revue 1.8)
     assert "assurance habitation" in answer.texte and "guide" not in answer.texte
 
@@ -2081,7 +2094,7 @@ async def test_a_search_without_a_single_block_refuses_with_a_verdict(index: Ind
     assert [s.name for s in trace.steps] == ["comprendre", "retrouver", "restituer"]
     assert answer.reason is not None and answer.reason.kind == "zero_hit"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert _questions_attendues(answer.verdict)
+    assert _refus_sans_question(answer.verdict)
     assert "aucune clause du contrat" in answer.texte.lower() and "guide" not in answer.texte
 
 
@@ -2091,7 +2104,7 @@ async def test_a_request_that_cannot_be_made_autonomous_still_carries_a_verdict(
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.clarification == "De quel bien parlez-vous ?"
     assert answer.verdict is not None and answer.verdict.value == "ne_tranche_pas"
-    assert _questions_attendues(answer.verdict)
+    assert _refus_sans_question(answer.verdict)
     assert "contrat" in answer.texte and "guide" not in answer.texte
 
 

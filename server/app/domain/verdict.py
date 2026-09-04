@@ -224,6 +224,12 @@ class ClaimJugee(DomainModel):
     retenue: bool = True
     renvoi_ouvert: bool = False  # `Block.unresolved_refs` sur l'un des blocs cités
     contredit: bool = False  # `Block.relation.contredit` vise un bloc cité par une autre claim retenue
+    # Story 5.7 (L1r) : le **rattachement** de l'affirmation, jugé soutenu par le contrôle groupé,
+    # relie un fait de la déclaration au vocabulaire de la clause citée
+    # (`steps.verifier._qualification_affirmee`, la porte de L1b/L1c). Ce n'est pas une déclaration
+    # du modèle : le code relit une proposition du rattachement, exige qu'un de ses mots porteurs se
+    # retrouve dans la citation vérifiée et qu'un **autre** se retrouve dans les faits déclarés.
+    fait_rattache: bool = False
 
     @property
     def clauses_decisionnelles(self) -> list[ClauseCitee]:
@@ -264,6 +270,8 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
     3. une clause décisionnelle **sans portée** ⇒ `humain` — la table compare des portées (règle 1) et
        lit le socle sur le nœud (règle 3) ; une clause dont on ignore où elle s'applique ne peut être
        ni retenue ni écartée par du code ;
+    3bis. **exclusion** dont le rattachement soutenu énonce un fait de la déclaration ⇒ `oui` — la
+       clause a rencontré son cas, et aucun champ typé ne rouvre ce que la réponse affiche (L1r) ;
     4. champs typés non rendus ⇒ `humain` — jamais devinés (AC de la story) ;
     5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non`,
        **pour une garantie ou une exclusion seulement** (voir ci-dessous) ;
@@ -308,6 +316,23 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
         return "humain"
     if any(not c.portee for c in clauses):
         return "humain"
+    # (4bis) — story 5.7 (L1r) : **une exclusion établie conclut.** Une exclusion retenue dont le
+    # rattachement, jugé soutenu, énonce un fait *présent dans la déclaration* dans les mots de la
+    # clause — « j'ai mis le feu à mon canapé **exprès** » ⇒ « … est une faute intentionnelle de
+    # l'Assuré » — a dit tout ce que la table pouvait attendre d'elle. Les champs typés du modèle ne
+    # peuvent plus la rouvrir : une qualité restée non énumérée, un fait déclaré manquant ou un
+    # renvoi aux conditions particulières rendaient `humain` une exclusion que la réponse affichée
+    # tenait pour acquise, et le verdict tombait en `ne_tranche_pas` sur trois cas de la batterie du
+    # 03/09/2026 (`s10-intention`, `s11-bijoux`, `s03-velo`) — « exclu » n'y était jamais dit.
+    #
+    # Trois verrous, et ce sont ceux de L1b/L1c : la claim est **retenue** (le contrôle groupé a
+    # soutenu son rattachement), le rattachement relie un mot de la citation vérifiée à un mot des
+    # **faits déclarés**, et la règle ne vaut que pour une exclusion. Un rattachement non soutenu,
+    # ou qui porte sur un fait que la déclaration ne dit pas, ne franchit pas la porte et l'exclusion
+    # reste `humain`. La règle ne touche pas les garanties : le cas bougie garde ses qualificatifs à
+    # établir, et aucun `couvert` ne s'ouvre par ce chemin — il ne s'y gagne qu'un `non_couvert`.
+    if claim.kind == "exclusion" and claim.fait_rattache:
+        return "oui"
     # Une exclusion dont la portée déclarée ne couvre aucun nœud du cas est inapplicable par
     # construction, indépendamment du jugement du modèle sur les faits. Une portée absente a déjà
     # rendu `humain` ci-dessus ; un cas sans nœud prouvé ne permet pas non plus cette conclusion.
@@ -338,10 +363,20 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
 # Il vit dans le domaine (story 5.6, T8) parce que **deux** appelants l'emploient et doivent
 # l'employer à l'identique : *vérifier*, qui relit le texte de la clause, et le verdict lui-même, qui
 # dédoublonne par ces racines ce qu'il demande au client. Deux copies auraient fini par diverger.
+#
+# **Story 5.7 (L1r) : « effraction » en est sorti.** Le lexique nomme des qualités qu'*aucune
+# circonstance déclarée n'établit* — la vitesse à laquelle la chaleur a agi, le caractère soudain
+# d'un événement : c'est ce qui justifie de les fermer au rattachement (`_qualifie_par_la_clause`).
+# L'effraction n'est pas de cet ordre : c'est un **fait**, que la déclaration dit dans ses propres
+# mots (« la porte de la cave a été forcée ») et que le rattachement relie au terme du contrat. Tant
+# qu'elle y figurait, le code composait « caractère « effraction » exigé par la clause citée » et le
+# posait au client alors que l'affirmation retenue venait de l'établir — mesuré le 03/09/2026 sur
+# `b03-vol-cave`, où le dossier redemandait l'effraction que la réponse affichait. Un fait se prouve
+# par les faits ; il n'a pas à passer par le lexique des qualités.
 QUALIFICATIFS: frozenset[str] = frozenset({
     "soudain", "subit", "brusque", "instantane", "accidentel", "fortuit", "imprevisible", "imprevu",
     "involontaire", "intentionnel", "immediat", "direct", "permanent", "exceptionnel", "violent",
-    "anormal", "malveillant", "effraction"})
+    "anormal", "malveillant"})
 
 
 def _mots_qualifiants(texte: str) -> dict[str, str]:
@@ -723,18 +758,6 @@ def _questions_de_section(conditions: list[ConditionDeSection]) -> list[str]:
     return [question_de_section(condition) for condition in conditions]
 
 
-def questions_du_paquet_manquant(missing: MissingPackage | None = None) -> list[str]:
-    """Les questions dues **sans lire une seule clause** : le paquet manquant d'AD-6, et rien d'autre.
-
-    Un refus de sinistre (hors périmètre, aucun bloc trouvé, toutes les citations rejetées) n'a aucune
-    claim à interroger, mais il lui manque exactement les mêmes pièces qu'à un verdict ordinaire — et
-    c'est le dossier qui a le plus besoin d'être complété. Le pipeline compose donc son `ask_client`
-    ici, avec le **même** code et les mêmes mots, pour qu'un refus ne soit pas le seul verdict du
-    système à ne rien réclamer (revue 1.8).
-    """
-    return _questions_du_paquet([], missing or MissingPackage())
-
-
 def _escalades(claims: list[ClaimJugee], *, contradiction: bool, renvoi: bool) -> list[str]:
     """`escalate[]` composé par le code : ce qu'aucune règle ne peut trancher sans un humain."""
     out: list[str] = []
@@ -849,6 +872,12 @@ def applicabilites_des_claims(
     for claim in claims:
         case_nodes = _noeuds_du_cas(claims)
         applicable_sans_portee = applicable_de_claim(claim, noeuds_du_cas=set())
+        # D3, et L1r ne l'entame pas : **sans garantie affichée, une exclusion ne conclut jamais.**
+        # C'est ce garde-fou qui tient la porte ouverte par le rattachement (règle 3bis). Une
+        # affirmation isolée qui rattache une circonstance déclarée au vocabulaire d'une exclusion —
+        # « une bougie tombée sur le canapé est une action subite de la chaleur » — n'a, à elle
+        # seule, montré aucune branche du contrat : rien ne dit que la clause citée est celle qui
+        # régit ce sinistre, et « Exclu » y serait une conclusion tirée d'une seule phrase.
         if claim.kind == "exclusion" and not case_nodes and applicable_sans_portee != "non":
             applicable = "humain"
         else:
@@ -884,7 +913,8 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
           décisionnelle ⇒ `ne_tranche_pas`, les deux passages restant affichés (AD-6) ;
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
-    (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
+    (1)   exclusion `oui` dont la portée couvre les nœuds du cas, **ou** dont le rattachement
+          soutenu énonce un fait de la déclaration (L1r) ⇒ `non_couvert` ;
     (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, garantie hors socle,
           **condition d'applicabilité de sa section non établie**, ou **garantie sœur de la même
           énumération restée ouverte**) ⇒ `sous_conditions` — politique conservatrice ;
@@ -1002,12 +1032,20 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     exclusions = [c for c in retenues if c.kind == "exclusion"]
     garanties = [c for c in retenues if c.kind == "garantie"]
 
-    # (1) — l'exclusion prime, à condition que sa portée couvre le cas (AD-2, `scope_nodes`).
+    # (1) — l'exclusion prime, à condition qu'elle couvre le cas : par sa portée déclarée (AD-2,
+    # `scope_nodes`) ou par son **rattachement** aux faits (L1r).
+    #
+    # La portée seule ne suffisait pas à la lire. `Block.scope_node_id` d'une exclusion est le nœud
+    # de l'exclusion elle-même — « 3.1.6.2.1 les vols simples » —, jamais le nœud de la garantie
+    # qu'elle écarte : l'intersection avec les nœuds du cas était vide sur les cinq exclusions de la
+    # batterie du 03/09/2026, y compris les exclusions communes du socle. Un rattachement soutenu qui
+    # nomme un fait déclaré dans les mots de la clause dit la même chose que la portée, en plus
+    # direct : cette clause-là a rencontré ce sinistre-là.
     for exclusion in exclusions:
         if etat[exclusion.claim_id] != "oui":
             continue
         cas = _noeuds_du_cas(retenues)
-        if any(clause.portee & cas for clause in exclusion.clauses):
+        if exclusion.fait_rattache or any(clause.portee & cas for clause in exclusion.clauses):
             return verdict("non_couvert", "Une exclusion applicable couvre le cas décrit")
 
     ouvertes = [c for c in retenues

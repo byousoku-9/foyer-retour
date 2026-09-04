@@ -49,7 +49,7 @@ from server.app.corpus.ebauche import (fusionner_quotes_du_meme_bloc,
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
 from server.app.corpus.requetes import part_du_mot_borne, variantes_de_nombre
-from server.app.domain.answer import AnswerDraft
+from server.app.domain.answer import BLOCS_ECARTES_MAX, AnswerDraft
 from server.app.domain.document import Block, is_citable
 from server.app.domain.errors import LlmParse, PipelineError
 from server.app.domain.verdict import KINDS_DECISIONNELS
@@ -929,6 +929,15 @@ class Navigation:
         Un `block_id` que la lecture n'a pas ouvert est rapporté à part : c'est une sortie de modèle
         comme une autre, et le recoupement se fait ici, sur ce que le code a réellement servi.
         """
+        if draft.blocs_ecartes_tronques:
+            # L1r : la borne du schéma est **appliquée par troncature**, jamais par un refus — une
+            # déclaration accessoire ne décide pas du sort de la réponse (`AnswerDraft`). Ce qui a
+            # été laissé de côté est dit ici : un compte, comme le reste de cette trace.
+            step.checks.append(CheckResult(
+                name="blocs_ecartes_tronques", ok=False,
+                detail=f"{draft.blocs_ecartes_tronques} déclaration(s) d'écart au-delà de "
+                       f"{BLOCS_ECARTES_MAX} : tronquée(s) — la borne du schéma ne fait pas échouer "
+                       "la réponse, elle borne ce que la trace publie"))
         if not draft.blocs_ecartes:
             return
         ouverts = {bloc.block_id for bloc in self.blocs_decisionnels_ouverts()}

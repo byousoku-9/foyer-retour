@@ -61,7 +61,6 @@ from server.app.domain.verdict import (
     PORTEE,
     MissingPackage,
     Verdict,
-    questions_du_paquet_manquant,
 )
 from server.app.pipelines.commun import (
     APPELS_DE_LA_RELANCE,
@@ -432,16 +431,21 @@ def _verdict_de_refus(kind: str, dossier: MissingPackage | None = None) -> Verdi
     montrer là où l'utilisateur attend une position. `ne_tranche_pas` **est** cette position, et sa
     raison dit franchement pourquoi la table n'a rien eu à trancher.
 
-    Le paquet manquant reste **entier**, et il est donc **demandé** : c'est le dossier qui a le plus
-    besoin d'être complété, et le laisser repartir avec quatre pièces annoncées absentes et aucune
-    question serait le seul verdict du système à ne rien réclamer (revue 1.8). Les questions sont
-    celles qu'un verdict ordinaire compose — même code, mêmes mots, aucune claim à interroger.
+    Le paquet manquant reste **entier** — le dossier n'a rien lu, il ne peut rien annoncer d'autre —,
+    mais il n'est **plus demandé** (story 5.7, L1r). Le tour 1.8 avait raisonné à l'envers : « le
+    dossier qui a le plus besoin d'être complété ». Un refus ne dit pas qu'il manque des pièces, il
+    dit qu'il n'y a pas de dossier — la demande est hors du périmètre d'un contrat habitation
+    (`s07`, `b04`) ou n'a pas pu être rendue autonome (`s08`). Réclamer alors les conditions
+    particulières, les options souscrites et la date d'effet fait croire qu'une fois ces trois
+    pièces fournies la question serait tranchée, et la vue dossier affiche « à affiner » sur un
+    sinistre qu'aucune clause n'a jamais rencontré. Ce qui reste à faire est dit une fois, au bon
+    endroit : la clarification pour une demande incomplète, l'escalade pour le reste.
     """
     paquet = (dossier or MissingPackage()).model_copy(deep=True, update={"faits": []})
     return Verdict(value="ne_tranche_pas",
                    reason=f"{RAISONS_DE_REFUS.get(kind, RAISON_DE_REFUS_GENERIQUE)} ({PORTEE})",
                    missing=paquet,
-                   ask_client=questions_du_paquet_manquant(paquet),
+                   ask_client=[],
                    escalate=["Aucune clause du contrat n'a pu être opposée au sinistre : "
                              "reprendre le dossier à la main."])
 

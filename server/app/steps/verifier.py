@@ -1233,8 +1233,24 @@ def _condition_de_section(document: Any, node_id: str) -> ConditionDeSection | N
         renvoie_cp=bool(_mots_renvoi(bloc.text) & RENVOIS_CP))
 
 
-def _texte_de_la_clause(block_id: str, *, document: Any, index: Any) -> str:
+def _texte_de_la_clause(block_id: str, *, document: Any, index: Any, citation: str | None = None) -> str:
     """Le texte qu'il faut relire pour juger cette clause : celui de l'item, **précédé de son amorce**.
+
+    Story 5.7 (L1r) — `citation`. Un bloc d'énumération porte **plusieurs** items, et le contrat les
+    sépare par des puces : `p12:6` du contrat Baloise en aligne neuf, de « l'incendie » à « les frais
+    de recharge des systèmes parafoudre ». Relire le bloc entier pour savoir ce que la clause exige
+    faisait donc porter à l'item cité les qualités de tous ses voisins — mesuré le 03/09/2026 sur
+    `b01-incendie` (feu de cuisine) : l'affirmation cite « l'incendie », et le dossier réclamait le
+    caractère « subite » et « direct » de l'item « l'action subite de la chaleur ou le contact direct
+    avec le feu », plus l'appartenance au foyer de l'item « le choc d'un véhicule … dont le conducteur
+    n'est ni vous-même, ni une personne vivant habituellement dans le logement assuré ».
+    L'exigence se lit donc dans la **citation vérifiée** — le texte relu du corpus entre les bornes
+    que le contrôle d'AD-3 a validées —, jamais dans le reste du bloc.
+
+    L'amorce reste jointe : c'est tout l'objet de L1p, et c'est le contrat qui la partage entre ses
+    items. Ce que la citation ne peut pas rétrécir, ce sont les **renvois** (T18) : ils ferment un
+    verdict au lieu de l'ouvrir, et l'appelant continue de les lire sur le bloc entier — entre ignorer
+    trop et ignorer trop peu, on ignore le moins.
 
     Story 5.7 (L1p). Les trois lexiques du code — les qualificatifs (B3), les renvois aux conditions
     particulières et aux options (T18), les qualités de personne (T19) — relisent « le texte de la
@@ -1253,12 +1269,59 @@ def _texte_de_la_clause(block_id: str, *, document: Any, index: Any) -> str:
     l'amorce qui le subordonne. La lecture est structurelle (`Index.amorce_qui_introduit`), d'un seul
     niveau, et ne peut que **fermer** un `oui` — elle n'ajoute jamais qu'un mot que le contrat écrit.
     """
-    texte = document.block(block_id).text
+    texte = document.block(block_id).text if citation is None else citation
     amorce_id = index.amorce_qui_introduit(block_id)
     return texte if amorce_id is None else f"{document.block(amorce_id).text}\n{texte}"
 
 
-def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[ClauseCitee]:
+# Story 5.7 (L1r). Le début d'un **item** d'énumération : un retour à la ligne suivi d'une puce. Le
+# seul découpage interne d'un bloc que les deux contrats écrivent, et le même que celui qu'un lecteur
+# voit. Volontairement pauvre : il ne comprend pas le bloc, il retrouve la frontière que le contrat a
+# déjà tracée.
+_DEBUT_DITEM = re.compile(r"\n(?=[ \t]*[•·▪◦*\u2022\u2023\u25aa\u25e6-])")
+
+
+def _unites_dun_bloc(texte: str) -> list[tuple[int, int]]:
+    """Les bornes des **items** d'un bloc : ses puces, ou le bloc entier s'il n'en porte pas."""
+    bornes: list[tuple[int, int]] = []
+    debut = 0
+    for coupe in _DEBUT_DITEM.finditer(texte):
+        bornes.append((debut, coupe.start()))
+        debut = coupe.start()
+    bornes.append((debut, len(texte)))
+    return bornes
+
+
+def _passages_cites(quotes: list[VerifiedQuote], *, corpus: Any, index: Any) -> dict[str, str]:
+    """Par bloc cité, le ou les **items que la citation traverse**, relus dans le corpus (L1r).
+
+    Le texte, pas la chaîne du modèle : les bornes viennent du contrôle d'AD-3, le texte du document.
+
+    L'unité n'est pas la citation nue mais l'item qui la porte, et c'est ce qui rend la règle sûre.
+    Une clause d'une seule phrase — « les dégâts occasionnés au mobilier par un événement **soudain**,
+    résultant de l'action **subite** de la chaleur » — cumule ses qualités dans cette phrase : la
+    citer à moitié n'en retire aucune, sans quoi le modèle pourrait éteindre une exigence en citant
+    plus court. Un bloc d'énumération, lui, porte **plusieurs** clauses que le contrat a déjà
+    séparées par des puces, et l'item cité n'a rien à voir avec ses voisins : `p12:6` du contrat
+    Baloise aligne neuf périls, de « l'incendie » aux « frais de recharge des systèmes parafoudre »,
+    et lire le bloc entier faisait porter à l'incendie le « subite » et le « direct » de l'item
+    « l'action subite de la chaleur ou le contact direct avec le feu » (mesuré le 03/09/2026 sur
+    `b01-incendie`).
+
+    Deux citations du même bloc sont réunies — l'affirmation les a toutes produites, elles disent
+    ensemble ce qu'elle oppose au cas — et un item n'est joint qu'une fois.
+    """
+    par_bloc: dict[str, list[str]] = {}
+    for q in quotes:
+        texte = corpus.documents[index.doc_of(q.block_id)].block(q.block_id).text
+        retenus = par_bloc.setdefault(q.block_id, [])
+        for debut, fin in _unites_dun_bloc(texte):
+            if q.text_start < fin and q.text_end > debut and texte[debut:fin] not in retenus:
+                retenus.append(texte[debut:fin])
+    return {block_id: "\n".join(morceaux) for block_id, morceaux in par_bloc.items()}
+
+
+def _clauses_citees(quotes: list[VerifiedQuote], *, corpus: Any, index: Any) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
     `Block.kind` (ingestion) est la seule source de typage : ni *rédiger*, ni *vérifier* n'en
@@ -1267,13 +1330,19 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
     sont les mêmes calculs pour tous les appelants.
     """
     clauses: list[ClauseCitee] = []
-    for block_id in block_ids:
+    citations = _passages_cites(quotes, corpus=corpus, index=index)
+    for block_id in dict.fromkeys(q.block_id for q in quotes):
         document = corpus.documents[index.doc_of(block_id)]
         block = document.block(block_id)
         if block.kind not in KINDS_DECISIONNELS:
             continue  # une définition ou un paragraphe est le contexte de la clause, pas une clause
         node_id = document.node_of(block_id)
         texte = _texte_de_la_clause(block_id, document=document, index=index)
+        # L1r : ce que la clause **exige** se lit dans le passage cité (et son amorce), pas dans les
+        # items voisins du même bloc ; ce à quoi elle **renvoie** continue de se lire sur le bloc
+        # entier, parce qu'un renvoi ne peut que fermer un verdict.
+        exige = _texte_de_la_clause(block_id, document=document, index=index,
+                                    citation=citations.get(block_id))
         clauses.append(ClauseCitee(
             # Story 5.7 (L1e) : la condition d'applicabilité de la section, lue sur l'**arbre** et non
             # sur les claims. `renvoie_cp` est le témoin lexical déjà employé par T18 sur le texte de
@@ -1287,7 +1356,7 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # modèle énumère les qualités que la clause exige ; le texte de la clause dit, lui, s'il
             # avait quelque chose à énumérer. Une liste vide n'est plus « aucune qualité exigée »
             # quand la clause écrit « soudain » (`_qualites_de_la_clause`).
-            qualificatifs=list(_mots_qualifiants(texte).values()),
+            qualificatifs=list(_mots_qualifiants(exige).values()),
             # T18, même source et même raison : le texte de la clause dit s'il subordonne son effet à
             # une pièce que le verdict ne lit pas. `cp_requise: false` sur une clause qui écrit
             # « dans la limite prévue dans vos conditions particulières » passait pour « la clause n'y
@@ -1296,7 +1365,7 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # T19 : et les qualités de **personne** que la clause écrit, lues à la même source. Elles
             # rejoignent `qualificatifs` dans `_qualites_de_la_clause` : ce que la clause exige et que
             # le modèle n'a nommé nulle part devient une qualité non établie, donc `humain`.
-            qualites_personne=_qualites_de_personne(texte),
+            qualites_personne=_qualites_de_personne(exige),
             # L1o : ce bloc ouvre-t-il une énumération ? Lu sur l'**arbre** comme la portée et le
             # socle (`Index.est_amorce_denumeration`). Une amorce reste une clause citée — son texte
             # qualifie ses items (L1n) et sa section les conditionne (L1e) —, mais elle ne décide
@@ -1424,7 +1493,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             # claim serait à la fois la garantie qu'on retient et l'exclusion qui l'écarte, avec un
             # seul jeu de champs typés pour les deux. Le rejet est `ambigue`, donc un défaut de
             # citation au sens d'AD-3 : il déclenche la relance unique avec un motif actionnable.
-            clauses = _clauses_citees([q.block_id for q in quotes], corpus=corpus, index=index)
+            clauses = _clauses_citees(quotes, corpus=corpus, index=index)
             kinds = sorted({c.kind for c in clauses})
             if len(kinds) > 1:
                 rejetees.append(RejectedClaim(
@@ -1534,6 +1603,9 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     # quelque chose et que ce quelque chose n'a pas été relu.
     demande: DemandeContexte | None = None
     demande_refusee = False
+    # L1r : les affirmations dont le rattachement soutenu relie un fait déclaré au vocabulaire de
+    # leur clause (`_qualification_affirmee`). Sans appel groupé, aucun rattachement n'a été jugé.
+    faits_rattaches: set[str] = set()
     # Story 5.6 (L1d). Le découpage d'une affirmation-paragraphe en unités de lecture, calculé une
     # fois, ici : il sert à la charge envoyée au contrôle **et** à l'amputation qui en découle, et
     # deux découpages ne pourraient que diverger. Une affirmation d'une seule unité n'entre pas dans
@@ -1551,7 +1623,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
     if evaluees:
         try:
             (verdicts, raisons, couverture, soutiens, applicabilites, demande,
-             demande_refusee, phrases_retirees, rattachements) = await _pertinence(
+             demande_refusee, phrases_retirees, rattachements,
+             faits_rattaches) = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
                 clauses=clauses_par_claim, fournis=fournis, contexte=contexte,
@@ -1769,6 +1842,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                 applicabilite_manquante += 1
             jugee = ClaimJugee(
                 claim_id=claim.claim_id, clauses=clauses, champs=champs, retenue=pertinente is True,
+                # L1r : l'exclusion que le rattachement a rencontrée conclut (règle 3bis d'AD-6).
+                fait_rattache=claim.claim_id in faits_rattaches,
                 renvoi_ouvert=any(corpus.documents[index.doc_of(q.block_id)]
                                   .block(q.block_id).unresolved_refs for q in quotes))
             applicable = applicable_de_claim(jugee)
@@ -2482,6 +2557,9 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     # Story 4.2e : l'univers des cibles `qualite`, rempli par la boucle ci-dessous — les qualités que
     # **le modèle** a énumérées pour chaque affirmation, sous la normalisation des citations.
     qualites_rendues: dict[str, set[str]] = {}
+    # Story 5.7 (L1r) : les affirmations dont le rattachement soutenu relie un fait déclaré au
+    # vocabulaire de leur clause. Vide hors mode sinistre — il n'y a alors ni faits, ni clause.
+    faits_rattaches: set[str] = set()
     if sinistre and isinstance(result.parsed, SortieVerifierSinistre):
         doublons: set[str] = set()
         # Le texte des passages **relus du corpus** pour chaque affirmation, normalisé une fois : la
@@ -2503,6 +2581,21 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
             str(v) for v in (faits.model_dump() if faits is not None else {}).values() if v is not None))
+        # Story 5.7 (L1r). La porte de L1b/L1c, calculée **une fois pour toutes les affirmations
+        # évaluées** et non plus seulement pour celles dont le modèle a rendu des champs typés : une
+        # exclusion dont le rattachement soutenu nomme un fait déclaré dans les mots de sa clause a
+        # rencontré ce sinistre, et la table le lit sur `ClaimJugee.fait_rattache`. Le calcul ne
+        # bouge pas d'un caractère — c'est le même `_qualification_affirmee`, sur les mêmes trois
+        # textes relus (rattachement, citations vérifiées, faits déclarés) ; ce qui change est qu'il
+        # sert désormais deux lecteurs, et il n'y a donc plus qu'un endroit où il est écrit.
+        faits_rattaches |= {
+            claim_evaluee.claim_id
+            for claim_evaluee, _quotes, _edition in evaluees
+            if verdicts.get(claim_evaluee.claim_id) is True
+            and _qualification_affirmee(rattachements.get(claim_evaluee.claim_id, ""),
+                                        faits_norm=faits_norm,
+                                        preuve_norm=preuves_relues.get(claim_evaluee.claim_id, ""),
+                                        min_chars=settings.qualite_mot_min_chars)}
         for a in result.parsed.applicabilite:
             if a.claim_id not in attendus or not clauses.get(a.claim_id):
                 continue
@@ -2614,11 +2707,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             # laisse donc la qualité en question au client, et la clause, elle, reste retenue :
             # c'est exactement ce que les deux champs séparés permettent.
             preuve_norm = preuves_relues.get(a.claim_id, "")
-            qualifie_un_fait = (
-                verdicts.get(a.claim_id) is True
-                and _qualification_affirmee(rattachements.get(a.claim_id, ""),
-                                            faits_norm=faits_norm, preuve_norm=preuve_norm,
-                                            min_chars=settings.qualite_mot_min_chars))
+            qualifie_un_fait = a.claim_id in faits_rattaches
 
             def etablie_par_la_claim(libelle: str) -> bool:
                 return bool(libelle.strip()) and qualifie_un_fait and _qualifie_par_la_clause(
@@ -2784,7 +2873,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
         qualites_rendues=qualites_rendues, applicabilites=applicabilites, step=step)
     return (verdicts, raisons, couverture, soutiens, applicabilites, demande, demande_refusee,
-            phrases_retirees, rattachements_de_phrases)
+            phrases_retirees, rattachements_de_phrases, faits_rattaches)
 
 
 def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis: set[str],

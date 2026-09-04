@@ -25,12 +25,27 @@ from pathlib import Path
 
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
+from server.app.domain.answer import VerifiedQuote
 from server.app.domain.verdict import ChampsApplicabilite, ClaimJugee, decider
 from server.app.steps.verifier import (RENVOIS_CP, RENVOIS_OPTION, _clauses_citees,
                                        _mots_qualifiants, _mots_renvoi, _qualites_de_personne,
                                        _qualites_de_la_clause)
 
 DATA = Path(__file__).parent / "data"
+
+
+def citation_entiere(block_id: str, *, corpus: Corpus, index: Index) -> VerifiedQuote:
+    """Le bloc cité **en entier**, sous la forme que `_clauses_citees` attend (story 5.7, L1r).
+
+    Depuis L1r, ce que la clause exige se lit dans l'item que la **citation** traverse, et non plus
+    dans tout le bloc : `_clauses_citees` reçoit donc des citations vérifiées. Ni les rapports de
+    gate figés ni les contre-épreuves de structure n'enregistrent de bornes de citation — ils
+    nomment des blocs. Les rejouer en citant le bloc entier reproduit exactement la lecture sous
+    laquelle leur signature a été mesurée, et c'est aussi la plus large des deux.
+    """
+    bloc = corpus.documents[index.doc_of(block_id)].block(block_id)
+    return VerifiedQuote(block_id=block_id, quote=bloc.text, start=0, end=len(bloc.text_norm),
+                         text_start=0, text_end=len(bloc.text))
 
 
 def rapport(nom: str) -> dict:
@@ -63,7 +78,8 @@ def rejouer(repetition: dict, *, corpus: Corpus, index: Index,
     """
     jugees: list[ClaimJugee] = []
     for claim in repetition["claims"]:
-        clauses = _clauses_citees(claim["blocs"], corpus=corpus, index=index)
+        clauses = _clauses_citees([citation_entiere(b, corpus=corpus, index=index)
+                                   for b in claim["blocs"]], corpus=corpus, index=index)
         if "L1o" in avant:
             # Avant L1o, une amorce d'énumération décidait comme une clause : c'est la seule façon
             # de reproduire une signature mesurée sous un correctif qui la corrige.
