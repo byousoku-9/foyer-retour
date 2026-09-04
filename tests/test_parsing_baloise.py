@@ -59,7 +59,8 @@ def test_baloise_artifacts_publish_the_verified_identity_and_measured_gaps(doc: 
         "ingest_fingerprint": doc.ingest_fingerprint,
         "document_hash": hashlib.sha256((REAL / "document.json").read_bytes()).hexdigest(),
         "edition": EDITION,
-        "overlay_hash": None,
+        # Tour D2 (04/09/2026) : l'overlay de relecture est déposé et couvert par le manifest.
+        "overlay_hash": hashlib.sha256((REAL / "typing.manual.json").read_bytes()).hexdigest(),
         # La proposition de structure Opus appliquée (02/09/2026) : le manifest porte l'empreinte
         # des octets réellement lus par l'ingestion.
         "structure_hash": hashlib.sha256((REAL / "structure.json").read_bytes()).hexdigest(),
@@ -109,29 +110,29 @@ def test_lempreinte_committee_est_a_jour_ou_declaree_perimee(doc: Document) -> N
 
 
 def test_baloise_typing_is_transported_and_the_relinked_halves_were_reread() -> None:
-    """Le typage publié est **transporté**, et ce qu'il ne transporte pas a été relu.
+    """Le typage publié est **transporté**, et plus rien n'attend d'être relu.
 
     La campagne du 02/09 (130 messages standard, 4,7695 EUR) a typé l'arbre Opus ; l'ingestion qui
-    relie les phrases coupées retrouve 942 blocs à l'identique et recopie leurs décisions sans un
-    appel. Les 22 blocs qu'elle ne transporte pas sont exactement ceux qu'elle vient de relier à
-    leur moitié précédente : leur typage avait été décidé sur un fragment de phrase, il a été relu
-    avec la phrase entière par une campagne standard de 6 messages (0,1807 EUR). Le rapport publié
-    décrit ce transport et cette relecture, jamais la génération précédente.
+    relie les phrases coupées avait retrouvé 942 blocs à l'identique et fait relire par une campagne
+    standard de 6 messages (0,1807 EUR) les 22 moitiés qu'elle venait de relier — leur typage avait
+    été décidé sur un fragment de phrase.
+
+    La réingestion du 04/09 (tour D2, dépôt de l'overlay de relecture) transporte les **964**
+    décisions, 942 + 22, sans un seul appel : `blocs_typage_a_rejouer` tombe à 0. Elle réécrit
+    `report.json`, et ce faisant elle **perd** les statistiques de la campagne (`typage_transport`,
+    `typage_standard_requests`, les coûts, les registres T1/T2) : l'ingestion ne les réémet pas, et
+    le rapport AXA n'en porte pas davantage depuis sa propre réingestion. Le relevé de la campagne
+    reste dans `docs/tests-live.md` et dans l'historique git de cet artefact ; ce qui est épinglé
+    ici est ce que le rapport publié prouve encore.
     """
     report = Report.model_validate_json((REAL / "report.json").read_bytes())
     doc = Document.model_validate_json((REAL / "document.json").read_bytes())
-    assert report.stats["blocs_typage_reutilises"] == 942
-    assert report.stats["blocs_typage_rejoues"] == 22
-    assert len(report.stats["ids_typage_reutilises"]) == 942
-    assert report.stats["typage_transport"] == "standard"
-    assert report.stats["typage_standard_requests"] == 6
-    assert report.stats["typage_standard_cost_eur"] == 0.1807
-    assert report.stats["typage_total_cost_eur"] <= report.stats["typage_cost_ceiling_eur"] == 3.0
+    assert report.stats["blocs_typage_reutilises"] == 964  # 942 transportés le 02/09 + 22 relus
+    assert report.stats["blocs_typage_a_rejouer"] == 0
+    assert len(report.stats["ids_typage_reutilises"]) == 964
     assert report.stats["blocs_types_modele"] == 610
     assert report.stats["blocs_juridiques"] == 602
     assert report.stats["blocs_juridiques_confirmes"] == 565
-    transport = next(check for check in report.checks if check.name == "typage_transport")
-    assert transport.level == "info" and "aucune API Batch" in transport.detail
     assert sum(block.kind_source in {"model", "model_verified"} for block in doc.blocks) == 610
     # Trois moitiés reliées restent sans kind après relecture : la campagne les a lues et n'y a vu
     # aucune clause (une liste d'intitulés, un fragment d'alinéa, des coordonnées). Tout autre bloc

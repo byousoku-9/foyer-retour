@@ -170,8 +170,13 @@ def test_document_shape(doc: Document) -> None:
     assert manifest["status"] == "servi" and gate is not None
     assert gate["profile"] == "vertical" and gate["cases"] == 1 and gate["evals_ok"] is True
     assert gate["ingest_fingerprint"] == manifest["ingest_fingerprint"]
-    assert gate["source_hash"] == manifest["source_hash"] and gate["overlay_hash"] is None
-    assert manifest["overlay_hash"] is None
+    assert gate["source_hash"] == manifest["source_hash"]
+    # Tour D2 (04/09/2026) : la relecture des 83 clauses est déposée en overlay et la réingestion
+    # l'a couverte par le manifest. Le gate certifie `document.json` **et** l'overlay : le loader
+    # compare les deux empreintes, donc le gate à réécrire doit viser exactement celui-ci.
+    assert manifest["overlay_hash"] == hashlib.sha256(
+        (REAL / "typing.manual.json").read_bytes()).hexdigest()
+    assert gate["overlay_hash"] == manifest["overlay_hash"]
     # Cohérence artefact ↔ manifest : c'est exactement ce que le loader vérifie pour servir le
     # document. L'égalité avec `p.ingest_fingerprint()` — « le parseur *courant* reproduirait cet
     # artefact » — appartient au test de régénération, qui seul dispose du PDF : depuis la story
@@ -196,8 +201,14 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     # = ISOLATED fait aussi passer les `renvoi` en seconde lecture : un `renvoi` confirmé est un
     # certificat légitime, il n'est simplement pas un kind juridique. Rien d'autre ne peut l'être.
     assert {b.kind for b in confirmed.values()} - legal <= {"renvoi"}
+    # Tour D2 (04/09/2026) : l'overlay de relecture ajoute 50 kinds `manual` au corpus **chargé**,
+    # alors que `report.json` décrit `document.json`, où l'overlay n'entre jamais (il est fusionné
+    # au chargement). L'égalité est conservée telle quelle, avec son terme manuel nommé — jamais
+    # relâchée en inégalité.
+    manuels = [b for b in confirmed.values() if b.kind in legal and b.kind_source == "manual"]
+    assert len(manuels) == 50
     assert sum(b.kind in legal for b in confirmed.values()) == \
-        report.stats["blocs_juridiques_confirmes"]
+        report.stats["blocs_juridiques_confirmes"] + len(manuels)
     assert golden_ids <= set(confirmed)
     assert confirmed[f"{DOC}:p9:2"].kind == "definition"
     assert normalize(confirmed[f"{DOC}:p9:2"].defines or "") == "contenu"
@@ -238,7 +249,13 @@ def test_typage_automatique_confirme_les_quatre_goldens_sans_overlay() -> None:
     assert d.condition_de_section(f"{DOC}:a3.1.9") is None
     assert d.block(f"{DOC}:p47:8").kind == "garantie"
     manifest = json.loads((ROOT / "data" / "manifest.json").read_text("utf-8"))[DOC]
-    assert manifest["overlay_hash"] is None and not (REAL / "typing.manual.json").exists()
+    # Tour D2 (04/09/2026) : l'overlay de relecture existe et il est couvert par le manifest. Ce que
+    # ce test affirme reste vrai, et se prouve plus directement qu'avec son absence : les quatre
+    # goldens ne sont **pas** dedans, donc leur confirmation vient bien de la double lecture.
+    assert manifest["overlay_hash"] == hashlib.sha256(
+        (REAL / "typing.manual.json").read_bytes()).hexdigest()
+    overlay = json.loads((REAL / "typing.manual.json").read_text("utf-8"))
+    assert not (golden_ids & set(overlay["blocks"]))
     raw = json.loads((REAL / "document.json").read_text("utf-8"))
     raw_by_id = {block["block_id"]: block for block in raw["blocks"]}
     assert all(raw_by_id[block_id]["kind_source"] == "model_verified" for block_id in golden_ids)

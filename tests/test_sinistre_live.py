@@ -125,9 +125,21 @@ def _au_mieux_disant(answer, index: Index, *, exigees: list[str] | None = None,
                 # — sans quoi il prouverait une propriété **plus faible** que celle du pipeline, sur
                 # des clauses que le code sert déjà autrement.
                 condition_section=_condition_de_section(document, noeud)))
+        # Tour D2 (04/09/2026) : la claim qui cite **la condition de section elle-même**, quand
+        # celle-ci renvoie aux conditions particulières, ne peut pas être rendue favorable au
+        # premier tour — les CP ne sont pas au dossier. C'est ce que `_conditions_ouvertes` écrit
+        # (« une condition qui renvoie aux CP ne peut jamais être établie au premier tour ») et ce
+        # que le pipeline produit. Le laisser à `oui` ici rendrait la condition *établie*, lèverait
+        # le plafond de L1e et ferait sortir `couvert` d'un rejeu que le produit ne peut pas rendre.
+        cp_requise = any(
+            clause.condition_section is not None
+            and clause.condition_section.block_id == clause.block_id
+            and clause.condition_section.renvoie_cp
+            for clause in clauses)
         jugees.append(ClaimJugee(claim_id=claim.claim_id, clauses=clauses,
                                  champs=ChampsApplicabilite(
-                                     fait_requis_present=True, qualites_exigees=exigees or [],
+                                     fait_requis_present=True, cp_requise=cp_requise,
+                                     qualites_exigees=exigees or [],
                                      qualites_non_etablies=non_etablies or [])))
     return jugees, ecartees
 
