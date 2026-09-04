@@ -102,11 +102,19 @@ def test_effort_par_prompt_publie_la_derogation_sinistre() -> None:
     # rendre de JSON, pour 120 s et 0,18 € par vérification (voir `llm/models.py`). Le mode d'échec
     # qui avait fait remonter l'effort à T1c est désormais constaté par le code
     # (`hors_objet_incoherent`, T1f), pas acheté en profondeur de réflexion.
+    #
+    # **Trois depuis L1l (04/09/2026)** : le vérificateur du **guide** rejoint les deux autres, sur
+    # exactement la même mesure. Rejeu L1j, `.audit/llm-calls.jsonl` run `b8fe51e1` — l'appel rend
+    # `output_tokens = 6 144` **dont `thinking_tokens = 6 144`**, `stop_reason = max_tokens`, zéro
+    # caractère de JSON, puis expire à la relance. Ce n'était pas la taille de l'entrée : c'était
+    # `medium`, la troisième fois.
     assert getattr(models, "EFFORT_PAR_PROMPT", None) == {"rediger_sinistre": "low",
-                                                         "verifier_sinistre": "low"}
+                                                         "verifier_sinistre": "low",
+                                                         "verifier": "low"}
     # La conséquence, épinglée ici parce que c'est elle qui compte : l'appel ne part **pas** à
     # l'effort du tier, qui reste `medium` pour les autres prompts du palier.
     assert models.EFFORT[models.STEP_TIERS["verifier"]] == "medium"
+    assert models.EFFORT_PAR_PROMPT["verifier"] != models.EFFORT[models.STEP_TIERS["verifier"]]
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, key: str) -> None:

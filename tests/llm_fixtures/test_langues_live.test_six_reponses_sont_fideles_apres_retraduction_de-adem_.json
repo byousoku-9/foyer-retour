@@ -691,6 +691,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:a08a57b098eecd79": {
+    "certificate": {
+      "messages_sha256": "2bd776cef9a555fb8625135a9a74e7e671ffcf5b3c7d75a6bd7619e326d9eaf8",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:a08a57b098eecd79",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"de\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cei2GPcP1tVxgApCYKb7x",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 839,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:be3fa823abf4ad00": {
     "request": "claude-haiku-4-5-20251001:be3fa823abf4ad00",
     "response": {
@@ -1186,6 +1225,48 @@
         "inference_geo": "global",
         "input_tokens": 4798,
         "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:0ce2a5d67736e185": {
+    "certificate": {
+      "messages_sha256": "f9a72be996ee490e16c024836e4a472bde88824444c187a228eae906f1aaedd8",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "c84a33be4f73bb4c134829a50eb9a7462913a326c82c0f4b219bd84c71fd3198",
+      "system_sha256": "2735d42acb0cc9c4c716cef64c42f11b1932a2ae1b07921f4e8c1efd7b9d3a83",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:0ce2a5d67736e185",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cei2GC6LgzJdPFPYusXzj",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6513,
+        "inference_geo": "global",
+        "input_tokens": 1041,
+        "output_tokens": 107,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -2359,6 +2440,59 @@
       }
     }
   },
+  "claude-sonnet-5:79e6cfff406fa256": {
+    "certificate": {
+      "messages_sha256": "88d845b3d624a9041aefa8f8fe4fdfe9e2b59b21db4381bbb32926470f4e49d7",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:79e6cfff406fa256",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01CanuCw7YkdzVy2phFeuc2y",
+          "input": {
+            "facette": 0,
+            "node_id": "lux-guide:femploi"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cei2FT4UADuAbbDp1NMNc",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8722,
+        "inference_geo": "global",
+        "input_tokens": 979,
+        "output_tokens": 91,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:7c143ecfa4102563": {
     "certificate": {
       "messages_sha256": "8a07842aa5231e3aa9781b7fda13536875710574111782ce2408a9f382f6adb8",
@@ -2414,17 +2548,17 @@
     "response": {
       "content": [
         {
-          "signature": "EpcECpABCBEYAipA+ruIGJcmMYqPSvBhLZZKi8c6DcujDMEUTF/jZw39Jop5hQhhgMnZKXPaN8ngQxhh0/U9AaP/5qpM76KHzSp6yTIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAY+y6dQGEgwMx8bgZK/MP5EIMQ8aDNeiIHiOermCXEqPWCIwE4q8/YTAYMStyen8InDX40C7HMfqxH2KZribPRAuIiHzQVGf5kIxKHq3tR+nIuT1KrMC5rGqvo2+36EZ0Y9GOKbSaYpGoIRFpBXoUnKQ4glozi67bFZc0PHPj/lPesVdwhkue+gppnaeyPBNXk7h0ThxSbgxDzLeGRnKumsGJ821UiDOlNnThHNzHM4gnhwSEGidnelbJ6nv4dv8w6cJ2C6pzMlP1tXImFxxGkeaQSqMr02Jw/EQfg4Wjp4R+ZruMH8rODXU8NoV+q5T52kmYyMtfKrfPYmCQa2JBq+sjjegPM/HgOSarzEPIvurodl4FXH3ArZ94KXLO9LiqDdIA3B3xPZx2PdEGYTIvRjLy5UdprtrtW5immrkQucx3FigmZDSj7MeGS93dyBEHGjfIyIJjSRTy4PX9X8cA3aAzS3FyQUziKMCC7i+OHlGK2dnhs8n0oz5DfXy60ydZd4PmaopimcI4hgB",
+          "signature": "EuECCpABCBEYAipAIuzBrFxHxOF3Pk7NqW2deygAnMFHZ3fDp5ufPHw8Oj6CqpW6SIeNGSrG7BwEd6ccELc28/y0QQBoHtOPZZp05zIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbLs6dQGEgx1PKWLpbibKhVHs+saDPgth6jPCtH/Dkz7aCIw/B+XNyqk+FxEWfzvFBYbhbFagyp5Dc425ruH/Usl14v4exxfnF6HJRVL99l+P3WXKn6wA7ivSd+i4xx1jFxFQKFxFdNGooPIRxgtjLkt4JamlAJE3onocSQqdTWKBPbCvihR3M9aWl7OvRJwQ4HkLWE9Kgc+/b96QlKEs+PYO35BDrEZTUDUNxlk720EwcnhEG6/IYdhPv96+5OCl50V//JcozMk7h6RY3Tp3EgLWIgYAQ==",
           "thinking": "",
           "type": "thinking"
         },
         {
           "parsed_output": null,
-          "text": "{\"intent\":\"question\",\"question_resolue\":\"Welche Vorteile bietet die Anmeldung bei der ADEM?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"ADEM\",\"inscription demandeur d'emploi\",\"chercher un emploi\",\"avantages inscription chômage\"],\"themes\":[],\"facettes\":[\"avantages de l'inscription à l'ADEM\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Welche Vorteile bietet die Anmeldung bei der ADEM?\",\"clarification\":null,\"language\":\"de\",\"terms\":[\"ADEM\",\"recherche d'emploi\",\"inscription demandeur d'emploi\",\"chômage\"],\"themes\":[],\"facettes\":[\"avantages de l'inscription à l'ADEM\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
           "type": "text"
         }
       ],
-      "id": "msg_011CehrmBfgUyZ3XXFbcz5Fp",
+      "id": "msg_011Cei2F4UfPNfPrZGwi6nEW",
       "model": "claude-sonnet-5",
       "role": "assistant",
       "stop_details": null,
@@ -2440,9 +2574,9 @@
         "cache_read_input_tokens": 5279,
         "inference_geo": "global",
         "input_tokens": 91,
-        "output_tokens": 271,
+        "output_tokens": 199,
         "output_tokens_details": {
-          "thinking_tokens": 110
+          "thinking_tokens": 43
         },
         "service_tier": "standard"
       }
@@ -3031,6 +3165,48 @@
       }
     }
   },
+  "claude-sonnet-5:c3dfd71eb71a29b5": {
+    "certificate": {
+      "messages_sha256": "872db6a907e98d0fb57ca9004f85850f919416427edb2b7c01072edcacce8462",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:c3dfd71eb71a29b5",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"Die Anmeldung bei der ADEM, dem öffentlichen Arbeitsvermittlungsdienst, eröffnet den Zugang zu Betreuung, Fortbildungen und unter bestimmten Bedingungen zu Arbeitslosengeld. Ein entscheidender Vorteil: Arbeitgeber sind gesetzlich verpflichtet, ihre offenen Stellen der ADEM zu melden, wodurch sie Zugang zu Stellenangeboten erhalten, die anderswo nicht immer zirkulieren.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"Die Anmeldung bei der ADEM, dem öffentlichen Arbeitsvermittlungsdienst, eröffnet den Zugang zu Betreuung, Fortbildungen und unter bestimmten Bedingungen zu Arbeitslosengeld. Ein entscheidender Vorteil: Arbeitgeber sind gesetzlich verpflichtet, ihre offenen Stellen der ADEM zu melden, wodurch sie Zugang zu Stellenangeboten erhalten, die anderswo nicht immer zirkulieren.\",\"quotes\":[{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"S'y inscrire ouvre l'accès à un accompagnement, à des formations et, sous conditions, à l'indemnisation.\"},{\"block_id\":\"lux-guide:femploi:3\",\"quote\":\"les employeurs sont légalement tenus de lui déclarer leurs postes vacants, ce qui en fait une source d'offres qui ne circulent pas toujours ailleurs\"},{\"block_id\":\"lux-guide:femploi:6\",\"quote\":\"L'inscription à l'ADEM ouvre des offres non publiées ailleurs.\"}],\"facette\":0}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cei2FhwvByCLet63me8cm",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 10412,
+        "inference_geo": "global",
+        "input_tokens": 1918,
+        "output_tokens": 656,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:c82efb17c6bfa379": {
     "certificate": {
       "messages_sha256": "1c2aa90ac4569db4c9d49215313764b1eb8c77974a37e8f7bd8ffd3a5b588ace",
@@ -3072,6 +3248,47 @@
         "inference_geo": "global",
         "input_tokens": 3414,
         "output_tokens": 63,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:cebf8d679a8801e1": {
+    "certificate": {
+      "messages_sha256": "19ce01434bef5ff472ac58c9653b565753399f01e86121cd336892820202807a",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:cebf8d679a8801e1",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011Cei2Fc5CikGEGUVxWGg6k",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8722,
+        "inference_geo": "global",
+        "input_tokens": 1751,
+        "output_tokens": 7,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -3162,6 +3379,60 @@
         "output_tokens": 599,
         "output_tokens_details": {
           "thinking_tokens": 416
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:dc4b6391d2661c67": {
+    "certificate": {
+      "messages_sha256": "55dbc4bd7e991190cc085e483259cc84f7564cfa86d916ad06bbb2ca49164e45",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:dc4b6391d2661c67",
+    "response": {
+      "content": [
+        {
+          "signature": "Ep8CCpABCBEYAipAn93zuP+2lJ4s68v/jyruqAoFzyGStTI+PgXEYoebFuM+d/QdK7byUwICNe3venDFiHkVT1yiU1enxPPVKdwlvzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbXs6dQGEgwmQbQIrQmKAtr36ycaDG6TVQ3g54PCv8zPjyIwpaSlAVRzdWeu4PAs2mMiqPp833swdXj7GnaDer/yuw6NeRf2mP5q0KCil30uo6E/KjzAvC5/jgwGBYJQu0cpB6UcCyDIgo9c8iwmkDl2iEzs8dw5VhBFw3xn403PiXSQov8hKZawCj7v9bvdl9kYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_018Ak5LW8iphkraDwFHQAqrS",
+          "input": {
+            "facette": 0,
+            "node_id": "lux-guide:femploi"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011Cei2FHFcaCQWXGRRpvdt8",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8722,
+        "inference_geo": "global",
+        "input_tokens": 194,
+        "output_tokens": 104,
+        "output_tokens_details": {
+          "thinking_tokens": 18
         },
         "service_tier": "standard"
       }
