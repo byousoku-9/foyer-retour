@@ -4446,3 +4446,63 @@ l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et i
 - gate-a-relancer: lux-guide pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
+
+---
+
+## L1f — l'amorce d'une énumération, lue comme le contexte de son item (4 septembre 2026)
+
+Le gate Baloise du 04/09 (02:13, révision `3f12de3`) a mesuré `b-bougie-canape` en **`faux_refus`**
+sur une répétition des trois : zéro claim retenue, verdict `ne_tranche_pas`. Les deux claims
+tombaient `ambigue` non pas sur leur clause, mais sur la **phrase qui l'ouvre** — « Les dommages
+matériels subis par les biens assurés causés par : » (`p12:5`), présente dans cinq blocs du
+document, et « Sont exclus : » (`p12:8`), présente dans vingt-huit. AD-3 rejetait la claim entière,
+item compris. Les deux autres répétitions passaient parce que le modèle n'avait pas cité l'amorce :
+un contrat écrit par énumérations rendait sa clause **au hasard**.
+
+### Rejeu `b-bougie-canape` — une fois, 0,1659 €
+
+`automation/runs/20260903-lisibilite/proto/b-bougie-l1f.json`, serveur local `127.0.0.1:8878`
+(`ENV=dev`, `ALLOW_UNGATED=true`, corpus réel, clé lue dans `.env`, jamais affichée), majorant
+0,8 € tenu. Aucun gate n'a été lancé : le re-gate des trois documents revient à l'orchestrateur.
+
+| ce qui sort | valeur |
+|---|---|
+| `found` / verdict | `true` / `ne_tranche_pas` (l'attendu du cas est `[sous_conditions, ne_tranche_pas]`) |
+| claims retenues | 2 — `c1` (`p12:6` la garantie, `p12:5` **en contexte**), `c3` (`p12:9` l'exclusion) |
+| claims rejetées | 1 — `c2`, `ambigue` |
+| `sources[]` | `p12:5` → `status: "contexte"`, `p12:6` et `p12:9` → `status: "verifiee"` |
+| trace | `citation_amorce_liee` : « 1 citation(s) répétée(s) ailleurs … lues comme son contexte » |
+
+Le cas ne sort plus en refus : c'est exactement la répétition que le gate comptait en `faux_refus`.
+
+**Le rejet qui reste est le bon.** `c2` cite `p12:3` — « Les garanties décrites ci-après ne sont
+acquises que si elles sont mentionnées sur les Conditions Particulières » — **seule**, sans l'item
+qu'elle introduit. Rien ne dit d'où vient ce passage : il reste `ambigue`, et c'est la borne du
+correctif, pas son échec. La condition qu'il portait est par ailleurs tenue par le plafond de
+section (`missing.conditions_particulieres: true` dans le verdict).
+
+### Le rayon d'action, épinglé
+
+Mesuré sur les deux contrats servis : **8 des 58** amorces d'énumération d'AXA et **2 des 6** de
+Baloise ont un texte qui se relit ailleurs dans le document — c'est-à-dire celles que L1c refusait
+de joindre, et ce sont celles qui ouvrent les exclusions. Toutes sont adjacentes à leur item : le
+correctif les couvre sans exception. `test_le_rayon_daction_des_amorces_non_uniques_est_une_minorite_nommee`
+épingle les quatre nombres pour qu'un changement d'ingestion ou de typage se voie.
+
+### Suite hermétique
+
+`ANTHROPIC_API_KEY= FRONT_TESTS_REQUIS=1 uv run pytest tests/ -q` → **code de sortie 0**,
+`4179 passed, 6 skipped, 1 deselected`. `ruff check server tests` vert, `git diff --check` vert.
+
+### Dette déclarée : les trois gates, reconduits
+
+Trois couches de code changent (`corpus/`, `domain/`, `steps/`, `api/`) : `pipeline_digest` passe de
+`aa3f6d14…` à `0ff7573b…` ; `prompts_digest` ne bouge pas (`ca306d38…` — aucun prompt touché, le
+correctif est structurel). AD-7 sert donc les documents avec `gate_perime` tant que le re-gate live
+n'est pas fait : la dette est **reconduite**, aucun gate n'a été relancé ici, `data/.publie` n'a pas
+été touché. Le certificat Baloise (`tests/test_parsing_baloise.py`) épingle les empreintes de
+l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et il est vert ci-dessus.
+
+- gate-a-relancer: lux-guide pipeline_digest=aa3f6d141d56379e187aaaabc3eba8db61f900056ce7c61469a85ca194a97d70
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=aa3f6d141d56379e187aaaabc3eba8db61f900056ce7c61469a85ca194a97d70
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d
