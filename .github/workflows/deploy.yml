@@ -21,6 +21,9 @@ name: Déploiement Cloud Run
 on:
   push:
     branches: [main]
+    # Le README n'est pas servi par l'image : le modifier, y compris depuis l'éditeur de GitHub, ne
+    # justifie ni build, ni smoke facturé, ni promotion. Tout autre fichier déploie.
+    paths-ignore: [README.md]
   # Relancer un déploiement, ou re-sonder le service, sans avoir à pousser un commit pour cela.
   # **Le bouton de GitHub laisse choisir la branche** : sans la garde `if:` posée sur le job
   # `deployer` plus bas, un `Run workflow` sur une branche de travail construirait et promouvrait ce
