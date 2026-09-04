@@ -33,7 +33,7 @@ from server.app.domain.errors import (
 )
 from server.app.domain.ingest import ManifestEntry
 from server.app.domain.profil import Profil
-from server.app.domain.question import Turn
+from server.app.domain.question import CLARIFICATION_MAX_CHARS, Turn
 from server.app.domain.trace import StepTrace
 from server.app.llm.audit import MemoryAuditSink
 from server.app.llm.budget import RequestBudget
@@ -840,13 +840,19 @@ async def test_an_unaffordable_retry_with_nothing_verified_is_a_refusal_not_an_e
 # --- correctifs de revue 1.5 -------------------------------------------------
 @pytest.mark.parametrize("intent", ["meteo", "bavardage", "hors_perimetre"])
 async def test_every_out_of_scope_intent_short_circuits(index: Index, intent: str) -> None:
-    """AD-5 : « l'étage `reason` n'est jamais atteint pour un refus » — pour les trois intents."""
+    """AD-5 : « l'étage `reason` n'est jamais atteint pour un refus » — pour les trois intents.
+
+    Le court-circuit est le même pour les trois ; ce que l'utilisateur **lit** ne l'est plus depuis
+    le tour G1 : `bavardage` n'est pas un rejet mais une question demandée, et son kind le dit
+    (`clarification_requise`). Le nombre d'appels, lui, est identique — un seul, *comprendre*.
+    """
     answer, trace, fake = await _run(index, [_comprendre(intent)])
     assert fake.remaining_script == 0 and len(fake.requests) == 1
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert trace.intent == intent  # AD-10 : le log dit de quoi il s'agissait, même pour un refus
     assert answer.found is False and answer.reason is not None
-    assert answer.reason.kind == "hors_perimetre"
+    assert answer.reason.kind == ("clarification_requise" if intent == "bavardage"
+                                  else "hors_perimetre")
 
 
 async def test_a_retry_call_that_fails_is_terminal_and_carries_its_partial_trace(index: Index) -> None:
@@ -2038,12 +2044,18 @@ async def test_meteo_et_bavardage_restent_refuses_sous_un_perimetre_tronque(
         index: Index, perimetre_tronque, intent: str) -> None:
     """M13 : « `meteo` / `bavardage` restent refusés ». Ni l'un ni l'autre ne se décide sur le
     périmètre annoncé — une question sur la pluie de demain reste hors du guide quelle que soit la
-    liste de ses catégories."""
+    liste de ses catégories.
+
+    Le désarmement ne les atteint donc pas : aucun des deux ne poursuit vers *retrouver*. Ce qui est
+    servi diffère (tour G1) — `bavardage` demande la question au lieu de la refuser —, mais le
+    court-circuit tient dans les deux cas, et c'est lui que M13 mesure.
+    """
     answer, trace, fake = await _run(index, [_comprendre(intent)])
     assert fake.remaining_script == 0 and len(fake.requests) == 1
     assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
     assert answer.found is False and answer.reason is not None
-    assert answer.reason.kind == "hors_perimetre"
+    assert answer.reason.kind == ("clarification_requise" if intent == "bavardage"
+                                  else "hors_perimetre")
     comprendre = next(s for s in trace.steps if s.name == "comprendre")
     assert [c.name for c in comprendre.checks if c.name == "hors_perimetre_desarme"] == []
     assert [c.name for c in comprendre.checks if c.name == "intention_expliquee"] != []
@@ -2239,3 +2251,110 @@ async def test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes(
     assert {p.tokens for p in preflights if p.etape == "verifier"} == {settings.verifier_max_tokens}
     assert [p for p in preflights if p.engage + p.majorant > settings.max_cost_eur_per_request] == []
 
+
+
+# --- tour G1 : ce que le guide dit quand il ne répond pas ---------------------
+SOMMAIRE = ("- Arrivée : Déclarer son arrivée à la commune, Les huit premiers jours\n"
+            "- École : Inscrire ses enfants, Allocations familiales\n"
+            "- Logement : Signer un bail, Assurer son logement\n"
+            "- Banque : Ouvrir un compte\n"
+            "- Impôts : Classes d'impôt, Régime des impatriés\n"
+            "- Santé : S'affilier à la CNS")
+
+
+@pytest.fixture()
+def sommaire(index: Index):
+    """`corpus.perimetres[doc_id]`, comme la projection des titres que le loader calcule.
+
+    Le même objet que celui que *comprendre* reçoit : les phrases d'ouverture du refus n'ont pas de
+    seconde source, sans quoi elles vieilliraient à la première fiche ajoutée.
+    """
+    index.corpus.perimetres[DOC_ID] = SOMMAIRE
+    yield SOMMAIRE
+    index.corpus.perimetres.pop(DOC_ID, None)
+
+
+async def test_une_salutation_est_accueillie_sans_un_appel_de_navigation(index: Index,
+                                                                        sommaire: str) -> None:
+    """Témoin (b) du tour G1 : salutation ⇒ clarification, et aucun appel de navigation.
+
+    Mesuré le 03/09 (`g08-vide`) : « Bonjour » rendait « Cette question sort de ce que couvre le
+    guide : je n'y réponds pas plutôt que d'y répondre à côté. » Le modèle avait pourtant classé
+    l'intention `bavardage` — correctement, et le dictionnaire la confirmait — ; c'est le pipeline
+    qui repliait les trois intentions refusées sur le **même** kind. Un rejet à qui n'a encore rien
+    demandé, et la phrase la plus froide du registre.
+
+    Les deux moitiés du témoin sont indissociables : l'accueil ne doit rien coûter de plus. Un seul
+    appel — *comprendre* — et deux étapes dans la trace, comme pour un refus.
+    """
+    answer, trace, fake = await _run(index, [_comprendre("bavardage")], question="Bonjour")
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert trace.intent == "bavardage"  # AD-10 : ce que le modèle a rendu n'est pas réécrit
+    assert answer.found is False and answer.reason is not None
+    # Le seul des quatre kinds qui dise vrai : rien n'a été cherché parce que rien n'a été demandé.
+    assert answer.reason.kind == "clarification_requise"
+    assert answer.reason.terms_searched == [] and answer.reason.blocks_scanned == 0
+    assert answer.clarification is not None
+    assert answer.clarification.startswith("Bonjour ! Posez-moi une question sur votre installation")
+    # Les thèmes proposés sortent du sommaire servi, dans son ordre, et rien n'est écrit à la main.
+    assert "Arrivée, École, Logement, Banque, Impôts…" in answer.clarification
+    assert "Santé" not in answer.clarification  # `THEMES_ACCUEIL` : cinq, pas le sommaire entier
+    comprendre = next(s for s in trace.steps if s.name == "comprendre")
+    assert [c.name for c in comprendre.checks if c.name == "bavardage_accueilli"] != []
+
+
+async def test_un_refus_propose_trois_themes_proches_du_sommaire(index: Index,
+                                                                 sommaire: str) -> None:
+    """Témoin (c) du tour G1 : un refus juste reste un refus, et dit ce qu'il peut traiter.
+
+    `g06-absurde` (« déposer des bitcoins à la commune ») et `g03-hors-fiches` (« le meilleur
+    restaurant ») étaient des refus **justes** — aucune fiche ne les couvre — servis nus. La phrase
+    d'absence reste celle de *restituer*, mot pour mot ; ce qui l'accompagne est une ouverture
+    composée par le pipeline sur le sommaire du document servi, sans un appel ni une lecture de plus.
+
+    « Proche » n'est pas « pertinent » : le recouvrement de mots ne décide rien, il ordonne une
+    proposition. « Commune » n'est dans aucune fiche sur les bitcoins, mais il est dans le titre
+    d'une fiche d'Arrivée — et c'est bien là que la personne doit être envoyée.
+    """
+    answer, trace, fake = await _run(
+        index, [_comprendre("hors_perimetre",
+                            question_resolue="Puis-je déposer des bitcoins à la commune ?")],
+        question="Puis-je déposer des bitcoins à la commune ?")
+    assert fake.remaining_script == 0 and len(fake.requests) == 1
+    assert [s.name for s in trace.steps] == ["comprendre", "restituer"]
+    assert answer.found is False and answer.reason is not None
+    assert answer.reason.kind == "hors_perimetre"
+    # La phrase de refus n'a pas bougé : *restituer* reste seul à l'écrire (AD-4).
+    assert answer.texte == PHRASES_DE_REFUS["fr"]["hors_perimetre"]
+    assert answer.clarification == "Je peux vous aider sur : Arrivée, École, Logement."
+    assert "Arrivée" in answer.clarification  # la rubrique que « commune » touche vient en tête
+
+
+async def test_sans_sommaire_le_refus_reste_nu_plutot_quinvente(index: Index) -> None:
+    """Le pendant du témoin (c) : rien n'est proposé quand rien n'est connu.
+
+    `Corpus.perimetres` est vide pour un document dont le loader n'a pas projeté les titres. Une
+    liste de thèmes écrite en dur ici serait exactement la liste écrite à la main que la story 2.1 a
+    retirée du prompt : le refus reste alors ce qu'il était, et il reste vrai.
+    """
+    answer, _trace, fake = await _run(index, [_comprendre("hors_perimetre")])
+    assert fake.remaining_script == 0
+    assert answer.reason is not None and answer.reason.kind == "hors_perimetre"
+    assert answer.clarification is None
+
+
+async def test_les_themes_proposes_sont_bornes_par_la_taille_dune_clarification(index: Index) -> None:
+    """Un sommaire aux titres démesurés ne fait pas lever `Answer.clarification` (AD-16).
+
+    La borne du champ est celle d'une question envoyable en un tour (`CLARIFICATION_MAX_CHARS`) : la
+    phrase perd un thème **entier** à la fois, jamais un titre coupé en deux — un titre tronqué
+    ferait croire à une rubrique qui n'existe pas, exactement ce que le palier 3 du loader refuse.
+    """
+    long_titre = "Rubrique " + "extrêmement longue " * 30
+    index.corpus.perimetres[DOC_ID] = f"- {long_titre}\n- Arrivée : Déclarer son arrivée"
+    try:
+        answer, _trace, _fake = await _run(index, [_comprendre("hors_perimetre")])
+    finally:
+        index.corpus.perimetres.pop(DOC_ID, None)
+    assert answer.clarification is None or len(answer.clarification) <= CLARIFICATION_MAX_CHARS
