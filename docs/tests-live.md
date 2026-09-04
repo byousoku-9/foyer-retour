@@ -4701,3 +4701,22 @@ lectures côte à côte — deux verdicts avant, trois `ne_tranche_pas` après.
 - gate-a-relancer: lux-guide pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 - gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
 - gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+
+### Dette déclarée : les trois gates, reconduits (L1p)
+
+`corpus/index.py` et `steps/verifier.py` changent — un item d'énumération se relit avec l'amorce qui
+le subordonne, reconnue sur l'arbre et non sur son texte : `pipeline_digest` passe à `b937020a…`,
+`prompts_digest` reste `4f0c8e67…` (aucun prompt n'est touché par ce tour). AD-7 sert donc les
+documents avec `gate_perime` tant que le re-gate live n'est pas fait ; il revient à l'orchestrateur,
+`data/.publie` n'a pas été touché. Le certificat Baloise (`tests/test_parsing_baloise.py`) épingle
+les empreintes de l'artefact de gate, pas celles du code courant : **rien à ré-épingler**, et il est
+vert.
+
+Ce tour n'a fait **aucun appel API** : la preuve est hors ligne, sur le rapport de gate `-16` figé
+dans `tests/data/gate-baloise-16-congelateur.json` (`tests/test_rejeu_gate_congelateur.py`), qui
+rejoue les deux lectures côte à côte — deux verdicts avant, trois `sous_conditions` après. Le rejeu
+du gate `-14` (cas bougie) reste identique, trois `ne_tranche_pas` : la règle ne s'y applique pas.
+
+- gate-a-relancer: lux-guide pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+- gate-a-relancer: axa-lu-optihome-2017 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
+- gate-a-relancer: baloise-lu-home-2-2024 pipeline_digest=a484e02f58057e512fabef94d4215bb08e0cc543e7f5c92aabecc4c46cdfee24
