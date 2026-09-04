@@ -369,6 +369,131 @@ def _ecrite_par_la_clause(qualite: str, texte_norm: str, *, min_chars: int) -> b
     return all(any(_meme_mot(mot, ecrit, min_chars=min_chars) for ecrit in ecrits) for mot in mots)
 
 
+# Story 5.7 (L1v). Les mots par lesquels le français **nie**. Lexique fermé et volontairement court,
+# comme `QUALIFICATIFS` : il ne sert pas à comprendre une phrase, seulement à savoir que le mot qui
+# suit y est écrit pour être écarté. Les formes élidées (« n'a pas », « n'y a ni », « n'est jamais »)
+# portent déjà l'un de ces mots ; seule « ne … plus » n'en porte aucun, d'où `NEGATIONS_APRES_NE` —
+# « plus » ne nie que derrière un « n' » proche, sans quoi tout comparatif deviendrait une négation.
+NEGATIONS: frozenset[str] = frozenset({
+    "sans", "ni", "pas", "aucun", "aucune", "jamais", "non", "nullement"})
+NEGATIONS_APRES_NE: frozenset[str] = frozenset({"plus"})
+# La distance maximale entre le « n' » élidé et le mot qui porte la négation (« n'y a **plus** »).
+PORTEE_DE_LELISION = 3
+
+
+def _lecture_niee(texte_norm: str, *, fenetre: int) -> list[tuple[int, str, bool]]:
+    """Chaque mot d'un texte normalisé, avec sa position et le fait qu'une négation le porte.
+
+    Story 5.7 (L1v). Deux bornes, et rien d'autre — le projet n'embarque pas de grammaire. (a) Une
+    négation ne franchit **jamais** une frontière de proposition : le point, le point-virgule et les
+    deux-points la referment, parce que c'est là que le français change de sujet (« sans embrasement
+    ni commencement d'incendie **:** il n'y a eu ni flammes propagées »). (b) À l'intérieur d'une
+    proposition, elle porte sur les `fenetre` mots qui la suivent — assez pour « n'est **pas**, à ce
+    moment, de **brûler** », trop peu pour franchir un « mais » et deux compléments.
+
+    C'est grossier, et c'est du code : un mot présent n'est plus un mot affirmé.
+    """
+    lus: list[tuple[int, str, bool]] = []
+    for proposition in re.finditer(r"[^.!?;:]+", texte_norm):
+        mots = [(m.start(), m.group()) for m in re.finditer(r"[a-z0-9]+", proposition.group())]
+        nieurs = [rang for rang, (_debut, mot) in enumerate(mots)
+                  if mot in NEGATIONS
+                  or (mot in NEGATIONS_APRES_NE
+                      and any(m == "n" for _d, m in mots[max(0, rang - PORTEE_DE_LELISION):rang]))]
+        for rang, (debut, mot) in enumerate(mots):
+            lus.append((proposition.start() + debut, mot,
+                        any(0 <= rang - nieur <= fenetre for nieur in nieurs)))
+    return lus
+
+
+def _exigences_affirmees(texte: str, *, min_chars: int, fenetre: int) -> list[str]:
+    """Les mots porteurs que **la clause affirme** : ce qu'elle exige des faits (story 5.7, L1v).
+
+    Le pendant de `qualificatifs` pour une clause qui n'en écrit aucun. `p34:7` d'AXA ne subordonne
+    rien à « soudain » ni à « subit » — elle **définit** : « L'incendie, c'est-à-dire la destruction
+    par des flammes se propageant … en dehors de leur domaine normal ». Une définition exige tout
+    autant, et `_qualites_de_la_clause` ne la voyait pas.
+
+    Un mot que la clause écrit **sous une négation** en est retiré, et c'est ce qui rend la lecture
+    utilisable. La même clause finit par « d'objets dont la destination n'est pas, à ce moment, de
+    brûler » : sans ce retrait, le code aurait cherché « brûler » dans les faits et l'y aurait
+    trouvé — affirmé — dans une déclaration qui nie par ailleurs tout le reste de la définition.
+    Symétriquement, la garantie voisine `p34:12` écrit « même lorsqu'il n'y a pas eu embrasement, ni
+    commencement d'incendie » : elle dit explicitement qu'elle n'en a pas besoin.
+
+    Toutes les occurrences décident : un mot que la clause affirme quelque part est affirmé.
+    """
+    porteurs = _mots_significatifs(texte, min_chars=min_chars)
+    nies: dict[str, bool] = {}
+    for _debut, mot, nie in _lecture_niee(normalize(texte), fenetre=fenetre):
+        if mot in porteurs:
+            nies[mot] = nies.get(mot, True) and nie
+    return sorted(mot for mot, nie in nies.items() if not nie)
+
+
+def _exigence_niee_par_la_declaration(exigences: Iterable[str],
+                                      lus: list[tuple[int, str, bool]], *, min_chars: int) -> bool:
+    """La déclaration ne nomme-t-elle ce que la clause exige que **pour le nier** ?
+
+    Story 5.7 (L1v). Mesuré le 04/09/2026 sur le gate AXA `-19`, cas `s-bougie-canape` : trois
+    répétitions, les mêmes quatre clauses citées, et `ne_tranche_pas`, `sous_conditions`,
+    `sous_conditions`. Toute la différence tient dans un booléen du vérificateur sur `p34:7` — la
+    définition de l'incendie —, vrai deux fois, faux une fois. La déclaration, elle, ne varie pas :
+    « … sans embrasement ni commencement d'incendie : il n'y a eu **ni flammes propagées**, ni dégât
+    au bâtiment ». Les mots que la clause exige y sont tous, tous niés ; le modèle hésitait, le code
+    ne lisait rien.
+
+    La règle est donc **générique** et tient en une phrase : la corroboration par la déclaration
+    n'est acquise que si le fragment corroborant n'est pas sous une négation, et une exigence dont
+    le seul fragment corroborant est nié est **contredite** — pas « inconnue ». C'est la lecture
+    juste : une bougie sans flammes propagées n'est pas un incendie au sens de la définition, et le
+    dossier n'a pas à demander au client de confirmer ce qu'il vient d'écrire.
+
+    Trois précautions, toutes dans le sens conservateur. (a) Il faut qu'au moins un mot de la clause
+    se relise dans la déclaration : une déclaration muette ne contredit rien. (b) Il faut qu'ils le
+    soient **tous** — un seul mot affirmé (« le mobilier de salon a brûlé » pour `p34:12`) suffit à
+    fermer la lecture. (c) Ne comptent que les mots que la clause affirme (`_exigences_affirmees`).
+    """
+    trouvee = False
+    for exigence in exigences:
+        occurrences = [nie for _debut, mot, nie in lus
+                       if _meme_mot(exigence, mot, min_chars=min_chars)]
+        if not occurrences:
+            continue
+        if not all(occurrences):
+            return False
+        trouvee = True
+    return trouvee
+
+
+def _qualite_niee_par_la_declaration(qualite: str, cite_norm: str, *, faits_norm: str,
+                                     lus: list[tuple[int, str, bool]], min_chars: int) -> bool:
+    """Le fragment relu dans les faits n'y nomme-t-il la qualité que **sous une négation** ?
+
+    Story 5.7 (L1v). C'est le chemin de corroboration du tour 2 de B3 — « un fragment des faits
+    déclarés, relu mot pour mot dans les faits soumis » — relu à son tour. Il comptait la présence
+    du mot : « il n'y a eu ni flammes propagées » établissait la propagation des flammes.
+
+    La négation est lue **là où le fragment se relit**, pas dans la chaîne du modèle : c'est la
+    déclaration qui décide, et un fragment recopié hors de son contexte ne peut pas s'en affranchir.
+    Toutes ses occurrences doivent être niées — un assuré qui décrit deux fois le même fait, une
+    fois pour le nier et une fois pour l'affirmer, l'a affirmé.
+    """
+    porteurs = _mots_significatifs(qualite, min_chars=min_chars)
+    if not porteurs or not cite_norm:
+        return False
+    departs = [m.start() for m in re.finditer(re.escape(cite_norm), faits_norm)]
+    if not departs:
+        return False
+    for depart in departs:
+        fin = depart + len(cite_norm)
+        portes = [nie for debut, mot, nie in lus if depart <= debut < fin
+                  and any(_meme_mot(porteur, mot, min_chars=min_chars) for porteur in porteurs)]
+        if not portes or not all(portes):
+            return False
+    return True
+
+
 def _propositions(texte: str) -> list[str]:
     """Le texte découpé en propositions : phrases, et les membres séparés par un point-virgule.
 
@@ -1321,7 +1446,8 @@ def _passages_cites(quotes: list[VerifiedQuote], *, corpus: Any, index: Any) -> 
     return {block_id: "\n".join(morceaux) for block_id, morceaux in par_bloc.items()}
 
 
-def _clauses_citees(quotes: list[VerifiedQuote], *, corpus: Any, index: Any) -> list[ClauseCitee]:
+def _clauses_citees(quotes: list[VerifiedQuote], *, corpus: Any, index: Any,
+                    settings: Settings) -> list[ClauseCitee]:
     """Les blocs cités qui portent un `kind` décisionnel, relus **dans le corpus** (AD-6).
 
     `Block.kind` (ingestion) est la seule source de typage : ni *rédiger*, ni *vérifier* n'en
@@ -1366,6 +1492,12 @@ def _clauses_citees(quotes: list[VerifiedQuote], *, corpus: Any, index: Any) -> 
             # rejoignent `qualificatifs` dans `_qualites_de_la_clause` : ce que la clause exige et que
             # le modèle n'a nommé nulle part devient une qualité non établie, donc `humain`.
             qualites_personne=_qualites_de_personne(exige),
+            # L1v, quatrième lecture du même texte : les mots porteurs que la clause **affirme**,
+            # qualificatif comme définition. `p34:7` d'AXA n'écrit aucun qualificatif et exige
+            # pourtant tout — « la destruction par des flammes se propageant … en dehors de leur
+            # domaine normal » —, et c'est contre eux que le code relit la déclaration.
+            exigences=_exigences_affirmees(exige, min_chars=settings.qualite_mot_min_chars,
+                                           fenetre=settings.negation_fenetre_mots),
             # L1o : ce bloc ouvre-t-il une énumération ? Lu sur l'**arbre** comme la portée et le
             # socle (`Index.est_amorce_denumeration`). Une amorce reste une clause citée — son texte
             # qualifie ses items (L1n) et sa section les conditionne (L1e) —, mais elle ne décide
@@ -1493,7 +1625,8 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             # claim serait à la fois la garantie qu'on retient et l'exclusion qui l'écarte, avec un
             # seul jeu de champs typés pour les deux. Le rejet est `ambigue`, donc un défaut de
             # citation au sens d'AD-3 : il déclenche la relance unique avec un motif actionnable.
-            clauses = _clauses_citees(quotes, corpus=corpus, index=index)
+            clauses = _clauses_citees(quotes, corpus=corpus, index=index,
+                                      settings=settings)
             kinds = sorted({c.kind for c in clauses})
             if len(kinds) > 1:
                 rejetees.append(RejectedClaim(
@@ -2581,6 +2714,11 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         # dite établie se relit (B3, tour 2). Tous les champs renseignés, dans l'ordre du modèle.
         faits_norm = normalize(" ".join(
             str(v) for v in (faits.model_dump() if faits is not None else {}).values() if v is not None))
+        # Story 5.7 (L1v) : les mêmes faits, lus **avec leurs négations**. Chaque mot y porte sa
+        # position et le fait qu'un « sans », un « ni » ou un « ne … pas » proche l'écarte. Deux
+        # lecteurs plus bas — la qualité dite établie par un fragment nié, et l'exigence de la
+        # clause que la déclaration ne nomme que pour la nier.
+        lus_des_faits = _lecture_niee(faits_norm, fenetre=settings.negation_fenetre_mots)
         # Story 5.7 (L1r). La porte de L1b/L1c, calculée **une fois pour toutes les affirmations
         # évaluées** et non plus seulement pour celles dont le modèle a rendu des champs typés : une
         # exclusion dont le rattachement soutenu nomme un fait déclaré dans les mots de sa clause a
@@ -2675,6 +2813,19 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                 # mots qui portent la qualité. C'est grossier, et c'est du code — un modèle ne peut
                 # plus se corroborer lui-même en recopiant une liste dans l'autre.
                 if _dit_la_qualite(q.qualite, q.fait_cite, min_chars=settings.qualite_mot_min_chars):
+                    # L1v : le fragment est authentique et il dit bien la qualité — reste à savoir
+                    # s'il la dit ou s'il la **nie**. « il n'y a eu ni flammes propagées » établissait
+                    # la propagation des flammes : le contrôle comptait la présence du mot. La
+                    # négation est relue là où le fragment se relit, dans la déclaration.
+                    if _qualite_niee_par_la_declaration(
+                            q.qualite, cite, faits_norm=faits_norm, lus=lus_des_faits,
+                            min_chars=settings.qualite_mot_min_chars):
+                        step.checks.append(CheckResult(
+                            name="fait_cite_nie_par_la_declaration", ok=False,
+                            detail="le fragment cité pour une qualité ne la nomme, dans les faits "
+                                   "déclarés, que sous une négation : la qualité est traitée comme "
+                                   "non établie"))
+                        continue
                     etablies.add(normalize(q.qualite))
                 elif (a.fait_requis_present
                       and _qualifie_par_la_clause(q.qualite, preuves_relues.get(a.claim_id, ""),
@@ -2750,9 +2901,35 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     continue
                 if q not in non_etablies:
                     non_etablies.append(q)
-            fait_present = a.fait_requis_present
-            fait_manquant = (a.fait_manquant or "").strip() or None
-            if fait_present or (a.fait_manquant or "").strip():
+            # **Story 5.7 (L1v) : le code relit la déclaration.** Ce que la clause exige — le
+            # qualificatif comme la définition — est cherché dans les faits déclarés avec leurs
+            # négations. Si tout ce que la clause affirme n'y est écrit que pour être nié,
+            # l'exigence est **contredite**, et le booléen du modèle ne peut pas dire le contraire :
+            # un `true` rendu sur une exigence que la déclaration nie est ignoré, un `false` reste
+            # `false`. La signature est celle du fait connu et contraire — fait requis absent, aucun
+            # fait manquant —, donc `applicable="non"` par la règle (5) d'AD-6 pour une garantie ou
+            # une exclusion, `humain` pour une condition. C'est la lecture juste : une bougie sans
+            # flammes propagées n'est pas un incendie au sens de la définition citée, et il n'y a
+            # rien à demander au client à ce sujet (`_qualites_de_la_clause` n'est donc pas relu).
+            #
+            # Les amorces sont hors du calcul : elles introduisent des items et n'exigent rien
+            # (L1o). Mesuré le 04/09/2026 sur le gate AXA `-19`, cas `s-bougie-canape` :
+            # `ne_tranche_pas`, `sous_conditions`, `sous_conditions` sur les mêmes quatre clauses
+            # citées, toute la divergence tenant à ce booléen sur `p34:7`.
+            niee = _exigence_niee_par_la_declaration(
+                (mot for clause in clauses.get(a.claim_id, []) if not clause.amorce
+                 for mot in clause.exigences),
+                lus_des_faits, min_chars=settings.qualite_mot_min_chars)
+            if niee:
+                non_etablies = []
+                step.checks.append(CheckResult(
+                    name="exigence_niee_par_la_declaration", ok=False,
+                    # Comme les autres traces de ce fichier : le statut appliqué, jamais le texte.
+                    detail="la déclaration ne nomme ce que la clause citée exige que sous une "
+                           "négation : le fait exigé est tenu pour connu et contraire"))
+            fait_present = a.fait_requis_present and not niee
+            fait_manquant = None if niee else ((a.fait_manquant or "").strip() or None)
+            if not niee and (fait_present or (a.fait_manquant or "").strip()):
                 # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
                 # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé
                 # est ajouté aux qualités **non établies** : deux listes vides ne peuvent plus valoir

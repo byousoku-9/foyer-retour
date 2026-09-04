@@ -47,7 +47,7 @@ from server.app.domain.verdict import (
     faits_etablis_par_rattachement,
 )
 from server.app.steps.verifier import _clauses_citees, _qualites_de_la_clause
-from tests.rejeu_gate import citation_entiere
+from tests.rejeu_gate import SETTINGS, citation_entiere
 
 ROOT = Path(__file__).resolve().parents[1]
 BATTERIE = json.loads((Path(__file__).parent / "data" / "batterie-3-l1t.json").read_text())
@@ -85,7 +85,8 @@ def _juger(cas: dict, *, corpus: Corpus, index: Index) -> list[ClaimJugee]:
     jugees: list[ClaimJugee] = []
     for claim in cas["claims"]:
         clauses = _clauses_citees([citation_entiere(b, corpus=corpus, index=index)
-                                   for b in claim["blocs"]], corpus=corpus, index=index)
+                                   for b in claim["blocs"]], corpus=corpus, index=index,
+                                  settings=SETTINGS)
         observe = claim["applicable"]
         manquant = claim["fait_manquant"]
         exigees = (_qualites_de_la_clause(clauses, nommees=manquant or "", place=8)

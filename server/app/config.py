@@ -576,6 +576,21 @@ class Settings(BaseSettings):
     # non un seul. « La chaleur a agi lentement » partage « chaleur » avec « action subite de la
     # chaleur » et dit exactement le contraire ; c'est le qualificatif (*subite*) qui décide.
     qualite_mot_min_chars: int = Field(5, ge=1)
+    # Story 5.7 (L1v). Le **code relit la déclaration** : un mot que la clause exige et que les faits
+    # déclarés n'emploient que sous une négation ne corrobore rien. Reste à dire jusqu'où une
+    # négation porte, et c'est un seuil : le nombre de mots après « sans », « ni », « ne … pas »
+    # au-delà duquel le code cesse de la tenir pour agissante. Il ne franchit jamais une frontière de
+    # proposition (`.`, `;`, `:`), qui l'arrête toujours plus tôt.
+    #
+    # 6 est mesuré des deux côtés sur le cas de la bougie (gate AXA `-19`). Côté clause, la
+    # définition de l'incendie écrit « d'objets dont la destination n'est **pas**, à ce moment, de
+    # **brûler** » — 5 mots séparent les deux, et sans cette portée le code aurait exigé des faits un
+    # « brûler » que la clause nie. Côté faits, « **sans** embrasement ni commencement d'incendie »
+    # et « il n'y a eu **ni** flammes propagées » tiennent en 3 mots. Une fenêtre plus large ferait
+    # porter la négation d'un membre de phrase sur le suivant : « pas de dégât au bâtiment, mais des
+    # flammes propagées dans le salon » place 7 mots entre « pas » et « flammes », et cette
+    # déclaration-là corrobore bien la propagation.
+    negation_fenetre_mots: int = Field(6, ge=1)
     # Story 5.6 (L1c). Le **rattachement aux faits** d'une affirmation est le second texte du modèle
     # qui atteint l'écran sans qu'aucune citation ne le soutienne : il dit que le fait déclaré est
     # ce que la clause nomme, et aucun passage du contrat ne peut prouver ce qu'un assuré a vécu.
@@ -2096,6 +2111,7 @@ class Settings(BaseSettings):
             "conversation_active_questions_max": self.conversation_active_questions_max,
             "qualites_exigees_max": self.qualites_exigees_max,
             "qualite_mot_min_chars": self.qualite_mot_min_chars,
+            "negation_fenetre_mots": self.negation_fenetre_mots,
             "rattachement_max_chars": self.rattachement_max_chars,
             "claim_phrases_max": self.claim_phrases_max,
             "claim_phrases_retirees_ratio_max": self.claim_phrases_retirees_ratio_max,
@@ -2333,7 +2349,8 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "verifier_max_claims", "verifier_sinistre_max_tokens", "verifier_sinistre_json_tokens",
     "verifier_thinking_reserve_tokens", "fait_manquant_max_chars", "ask_client_max",
     "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
-    "qualite_mot_min_chars", "rattachement_max_chars", "claim_phrases_max",
+    "qualite_mot_min_chars", "negation_fenetre_mots", "rattachement_max_chars",
+    "claim_phrases_max",
     "claim_phrases_retirees_ratio_max",
     "verifier_inventaire_max_tokens", "rattachement_de_phrase_max",
     "rattachement_de_phrase_mot_min_chars",

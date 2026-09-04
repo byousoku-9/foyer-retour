@@ -2442,6 +2442,112 @@ async def test_une_qualite_que_la_clause_nomme_est_remplie_par_le_fait_declare(
     assert not [c for c in step.checks if c.name == "fait_cite_hors_sujet"]
 
 
+# Story 5.7 (L1v). Deux déclarations autour de la même garantie « dégâts des eaux » : dans la
+# première, l'écoulement est affirmé et ce que la clause exige de plus est nié ; dans la seconde,
+# **tout** ce que la clause affirme est nié. Le mot y est chaque fois écrit — c'est ce que le
+# contrôle comptait.
+FRAGMENT_NIE = "ni rupture, ni fissure, ni débordement des installations hydrauliques"
+FAITS_SANS_DEBORDEMENT = Faits(
+    date="2026-08-01", lieu="domicile", montant_eur=3000.0,
+    description="L'écoulement a mouillé le parquet, mais il n'y a eu "
+                "ni rupture, ni fissure, ni débordement des installations hydrauliques.")
+FAITS_TOUT_NIE = Faits(
+    date="2026-08-01", lieu="domicile", montant_eur=3000.0,
+    description="Aucune rupture, ni fissure, ni débordement des installations hydrauliques : "
+                "le parquet s'est décollé sous l'effet de l'humidité.")
+
+
+async def test_une_qualite_etablie_par_un_fragment_nie_nest_pas_etablie(contrat: Index) -> None:
+    """Story 5.7 (L1v) : le fragment est authentique, il dit la qualité — et il la **nie**.
+
+    Le chemin de corroboration du tour 2 relit le fragment mot pour mot dans les faits déclarés,
+    puis exige qu'il emploie chacun des mots porteurs de la qualité. « ni rupture, ni fissure, ni
+    débordement des installations hydrauliques » passe les deux contrôles : tous les mots y sont.
+    Ils y sont pour être écartés, et le code lit maintenant la négation qui les porte.
+
+    La clause, elle, n'est pas contredite — la déclaration affirme l'écoulement qu'elle nomme. Ce
+    témoin isole donc le seul chemin de la qualité : l'affirmation vaut `humain`, et le débordement
+    reste dû au client.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", True, False, False, None, [QUALITE_DEBORDEMENT],
+                         [(QUALITE_DEBORDEMENT, FRAGMENT_NIE)]),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_SANS_DEBORDEMENT, blocs=["cg:p1:18"])
+    assert [c for c in step.checks if c.name == "fait_cite_nie_par_la_declaration" and not c.ok]
+    assert not [c for c in step.checks if c.name == "exigence_niee_par_la_declaration"]
+    assert v.claims[0].status.applicable == "humain"
+    assert v.verdict is not None and QUALITE_DEBORDEMENT in v.verdict.missing.faits
+
+
+async def test_un_fait_requis_dit_present_sur_une_exigence_niee_est_ignore(contrat: Index) -> None:
+    """Story 5.7 (L1v) : le booléen du modèle ne peut pas contredire la relecture du code.
+
+    La déclaration ne nomme ce que la clause affirme — rupture, fissure, débordement, installations
+    hydrauliques — que sous « aucune » et « ni ». Le vérificateur, lui, coche « le fait exigé est
+    présent » et n'énumère rien : c'est exactement la forme mesurée le 04/09/2026 sur `p34:7` du
+    contrat AXA, où le même cas rendait `oui` deux fois sur trois.
+
+    Le `true` est ignoré et compté ; la signature qui reste est celle du fait **connu et contraire**
+    — fait requis absent, aucun fait manquant —, donc `applicable="non"` par la règle (5) d'AD-6, et
+    aucune question n'est posée au client sur une clause dont la déclaration a écarté le périmètre.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", True, False, False, None, [], []), verdicts=[("c1", True)])],
+        faits=FAITS_TOUT_NIE, blocs=["cg:p1:18"])
+    assert [c for c in step.checks if c.name == "exigence_niee_par_la_declaration" and not c.ok]
+    assert v.claims[0].status.applicable == "non"
+    assert v.claims[0].status.applicable_reason == "faits_contraires"
+    assert v.verdict is not None and not v.verdict.missing.faits
+
+
+async def test_un_fait_requis_dit_absent_sur_une_exigence_niee_le_reste(contrat: Index) -> None:
+    """La borne de L1v dans l'autre sens : `false` reste `false`, la relecture n'invente rien.
+
+    Le modèle nomme ici un fait manquant, ce qui rendrait `humain` — une question de plus au client.
+    La déclaration ayant déjà écarté ce que la clause exige, l'affirmation vaut `non` : le code ne
+    demande pas d'établir ce que la déclaration nie. Le sens du forçage est le seul qui compte —
+    il ne rend jamais une clause *plus* applicable qu'elle ne l'était.
+    """
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
+                        verdicts=[("c1", True)])],
+        faits=FAITS_TOUT_NIE, blocs=["cg:p1:18"])
+    assert [c for c in step.checks if c.name == "exigence_niee_par_la_declaration" and not c.ok]
+    assert v.claims[0].status.applicable == "non"
+    assert v.verdict is not None and QUALITE_DEBORDEMENT not in v.verdict.missing.faits
+
+
+async def test_la_negation_dun_autre_fragment_ne_ferme_rien(contrat: Index) -> None:
+    """La fenêtre de `negation_fenetre_mots`, et pourquoi elle est bornée en mots.
+
+    « pas de dégât au bâtiment, **mais** des flammes propagées dans le salon » : la négation ouvre la
+    phrase, la propagation la ferme, et sept mots les séparent. Une négation qui porterait jusqu'au
+    point aurait éteint la seconde moitié de la déclaration — c'est le mode d'échec symétrique de
+    celui que L1v corrige, et il est tout aussi grave.
+    """
+    faits = Faits(date="2026-08-01", lieu="domicile", montant_eur=3000.0,
+                  description="Pas de dégât au parquet, mais une rupture, une fissure et un "
+                              "débordement des installations hydrauliques dans la salle de bain.")
+    draft = _draft(("c1", "Le contrat couvre l'écoulement de l'eau des installations hydrauliques "
+                          "par suite de débordement.", [("cg:p1:18", Q_DEGATS_DES_EAUX)]))
+    v, step, _fake = await _verifier_sinistre(
+        contrat, draft,
+        [_applicabilite(("c1", True, False, False, None, [], []), verdicts=[("c1", True)])],
+        faits=faits, blocs=["cg:p1:18"])
+    assert not [c for c in step.checks if c.name == "exigence_niee_par_la_declaration"]
+    assert v.claims[0].status.applicable == "oui"
+
+
 async def test_un_qualificatif_ecrit_par_la_clause_ne_se_qualifie_jamais_par_les_faits(
         contrat: Index) -> None:
     """La contre-épreuve du témoin précédent, et la borne que L1 ne franchit pas.
@@ -3704,7 +3810,7 @@ def test_les_exigences_se_lisent_dans_litem_cite_et_pas_dans_tout_le_bloc(reel: 
     debut = texte.index("l’incendie")
     incendie = VerifiedQuote(block_id=bloc, quote=texte[debut:debut + 10], start=debut,
                              end=debut + 10, text_start=debut, text_end=debut + 10)
-    (clause,) = _clauses_citees([incendie], corpus=reel.corpus, index=reel)
+    (clause,) = _clauses_citees([incendie], corpus=reel.corpus, index=reel, settings=_settings())
     assert clause.qualificatifs == [] and clause.qualites_personne == []
 
     # Contre-épreuve : l'item qui **écrit** ces qualités les garde, et une clause d'une seule phrase
@@ -3712,7 +3818,7 @@ def test_les_exigences_se_lisent_dans_litem_cite_et_pas_dans_tout_le_bloc(reel: 
     chaleur = texte.index("l’action subite")
     item = VerifiedQuote(block_id=bloc, quote=texte[chaleur:chaleur + 15], start=chaleur,
                          end=chaleur + 15, text_start=chaleur, text_end=chaleur + 15)
-    (clause_chaleur,) = _clauses_citees([item], corpus=reel.corpus, index=reel)
+    (clause_chaleur,) = _clauses_citees([item], corpus=reel.corpus, index=reel, settings=_settings())
     assert sorted(clause_chaleur.qualificatifs) == ["direct", "subite"]
 
 
@@ -3742,7 +3848,7 @@ def _jugee(claim_id: str, blocs: list[str], *, reel: Index, l1o: bool = True) ->
     amorce qui décide comme une clause : c'est la seule façon de montrer ce que la règle change.
     """
     clauses = _clauses_citees([citation_entiere(b, corpus=reel.corpus, index=reel) for b in blocs],
-                              corpus=reel.corpus, index=reel)
+                              corpus=reel.corpus, index=reel, settings=_settings())
     if not l1o:
         clauses = [clause.model_copy(update={"amorce": False}) for clause in clauses]
     return ClaimJugee(claim_id=claim_id, clauses=clauses, retenue=True,

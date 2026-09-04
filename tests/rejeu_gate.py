@@ -24,13 +24,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from server.app.config import Settings
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus
+from server.app.corpus.text import normalize
 from server.app.domain.answer import VerifiedQuote
 from server.app.domain.verdict import ChampsApplicabilite, ClaimJugee, decider
 from server.app.steps.verifier import (RENVOIS_CP, RENVOIS_OPTION, _clauses_citees,
+                                       _exigence_niee_par_la_declaration, _lecture_niee,
                                        _mots_qualifiants, _mots_renvoi, _qualites_de_personne,
                                        _qualites_de_la_clause)
+
+SETTINGS = Settings(_env_file=None, anthropic_api_key="")
 
 DATA = Path(__file__).parent / "data"
 
@@ -67,20 +72,27 @@ def _relire_sans_amorce(clause, *, corpus: Corpus, index: Index):
         "qualites_personne": _qualites_de_personne(texte)})
 
 
-def rejouer(repetition: dict, *, corpus: Corpus, index: Index,
+def rejouer(repetition: dict, *, corpus: Corpus, index: Index, faits: str = "",
             avant: frozenset[str] = frozenset()) -> tuple[str, list[ClaimJugee]]:
     """La répétition rejouée : champs canoniques, relectures du code, puis la table AD-6.
 
     Un `applicable` observé se réécrit sans ambiguïté en champs typés : `oui` = fait requis présent et
     rien d'ouvert, `non` = fait requis absent **sans** fait manquant (la signature du fait connu et
     contraire), `humain` = un fait manquant nommé, `null` = la claim n'a cité aucune clause qui décide
-    et la table ne la voit pas. Par-dessus viennent les deux relectures que le code fait du texte des
+    et la table ne la voit pas. Par-dessus viennent les relectures que le code fait du texte des
     clauses, indépendantes du modèle : elles ne peuvent que fermer un `oui`.
+
+    `faits` porte la **déclaration** du cas, et c'est la troisième de ces relectures (story 5.7,
+    L1v) : une exigence que la déclaration ne nomme que sous une négation est contredite, quoi
+    qu'ait rendu le modèle. Vide — les rapports antérieurs ne la portaient pas —, la relecture ne
+    s'exerce pas et le rejeu est celui d'avant.
     """
+    lus_des_faits = _lecture_niee(normalize(faits), fenetre=SETTINGS.negation_fenetre_mots)
     jugees: list[ClaimJugee] = []
     for claim in repetition["claims"]:
         clauses = _clauses_citees([citation_entiere(b, corpus=corpus, index=index)
-                                   for b in claim["blocs"]], corpus=corpus, index=index)
+                                   for b in claim["blocs"]], corpus=corpus, index=index,
+                                  settings=SETTINGS)
         if "L1o" in avant:
             # Avant L1o, une amorce d'énumération décidait comme une clause : c'est la seule façon
             # de reproduire une signature mesurée sous un correctif qui la corrige.
@@ -95,6 +107,13 @@ def rejouer(repetition: dict, *, corpus: Corpus, index: Index,
             # rendu, une exigence restée ouverte. Le rapport figé porte le marqueur, jamais le
             # code : c'est la lecture de la mesure, et `avant={"L1u"}` rejoue la lecture du run.
             observe = "humain"
+        if "L1v" not in avant and _exigence_niee_par_la_declaration(
+                (mot for clause in clauses if not clause.amorce for mot in clause.exigences),
+                lus_des_faits, min_chars=SETTINGS.qualite_mot_min_chars):
+            # L1v : la déclaration nie tout ce que la clause affirme — le fait exigé est connu et
+            # contraire, et le booléen du modèle n'y change rien. `avant={"L1v"}` rejoue la lecture
+            # du run, où le code ne lisait pas la déclaration.
+            observe = "non"
         exigees = _qualites_de_la_clause(clauses, nommees="", place=8) if observe != "non" else []
         renvois = {r for clause in clauses if clause.kind == "garantie" for r in clause.renvois}
         jugees.append(ClaimJugee(
@@ -109,8 +128,12 @@ def rejouer(repetition: dict, *, corpus: Corpus, index: Index,
 
 def verdicts(rapport_: dict, *, corpus: Corpus, index: Index,
              avant: frozenset[str] = frozenset()) -> list[str]:
-    """Les verdicts rejoués, dans l'ordre des répétitions du rapport."""
-    return [rejouer(r, corpus=corpus, index=index, avant=avant)[0]
+    """Les verdicts rejoués, dans l'ordre des répétitions du rapport.
+
+    La déclaration du cas est lue dans le rapport figé (`faits`) quand il la porte : c'est ce que
+    L1v relit, et les rapports d'avant ne l'enregistraient pas.
+    """
+    return [rejouer(r, corpus=corpus, index=index, faits=rapport_.get("faits", ""), avant=avant)[0]
             for r in rapport_["repetitions"]]
 
 

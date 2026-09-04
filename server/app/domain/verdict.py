@@ -193,6 +193,13 @@ class ClauseCitee(DomainModel):
     # « incomber aux assurés »). Racines du lexique `steps.verifier.QUALITES_DE_PERSONNE`, jamais
     # affichées telles quelles — c'est lui qui porte le libellé rendu au client.
     qualites_personne: list[str] = Field(default_factory=list)
+    # Story 5.7 (L1v), quatrième lecture du même texte : les mots porteurs que la clause **affirme**
+    # — ce qu'elle exige des faits, par un qualificatif comme par une définition. Un mot que la
+    # clause écrit sous une négation (« même lorsqu'il n'y a pas eu embrasement », « d'objets dont la
+    # destination n'est pas … de brûler ») n'en est pas : la clause dit qu'elle n'en a pas besoin.
+    # Normalisés et jamais affichés — ils ne servent qu'à relire la déclaration
+    # (`steps.verifier._exigence_niee_par_la_declaration`).
+    exigences: list[str] = Field(default_factory=list)
     # Story 5.7 (L1e) : la condition d'applicabilité de la section, lue sur l'arbre du document et non
     # sur les claims. `None` quand la section de la clause n'en porte pas — la garantie est alors
     # inconditionnelle au regard de la structure du contrat.

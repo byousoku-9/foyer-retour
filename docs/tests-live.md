@@ -4879,3 +4879,32 @@ dans `tests/test_rejeu_gate_l1u.py`, sans réseau.
 Attendu du prochain gate `-19` : la stabilité, pas le verdict. Le taux de `ne_tranche_pas` monte —
 « Exclu » ne se prononce plus que sur des champs typés corroborés ou sur la portée déclarée d'une
 exclusion —, et c'est le comportement voulu.
+
+## 04/09/2026 — L1v : le code relit la déclaration
+
+**Aucun appel API sur ce tour.** Une relecture est ajoutée à la table : ce que la clause citée exige
+— son qualificatif comme sa définition — est cherché dans les faits déclarés **avec leurs
+négations**. Un mot que la déclaration n'écrit que sous « sans », « ni » ou « ne … pas » ne corrobore
+rien, et une exigence dont tous les fragments corroborants sont niés est *contredite* :
+`fait_requis_present` est ramené à faux, le fait manquant est retiré, et la clause vaut `non` par le
+fait connu et contraire. La table change, donc les trois gates verticaux sont à rejouer avant toute
+promotion.
+
+Ce qui a été mesuré, hors ligne, sur le rapport déjà payé
+(`automation/runs/20260903-lisibilite/gate-axa-lu-optihome-2017-19.json`, réduit et figé dans
+`tests/data/gate-19-l1v.json`) : `s-bougie-canape` rendait `ne_tranche_pas`, **`sous_conditions`**,
+**`sous_conditions`** sur trois répétitions du même corpus et de la même déclaration, avec les mêmes
+clauses décisives citées les trois fois (`p34:7`, `p34:12`). La seule différence tenait dans un champ
+du vérificateur sur `p34:7` — la définition de l'incendie —, vrai deux fois et faux une fois, alors
+que la déclaration écrit « sans embrasement ni commencement d'incendie : il n'y a eu ni flammes
+propagées ». Sur la table courante, les trois répétitions rendent **trois verdicts identiques**
+(`ne_tranche_pas`). Le rejeu est dans `tests/test_rejeu_gate_l1v.py`, sans réseau ; les rapports
+voisins (cigarette, congélateur) y sont rejoués avec leur vraie déclaration et ne bougent pas.
+
+Attendu du prochain gate `-20` : la stabilité, pas le verdict. Une garantie dont la déclaration nie
+la définition sort de la table au lieu d'y ouvrir une question — le taux de `sous_conditions` baisse
+sur les cas de ce genre, et c'est le comportement voulu.
+
+Aucune fixture live n'a été réenregistrée : ni les prompts, ni les schémas d'outils, ni aucun appel
+ne sont touchés. Le seul seuil ajouté (`negation_fenetre_mots`) est lu par du code de vérification,
+jamais annoncé au fournisseur.

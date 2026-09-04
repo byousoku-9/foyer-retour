@@ -1,0 +1,115 @@
+{
+  "source": "automation/runs/20260903-lisibilite/gate-axa-lu-optihome-2017-19.json",
+  "generated_at": "2026-09-04T16:11:50Z",
+  "candidate_revision": "1baa5e50411ff0fc76ff125b7e898b3ab2ef1113",
+  "doc_id": "axa-lu-optihome-2017",
+  "cas": "s-bougie-canape",
+  "faits": "Une bougie allumée posée sur une table basse est tombée sur le canapé. Le mobilier de salon a brûlé sur une partie, sans embrasement ni commencement d'incendie : il n'y a eu ni flammes propagées, ni dégât au bâtiment.",
+  "repetitions": [
+    {
+      "repetition": 1,
+      "verdict_observe": "ne_tranche_pas",
+      "claims": [
+        {
+          "claim_id": "c1",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:12",
+            "axa-lu-optihome-2017:p34:6"
+          ],
+          "applicable": "humain",
+          "applicable_reason": null,
+          "rattachement": null
+        },
+        {
+          "claim_id": "c2",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:6",
+            "axa-lu-optihome-2017:p34:7"
+          ],
+          "applicable": "non",
+          "applicable_reason": "faits_contraires",
+          "rattachement": "L'absence de propagation de flammes et de commencement d'incendie décrite dans les faits est l'absence même de ce que cette clause nomme l'incendie."
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:6"
+          ],
+          "applicable": null,
+          "applicable_reason": null,
+          "rattachement": null
+        },
+        {
+          "claim_id": "c4",
+          "blocs": [
+            "axa-lu-optihome-2017:p22:5"
+          ],
+          "applicable": "non",
+          "applicable_reason": "hors_portee",
+          "rattachement": null
+        }
+      ]
+    },
+    {
+      "repetition": 2,
+      "verdict_observe": "sous_conditions",
+      "claims": [
+        {
+          "claim_id": "c1",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:12",
+            "axa-lu-optihome-2017:p34:6"
+          ],
+          "applicable": "humain",
+          "applicable_reason": null,
+          "rattachement": "Le canapé et le mobilier du salon partiellement brûlés par une bougie tombée, sans embrasement ni commencement d'incendie, correspondent à un événement soudain résultant de l'action de la chaleur ou du contact avec un foyer incandescent."
+        },
+        {
+          "claim_id": "c2",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:6",
+            "axa-lu-optihome-2017:p34:7"
+          ],
+          "applicable": "oui",
+          "applicable_reason": null,
+          "rattachement": "L'absence d'embrasement ou de commencement d'incendie déclarée pour ce sinistre correspond à l'absence de propagation de flammes que cette définition exige pour qualifier un incendie."
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p22:5"
+          ],
+          "applicable": "non",
+          "applicable_reason": "hors_portee",
+          "rattachement": null
+        }
+      ]
+    },
+    {
+      "repetition": 3,
+      "verdict_observe": "sous_conditions",
+      "claims": [
+        {
+          "claim_id": "c1",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:12",
+            "axa-lu-optihome-2017:p34:6"
+          ],
+          "applicable": "humain",
+          "applicable_reason": null,
+          "rattachement": "La bougie tombée sur le canapé et le brûlage partiel du mobilier sans embrasement constituent l'événement soudain résultant de l'action de la chaleur ou du contact avec un foyer que cette clause vise."
+        },
+        {
+          "claim_id": "c3",
+          "blocs": [
+            "axa-lu-optihome-2017:p34:6",
+            "axa-lu-optihome-2017:p34:7"
+          ],
+          "applicable": "oui",
+          "applicable_reason": null,
+          "rattachement": "L'absence d'embrasement et de propagation de flammes décrite dans les faits correspond à l'absence de la destruction par flammes propagées que cette définition de l'incendie exige."
+        }
+      ]
+    }
+  ]
+}
