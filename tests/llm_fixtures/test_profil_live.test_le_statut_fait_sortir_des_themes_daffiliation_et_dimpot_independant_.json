@@ -30,6 +30,53 @@
       }
     }
   },
+  "claude-sonnet-5:2cf521c88dcdeed5": {
+    "certificate": {
+      "messages_sha256": "ba720314f978c3b2f2015b54ca2150a47a7f2fa43127cb7df55a212e48f5b9f0",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "e4c1c4bdbe3452787ff016c0d6bdce128339f3117928001a9ecbc49df59c3e0f",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:2cf521c88dcdeed5",
+    "response": {
+      "content": [
+        {
+          "signature": "Ep8HCpABCBEYAipAZPgUQG+EqkeVKuV/Jq10YX6a017dXjOK1GOWCtwYctyERNpqcDuHnETrG1gwgrxFPLS+6VAy5ElOPyk+qfiszzIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAayW69QGEgwbTg0E0H3Bz24vlDMaDONcyGcOwhQuH/OcECIwS97xUdWEdxF8K/DXQ4gQQ0ikeKPH6wzPG3dhY8SyYZkg2ls8MUlCF9Vqe2ZP50UCKrsFdNeGSTF7r07TvI35Cv/ATmbxtEEAB0q7EmfLIyEn6b1Qr1ThaybTopAkFlmsdOD/4EkLXlPMIjvAIpe+kBbvV1BdKxAm77a4shTUct1m3WudRCWhH7ajZUgfDujprMKxwcPNHenFwvrzQAs7agkVKZ9J6rl0iwEZPyULaz6gZVhMOjGbc496FFfH2Fr8NwvJAsfX9IIQVstST5nFA+Obhs+m2CfET3IYTPYG7s4QZfIg/zb4tK9aQ52vnhOaGSlZetBVqQtRMFkbt97dR8Dkqb3StaHgpaDx5D032K/bmsoEh7Uz9eAhnC8ASN9CGNJTxIvbJCfcYZEOAveU0qw5Tws8SaMiFlttIqkSxZpqYmSGLxJ1XG2jR45T9kawQ2xBfHa6BQM6T2aMINjpY5eyzEXBtga5rGASt4PC6GpioFsTAzWO3vSjm/4ynRDTc+t81x7AecqAL6jjyvTZa3Fx3K71EMkJl3jQCfoM0k0oHuDP9K5oKo6G/osT0O4cPbq7gZ9iaaalAyxpWHctBlQeNDVgdqFFCKX4qpfcD0NDNcwyG/uUGy21zm0dWlJWYeBeVhudW6YNyrnM8jLPfY8OyDKiFAnQc80PiyWdDCIpUdXi0Yro/rYQHADBcduVCJ9oJV2EBAd2eG4EcwYOuCLAvAmb5DG9rkxdXrY4cMT5kQ2FPMrK52o54v0iTJUSVVOStTkEiZ+9uddpaHXFjhdHyAB3ijBysfV5w2x6L7lu2JKfNblarDXMTEb8cWkGY0jCQDBERdujeRxuqMl5N0fNOCp7hvCeT+3/H+X2+G5wkhLHwkH6ERDkixiMOm8L9SmEN0qWfclpc6I45q+c4lYC27CE/C4VPugNmBUxO70y/NWTXiZixztvMebFnXtWnpsv2khZ8tepra+Yo4U3ijI2Aze8QFGCYQh8eGTVGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Je viens d'arriver au Luxembourg, que dois-je prévoir pour ma première année ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"premiers jours\",\"déclaration d'arrivée\",\"installation\",\"première année\",\"conseil fiscal\"],\"themes\":[\"affiliation\",\"sécurité sociale\",\"impôt\"],\"facettes\":[\"que prévoir pour la première année d'installation\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiVtV7fr1opRtbDSS17h",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5550,
+        "inference_geo": "global",
+        "input_tokens": 162,
+        "output_tokens": 429,
+        "output_tokens_details": {
+          "thinking_tokens": 249
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:eb25d54e2387eddd": {
     "certificate": {
       "messages_sha256": "ba720314f978c3b2f2015b54ca2150a47a7f2fa43127cb7df55a212e48f5b9f0",
