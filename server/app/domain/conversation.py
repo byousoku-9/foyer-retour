@@ -23,13 +23,18 @@ from .verdict import (
     applicabilites_des_claims,
     conditions_de_section_ouvertes,
     decider,
-    question_de_fait,
-    question_de_qualite,
+    fusionner_faits,
+    meme_fait,
+    question_de_fait_exige,
     question_de_section,
     questions_du_paquet_typees,
 )
 
 FACT_KEY_MAX = 256
+# La clé d'un fait que la personne précise sans qu'aucune question l'ait demandé (story 5.7, L1k).
+# Neutre et numérotée : elle ne se confond avec aucune clé de question, donc ne déclenche ni conflit
+# ni recalcul, et la page la lit pour ce qu'elle est — « Vous avez précisé : … ».
+CLE_PRECISION = "precision_client:"
 FactSource = Literal["declaration_initiale", "extraction", "reponse_client", "correction"]
 QuestionKind = Literal["fait", "option", "conditions_particulieres", "avenant_date"]
 QuestionStatus = Literal["pending", "active", "repondue"]
@@ -204,8 +209,11 @@ class ConversationAction(DomainModel):
 
     @model_validator(mode="after")
     def _shape(self) -> ConversationAction:
-        if self.action == "reponse" and (not self.question_id or self.value is None):
-            raise ValueError("une réponse exige question_id et value")
+        # Story 5.7 (L1k) — `question_id` est **facultatif** sur une `reponse` : sans lui, la valeur
+        # est un fait que la personne précise d'elle-même, pas la réponse à une question posée. Les
+        # deux formes sont acceptées, et c'est la présence de `question_id` qui les sépare.
+        if self.action == "reponse" and self.value is None:
+            raise ValueError("une réponse ou une précision exige value")
         if self.action == "correction" and (not self.fact_key or self.value is None
                                               or not self.replaces_event_id):
             raise ValueError("une correction exige fact_key, value et replaces_event_id")
@@ -284,6 +292,20 @@ def _cle_de_claim_cp(claim: ClaimJugee, ouvertes: dict[str, object]) -> str:
     return "conditions_particulieres"
 
 
+# Story 5.7 (L1k) — l'ordre des questions **est** l'ordre de décision d'AD-6, et rien d'autre.
+#
+# Le parcours réel du 03/09 posait d'abord deux questions sur des exclusions que la table venait
+# d'écarter, et reléguait en troisième la seule qui plafonnait le verdict. Quelqu'un qui répond dans
+# l'ordre où on lui demande travaille alors longtemps avant que quoi que ce soit bouge. L'ordre suit
+# donc ce qui décide : la condition qui plafonne, puis ce qu'exige la garantie, puis ce que
+# vérifierait une exclusion, puis les pièces du dossier — dues quel que soit le verdict, donc jamais
+# urgentes. Le tri est stable : à rang égal, l'ordre d'apparition des clauses est conservé.
+RANG_CONDITION_DE_SECTION = 0
+RANG_QUALITE_DE_GARANTIE = 1
+RANG_FAIT_D_EXCLUSION = 2
+RANG_PAQUET_CONTRACTUEL = 3
+
+
 def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[TargetQuestion]:
     """Les questions du fil, dites avec **les mots du moteur** et non ceux de la table (L1g).
 
@@ -299,6 +321,22 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
     Deux claims qui réclament la même pièce ne font pas deux questions : le même texte affiché deux
     fois est la même demande. Elles fusionnent alors en **une** question de dossier (`claim_id=None`),
     que `_recompute` applique aux claims qui l'avaient réellement déclarée.
+
+    **Une clause écartée n'interroge rien (story 5.7, L1k).** C'était déjà la règle des libellés
+    manquants (`verdict._libelles_manquants`) ; elle manquait ici, et le parcours réel du 03/09 en a
+    montré le prix : deux des trois questions portaient sur des exclusions que la table avait rendues
+    `applicable = "non"`, la page affichait à côté « non applicable · sa portée contractuelle ne
+    couvre pas le cas déclaré », et répondre « oui » ne changeait rien — ce que la clause exigeait
+    est sans objet, donc le recalcul n'avait rien à rouvrir. Poser une question dont la réponse ne
+    peut rien faire est un simulacre d'affinage. Le filtre est le même code, appliqué au même endroit
+    de la décision : `applicabilites_des_claims` sur les claims retenues.
+
+    **Un fait n'est demandé qu'une fois (L1k).** Les libellés passent par `fusionner_faits` : les
+    deux exclusions du parcours exigeaient le même défaut d'entretien sous deux formulations, et le
+    fil posait deux questions pour un seul fait. La classe donne le libellé retenu — la question — et
+    les clauses qui l'ont déclaré : la question est rattachée à celle qui l'a portée quand elle est
+    seule, et devient une question de dossier dès qu'elles sont plusieurs, `_vise` la rendant alors à
+    toutes celles dont l'exigence tombe dans la même classe.
     """
     retenues = [claim for claim in claims if claim.retenue]
     etat = {claim_id: value for claim_id, (value, _reason)
@@ -307,24 +345,36 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
                 for condition in conditions_de_section_ouvertes(retenues, etat=etat)}
     paquet_typees = questions_du_paquet_typees(retenues, verdict.missing)
     paquet = dict(paquet_typees)
-    candidates: list[tuple[QuestionKind, str, str, str | None, str | None]] = []
+    candidates: list[tuple[int, QuestionKind, str, str, str | None, str | None]] = []
+    exiges: list[tuple[ClaimJugee, str]] = []
     for claim in claims:
-        if claim.champs is None:
+        if claim.champs is None or etat.get(claim.claim_id) == "non":
             continue
         champs = claim.champs
         if (champs.fait_manquant or "").strip():
-            fact = champs.fait_manquant.strip()
-            candidates.append(("fait", question_de_fait(fact), fact, claim.claim_id, fact))
+            exiges.append((claim, champs.fait_manquant.strip()))
         for quality in champs.qualites_non_etablies:
-            candidates.append(("fait", question_de_qualite(quality), quality,
-                               claim.claim_id, quality))
+            if quality.strip():
+                exiges.append((claim, quality.strip()))
         if champs.option_requise:
-            candidates.append(("option", paquet.get("option", QUESTION_OPTION),
+            candidates.append((RANG_PAQUET_CONTRACTUEL, "option",
+                               paquet.get("option", QUESTION_OPTION),
                                "option_requise", claim.claim_id, None))
         if champs.cp_requise:
-            candidates.append(("conditions_particulieres",
+            cle = _cle_de_claim_cp(claim, ouvertes)
+            candidates.append((RANG_CONDITION_DE_SECTION if cle != "conditions_particulieres"
+                               else RANG_PAQUET_CONTRACTUEL,
+                               "conditions_particulieres",
                                _texte_question_cp(claim, ouvertes, paquet),
-                               _cle_de_claim_cp(claim, ouvertes), claim.claim_id, None))
+                               cle, claim.claim_id, None))
+    for libelle, variantes in fusionner_faits([texte for _claim, texte in exiges]):
+        porteuses = [claim for claim, texte in exiges if texte in variantes]
+        cibles = {claim.claim_id for claim in porteuses}
+        kind = porteuses[0].kind
+        candidates.append((RANG_QUALITE_DE_GARANTIE if kind != "exclusion"
+                           else RANG_FAIT_D_EXCLUSION,
+                           "fait", question_de_fait_exige(libelle, kind=kind), libelle,
+                           porteuses[0].claim_id if len(cibles) == 1 else None, libelle))
     # Les questions du moteur, **typées par identité** et non par mots-clés : ce sont exactement les
     # textes que `verdict.py` vient de composer, retrouvés tels quels dans `ask_client`. La condition
     # de section passe **devant** le paquet manquant : c'est elle qui plafonne le verdict, donc celle
@@ -337,11 +387,12 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
         for block_id, condition in ouvertes.items()}
     sections = set(connues)
     connues.update({texte: (kind, cles_du_paquet[kind]) for kind, texte in paquet_typees})
-    for text in sorted(verdict.ask_client, key=lambda t: t not in sections):
+    for text in verdict.ask_client:
         connue = connues.get(text)
         if connue is not None:
             kind, cle = connue
-            candidates.append((kind, text, cle, None, None))
+            candidates.append((RANG_CONDITION_DE_SECTION if text in sections
+                               else RANG_PAQUET_CONTRACTUEL, kind, text, cle, None, None))
             continue
         lower = text.casefold()
         if "option" in lower:
@@ -357,11 +408,12 @@ def _question_candidates(claims: list[ClaimJugee], verdict: Verdict) -> list[Tar
             # Une question factuelle sans claim cible serait visible mais décisionnellement morte :
             # les faits/qualités des claims ont déjà produit leurs questions liées ci-dessus.
             continue
-        candidates.append(item)
+        candidates.append((RANG_PAQUET_CONTRACTUEL, *item))
+    candidates.sort(key=lambda candidate: candidate[0])
     result: list[TargetQuestion] = []
     position: dict[tuple[str, str], int] = {}
     emis: set[str] = set()
-    for kind, text, key, claim_id, expected in candidates:
+    for _rang, kind, text, key, claim_id, expected in candidates:
         bounded = _fact_key(key)
         rang = position.get((kind, " ".join(text.split()).casefold()))
         if rang is not None:
@@ -471,9 +523,12 @@ def _vise(question: TargetQuestion, claim: ClaimJugee) -> bool:
         return False
     if question.kind == "fait":
         expected = question.expected_value
-        return expected is not None and (
-            expected == (champs.fait_manquant or "").strip()
-            or expected in champs.qualites_non_etablies)
+        # L1k : la comparaison passe par `meme_fait`, pas par l'égalité de chaînes. Une question
+        # fusionnée porte **le libellé retenu** ; la clause qui l'avait déclaré dans d'autres termes
+        # doit malgré tout se reconnaître dedans, sinon la réponse ne l'atteint jamais.
+        return expected is not None and any(
+            meme_fait(expected, libelle) for libelle in
+            [(champs.fait_manquant or "").strip(), *champs.qualites_non_etablies] if libelle)
     if question.kind == "option":
         return champs.option_requise
     if question.kind == "conditions_particulieres":
@@ -514,10 +569,15 @@ def _recompute(state: ContinuationState) -> tuple[list[ClaimJugee], MissingPacka
             claim.champs.fait_requis_present = False
             claim.champs.fait_manquant = None
         elif positives:
-            confirmed = {q.expected_value for q in positives if q.expected_value}
-            claim.champs.qualites_non_etablies = [q for q in claim.champs.qualites_non_etablies
-                                                  if q not in confirmed]
-            if claim.champs.fait_manquant in confirmed:
+            # L1k, même raison que dans `_vise` : « oui » lève l'exigence que la question portait,
+            # y compris chez la clause qui l'écrivait autrement. Sans cela une question fusionnée
+            # laissait sa seconde clause `humain`, et le verdict ne bougeait pas d'un pouce.
+            confirmed = [q.expected_value for q in positives if q.expected_value]
+            claim.champs.qualites_non_etablies = [
+                q for q in claim.champs.qualites_non_etablies
+                if not any(meme_fait(dit, q) for dit in confirmed)]
+            manquant = (claim.champs.fait_manquant or "").strip()
+            if manquant and any(meme_fait(dit, manquant) for dit in confirmed):
                 claim.champs.fait_manquant = None
             required = [q for q in state.questions
                         if claim.claim_id in vises[q.question_id] and q.kind == "fait"]
@@ -612,10 +672,31 @@ LABELS_VERDICT = {
 }
 
 
+AMORCE_PREFIXE = "Verdict mis à jour avec vos réponses, sans relire le contrat : "
+
+
 def amorce_de_recalcul(verdict: Verdict) -> str:
     """La seule phrase que le tour de suivi écrit lui-même — et elle dit ce qu'elle a fait."""
-    return ("Verdict mis à jour avec vos réponses, sans relire le contrat : "
-            f"{LABELS_VERDICT[verdict.value]}.")
+    return f"{AMORCE_PREFIXE}{LABELS_VERDICT[verdict.value]}."
+
+
+def _est_amorce(texte: str) -> bool:
+    return texte.strip().startswith(AMORCE_PREFIXE)
+
+
+def _corps_sans_amorce(texte: str) -> str:
+    """Le texte du tour précédent, débarrassé de la mention que ce tour-ci va réécrire (L1k).
+
+    `_followup_answer` compose à partir de l'`Answer` du tour **précédent**, qui portait déjà sa
+    propre mention : au deuxième tour la page en affichait deux, au troisième trois, chacune datée
+    d'un verdict révolu. La mention n'est pas un contenu de la réponse, c'est l'en-tête du tour
+    courant ; on la retire avant de la réécrire, et le corps du modèle est le même à tous les tours.
+    """
+    corps = texte.strip()
+    if not _est_amorce(corps):
+        return corps
+    _amorce, _separateur, reste = corps.partition("\n\n")
+    return reste.strip()
 
 
 def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict) -> Answer:
@@ -658,13 +739,15 @@ def _followup_answer(initial: Answer, claims: list[ClaimJugee], verdict: Verdict
         rejected.append(claim.model_copy(update={"status": status}, deep=True))
     found = bool(verified)
     complete = found and verdict.value in {"couvert", "non_couvert"}
-    corps = initial.texte.strip()
+    corps = _corps_sans_amorce(initial.texte)
+    anciens_segments = [segment for segment in initial.segments
+                        if not (segment.kind == "limite" and _est_amorce(segment.text))]
     answer = initial.model_copy(update={
         "found": found,
         "complete": complete,
         "texte": f"{prefixe}\n\n{corps}" if corps else prefixe,
         "segments": [AnswerSegment(text=prefixe, kind="limite"),
-                     *[segment.model_copy(deep=True) for segment in initial.segments]],
+                     *[segment.model_copy(deep=True) for segment in anciens_segments]],
         "claims": verified,
         "rejected_claims": rejected,
         "unknown": _inconnues_du_tour(initial, found=found, complete=complete),
@@ -687,7 +770,27 @@ def appliquer(state: ContinuationState, action: ConversationAction, *, request_i
     causal_events: list[str] = []
     decisive_terms: list[str] = []
 
-    if action.action == "reponse":
+    if action.action == "reponse" and action.question_id is None:
+        # Story 5.7 (L1k) — **le fait libre**. Sur le parcours réel du 03/09, « Le voisin du dessous
+        # a fait constater des dégâts sur son plafond pour 2 500 euros » est parti sous la clé de la
+        # question sélectionnée, et le dossier l'a relu comme la réponse à « défaut de réparation ou
+        # d'entretien » : une précision spontanée devenait l'aveu d'une faute. Un fait libre porte
+        # donc une clé neutre à lui — il n'a répondu à rien, il ne referme aucune question, et le
+        # recalcul ne le lit pas (`_response_by_question` ne voit que les événements liés à une
+        # question). Ce qu'une question attend, la personne le dit **par** la question.
+        assert action.value is not None
+        precision = action.value.strip()
+        if not precision:
+            raise ValueError("une précision vide n'ajoute aucun fait au dossier")
+        rang = 1 + sum(1 for e in facts if e.key.startswith(CLE_PRECISION))
+        key = f"{CLE_PRECISION}{rang}"
+        event = FactEvent(event_id=_id("fait", "precision", turn, key, precision), key=key,
+                          value=precision, source="reponse_client", turn=turn)
+        facts.append(event)
+        causal_ids.append(event.event_id)
+        causal_events.append(_describe(event))
+        decisive_terms.append(key)
+    elif action.action == "reponse":
         question = next((q for q in questions if q.question_id == action.question_id), None)
         if question is None:
             raise ValueError("question inconnue ou périmée")

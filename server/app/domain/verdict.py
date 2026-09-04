@@ -312,21 +312,56 @@ def _fusionner_par_qualificatif(libelles: list[str]) -> list[str]:
     phrase composée par le code (la plus longue) chasserait les mots du modèle (les plus précis).
     Un libellé sans aucune racine n'est comparable à rien : il est gardé, dédoublonné à l'identique.
     """
-    retenus: list[tuple[frozenset[str], str]] = []
+    return [texte for texte, _variantes in fusionner_faits(libelles)]
+
+
+def fusionner_faits(libelles: list[str]) -> list[tuple[str, list[str]]]:
+    """Le même regroupement, mais qui **rend ses classes** : le fait retenu et tout ce qui le dit.
+
+    Story 5.7 (L1k). `_fusionner_par_qualificatif` répondait à la seule question du paquet manquant :
+    quels libellés afficher. Le fil de conversation en pose une seconde — *quelles clauses* une
+    question posée une seule fois interroge —, et il ne peut y répondre qu'avec les classes. Deux
+    clauses qui exigent la même qualité doivent donner **une** question rattachée aux deux ; poser la
+    question au libellé retenu et rattacher par égalité de chaînes en aurait laissé une de côté, et
+    la personne aurait répondu à une exigence sans que l'autre clause bouge.
+
+    La règle de regroupement ne change pas d'un iota — c'est la même, écrite une fois ici : un
+    libellé dont toutes les racines sont déjà portées rejoint la classe qui le porte, un libellé qui
+    en porte strictement plus absorbe les classes qu'il recouvre et devient leur représentant. Le
+    représentant est rendu en tête, les autres formulations derrière lui, dans leur ordre d'arrivée.
+    """
+    retenus: list[tuple[frozenset[str], list[str]]] = []
     for libelle in libelles:
         texte = libelle.strip()
         if not texte:
             continue
         racines = frozenset(_mots_qualifiants(texte))
         if not racines:
-            if all(texte != garde for _r, garde in retenus):
-                retenus.append((racines, texte))
+            classe = next((c for r, c in retenus if c[0] == texte), None)
+            if classe is None:
+                retenus.append((racines, [texte]))
             continue
-        if any(garde and racines <= garde for garde, _t in retenus):
-            continue  # déjà demandé, dans des termes au moins aussi complets
-        retenus = [(garde, t) for garde, t in retenus if not (garde and garde < racines)]
-        retenus.append((racines, texte))
-    return [texte for _racines, texte in retenus]
+        couvrante = next((c for garde, c in retenus if garde and racines <= garde), None)
+        if couvrante is not None:  # déjà demandé, dans des termes au moins aussi complets
+            if texte not in couvrante:
+                couvrante.append(texte)
+            continue
+        absorbees = [c for garde, c in retenus if garde and garde < racines]
+        retenus = [(garde, c) for garde, c in retenus if not (garde and garde < racines)]
+        retenus.append((racines, [texte, *[v for classe in absorbees for v in classe
+                                           if v != texte]]))
+    return [(classe[0], classe) for _racines, classe in retenus]
+
+
+def meme_fait(un: str, autre: str) -> bool:
+    """Deux libellés exigent-ils la même chose ? La question du fil, tranchée par le regroupement.
+
+    Une seule définition de « le même fait » dans tout le système : celle de `fusionner_faits`. Le
+    fil s'en sert pour savoir si une question posée vise une clause (`_vise`) et si la réponse
+    « oui » lève l'exigence qu'elle portait (`_recompute`) — sans quoi une question fusionnée aurait
+    laissé sa clause d'origine ouverte, et l'affinage n'aurait rien changé au verdict.
+    """
+    return len(fusionner_faits([un, autre])) == 1
 
 
 def _libelles_manquants(claims: list[ClaimJugee], *, etat: dict[str, Applicable], place: int) -> list[str]:
@@ -495,13 +530,37 @@ def question_de_section(condition: ConditionDeSection) -> str:
 
 
 def question_de_fait(libelle: str) -> str:
-    """Le fait qu'une clause exige et que les faits déclarés ne disent pas, demandé au client."""
-    return f"Pouvez-vous confirmer ce fait : {libelle} ?"
+    """Le fait qu'une **exclusion** exige, demandé au client : ce qui a eu lieu, ou non.
+
+    Story 5.7 (L1k). La formulation était « Pouvez-vous confirmer ce fait : … ? ». Elle demande un
+    aveu : elle présuppose le fait, elle nomme le lecteur comme celui qui le concède, et sur le
+    parcours réel du 03/09 elle portait « défaut de réparation ou d'entretien » — une faute — à
+    quelqu'un qui venait de décrire un robinet oublié. Une exclusion ne se confirme pas, elle a eu
+    lieu ou elle n'a pas eu lieu ; la question le demande dans ces termes, et les mots de la clause
+    restent entre guillemets parce qu'ils sont ceux du contrat, pas les nôtres.
+    """
+    return f"Y a-t-il eu « {libelle} » ?"
 
 
 def question_de_qualite(libelle: str) -> str:
-    """La qualité qu'une clause subordonne à l'événement, demandée au client dans ses mots."""
-    return f"L'événement présente-t-il cette qualité : {libelle} ?"
+    """La qualité qu'une **garantie** subordonne à l'événement, demandée au client dans ses mots.
+
+    « L'événement présente-t-il cette qualité : … ? » nommait la ligne de la table (une « qualité »
+    d'un « événement ») ; la personne, elle, a déclaré un sinistre et lit une caractéristique que le
+    contrat exige de lui (story 5.7, L1k).
+    """
+    return f"Le sinistre présente-t-il cette caractéristique : « {libelle} » ?"
+
+
+def question_de_fait_exige(libelle: str, *, kind: str | None) -> str:
+    """La question due par une clause pour un fait qu'elle exige — la forme suit son rôle.
+
+    Un seul point d'entrée, parce qu'un seul endroit doit décider si l'on demande *ce qui a eu lieu*
+    (une exclusion) ou *ce que le sinistre présente* (une garantie, une condition, une franchise :
+    elles décrivent toutes le sinistre couvert). Le `kind` vient de la clause, jamais des mots du
+    libellé : deux clauses peuvent exiger la même chose et ne pas la demander de la même façon.
+    """
+    return question_de_fait(libelle) if kind == "exclusion" else question_de_qualite(libelle)
 
 
 def _questions_de_section(conditions: list[ConditionDeSection]) -> list[str]:

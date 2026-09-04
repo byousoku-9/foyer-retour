@@ -11,6 +11,8 @@ from server.app.api.main import create_app
 from server.app.config import Settings
 from server.app.domain.answer import AbsenceProof, Answer, LecturePartielle
 from server.app.domain.conversation import (
+    AMORCE_PREFIXE,
+    CLE_PRECISION,
     FACT_KEY_MAX,
     ContinuationState,
     ConversationAction,
@@ -261,6 +263,10 @@ def test_le_montant_libre_est_extrait_seulement_avec_sa_devise(
 def test_une_claim_multi_exigences_conserve_un_non_anterieur() -> None:
     claim = _claim().model_copy(deep=True)
     assert claim.champs is not None
+    # L1k : le fait exigé est **présent**, seules les qualités restent à établir. Sans cela la
+    # table lit « fait connu et contraire » (`applicable = "non"`) et la claim est écartée — une
+    # clause écartée n'interroge plus le dossier, donc ce cas n'aurait plus aucune question à poser.
+    claim.champs.fait_requis_present = True
     claim.champs.fait_manquant = None
     claim.champs.qualites_exigees = ["subit", "accidentel"]
     claim.champs.qualites_non_etablies = ["subit", "accidentel"]
@@ -313,6 +319,7 @@ def test_conflit_sur_un_fait_decisif_exclut_ses_versions_du_recalcul() -> None:
 def test_les_questions_tournent_et_une_question_perimee_est_refusee() -> None:
     claim = _claim().model_copy(deep=True)
     assert claim.champs is not None
+    claim.champs.fait_requis_present = True  # L1k, cf. ci-dessus : la claim doit rester au dossier
     claim.champs.fait_manquant = None
     claim.champs.qualites_non_etablies = [f"qualité {n}" for n in range(5)]
     claim.champs.qualites_exigees = list(claim.champs.qualites_non_etablies)
@@ -931,3 +938,306 @@ def test_les_cp_produites_levent_la_condition_ecrite_en_tete_de_section() -> Non
                       request_id="r1", ask_client_max=5)
     assert state.answer.verdict is not None
     assert state.answer.verdict.value == "couvert", state.answer.verdict.reason
+
+
+# ---------------------------------------------------------------------------------------------
+# Story 5.7 (L1k) — l'affinage du dossier, mesuré sur le parcours réel du 03/09.
+#
+# Question posée en production sur `a565a8d` : « J'ai laissé mon robinet dans la salle de bain
+# ouvert, l'eau a débordé et inondé complètement mon appartement, est-ce que je suis couvert ? ».
+# Verdict `sous_conditions`, correct — et trois questions dont les deux premières portaient sur des
+# exclusions que la table venait d'écarter. Les fixtures ci-dessous rejouent exactement cette forme :
+# une garantie dont la section est conditionnée aux conditions particulières, et deux exclusions
+# `applicable = "non"` dont la portée ne couvre pas le nœud du cas.
+# ---------------------------------------------------------------------------------------------
+
+CONDITION_DEGATS_DES_EAUX = ConditionDeSection(
+    block_id="cg:p37:11", titre="3.1.4 Dégâts des eaux",
+    texte="Les présentes conditions spéciales sont applicables si les conditions particulières "
+          "mentionnent que la garantie “ dégâts des eaux ” est souscrite.",
+    renvoie_cp=True)
+QUESTION_CP_DEGATS_DES_EAUX = (
+    "Vos conditions particulières mentionnent-elles la garantie « 3.1.4 Dégâts des eaux » ?")
+
+
+def _garantie_eaux(**champs) -> ClaimJugee:
+    """La garantie « 3.1.4.1 Étendue de la garantie », socle, sous condition de section ouverte."""
+    return ClaimJugee(
+        claim_id="c-garantie-eaux",
+        clauses=[ClauseCitee(
+            block_id="cg:p37:1", kind="garantie", kind_confirmed=True,
+            portee={"cg:3.1.4.1"}, node_id="cg:3.1.4.1", socle=True,
+            condition_section=CONDITION_DEGATS_DES_EAUX)],
+        champs=ChampsApplicabilite(**{"fait_requis_present": True, "fait_manquant": None, **champs}))
+
+
+def _exclusion_hors_portee(claim_id: str, block_id: str, **champs) -> ClaimJugee:
+    """Une exclusion dont la portée ne rencontre aucun nœud du cas : `applicable = "non"`.
+
+    C'est le « non applicable · sa portée contractuelle ne couvre pas le cas déclaré » que la page
+    affichait sous les quatre exclusions du parcours réel, pendant que le fil les interrogeait.
+    """
+    return ClaimJugee(
+        claim_id=claim_id,
+        clauses=[ClauseCitee(block_id=block_id, kind="exclusion", kind_confirmed=True,
+                             portee={"cg:3.1.4.2"}, node_id="cg:3.1.4.2", socle=True)],
+        champs=ChampsApplicabilite(**{"fait_requis_present": False, **champs}))
+
+
+def _dossier_robinet() -> ContinuationState:
+    claims = [
+        _garantie_eaux(),
+        _exclusion_hors_portee(
+            "c-exclusion-entretien", "cg:p38:13",
+            fait_manquant="défaut de réparation ou d'entretien, étanchéité mal réalisée"),
+        _exclusion_hors_portee(
+            "c-exclusion-entretien-bis", "cg:p38:14",
+            qualites_exigees=["défaut de réparation ou d'entretien à l'origine du sinistre"],
+            qualites_non_etablies=["défaut de réparation ou d'entretien à l'origine du sinistre"]),
+    ]
+    verdict = decider(claims, ask_client_max=8, missing=MissingPackage(
+        conditions_particulieres=True, options_souscrites=True, avenants=False, date_effet=False))
+    assert verdict.value == "sous_conditions", verdict.reason
+    return initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0",
+        faits=Faits(description="J'ai laissé mon robinet ouvert, l'eau a débordé."),
+        answer=_state().answer.model_copy(update={"verdict": verdict}), decision_claims=claims)
+
+
+def test_une_clause_ecartee_ne_pose_plus_aucune_question() -> None:
+    """Le défaut central du parcours réel : deux questions sur trois ne pouvaient rien changer.
+
+    Les deux premières portaient sur des exclusions que la table tenait pour `applicable = "non"`.
+    Une clause écartée n'exige rien du dossier — c'était déjà la règle des libellés manquants —, donc
+    répondre « oui » laissait le verdict identique et l'exclusion toujours non applicable. Pour la
+    personne qui répond, l'affinage était un simulacre ; la contre-épreuve est ici que la question
+    **n'existe pas**, et non qu'elle reste sans effet.
+    """
+    state = _dossier_robinet()
+    for question in state.questions:
+        assert "défaut de réparation" not in question.text, question.text
+    assert not [q for q in state.questions
+                if q.claim_id in {"c-exclusion-entretien", "c-exclusion-entretien-bis"}]
+    # Et ce que le verdict annonce manquer ne les mentionne pas davantage : les deux lectures du
+    # dossier — le paquet manquant et le fil — disent la même chose.
+    assert state.answer.verdict is not None
+    assert state.answer.verdict.missing.faits == []
+
+
+def test_la_premiere_question_est_celle_qui_plafonne_le_verdict() -> None:
+    """L'ordre des questions est l'ordre de décision : la condition de section d'abord.
+
+    Sur le parcours réel, la seule question qui pouvait lever le plafond arrivait en troisième, après
+    deux questions sans effet. Quelqu'un qui répond dans l'ordre travaille alors longtemps avant que
+    quoi que ce soit bouge.
+    """
+    state = _dossier_robinet()
+    assert state.questions[0].text == QUESTION_CP_DEGATS_DES_EAUX
+    assert state.questions[0].status == "active"
+    # Le paquet contractuel ferme la marche : il est dû quel que soit le verdict, donc jamais urgent.
+    assert [q.kind for q in state.questions] == [
+        "conditions_particulieres", "option", "conditions_particulieres"]
+
+
+def test_repondre_a_la_condition_de_section_leve_le_plafond() -> None:
+    """Rouge avant / vert après, sur la question que le parcours réel posait en dernier."""
+    state = _dossier_robinet()
+    assert state.answer.verdict is not None and state.answer.verdict.value == "sous_conditions"
+    question = next(q for q in state.questions if q.text == QUESTION_CP_DEGATS_DES_EAUX)
+    updated = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
+                        request_id="r1", ask_client_max=8)
+    assert updated.answer.verdict is not None
+    assert updated.answer.verdict.value == "couvert", updated.answer.verdict.reason
+    assert updated.history[-1].changed is True
+
+
+def _cas_exclusion_ouverte() -> ContinuationState:
+    """Une exclusion `humain` **sur le nœud du cas** : c'est elle que le fil doit interroger."""
+    garantie = _garantie_eaux()
+    garantie.clauses[0].condition_section = None
+    exclusion = ClaimJugee(
+        claim_id="c-exclusion-ouverte",
+        clauses=[ClauseCitee(block_id="cg:p38:2", kind="exclusion", kind_confirmed=True,
+                             portee={"cg:3.1.4.1"}, node_id="cg:3.1.4.1", socle=True)],
+        champs=ChampsApplicabilite(
+            fait_requis_present=False,
+            fait_manquant="dommage causé à l'installation hydraulique à l'origine du sinistre"))
+    verdict = decider([garantie, exclusion], ask_client_max=8, missing=MissingPackage(
+        conditions_particulieres=False, options_souscrites=False, avenants=False, date_effet=False))
+    assert verdict.value == "sous_conditions", verdict.reason
+    return initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="le robinet a débordé"),
+        answer=_state().answer.model_copy(update={"verdict": verdict}),
+        decision_claims=[garantie, exclusion])
+
+
+@pytest.mark.parametrize(("reponse", "attendu"), [("oui", "non_couvert"), ("non", "couvert")])
+def test_un_fait_d_exclusion_tranche_le_verdict_dans_les_deux_sens(
+        reponse: str, attendu: str) -> None:
+    """Une réponse change le verdict, sinon la question n'avait pas à être posée.
+
+    « Oui » établit le fait que l'exclusion exige : elle devient applicable et prime (règle 1 d'AD-6).
+    « Non » le dit connu et contraire : l'exclusion est écartée, et la garantie du socle reprend son
+    chemin. Les deux témoins sont rouges avant la réponse — le verdict de départ est `sous_conditions`
+    dans les deux cas.
+    """
+    state = _cas_exclusion_ouverte()
+    question = next(q for q in state.questions if q.claim_id == "c-exclusion-ouverte")
+    assert question.text.startswith("Y a-t-il eu «")
+    updated = appliquer(state, ConversationAction(question_id=question.question_id, value=reponse),
+                        request_id="r1", ask_client_max=8)
+    assert updated.answer.verdict is not None
+    assert updated.answer.verdict.value == attendu, updated.answer.verdict.reason
+    assert updated.history[-1].changed is True
+
+
+def test_une_qualite_de_garantie_confirmee_est_etablie_et_ouvre_le_verdict() -> None:
+    """Le troisième témoin : « oui » à une caractéristique exigée l'établit et débloque la table."""
+    claim = _claim().model_copy(deep=True)
+    assert claim.champs is not None
+    claim.champs.fait_requis_present = True
+    claim.champs.fait_manquant = None
+    verdict = decider([claim], ask_client_max=8, missing=MissingPackage(
+        conditions_particulieres=False, options_souscrites=False, avenants=False, date_effet=False))
+    assert verdict.value == "ne_tranche_pas"
+    state = initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="d"),
+        answer=_state().answer.model_copy(update={"verdict": verdict}), decision_claims=[claim])
+    question = next(q for q in state.questions if q.kind == "fait")
+    assert question.text == "Le sinistre présente-t-il cette caractéristique : « caractère subit » ?"
+    updated = appliquer(state, ConversationAction(question_id=question.question_id, value="oui"),
+                        request_id="r1", ask_client_max=8)
+    assert updated.decision_claims[0].champs is not None
+    assert updated.decision_claims[0].champs.qualites_non_etablies == []
+    assert updated.answer.verdict is not None and updated.answer.verdict.value == "couvert"
+
+
+def test_aucune_question_ne_demande_un_aveu() -> None:
+    """La formulation vit dans `domain/verdict.py`, et « Pouvez-vous confirmer ce fait » n'y est plus.
+
+    Elle présupposait le fait et faisait du lecteur celui qui le concède ; sur le parcours réel elle
+    portait « défaut de réparation ou d'entretien » à quelqu'un qui décrivait un robinet oublié.
+    """
+    for state in (_dossier_robinet(), _cas_exclusion_ouverte()):
+        for question in state.questions:
+            assert "Pouvez-vous confirmer" not in question.text
+            assert "cette qualité" not in question.text
+
+
+def test_deux_clauses_qui_exigent_le_meme_fait_ne_posent_qu_une_question() -> None:
+    """Une question par fait, rattachée à toutes les clauses qui l'exigent — et qui les lève toutes.
+
+    Le parcours réel demandait deux fois le même défaut d'entretien, sous deux formulations venues de
+    deux clauses. Le dédoublonnage se fait sur ce que le libellé **exige** (`verdict.fusionner_faits`,
+    l'unique définition), pas sur l'égalité des chaînes : la question porte la formulation la plus
+    complète, et la réponse atteint la clause qui l'écrivait autrement.
+    """
+    premiere = _claim().model_copy(deep=True)
+    assert premiere.champs is not None
+    premiere.champs.fait_requis_present = True
+    premiere.champs.fait_manquant = None
+    seconde = premiere.model_copy(deep=True)
+    seconde.claim_id = "c-garantie-bis"
+    assert seconde.champs is not None
+    seconde.champs.qualites_exigees = ["caractère subit et violent"]
+    seconde.champs.qualites_non_etablies = ["caractère subit et violent"]
+    verdict = decider([premiere, seconde], ask_client_max=8, missing=MissingPackage(
+        conditions_particulieres=False, options_souscrites=False, avenants=False, date_effet=False))
+    state = initialiser(
+        doc_id="cg", source_hash="s", ingest_fingerprint="i", pipeline_digest="p",
+        prompts_digest="q", request_id="r0", faits=Faits(description="d"),
+        answer=_state().answer.model_copy(update={"verdict": verdict}),
+        decision_claims=[premiere, seconde])
+    faits = [q for q in state.questions if q.kind == "fait"]
+    assert len(faits) == 1
+    assert faits[0].expected_value == "caractère subit et violent"
+    assert faits[0].claim_id is None  # question de dossier : elle vise les deux clauses
+    updated = appliquer(state, ConversationAction(question_id=faits[0].question_id, value="oui"),
+                        request_id="r1", ask_client_max=8)
+    assert [c.champs.qualites_non_etablies for c in updated.decision_claims
+            if c.champs is not None] == [[], []]
+    assert updated.answer.verdict is not None and updated.answer.verdict.value == "couvert"
+
+
+def test_un_fait_libre_est_une_precision_et_ne_repond_a_aucune_question() -> None:
+    """Le fait libre du parcours réel avait été rangé sous la question sélectionnée.
+
+    « Le voisin du dessous a fait constater des dégâts sur son plafond pour 2 500 euros » est parti
+    sans `question_id` depuis la page, et le contrat serveur exigeait encore ce champ : le fait est
+    devenu la réponse à « défaut de réparation ou d'entretien… », c'est-à-dire l'aveu d'une faute que
+    personne n'avait déclarée. Il porte désormais une clé neutre, ne referme aucune question, et le
+    recalcul ne le lit pas.
+    """
+    state = _dossier_robinet()
+    precision = ("Le voisin du dessous a fait constater des dégâts sur son plafond "
+                 "pour 2 500 euros")
+    updated = appliquer(state, ConversationAction(value=precision),
+                        request_id="r1", ask_client_max=8)
+    fait = updated.facts[-1]
+    assert fait.key == f"{CLE_PRECISION}1" and fait.question_id is None
+    assert fait.value == precision and fait.source == "reponse_client"
+    assert [q.status for q in updated.questions] == [q.status for q in state.questions]
+    assert updated.answer.verdict == state.answer.verdict
+    # Un second fait libre se numérote sans jamais écraser le premier.
+    encore = appliquer(updated, ConversationAction(value="Le constat est daté du 3 septembre."),
+                       request_id="r2", ask_client_max=8)
+    assert encore.facts[-1].key == f"{CLE_PRECISION}2"
+    assert len(encore.conflicts) == len(state.conflicts)
+    # Et il reste un fait : vide, il n'ajoute rien au dossier.
+    with pytest.raises(ValueError, match="précision vide"):
+        appliquer(encore, ConversationAction(value="   "), request_id="r3", ask_client_max=8)
+
+
+def test_la_mention_de_recalcul_ne_s_empile_pas_d_un_tour_a_l_autre() -> None:
+    """Deux tours, deux mentions : la page en affichait une par tour, chacune d'un verdict révolu.
+
+    La mention est l'en-tête du tour courant, pas un contenu de la réponse : elle est retirée avant
+    d'être réécrite, et le corps du modèle reste identique à tous les tours.
+    """
+    state = _dossier_robinet()
+    corps = state.answer.texte
+    cp = next(q for q in state.questions if q.text == QUESTION_CP_DEGATS_DES_EAUX)
+    un = appliquer(state, ConversationAction(question_id=cp.question_id, value="oui"),
+                   request_id="r1", ask_client_max=8)
+    option = next(q for q in un.questions if q.kind == "option" and q.status == "active")
+    deux = appliquer(un, ConversationAction(question_id=option.question_id, value="oui"),
+                     request_id="r2", ask_client_max=8)
+    for tour in (un, deux):
+        assert tour.answer.texte.count(AMORCE_PREFIXE) == 1
+        assert sum(s.text.startswith(AMORCE_PREFIXE) for s in tour.answer.segments) == 1
+        assert corps in tour.answer.texte
+    # Et la mention dit le verdict **du tour**, pas celui du tour d'avant.
+    assert deux.answer.verdict is not None
+    assert deux.answer.texte.startswith(f"{AMORCE_PREFIXE}{deux.answer.verdict.value.replace('_', ' ')}.")
+
+
+def test_la_route_de_suivi_accepte_un_fait_libre_sans_question_id() -> None:
+    """Le contrat HTTP, du côté que la page emploie déjà (`tools/sinistre/sinistre.js`, L2e).
+
+    Elle envoie `{action: "reponse", fait_libre: …}` sans `question_id` ; le serveur exigeait encore
+    ce champ et rendait un 400. Les deux formes passent, et seule celle qui porte `question_id`
+    referme une question.
+    """
+    app = create_app(_settings(env="dev", allow_ungated=True))
+    with TestClient(app) as client:
+        corpus, index = _mini_corpus()
+        app.state.foyer.corpus = corpus
+        app.state.foyer.index = index
+        app.state.foyer.pipeline_sinistre = Double((_reponse(corpus), _trace()))
+        premier = client.post(
+            "/api/v1/sinistre", json=_corps(), headers={**XFF, "X-Sinistre-Conversation": "1"}).json()
+        conversation = premier["conversation"]
+        suivi = client.post("/api/v1/sinistre/suivi", headers=XFF, json={
+            "doc_id": "cg-mini", "token": conversation["token"],
+            "fait_libre": "Le voisin du dessous a fait constater 2 500 euros de dégâts.",
+        })
+    assert suivi.status_code == 200, suivi.text
+    vue = suivi.json()["conversation"]
+    libre = vue["facts"][-1]
+    assert libre["key"].startswith(CLE_PRECISION) and libre["question_id"] is None
+    # Aucune question n'a été refermée : le fait libre ne répond à rien.
+    assert not [q for q in vue["questions"] if q["status"] == "repondue"]
+    assert not [f for f in vue["facts"] if f["question_id"]]
