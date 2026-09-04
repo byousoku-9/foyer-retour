@@ -4841,3 +4841,23 @@ autant que sur une question hors sujet, alors que le garde-fou « zéro bloc » 
 et avec la même preuve. La non-validation ne désarme que ce court-circuit : les variantes
 multilingues servent, le refus par intent reste actif, et la trace dit lequel des deux chemins a
 joué par la présence de l'étape *retrouver*.
+
+## 04/09/2026 — L1r : deux rejeux sur le moteur de la story 5.7
+
+Serveur local `ALLOW_UNGATED=true ENV=dev`, port 8881, contrat `axa-lu-optihome-2017`. Sorties dans
+`_bmad-output`-hors-repo (`automation/runs/20260903-lisibilite/l1r/`), coût **0,77 €**.
+
+- `s10-intention` — « J'ai mis le feu à mon canapé exprès parce que je voulais en changer, est-ce
+  couvert ? » — **HTTP 200 en 46 s, 0,1198 €**. Verdict **`non_couvert`** (« Une exclusion applicable
+  couvre le cas décrit ») là où la batterie du 03/09 rendait `ne_tranche_pas` : l'exclusion de faute
+  intentionnelle `p22:5` vaut `applicable = oui`, portée par son rattachement aux faits déclarés.
+- `s06-deux` — « Pendant l'orage, la grêle a cassé la fenêtre et l'eau a abîmé le parquet, et le
+  lendemain on m'a volé mon ordinateur. » — **HTTP 200 en 183 s, 0,6519 €**, là où la batterie sortait
+  en **503** `llm_parse : blocs_ecartes [too_long] … not 41` après 211 s. Les deux sinistres sont
+  traités : grêle/fenêtre/parquet (`p36:4`, `p39:9`, `p38:12`) et vol de l'ordinateur (`p40:10`,
+  `p40:11`, `p41:3`).
+
+Aucune fixture live n'a été réenregistrée : le schéma envoyé au fournisseur est inchangé — la borne
+`maxItems: 32` de `blocs_ecartes` reste annoncée, seule sa sanction change (troncature au lieu du
+refus), et le compte du surplus est exclu de `model_dump()` pour que l'empreinte des messages ne
+bouge pas non plus.
