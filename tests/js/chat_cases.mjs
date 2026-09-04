@@ -1116,6 +1116,26 @@ async function main() {
     clar.answer.clarification = "Parlez-vous du bail de votre logement ou de votre contrat de travail ?";
     cas.vue_clarification = resumerVue(CHAT.vueReponse(clar, "Et celui-là ?"));
 
+    // Tour G1 : le refus **juste** qui propose. Le serveur compose l'ouverture dans le même champ
+    // que la clarification ; le kind de l'absence les separe, et la page ne les place pas au meme
+    // endroit — une ouverture avant la phrase de refus se lirait a l'envers.
+    const ouverture = refus();
+    ouverture.answer.clarification = "Je peux vous aider sur : Administratif, Logement, Sante.";
+    cas.vue_refus_ouverture = resumerVue(
+      CHAT.vueReponse(ouverture, "Puis-je déposer des bitcoins à la commune ?"));
+
+    // Le renvoi vers le simulateur : une question chiffree sur l'impot a bien une reponse dans les
+    // fiches, et un montant qui n'y est pas. Le temoin oppose la meme reponse a une question qui
+    // ne demande aucun chiffre — sans quoi la phrase s'afficherait partout.
+    cas.note_simulateur = {
+      chiffree: texteDe(CHAT.vueReponse(reponseSourcee(),
+        "Combien vais-je payer d'impôts avec 80 000 € brut par an ?"), "note-outil"),
+      sans_chiffre: texteDe(CHAT.vueReponse(reponseSourcee(),
+        "Comment fonctionnent les classes d'impôt ?"), "note-outil"),
+      refus_chiffre: texteDe(CHAT.vueReponse(refus(),
+        "Combien vais-je payer d'impôts avec 80 000 € brut par an ?"), "note-outil"),
+    };
+
     // Appariement abandonné (un segment cite une claim absente) : les `block_id` sont intacts, donc
     // le mode dégradé doit rendre les citations **et** leurs statuts — c'est là qu'on en dit le
     // moins, ce serait le pire endroit où taire la réserve d'actualité.

@@ -860,6 +860,14 @@ window.CHAT = (function () {
     return noeud("div", "cites", null, enfants);
   }
 
+  // Une question chiffree dont le sujet est l'impot ou le salaire : les fiches disent les regles,
+  // le simulateur donne le montant. Le predicat exige les deux — un chiffre **et** le sujet —, sans
+  // quoi « combien coute un bail ? » renverrait vers un outil qui ne calcule pas les loyers.
+  function noteSimulateur(question) {
+    var q = normaliser(String(question || ""));
+    return /\d/.test(q) && /(impot|imposition|impots|salaire|net|brut|fiscal|imposable|retenue)/.test(q);
+  }
+
   function chipsVue(r, question) {
     var boutons = [];
     var fiches = (r && r.fiches) || [];
@@ -942,6 +950,7 @@ window.CHAT = (function () {
     clarification_retablie_perimetre_tronque:
       "clarification servie : la liste tronquée ne permet pas de confirmer le refus hors périmètre",
     clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
+    bavardage_accueilli: "salutation accueillie : la question est demandée plutôt que refusée",
     cout_eleve: "coût de la requête au-dessus du seuil",
     deadline_depassee: "délai dépassé avant une étape qui n'appelle aucun modèle : la réponse est servie",
     demande_cible_inconnue: "le contrôle a demandé un contexte que rien de ce qui lui a été soumis ne désigne",
@@ -1416,11 +1425,24 @@ window.CHAT = (function () {
 
     // La clarification est une **question posee a l'utilisateur** : elle passe avant la phrase de
     // refus, qui explique seulement pourquoi rien n'a ete cherche.
+    //
+    // Tour G1 : le meme champ porte desormais une seconde chose, et elle ne se lit pas au meme
+    // endroit. Sur un refus `hors_perimetre`, le serveur y compose « Je peux vous aider sur : … »,
+    // trois rubriques du sommaire — ce n'est pas une question posee a l'utilisateur mais une
+    // **ouverture**, et la placer avant la phrase de refus inverserait la lecture (« je peux vous
+    // aider sur… » suivi de « cette question sort de ce que couvre le guide »). Elle passe donc
+    // apres le texte, sous son propre intitule. Le kind de l'absence les distingue : lui seul dit
+    // si le serveur a demande une precision ou propose une piste.
+    var kindAbsence = estObjet(a.reason) && a.reason.kind ? String(a.reason.kind) : "";
+    var orientation = null;
     if (a.clarification) {
-      enfants.push(noeud("div", "clarif", null, [
-        noeud("strong", null, "Une précision, pour chercher au bon endroit"),
+      var ouverture = kindAbsence !== "" && kindAbsence !== "clarification_requise";
+      var blocClarif = noeud("div", ouverture ? "clarif clarif-ouverture" : "clarif", null, [
+        noeud("strong", null,
+          ouverture ? "Ce que je peux traiter" : "Une précision, pour chercher au bon endroit"),
         noeud("p", "clarif-q", String(a.clarification))
-      ]));
+      ]);
+      if (ouverture) orientation = blocClarif; else enfants.push(blocClarif);
     }
 
     // `answer.segments` fait foi ; `segments[]` de premier niveau en est la copie du contrat. Si
@@ -1453,10 +1475,27 @@ window.CHAT = (function () {
       }
     }
 
+    // Tour G1 : une question **chiffree** sur l'impot ou le salaire a bien une reponse dans les
+    // fiches (classes d'impot, ce qui reduit l'impot, regime des impatries) et un **montant**
+    // qu'aucune fiche ne porte — il depend de la situation de la personne. Le dire, et nommer
+    // l'outil du site qui le calcule, plutot que de laisser croire que le guide a repondu au
+    // chiffre. C'est une phrase et non un chip : le contrat de l'API publie des fiches et un
+    // booleen `comparateur`, il n'a pas d'action « ouvrir le simulateur » — l'inventer ici
+    // demanderait un champ de plus au serveur pour un renvoi que la page sait deja ecrire.
+    if (a.found === true && noteSimulateur(question)) {
+      enfants.push(noeud("p", "note-outil",
+        "Le montant exact dépend de votre situation : l'onglet Simulateur du site le calcule " +
+        "(salaire net, classe d'impôt, régime des impatriés)."));
+    }
+
     // AD-4 : la phrase de refus vient du serveur (elle est ci-dessus, dans les segments) ; ce que le
     // front ajoute, c'est la preuve chiffree — jamais les variantes ni les declencheurs.
     var preuve = preuveAbsence(a.reason);
     if (preuve) enfants.push(noeud("p", "preuve", preuve));
+
+    // L'ouverture d'un refus se lit **apres** la phrase qui refuse (voir plus haut), et apres la
+    // preuve chiffree : d'abord ce que je ne fais pas et pourquoi, ensuite ce que je peux faire.
+    if (orientation) enfants.push(orientation);
 
     // Story 4.2f : l'autre porteur, au même endroit et sous la même règle — le serveur écrit la
     // phrase, la page ajoute le chiffre. Les deux sont exclusifs par le contrat : jamais deux

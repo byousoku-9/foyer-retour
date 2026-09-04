@@ -19,6 +19,8 @@ pipelines qui les reçoivent de l'API (table des couches du spine).
 
 from __future__ import annotations
 
+import unicodedata
+from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -27,6 +29,7 @@ from server.app.digests import pipeline_digest, prompts_digest
 from server.app.domain.answer import Lacune, LecturePartielle, Verification
 from server.app.domain.errors import InvalidRequest
 from server.app.domain.langue import normaliser_langue_forcee
+from server.app.domain.question import CLARIFICATION_MAX_CHARS
 from server.app.domain.retrieval import RetrievalBudget, RetrievalResult
 from server.app.domain.trace import BlocTrace, DictionnaireTrace, GateTrace, StepTrace
 
@@ -370,3 +373,130 @@ def relance_utile(verification: Verification, settings: Settings) -> bool:
     if settings.relance_sur_non_pertinence:
         return True
     return any(c.rejection_kind in REJETS_DE_CITATION for c in verification.rejected_claims)
+
+
+# --- Ce que le guide **propose** quand il ne répond pas (tour G1) -------------------------------
+#
+# Un refus par intent court-circuite tout retrieval (AD-5) : *restituer* rend alors sa phrase
+# d'absence, et rien d'autre. Mesuré sur la batterie du 03/09, cette phrase seule est un mur — « Cette
+# question sort de ce que couvre le guide » ne dit pas *ce que le guide couvre*, et une salutation la
+# recevait comme un rejet. Le pipeline compose donc, **par du code et sans un appel de plus**, la
+# phrase d'ouverture qui l'accompagne : `Answer.clarification`, que les deux fronts rendent déjà à
+# côté de la phrase de refus.
+#
+# Sa matière est le **sommaire du document servi** (`Corpus.perimetres`, la projection des titres que
+# *comprendre* a lue) : les thèmes proposés sont donc ceux que le guide traite réellement, jamais une
+# liste écrite à la main qui vieillirait à la première fiche ajoutée. Aucun texte de bloc n'y entre —
+# ce sont des titres de nœuds, écrits par l'ingestion (AD-10).
+THEMES_ORIENTATION = 3
+THEMES_ACCUEIL = 5
+PHRASES_ORIENTATION: dict[str, str] = {
+    "fr": "Je peux vous aider sur : {themes}.",
+    "en": "I can help you with: {themes}.",
+    "de": "Ich kann Ihnen zu folgenden Themen helfen: {themes}.",
+    "pt": "Posso ajudá-lo sobre: {themes}.",
+}
+PHRASES_ACCUEIL: dict[str, str] = {
+    "fr": "Bonjour ! Posez-moi une question sur votre installation : {themes}…",
+    "en": "Hello! Ask me a question about settling in: {themes}…",
+    "de": "Guten Tag! Stellen Sie mir eine Frage zu Ihrer Ankunft: {themes}…",
+    "pt": "Olá! Faça-me uma pergunta sobre a sua instalação: {themes}…",
+}
+
+
+def _sans_accents(texte: str) -> str:
+    """Minuscules sans accents — la comparaison de deux titres, pas une recherche dans le corpus.
+
+    `corpus.text.normalize` ferait mieux, et le pipeline n'a pas le droit de l'importer (table des
+    couches du spine : `pipelines → steps, domain, config, digests`). Ce n'est pas une perte : ce
+    qui est comparé ici est un titre de rubrique contre un terme de recherche, pas un passage.
+    """
+    decompose = unicodedata.normalize("NFD", texte.lower())
+    return "".join(c for c in decompose if unicodedata.category(c) != "Mn")
+
+
+def rubriques_du_perimetre(perimetre: str) -> list[tuple[str, str]]:
+    """`[(titre de rubrique, titre + ses fiches)]`, dans l'ordre du sommaire.
+
+    Le format vient de `corpus/loader._perimetre` : une ligne par rubrique de niveau 1,
+    `- Logement : Signer un bail, Assurer son logement`, et son palier dégradé `- Logement`. Les deux
+    se lisent ici, parce que c'est le même sommaire dégradé qui arme l'alerte `perimetre_tronque` et
+    qu'un refus sous cette alerte doit tout de même savoir quoi proposer.
+    """
+    rubriques: list[tuple[str, str]] = []
+    for ligne in perimetre.splitlines():
+        ligne = ligne.strip()
+        if not ligne.startswith("- "):
+            continue
+        corps = ligne[2:].strip()
+        titre = corps.split(" : ", 1)[0].strip()
+        if titre:
+            rubriques.append((titre, corps))
+    return rubriques
+
+
+def themes_proches(perimetre: str, termes: Sequence[str], *, garder: int) -> list[str]:
+    """Les rubriques du sommaire les plus **proches** des termes cherchés, au plus `garder`.
+
+    La proximité est un simple recouvrement de mots entre les termes de la question et la ligne
+    entière de la rubrique (son titre **et** ses fiches) : « déposer des bitcoins à la commune »
+    touche « Démarches » par *commune*, sans qu'aucune fiche ne parle de bitcoins. Le score ne décide
+    rien — il ne sert qu'à ordonner une proposition —, et l'égalité se tranche par l'ordre du
+    sommaire, qui est celui du guide.
+
+    Aucun terme, ou aucun recouvrement : les premières rubriques du sommaire. Une proposition vaut
+    toujours mieux qu'un refus nu, et le guide commence par ce qui concerne le plus d'arrivants.
+    """
+    rubriques = rubriques_du_perimetre(perimetre)
+    if not rubriques:
+        return []
+    mots = {m for terme in termes for m in _sans_accents(terme).split() if len(m) > 3}
+    proches: list[str] = []
+    if mots:
+        scores = [(sum(m in _sans_accents(ligne) for m in mots), -rang, titre)
+                  for rang, (titre, ligne) in enumerate(rubriques)]
+        proches = [titre for score, _, titre in sorted(scores, reverse=True) if score][:garder]
+    # Un seul recouvrement ne fait pas trois thèmes : le reste vient de la tête du sommaire, celle
+    # par laquelle le guide commence. Proposer une piste et s'arrêter là serait plus étroit que le
+    # refus qu'on accompagne.
+    for titre, _ in rubriques:
+        if len(proches) >= garder:
+            break
+        if titre not in proches:
+            proches.append(titre)
+    return proches
+
+
+def _phrase_de_themes(patron: str, themes: Sequence[str], *, max_chars: int) -> str:
+    """Le patron rempli, borné en **retirant un thème entier**, jamais en coupant un titre.
+
+    `Answer.clarification` est bornée par `CLARIFICATION_MAX_CHARS` : un sommaire aux titres
+    inhabituellement longs ferait sinon lever une `ValidationError` pydantic sur le chemin le plus
+    exposé du guide — celui du refus (AD-16). Sans aucun thème tenable, la phrase n'est pas rendue :
+    *restituer* garde alors son refus nu, qui reste vrai.
+    """
+    retenus = list(themes)
+    while retenus:
+        phrase = patron.format(themes=", ".join(retenus))
+        if len(phrase) <= max_chars:
+            return phrase
+        retenus.pop()
+    return ""
+
+
+def orientation_de(perimetre: str, termes: Sequence[str], language: str) -> str | None:
+    """« Je peux vous aider sur : … » — trois thèmes proches, ou `None` si le sommaire est vide."""
+    themes = themes_proches(perimetre, termes, garder=THEMES_ORIENTATION)
+    patron = PHRASES_ORIENTATION.get(language) or PHRASES_ORIENTATION["fr"]
+    return _phrase_de_themes(patron, themes, max_chars=CLARIFICATION_MAX_CHARS) or None
+
+
+def accueil_de(perimetre: str, language: str) -> str | None:
+    """La salutation rendue à un `bavardage` : elle **demande** la question au lieu de refuser.
+
+    Elle ne cherche aucune proximité — il n'y a rien à quoi être proche : « Bonjour » ne porte pas de
+    termes. Ce sont donc les premières rubriques du sommaire, celles par lesquelles le guide commence.
+    """
+    themes = themes_proches(perimetre, (), garder=THEMES_ACCUEIL)
+    patron = PHRASES_ACCUEIL.get(language) or PHRASES_ACCUEIL["fr"]
+    return _phrase_de_themes(patron, themes, max_chars=CLARIFICATION_MAX_CHARS) or None

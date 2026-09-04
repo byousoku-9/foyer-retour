@@ -47,6 +47,7 @@ from server.app.domain.trace import (ETAPES_SANS_APPEL, CheckResult, StepTrace,
 from server.app.pipelines.commun import (
     APPELS_DE_LA_RELANCE,
     INTENTS_REFUSES,
+    accueil_de,
     blocs_cites,
     dictionnaire_de,
     digests,
@@ -55,6 +56,7 @@ from server.app.pipelines.commun import (
     lecture_partielle_de,
     libelles_de_blocs,
     normaliser_langue_pipeline,
+    orientation_de,
     relance_abandonnee,
     relance_utile,
     retrieval_budget,
@@ -410,8 +412,40 @@ async def repondre_guide(question: str, historique: list[Turn], profil: Profil, 
                 if step_comprendre.clarification_neutralisee is None:
                     step_comprendre.checks.append(
                         _intention_expliquee(parsed.intent, parsed.question_resolue, dictionnaire))
+                perimetre_servi = corpus.perimetres.get(doc_id, "")
+                if parsed.intent == "bavardage":
+                    # **Une salutation n'est pas un refus** (tour G1, batterie du 03/09, cas
+                    # `g08-vide`). Le modèle classait « Bonjour » en `bavardage` — correctement —, et
+                    # le pipeline rendait la phrase `hors_perimetre` : « Cette question sort de ce
+                    # que couvre le guide : je n'y réponds pas… », c'est-à-dire un rejet à qui n'a
+                    # rien demandé encore. Le kind servi est désormais `clarification_requise`, qui
+                    # est le seul des quatre à dire vrai ici : *rien* n'a été cherché parce que rien
+                    # n'a été demandé, et ce qui manque est la question elle-même. Le front la rend
+                    # déjà avant la phrase et n'affiche pas de preuve chiffrée pour ce kind.
+                    #
+                    # Le court-circuit d'AD-5 est **intact** : aucun appel de plus, ni navigation ni
+                    # rédaction. Seuls la phrase servie et son kind changent.
+                    step_comprendre.checks.append(CheckResult(
+                        name="bavardage_accueilli", ok=True,
+                        detail="intention « bavardage » : la question est demandée plutôt que "
+                               "refusée — aucune recherche, aucun appel supplémentaire"))
+                    return refuser("clarification_requise", None, language=parsed.language,
+                                   lang_fallback=parsed.lang_fallback,
+                                   clarification=accueil_de(perimetre_servi, parsed.language))
+                # Le refus reste un refus — `meteo` et `hors_perimetre` ne sont pas rattrapés — mais
+                # il dit désormais **ce que le guide traite**, en trois rubriques proches tirées du
+                # sommaire servi. La phrase d'absence de *restituer* est inchangée ; celle-ci
+                # l'accompagne par `Answer.clarification`, sans un appel ni une lecture de plus.
                 return refuser("hors_perimetre", None, language=parsed.language,
-                               lang_fallback=parsed.lang_fallback)
+                               lang_fallback=parsed.lang_fallback,
+                               clarification=orientation_de(
+                                   perimetre_servi,
+                                   # Les termes **et** la question résolue : un refus par intent
+                                   # laisse `terms` vide (le prompt le demande), et la proximité
+                                   # n'aurait alors rien à comparer. Ces mots ne vont pas en trace —
+                                   # ce qui sort est une liste de titres du sommaire (AD-10).
+                                   [*parsed.terms, parsed.question_resolue],
+                                   parsed.language))
 
         # --- court-circuit « zéro hit » d'AD-5, **avant** *retrouver* -------
         # AD-5, mot pour mot : « court-circuit vers *restituer* … si aucun terme canonique (ni ses

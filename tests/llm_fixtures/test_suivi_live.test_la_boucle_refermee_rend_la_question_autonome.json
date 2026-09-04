@@ -107,5 +107,52 @@
         "service_tier": "standard"
       }
     }
+  },
+  "claude-sonnet-5:c8fa37c21f55743b": {
+    "certificate": {
+      "messages_sha256": "98ca9afc2fadf87dbd08f44d3368edbd9350e7566252c9a184dfc51de5b405e5",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "e4c1c4bdbe3452787ff016c0d6bdce128339f3117928001a9ecbc49df59c3e0f",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:c8fa37c21f55743b",
+    "response": {
+      "content": [
+        {
+          "signature": "EqgFCpABCBEYAipASGgVIWH0HH84wrsbfwPP6nWNvg4CpCBqxj2+E9J+IoxRRvt19aqD4f3/T0FKt6v6bdFGcetoSjzzkwaDcyi+pjIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAaOW69QGEgwwuxZ2iptd4ObUDwgaDNhD5hhpqCzdfXf5uiIwKkgHtcYOs4b99P7xTNvQFuDXDuKQYmgEvPBpPBob1ucUg8qmR+k0JB/Cf37/AkDhKsQDfTmzQ4QaN4awB3SfyU1gPKXBH3xQD689EBpo41VJnlMpnPq/LBeWMeK8SaG4FOg09gCdVqpasOZ1B7ICCD7PryZSqQmCO159yRgz/G5OYQmFh2WhAqusCONnU4NG8mT3kd9Ix6dT/3Qt+9sMB/H2f4VzLr995AHY9FyRRnmjKcUtqhfkFtGUFirKGBsEMy/mo3bui9ZsD+gQ9AQrnDdiGkpTAO1/PGKws3GtUTGVJL18+qOVadu/nN6uyKUhkOcv7CGA7S2SZ24iE6SrE8OMUQD5C4tSMyOj73YfLDUslc6YXp//MUHplWBA6RudWJueX85mTh82IYb9abqNvhU41Vizwe05ZA/4ugoKv7iQG8ZPzKferz/XV0417BjSwhl7bHGxhePRBB/JHDoTtTo/DTjxuDLGq9c6CXnD62xZOKh9Of/ALpiiFv/a6xlkJnMn6k0R5sNvI4cqABWWT68eUhN4/90lM3Jn6OenQuEBB1Uv/Y0rpEFvYzgdzsgIJAYtSmsPriRSQecuSwcp2bAlhI/d+jJIc53O87UCJqZNTBWKnkyYdn9U6uTPVB8OzcreLRvp7PjslaDN95JW/9TABf6bekUYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"suivi\",\"question_resolue\":\"Le permis de conduire, dans quel délai faut-il le faire ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"permis de conduire\",\"délai\"],\"themes\":[],\"facettes\":[\"délai pour faire le permis de conduire\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiVss2m4Bbw9FM3j3Cwv",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5550,
+        "inference_geo": "global",
+        "input_tokens": 175,
+        "output_tokens": 288,
+        "output_tokens_details": {
+          "thinking_tokens": 156
+        },
+        "service_tier": "standard"
+      }
+    }
   }
 }

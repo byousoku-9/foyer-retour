@@ -449,6 +449,7 @@
     clarification_retablie_perimetre_tronque:
       "clarification servie : la liste tronquée ne permet pas de confirmer le refus hors périmètre",
     clarification_langue_non_affirmee: "clarification retirée : sa langue n'est pas affirmable",
+    bavardage_accueilli: "salutation accueillie : la question est demandée plutôt que refusée",
     cout_eleve: "coût de la requête au-dessus du seuil",
     deadline_depassee: "délai dépassé avant une étape qui n'appelle aucun modèle : la réponse est servie",
     demande_cible_inconnue: "le contrôle a demandé un contexte que rien de ce qui lui a été soumis ne désigne",

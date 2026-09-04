@@ -449,6 +449,45 @@
       }
     }
   },
+  "claude-haiku-4-5-20251001:88058b626bccff79": {
+    "certificate": {
+      "messages_sha256": "4a29b04d675a729214295118365be05f21dfcb3b3560a84f44eca15cced0f759",
+      "model": "claude-haiku-4-5-20251001",
+      "schema_sha256": "9692fcaf8fbae9bf2f6c3d0db8e698be6e0b79cf80410dce40884edf3565cb4a",
+      "system_sha256": "b117b190246fb5bd73e4a85668c16f11730e0f5b2acaa8e672ba879c8ac6c449",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-haiku-4-5-20251001:88058b626bccff79",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"langue_detectee\": \"en\", \"fidele\": true}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiW6DJF8HFfDqPERqKrU",
+      "model": "claude-haiku-4-5-20251001",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 1304,
+        "output_tokens": 18,
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-haiku-4-5-20251001:9418b6feb938c17b": {
     "certificate": {
       "messages_sha256": "0ad78daa61346721592fc804a21c01c1dda872c2e1d1e2fda72d6b5ca2491f26",
@@ -1238,6 +1277,53 @@
       }
     }
   },
+  "claude-sonnet-5:12720e6045607ade": {
+    "certificate": {
+      "messages_sha256": "0fd1784fea5d4b1648a808593eba474e64bcb28572c82dc7ae18b4483d76777b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "c84a33be4f73bb4c134829a50eb9a7462913a326c82c0f4b219bd84c71fd3198",
+      "system_sha256": "2735d42acb0cc9c4c716cef64c42f11b1932a2ae1b07921f4e8c1efd7b9d3a83",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:12720e6045607ade",
+    "response": {
+      "content": [
+        {
+          "signature": "Eo8GCpABCBEYAipA697JiQHshy3jyJMVVnKjRYIrm+j6prVdjZ73oagvr+EFUjuHvQS+hfzcQPcHSkzHtgzbYQi6hmdsULX/s0FACDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAcaX69QGEgy36wDFpd6wRSTM2voaDGvrV1HjxVCLjqpw4iIw9cVzDOiPyUgP2XZzNYC2Clg8zHbIp/m/5uJcBhArUnfyJW45jHyboAJwZYvlXrLjKqsErm6Y/dvYYrCLZL0ZedH22C1udszz+NYIVIq5MjXbGy9nTTE2700sEYmgrgHq5/7gqHahCdUtqJhItu8ql8IHaM5ESnGqy5UtNImIMiZ10vY9ZPy735zBDJ5xfsWf5e5oVBjqp9w5kibA6yxiCvCKLR+1jO03G1/EsQb9+s48agXu20OgTVmkm5Ne3drU/PsW+LPIhHveNgsJHhDyxo+w1OXV58Jd7OTHE4sEqIqzQRTt4g7n77M/qJeOW868HJ0YjTgSPNNp0fpBT0rPSDvwL/FzAWwi7r7IXLAyOV8/pj7ulacuVYhjXO2ENBnNRD9Tzi7LJA943hi/4spRkX5wPX8/cQIFMIk4xkWYFE6UamJZK/gllJYWO6IrY3Xb5KyT3VPeusE2CfMWwq5nOyzw/0Nb/S1QBzpNOtS6gH2YJe6fLvwzDIla1PVyeP6joZ8RkMdM0F3OwCuPVj6SlWDXBVrDD3jnf0aaZVsb70w9605gHm9njz7xAaynggRm/zzoZg1Lo/kn0E1t67/RKs1YVIokMVJtku7MwmcZ3isAVSrgErwTN6/664CowHXpGPWNkzXm89ZMv9hrt1+itBL8DdYkpMP42cIwnmWm3nT0Z/gBkyESzqkpx96OGcxcBu3fLM3X2dtwgrnsq70IYJ5Uijj6lb3Zv6RukE+H1DpZ2mB0S6djoY7xFkw3oVepP6qZfRAOMg/yGbJTCov38Oi1aDec+UHH2uDhjJZTGAE=",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "parsed_output": null,
+          "text": "{\"verdicts\":[{\"claim_id\":\"c1\",\"pertinente\":true,\"raison\":null,\"phrases_non_soutenues\":[],\"rattachements\":[]}],\"facettes\":[{\"facette\":0,\"claim_ids\":[\"c1\"]}],\"segments\":[{\"segment\":0,\"soutenu\":true}]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiW5tKVPznGCFmvbrF1q",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 6513,
+        "inference_geo": "global",
+        "input_tokens": 2079,
+        "output_tokens": 316,
+        "output_tokens_details": {
+          "thinking_tokens": 208
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:14b39f16d38becc6": {
     "certificate": {
       "messages_sha256": "9e0deab40f154b85018317c381b4bff2681e25c6b3bb4789894571650563c73d",
@@ -1272,6 +1358,48 @@
         "inference_geo": "global",
         "input_tokens": 1219,
         "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:15dd298c4c0e99e3": {
+    "certificate": {
+      "messages_sha256": "5b18eb1351e89a97c331a29cb05d3f96a4bb151f062c64d0469b5ca5cc4c135b",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7ba29250276671891e322154b2d1fd7c31f7463489308280c99a1aa9ebbe76d1",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:15dd298c4c0e99e3",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"segments\":[{\"text\":\"School registration in Luxembourg should be started before you even look for housing, since it is the longest and most constrained step of the whole installation, and it usually follows the commune registration, so it is worth confirming that the specific language section you want is still available, not just the school itself, given that places in the most sought-after sections can fill up as much as a year ahead. Before leaving your home country, you should obtain a certificate of deregistration and the last years' report cards from the children's current school, since these are almost always required and much harder to get once you have left. The public Luxembourgish school system is free and multilingual, teaching first in Luxembourgish before introducing German and then French, and it integrates young arrivals well, though for children arriving later the language barrier is real and should be honestly assessed based on age and background. Alternatively, European and international schools exist: European Schools follow a curriculum by language section leading to the European Baccalaureate, with priority given to children of EU institution staff and tuition fees for other families depending on available places, while free public international schools with English, French or German sections are also available but highly sought after, and private schools offering the International Baccalaureate or foreign curricula charge significant fees. The school year starts in early September.\",\"kind\":\"factuel\",\"claim_ids\":[\"c1\"]}],\"claims\":[{\"claim_id\":\"c1\",\"text\":\"School registration in Luxembourg should be started before you even look for housing, since it is the longest and most constrained step of the whole installation, and it usually follows the commune registration, so it is worth confirming that the specific language section you want is still available, not just the school itself, given that places in the most sought-after sections can fill up as much as a year ahead. Before leaving your home country, you should obtain a certificate of deregistration and the last years' report cards from the children's current school, since these are almost always required and much harder to get once you have left. The public Luxembourgish school system is free and multilingual, teaching first in Luxembourgish before introducing German and then French, and it integrates young arrivals well, though for children arriving later the language barrier is real and should be honestly assessed based on age and background. Alternatively, European and international schools exist: European Schools follow a curriculum by language section leading to the European Baccalaureate, with priority given to children of EU institution staff and tuition fees for other families depending on available places, while free public international schools with English, French or German sections are also available but highly sought after, and private schools offering the International Baccalaureate or foreign curricula charge significant fees. The school year starts in early September.\",\"quotes\":[{\"block_id\":\"lux-guide:fecole:3\",\"quote\":\"C'est la démarche la plus longue et la plus contrainte de toute l'installation, et celle qu'il faut engager en premier, avant même la recherche de logement.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"L'inscription à la commune précède généralement l'inscription scolaire, et les places dans les sections les plus recherchées partent parfois un an à l'avance.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"Avant de quitter votre pays, demandez à l'école d'origine un certificat de radiation ainsi que les bulletins des dernières années : ils sont presque toujours exigés, et bien plus difficiles à obtenir une fois parti.\"},{\"block_id\":\"lux-guide:fecole:9\",\"quote\":\"La rentrée se situe au début du mois de septembre.\"},{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"L'enseignement public luxembourgeois alphabétise en luxembourgeois, puis introduit l'allemand, puis le français. Il intègre remarquablement bien les enfants arrivés jeunes.\"},{\"block_id\":\"lux-guide:fecole:5\",\"quote\":\"Pour une arrivée plus tardive, en revanche, la barrière linguistique est réelle et doit être évaluée sans complaisance, en fonction de l'âge et du parcours de l'enfant.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Les écoles européennes proposent un cursus par section linguistique menant au baccalauréat européen. L'accès est prioritaire pour les enfants de personnels des institutions européennes ; les autres familles sont admises selon les places disponibles et acquittent un minerval.\"},{\"block_id\":\"lux-guide:fecole:7\",\"quote\":\"Il existe par ailleurs des écoles internationales publiques, gratuites, avec des sections anglophone, francophone ou germanophone, très demandées. Enfin, des établissements privés proposent le baccalauréat international ou des cursus étrangers, avec des frais significatifs.\"}],\"facette\":0}],\"blocs_ecartes\":[]}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiW4va9CKiEUi7DwLfDB",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 10412,
+        "inference_geo": "global",
+        "input_tokens": 1415,
+        "output_tokens": 1540,
         "output_tokens_details": {
           "thinking_tokens": 0
         },
@@ -1368,6 +1496,47 @@
         "output_tokens": 469,
         "output_tokens_details": {
           "thinking_tokens": 240
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:2b15f91d00b8ab4f": {
+    "certificate": {
+      "messages_sha256": "ef97455b95b8b3a15edcae993c861eefa2701fdcd5bc97e36741cd5281999a75",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:2b15f91d00b8ab4f",
+    "response": {
+      "content": [
+        {
+          "text": "PRÊT",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiW4p9w9B3VVgkGzk1fu",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8722,
+        "inference_geo": "global",
+        "input_tokens": 1248,
+        "output_tokens": 7,
+        "output_tokens_details": {
+          "thinking_tokens": 0
         },
         "service_tier": "standard"
       }
@@ -3087,6 +3256,60 @@
       }
     }
   },
+  "claude-sonnet-5:ccd7593007f84701": {
+    "certificate": {
+      "messages_sha256": "fb85925ec8e7a12a499056b80850efc48526396687d44e1c7c842ef4f7bd7953",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "00f6d3424a06338df761d057072f7b4dcd74dcd04a36ef10ada9cdeedd38bddb",
+      "system_sha256": "4fd8d7dd82ceec5c40c451fd216ab541e1467eedb724404982769cec8d8aeb11",
+      "tools_sha256": "6264b58d741383e2e0c711ed820562709b6e3453cd81820df818ef85b7652062",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:ccd7593007f84701",
+    "response": {
+      "content": [
+        {
+          "signature": "EoQCCpABCBEYAipAkvaXXBbASIVyhSWO6F17T9xDDO/TfT3V8Z7E4Kh4Enob1L4CoafBer0bPCMGDTmXp0PnSePv/n6SoEZRA8/9pDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiQzOTdjOTU5MC1lNTA2LTRkMGYtYWZmYi1lYmFlMmM0MDcxNzmoAbOX69QGEgzDQHrz00NnJGFDpwwaDAq2HeCvziyxQM8UhiIwwKCT/4BQlsYtcNKyYLCEmfS+G3GoGEyEbJAZoQfC6O6tUJnPaZhOSctbF3HN3/t3KiGI9l5Znv70GE3lRplQBidsWAF6Sryev/Mdqs8GxFwJfPwYAQ==",
+          "thinking": "",
+          "type": "thinking"
+        },
+        {
+          "caller": {
+            "type": "direct"
+          },
+          "id": "toolu_01GAA65qJHso5P83FPJmfEfD",
+          "input": {
+            "facette": 0,
+            "node_id": "lux-guide:fecole"
+          },
+          "name": "ouvrir_noeud",
+          "type": "tool_use"
+        }
+      ],
+      "id": "msg_011CeiW4co4oU6JmGR5Wc9GX",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 8722,
+        "inference_geo": "global",
+        "input_tokens": 165,
+        "output_tokens": 96,
+        "output_tokens_details": {
+          "thinking_tokens": 9
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:ce1ac89a2e87d782": {
     "request": "claude-sonnet-5:ce1ac89a2e87d782",
     "response": {
@@ -3244,6 +3467,48 @@
         "inference_geo": "global",
         "input_tokens": 1386,
         "output_tokens": 1071,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
+  "claude-sonnet-5:d5bea55405f507bc": {
+    "certificate": {
+      "messages_sha256": "47ceccca20c6abc58626faf253fc672a76ee95df8448d3d4f20693887dee4938",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "e4c1c4bdbe3452787ff016c0d6bdce128339f3117928001a9ecbc49df59c3e0f",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:d5bea55405f507bc",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Where do I register my children for school in Luxembourg?\",\"clarification\":null,\"language\":\"en\",\"terms\":[\"inscription scolaire\",\"scolariser ses enfants\"],\"themes\":[],\"facettes\":[\"inscription des enfants à l'école\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiW4RbsDAsgsVHcDuRjD",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 5550,
+        "inference_geo": "global",
+        "input_tokens": 82,
+        "output_tokens": 127,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

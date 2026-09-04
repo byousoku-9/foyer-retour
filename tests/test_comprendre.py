@@ -594,3 +594,48 @@ async def test_le_tier_epingle_par_la_matrice_surcharge_laffectation_ad9(tier: s
     assert fake.messages.requests[0]["model"] == TIERS[tier]
     assert step.tier == tier
     assert step.calls[0].model == TIERS[tier]
+
+
+# --- tour G1 : le refus se décide contre le sommaire, jamais contre le sujet -------------------
+
+async def test_le_prompt_ne_refuse_que_ce_quaucune_fiche_ne_couvre() -> None:
+    """Témoin (a) du tour G1 : une question dont un terme touche une fiche n'est pas refusée d'avance.
+
+    Mesuré le 03/09 sur la batterie de l'orchestrateur (`g02-impots`) : « Combien vais-je payer
+    d'impôts avec 80 000 € brut par an, marié, deux enfants ? » revenait `hors_perimetre`, alors que
+    le guide porte les fiches « Classes d'impôt », « Ce qui réduit votre impôt », « Conseil fiscal »
+    et « Régime des impatriés ». La cause n'était pas le sommaire — il était bien dans le préfixe —
+    mais l'**énumération** qui le contredisait : `hors_perimetre` y était défini comme « tout le
+    reste (actualité, sport, calculs, conseil médical, fiscal ou juridique individualisé…) ». Une
+    question fiscale chiffrée tombait donc dans deux de ces catégories avant que la liste des fiches
+    n'ait été lue, et le refus était pris **avant** toute lecture.
+
+    Le témoin porte donc sur les trois propriétés qui remplacent cette énumération, et sur son
+    absence : un mot ré-introduit (« calculs », « fiscal ») recréerait le faux refus.
+    """
+    prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,
+                            question_max_facettes=4,
+                            perimetre_guide="- Impôts : Classes d'impôt, Régime des impatriés")
+    assert "- Impôts : Classes d'impôt, Régime des impatriés" in prefixe
+    # `hors_perimetre` se définit **négativement**, contre la liste servie.
+    assert "un sujet qu'**aucune** des fiches listées ci-dessus ne peut couvrir" in prefixe
+    assert "se décide **contre la liste ci-dessus**" in prefixe
+    # …et une question chiffrée n'est pas hors périmètre parce qu'elle est chiffrée.
+    assert "n'est pas hors périmètre parce qu'elle est chiffrée" in prefixe
+    assert "un prix, un délai, un montant ou" in prefixe
+    # Les catégories qui refusaient d'avance ce que les fiches traitent ont disparu.
+    assert "calculs" not in prefixe
+    assert "conseil médical, fiscal ou" not in prefixe
+
+
+async def test_le_prompt_range_une_entree_sans_objet_dans_le_bavardage() -> None:
+    """Témoin (a bis) : une entrée qui ne demande rien est un `bavardage`, jamais un hors-périmètre.
+
+    `g08-vide` (« Bonjour ») était correctement classé `bavardage` ; le cas voisin — quelques mots
+    sans objet identifiable — n'était nommé nulle part et retombait sur « tout le reste ». Le pipeline
+    en fait un accueil (`test_pipeline_guide.py`), encore faut-il que l'intention soit rendue.
+    """
+    prefixe = render_prompt("comprendre", question_min_terms=2, question_max_terms=6,
+                            question_max_facettes=4, perimetre_guide="- Logement : Signer un bail")
+    assert "toute entrée qui ne demande rien" in prefixe
+    assert "message vide, quelques mots sans objet" in prefixe

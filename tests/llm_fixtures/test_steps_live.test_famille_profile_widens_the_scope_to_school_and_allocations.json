@@ -61,6 +61,48 @@
       }
     }
   },
+  "claude-sonnet-5:364fe2c11d38c7aa": {
+    "certificate": {
+      "messages_sha256": "a8df381598d4ce8b1addf6caad6faafe04b3f56b3312dd4dd82c65e9608e8bf2",
+      "model": "claude-sonnet-5",
+      "schema_sha256": "7a318352afe20e68ed5f4d83f160245a8118cf808d6bb76f38685cd3cd4cc684",
+      "system_sha256": "79d75dbdab857a8e900f4deaac5416301a1434a125c3b8b386be24692bdec318",
+      "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "version": 2
+    },
+    "request": "claude-sonnet-5:364fe2c11d38c7aa",
+    "response": {
+      "content": [
+        {
+          "parsed_output": null,
+          "text": "{\"intent\":\"question\",\"question_resolue\":\"Comment inscrire mes enfants à l'école et quelles allocations familiales demander après mon arrivée au Luxembourg ?\",\"clarification\":null,\"language\":\"fr\",\"terms\":[\"inscription scolaire\",\"allocations familiales\"],\"themes\":[\"école\",\"scolarité\",\"allocations\"],\"facettes\":[\"comment inscrire mes enfants à l'école\",\"quelles allocations demander\"],\"bien\":null,\"evenement\":null,\"lieu\":null,\"cause\":null,\"moment\":null}",
+          "type": "text"
+        }
+      ],
+      "id": "msg_011CeiVrt8DaDyDgUZS9LuPR",
+      "model": "claude-sonnet-5",
+      "role": "assistant",
+      "stop_details": null,
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "type": "message",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 4256,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 4256,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 124,
+        "output_tokens": 176,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard"
+      }
+    }
+  },
   "claude-sonnet-5:3c098cabe233194a": {
     "certificate": {
       "messages_sha256": "a8df381598d4ce8b1addf6caad6faafe04b3f56b3312dd4dd82c65e9608e8bf2",
