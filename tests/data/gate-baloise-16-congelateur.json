@@ -1,0 +1,119 @@
+{
+ "source": "automation/runs/20260903-lisibilite/gate-baloise-lu-home-2-2024-16.json",
+ "cas": "b-congelateur",
+ "generated_at": "2026-09-04T10:45:10Z",
+ "repetitions": [
+  {
+   "repetition": 1,
+   "verdict_observe": "sous_conditions",
+   "claims": [
+    {
+     "claim_id": "c1",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:4",
+      "baloise-lu-home-2-2024:p21:5"
+     ]
+    },
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p15:4"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "non",
+     "applicable_reason": "hors_portee",
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:9"
+     ]
+    },
+    {
+     "claim_id": "c4",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p12:10",
+      "baloise-lu-home-2-2024:p12:11"
+     ]
+    },
+    {
+     "claim_id": "c5",
+     "applicable": "non",
+     "applicable_reason": "hors_portee",
+     "blocs": [
+      "baloise-lu-home-2-2024:p12:14"
+     ]
+    }
+   ],
+   "rejetees": []
+  },
+  {
+   "repetition": 2,
+   "verdict_observe": "sous_conditions",
+   "claims": [
+    {
+     "claim_id": "c1",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:4",
+      "baloise-lu-home-2-2024:p21:5"
+     ]
+    },
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p15:4"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "non",
+     "applicable_reason": "hors_portee",
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:9"
+     ]
+    }
+   ],
+   "rejetees": []
+  },
+  {
+   "repetition": 3,
+   "verdict_observe": "ne_tranche_pas",
+   "claims": [
+    {
+     "claim_id": "c1",
+     "applicable": null,
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:4"
+     ]
+    },
+    {
+     "claim_id": "c3",
+     "applicable": "non",
+     "applicable_reason": "hors_portee",
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:9"
+     ]
+    },
+    {
+     "claim_id": "c2",
+     "applicable": "humain",
+     "applicable_reason": null,
+     "blocs": [
+      "baloise-lu-home-2-2024:p21:5"
+     ]
+    }
+   ],
+   "rejetees": []
+  }
+ ]
+}

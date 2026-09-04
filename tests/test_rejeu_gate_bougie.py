@@ -2,66 +2,32 @@
 
 Story 5.7 (L1n). Le gate a rendu `ne_tranche_pas`, `ne_tranche_pas` puis `sous_conditions` sur le
 même cas et le même corpus : signatures divergentes, `stabilite_sinistre` rouge, AXA non promu. Le
-rapport porte les claims et leurs citations ; il ne porte pas le JSON brut du vérificateur. Le rejeu
-reconstruit donc, pour chaque affirmation, le **jeu de champs canonique** qui produit l'`applicable`
-observé, puis rejoue la table AD-6 sur les clauses relues dans le corpus réel. Le premier témoin
-vérifie que cette reconstruction reproduit la signature mesurée — sans quoi tout ce qui suit ne
-dirait rien du run.
-
-Aucun appel réseau : le corpus est celui de `data/`, le rapport est figé dans `tests/data/`.
+harnais de rejeu vit désormais dans `tests.rejeu_gate` — il sert aussi le gate Baloise `-16` (L1p) —
+et ce fichier ne porte plus que ce que le rapport AXA prouve. Aucun appel réseau.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from server.app.corpus.index import Index
 from server.app.corpus.loader import Corpus, load_corpus
-from server.app.domain.verdict import (ChampsApplicabilite, ClaimJugee,
-                                       applicable_de_claim, decider)
-from server.app.steps.verifier import _mots_qualifiants, _qualites_de_la_clause, _clauses_citees
+from server.app.domain.verdict import applicable_de_claim
+from server.app.steps.verifier import _mots_qualifiants
+from tests.rejeu_gate import rapport, rejouer, verdicts, verdicts_observes
 
 ROOT = Path(__file__).resolve().parents[1]
-RAPPORT = json.loads((Path(__file__).parent / "data" / "gate-axa-14-bougie.json").read_text())
+RAPPORT = rapport("gate-axa-14-bougie.json")
 AMORCE = "axa-lu-optihome-2017:p34:6"  # « La Compagnie assure les biens désignés, contre les périls suivants : »
 ITEM = "axa-lu-optihome-2017:p34:12"  # l'item qui écrit « soudain » et « subite »
+DU_RUN = frozenset({"L1o", "L1p"})  # les correctifs postérieurs au run du 04/09
 
 
 @pytest.fixture(scope="module")
 def corpus() -> Corpus:
     return load_corpus(ROOT / "data", allow_ungated=True)
-
-
-def _rejouer(repetition: dict, *, corpus: Corpus, index: Index,
-             l1o: bool = True) -> tuple[str, list[ClaimJugee]]:
-    """La répétition rejouée : champs canoniques + qualités **dérivées du texte** (L1n), puis AD-6.
-
-    Un `applicable` observé se réécrit sans ambiguïté en champs typés : `oui` = fait requis présent
-    et rien d'ouvert, `non` = fait requis absent **sans** fait manquant (la signature du fait connu
-    et contraire), `humain` = un fait manquant nommé. Par-dessus, on applique ce que L1n rend
-    indépendant du modèle : les qualités que le texte des clauses citées écrit et que rien
-    n'établit — c'est la seule chose que le correctif ajoute, et elle ne peut que fermer un `oui`.
-    """
-    jugees: list[ClaimJugee] = []
-    for claim in repetition["claims"]:
-        clauses = _clauses_citees(claim["blocs"], corpus=corpus, index=index)
-        if not l1o:
-            # Le corpus est celui du run, le code ne l'est plus : `l1o=False` rejoue la lecture qui
-            # était en vigueur le 04/09, où une amorce d'énumération décidait comme une clause. C'est
-            # la seule façon de reproduire une signature mesurée sous un correctif qui la corrige.
-            clauses = [clause.model_copy(update={"amorce": False}) for clause in clauses]
-        observe = claim["applicable"]
-        exigees = _qualites_de_la_clause(clauses, nommees="", place=8) if observe != "non" else []
-        jugees.append(ClaimJugee(
-            claim_id=claim["claim_id"], clauses=clauses, retenue=True,
-            champs=ChampsApplicabilite(
-                fait_requis_present=observe == "oui", option_requise=False, cp_requise=False,
-                fait_manquant=None if observe != "humain" else "fait exigé par la clause citée",
-                qualites_exigees=exigees, qualites_non_etablies=exigees)))
-    return decider(jugees, ask_client_max=6).value, jugees
 
 
 def test_la_reconstruction_reproduit_la_signature_mesuree_du_gate(corpus: Corpus) -> None:
@@ -70,12 +36,10 @@ def test_la_reconstruction_reproduit_la_signature_mesuree_du_gate(corpus: Corpus
     Les qualités dérivées du texte ne changent aucun des trois verdicts observés — elles ne
     referment que des `oui` portés par une clause qui écrit un qualificatif, et aucune des trois
     répétitions n'en a. Le rejeu rend donc exactement la signature du rapport, à la lecture du jour
-    du run (`l1o=False`) : c'est la mesure, et c'est elle que le correctif de L1o fait bouger.
+    du run : c'est la mesure, et c'est elle que le correctif de L1o fait bouger.
     """
-    index = Index(corpus)
-    rejoues = [_rejouer(r, corpus=corpus, index=index, l1o=False)[0]
-               for r in RAPPORT["repetitions"]]
-    assert rejoues == [r["verdict_observe"] for r in RAPPORT["repetitions"]]
+    rejoues = verdicts(RAPPORT, corpus=corpus, index=Index(corpus), avant=DU_RUN)
+    assert rejoues == verdicts_observes(RAPPORT)
     assert rejoues == ["ne_tranche_pas", "ne_tranche_pas", "sous_conditions"]
 
 
@@ -90,7 +54,7 @@ def test_l1n_rend_identiques_les_exigences_de_la_clause_qui_porte_le_cas(corpus:
     index = Index(corpus)
     exigences: list[list[str]] = []
     for repetition in RAPPORT["repetitions"]:
-        _verdict, jugees = _rejouer(repetition, corpus=corpus, index=index)
+        _verdict, jugees = rejouer(repetition, corpus=corpus, index=index)
         portant = [j for j in jugees if any(c.block_id == ITEM for c in j.clauses)]
         assert len(portant) == 1
         assert portant[0].champs is not None
@@ -117,10 +81,10 @@ def test_l1o_fait_converger_les_trois_repetitions_du_gate(corpus: Corpus) -> Non
     divergeait et qui converge.
     """
     index = Index(corpus)
-    avant = [_rejouer(r, corpus=corpus, index=index, l1o=False)[0] for r in RAPPORT["repetitions"]]
+    avant = verdicts(RAPPORT, corpus=corpus, index=index, avant=DU_RUN)
     apres = []
     for repetition in RAPPORT["repetitions"]:
-        verdict, jugees = _rejouer(repetition, corpus=corpus, index=index)
+        verdict, jugees = rejouer(repetition, corpus=corpus, index=index)
         apres.append(verdict)
         for jugee in jugees:
             if [c.block_id for c in jugee.clauses] == [AMORCE]:
@@ -133,3 +97,19 @@ def test_l1o_fait_converger_les_trois_repetitions_du_gate(corpus: Corpus) -> Non
     seules_amorces = {r["repetition"]: [c["applicable"] for c in r["claims"] if c["blocs"] == [AMORCE]]
                       for r in RAPPORT["repetitions"]}
     assert seules_amorces == {1: ["non"], 2: [], 3: ["oui"]}
+
+
+def test_l1p_ne_deplace_rien_sur_le_cas_bougie(corpus: Corpus) -> None:
+    """Contre-épreuve de L1p sur le rapport voisin : la règle ne s'applique pas ici, rien ne bouge.
+
+    Les items de l'énumération incendie ont bien une amorce (`p34:6`), et le code la lit désormais
+    avec eux — mais « La Compagnie assure les biens désignés, contre les périls suivants : » n'écrit
+    ni qualificatif, ni renvoi aux conditions particulières, ni qualité de personne. Une amorce qui
+    ne subordonne rien n'ajoute rien : les trois répétitions restent `ne_tranche_pas`, exactement
+    comme sous L1o seul. C'est la borne de L1p — il n'ajoute jamais qu'un mot que le contrat écrit.
+    """
+    index = Index(corpus)
+    assert index.amorce_qui_introduit(ITEM) == AMORCE
+    assert verdicts(RAPPORT, corpus=corpus, index=index) == ["ne_tranche_pas"] * 3
+    assert verdicts(RAPPORT, corpus=corpus, index=index,
+                    avant=frozenset({"L1p"})) == ["ne_tranche_pas"] * 3
