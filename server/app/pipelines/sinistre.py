@@ -1251,7 +1251,11 @@ def run_followup(state: ContinuationState, action: ConversationAction, *, settin
     steps = [
         StepTrace(name="comprendre", checks=[CheckResult(
             name="reponse_liee", ok=True,
-            detail="réponse rattachée à une question active de l'état signé")]),
+            # L1k : un fait libre ne se rattache à aucune question — c'est ce qui le distingue d'une
+            # réponse, et la trace le dit plutôt que d'affirmer un rattachement qui n'a pas eu lieu.
+            detail=("précision du client enregistrée comme fait à part entière, sans question"
+                    if action.action == "reponse" and action.question_id is None
+                    else "réponse rattachée à une question active de l'état signé"))]),
         StepTrace(name="retrouver", checks=[CheckResult(
             name="corpus_reutilise", ok=True,
             detail="aucun retrieval : corpus et empreintes du premier tour réutilisés")]),

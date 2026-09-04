@@ -416,6 +416,12 @@ class SinistreFollowupRequest(BaseModel):
     existants — les deux désignent le même champ, borné à 500 caractères. Sur une `correction` ou une
     `resolution`, le même champ porte la version corrigée du fait : c'est la même nature, dite au même
     endroit.
+
+    Story 5.7 (L1k) — le fait libre part **sans** `question_id`, et c'est cette absence qui le
+    distingue d'une réponse. La page l'envoyait déjà ainsi ; le contrat, lui, exigeait encore un
+    `question_id` sur toute `reponse`, si bien que la précision spontanée était rangée sous la clé de
+    la question sélectionnée (« défaut de réparation ou d'entretien : Le voisin du dessous… »). Les
+    deux formes sont désormais acceptées, la forme avec `question_id` restant une réponse.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
