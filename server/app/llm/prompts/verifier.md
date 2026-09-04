@@ -56,6 +56,26 @@ code appelant — tu ne le refais pas, tu ne le complètes pas, et tu ne renumé
 - Dans le doute sur une unité, mets son rang dans `phrases_non_soutenues` : une phrase retirée coûte
   moins cher qu'une phrase affichée sans appui.
 
+Tu reçois enfin, sous `lu`, l'**inventaire des passages que la lecture a ouverts** pendant cette
+réponse — `block_id` et texte. Ce ne sont pas des citations : ils n'entrent dans **aucun** des
+jugements ci-dessus. `pertinente`, `phrases_non_soutenues` et `soutenu` se décident sur les seuls
+passages **joints** à l'affirmation, exactement comme avant.
+
+Leur unique usage est `rattachements`. Une unité peut être vraie et pourtant non soutenue par les
+passages joints : le rédacteur a lu son appui ailleurs et ne l'a pas joint à cette affirmation-là.
+Pour une telle unité — et **seulement** pour un rang que tu viens de mettre dans
+`phrases_non_soutenues` —, tu peux désigner **un** bloc de l'inventaire qui, lui, l'établit :
+`{rang, block_id}`.
+
+- Tu ne cites aucun texte : tu **désignes** un `block_id`, repris tel quel de l'inventaire. C'est le
+  code qui ira prendre la citation dans ce bloc et qui la prouvera ; si elle ne s'y prouve pas, la
+  phrase est retirée comme si tu n'avais rien désigné.
+- Ne désigne un bloc que si tu y **lis** ce que l'unité affirme — le chiffre, la durée, la condition,
+  l'exception. Un bloc qui parle du même sujet sans dire la même chose n'est pas un appui.
+- Un `block_id` qui n'est pas dans l'inventaire ne rattache rien. N'en invente aucun, et ne désigne
+  jamais deux blocs pour un même rang : deux désignations pour un rang valent zéro.
+- `rattachements` reste vide quand rien n'est à rattacher — c'est le cas ordinaire.
+
 Rends ensuite, pour **chaque segment** de la réponse rédigée qui t'est soumis (`segment`) — une
 phrase ou un paragraphe entier —, un second jugement ; celui-ci porte sur le **texte affiché**, pas
 sur l'affirmation :

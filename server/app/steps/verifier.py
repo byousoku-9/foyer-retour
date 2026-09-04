@@ -95,6 +95,7 @@ from server.app.domain.verdict import (
 from server.app.llm.budget import RequestBudget
 from server.app.llm.client import LlmClient
 from server.app.llm.models import EFFORT_PAR_PROMPT, MODEL_CAPS, model_for
+from server.app.llm.pricing import estimate_tokens
 from server.app.llm.prompting import load_prompt, render_prompt, untrusted
 
 # Un `claim_id` produit par le modèle n'entre dans un motif que s'il ressemble à ce que le prompt
@@ -107,6 +108,22 @@ BLOC_INCONNU = "<bloc inconnu>"
 RAISONS_NON_PERTINENCE = ("non_soutenue", "hors_objet", "conclusion_ajoutee")
 
 
+class RattachementDePhrase(BaseModel):
+    """Story 5.6 (L1h) — le bloc **lu** qui soutient une phrase que les passages joints n'établissent pas.
+
+    Le contrôle ne cite rien : il **désigne**. `rang` est une unité de lecture de *notre* découpage,
+    `block_id` un identifiant de *notre* ingestion, pris dans l'inventaire des blocs lus que l'étape
+    lui a transmis. C'est la seule chose que le modèle puisse apporter ici et que le code ne sache
+    pas faire seul — reconnaître, dans ce qui a été lu, le passage qui dit la phrase. Tout le reste
+    — que le bloc existe, qu'il ait été lu, qu'une citation mot pour mot en soit extractible et
+    qu'elle soit non ambiguë — est prouvé par le code, exactement comme pour n'importe quelle autre
+    citation (AD-3). Un `block_id` inconnu ou non lu ne rattache rien et est journalisé.
+    """
+
+    rang: int
+    block_id: str
+
+
 class VerdictPertinence(BaseModel):
     claim_id: str
     pertinente: bool
@@ -117,6 +134,12 @@ class VerdictPertinence(BaseModel):
     # décide seul, exactement comme avant. Des entiers de **notre** numérotation, pas des chaînes du
     # modèle : un rang hors de la liste envoyée ne retire rien.
     phrases_non_soutenues: list[int] = []
+    # Story 5.6 (L1h) : pour une phrase de `phrases_non_soutenues` seulement, le **bloc lu** qui la
+    # soutient. Une phrase vraie ne tombe plus parce que le rédacteur a joint la mauvaise fiche : le
+    # contrôle la rattache à ce qu'il a sous les yeux, et le code va y prendre la citation. Un rang
+    # qui n'est pas déclaré non soutenu ne rattache rien — rattacher une phrase déjà soutenue
+    # n'ajouterait qu'une source que personne n'a demandée.
+    rattachements: list[RattachementDePhrase] = []
     # Sentinelle interne (revue 4.2a, B2) : `SkipJsonSchema` la retire du schéma envoyé au modèle —
     # le vocabulaire des raisons reste fermé côté fournisseur, et rien ne peut la renseigner de
     # l'extérieur (le validateur ci-dessous l'écrase quoi qu'il arrive).
@@ -733,6 +756,124 @@ def _controler_quote(block_id: str, quote: str, *, corpus: Any, index: Any, four
     return _Controle("", "", verifiee, ajustee=ajustee)
 
 
+def _mots_de_la_phrase(phrase: str, *, min_chars: int) -> set[str]:
+    """Les mots d'une phrase qui portent son contenu : normalisés, assez longs (L1h).
+
+    Les mots courts sont les articles, prépositions et auxiliaires du français : les compter ferait
+    « couvrir » n'importe quelle phrase par n'importe quel bloc. `min_chars` est un seuil de
+    `config.py` (`rattachement_de_phrase_mot_min_chars`), jamais un nombre écrit ici.
+    """
+    return {m for m in re.findall(r"[a-z0-9]+", normalize(phrase)) if len(m) >= min_chars}
+
+
+def _mot_present(mot: str, texte_norm: str) -> bool:
+    """Le mot figure-t-il **en mot entier** dans un texte déjà normalisé ?"""
+    return re.search(rf"\b{re.escape(mot)}\b", texte_norm) is not None
+
+
+def _passage_qui_couvre(block: Block, phrase: str, *, settings: Settings) -> str | None:
+    """Le **plus court** passage du bloc qui porte le vocabulaire de la phrase, ou `None` (L1h).
+
+    Ce que le code sait faire seul, et rien de plus. Le contrôle a **désigné** ce bloc en l'ayant lu
+    dans l'inventaire : c'est lui qui juge que le bloc dit la phrase, et ce jugement-là n'est pas
+    refait ici — il n'y a pas de second appel (AD-4 : « un seul appel `reason` groupé »). Ce que le
+    code vérifie est l'**ancrage** : les mots significatifs de la phrase se trouvent-ils dans le
+    bloc ? En dessous de `rattachement_de_phrase_couverture_min_ratio`, la désignation n'est pas
+    suivie et la phrase est retirée comme avant L1h — c'est le côté strict, celui que « dans le
+    doute, réponds false » demande partout ailleurs.
+
+    Le passage rendu est un **candidat** : il repart par `_controler_quote`, qui seul décide s'il est
+    citable (existence, `kind`, longueur, inclusion prouvée dans le texte relu, non-ambiguïté). Un
+    bloc assez court pour tenir sous `quote_max_chars` est cité **entier** — c'est ce que le
+    rédacteur aurait fait, et la citation la plus courte n'est pas toujours la plus lisible. Sinon,
+    on cherche la plus courte fenêtre contiguë d'unités de lecture qui porte tout le vocabulaire
+    retrouvé. Le découpage est celui de l'étape (`claim_phrases_max`) : au-delà de la borne, le reste
+    est fondu dans la dernière unité, ce qui ne peut qu'allonger la citation — jamais la fausser.
+    """
+    mots = _mots_de_la_phrase(phrase, min_chars=settings.rattachement_de_phrase_mot_min_chars)
+    if not mots:
+        return None  # une phrase sans mot significatif n'a rien à ancrer : rien ne la rattache
+    couverts = {m for m in mots if _mot_present(m, block.text_norm)}
+    if len(couverts) < settings.rattachement_de_phrase_couverture_min_ratio * len(mots):
+        return None
+    if len(block.text) <= settings.quote_max_chars:
+        return block.text
+    unites = decouper_en_phrases(block.text, place=settings.claim_phrases_max)
+    meilleure: str | None = None
+    for debut in range(len(unites)):
+        for fin in range(debut + 1, len(unites) + 1):
+            fenetre = " ".join(unites[debut:fin])
+            forme = normalize(fenetre)
+            if not all(_mot_present(m, forme) for m in couverts):
+                continue
+            # La fenêtre couvre : l'allonger encore ne peut que la rallonger, on passe au début suivant.
+            if meilleure is None or len(fenetre) < len(meilleure):
+                meilleure = fenetre
+            break
+    return meilleure
+
+
+def _inventaire_lu(retrieval: RetrievalResult, *,
+                   evaluees: list[tuple[Claim, list[VerifiedQuote], str]],
+                   index: Any, settings: Settings) -> list[Block]:
+    """Les blocs **lus pendant ce run** que le contrôle voit en plus des passages joints (L1h).
+
+    Mesuré le 04/09/2026 (rejeu `540704d9`) : une phrase écrite mot pour mot dans une fiche lue par
+    la navigation tombait parce que le rédacteur n'avait pas joint ce passage-là à cette
+    affirmation-là. Le jugement était juste **par rapport aux passages joints** et étroit **par
+    rapport à ce que la lecture avait vu** ; l'inventaire referme exactement cet écart.
+
+    Le périmètre est celui d'AD-1 — `retrieval.blocs`, « les blocs effectivement passés au modèle » —,
+    donc le même que `fournis` : rien n'entre ici qui ne soit déjà citable. Les `heading` en sont
+    exclus, parce qu'AD-3 refuse déjà qu'un titre se cite seul : les proposer serait proposer une
+    désignation que le code rejetterait à coup sûr.
+
+    L'ordre de la **troncature** est celui des nœuds les plus cités par les affirmations jugées : ce
+    que la réponse a le plus lu est ce autour de quoi une phrase orpheline a le plus de chances de
+    trouver son appui. L'ordre du **message**, lui, reste celui de la lecture : c'est celui qui se
+    relit. Un bloc trop gros pour le reste du budget ne bloque pas les suivants — il est sauté.
+    """
+    if settings.verifier_inventaire_max_tokens <= 0:
+        return []
+
+    def noeud(block_id: str) -> str | None:
+        try:
+            return index.parent_node(block_id)
+        except KeyError:
+            return None
+
+    poids: dict[str, int] = {}
+    for _claim, quotes, _edition in evaluees:
+        for quote in quotes:
+            node_id = noeud(quote.block_id)
+            if node_id is not None:
+                poids[node_id] = poids.get(node_id, 0) + 1
+    candidats = [b for b in retrieval.blocs if b.kind != "heading" and b.text.strip()]
+    ordonnes = sorted(enumerate(candidats),
+                      key=lambda paire: (-poids.get(noeud(paire[1].block_id) or "", 0), paire[0]))
+    retenus: set[str] = set()
+    tokens = 0
+    for _rang, bloc in ordonnes:
+        # Le majorant porte sur ce qui est **réellement ajouté au message** — la charge JSON, pas le
+        # seul texte du bloc : l'enveloppe (`block_id`, clés, échappement) pèse, et une borne qui
+        # l'ignorerait annoncerait un plafond qu'elle ne tiendrait pas.
+        cout = estimate_tokens(_charge_de_bloc_lu(bloc), settings)
+        if tokens + cout > settings.verifier_inventaire_max_tokens:
+            continue
+        retenus.add(bloc.block_id)
+        tokens += cout
+    return [b for b in candidats if b.block_id in retenus]
+
+
+def _charge_de_bloc_lu(bloc: Block) -> str:
+    """L'octet exact qu'un bloc de l'inventaire occupe dans le message (L1h).
+
+    Écrit une seule fois : la borne de `_inventaire_lu` mesure ce que `_pertinence` envoie, et deux
+    sérialisations auraient fini par diverger — la borne aurait alors majoré autre chose que le coût.
+    """
+    return json.dumps({"block_id": bloc.block_id, "texte": bloc.text}, ensure_ascii=False)
+
+
 def _delier_les_amorces(controles: list[_Controle], *, index: Any) -> int:
     """Une amorce citée **avec** l'item qu'elle introduit n'est pas une citation indépendante (AD-3).
 
@@ -1250,19 +1391,95 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
                                                             place=settings.claim_phrases_max)
                         for claim, _, _ in evaluees}
     phrases_retirees: dict[str, set[int]] = {}
+    rattachements: dict[str, list[RattachementDePhrase]] = {}
+    # Story 5.6 (L1h). L'inventaire de ce que la navigation a **lu**, transmis au contrôle en plus
+    # des passages joints, pour qu'il puisse rattacher une phrase vraie au passage qui la soutient
+    # parmi ce que la réponse a vu. Calculé ici, une fois : il dépend des affirmations réellement
+    # jugées (l'ordre de troncature suit les nœuds les plus cités).
+    inventaire = _inventaire_lu(retrieval, evaluees=evaluees, index=index, settings=settings)
     if evaluees:
         try:
             (verdicts, raisons, couverture, soutiens, applicabilites, demande,
-             demande_refusee, phrases_retirees) = await _pertinence(
+             demande_refusee, phrases_retirees, rattachements) = await _pertinence(
                 evaluees, parsed=parsed, segments=a_juger, corpus=corpus, index=index, client=client,
                 budget=budget, settings=settings, step=step, faits=faits,
                 clauses=clauses_par_claim, fournis=fournis, contexte=contexte,
-                phrases_de_claim=phrases_de_claim)
+                phrases_de_claim=phrases_de_claim, inventaire=inventaire)
         except PipelineError:
             step.ms = int((time.monotonic() - t0) * 1000)  # l'appel raté garde sa durée (AD-10)
             raise
     else:
         raisons = {}
+
+    # --- L1h : la phrase vraie que le rédacteur a mal sourcée --------------------------------
+    # Le contrôle vient de désigner, pour certaines phrases qu'il déclare non soutenues, le bloc lu
+    # qui les soutient. Il n'a cité aucun texte, et il ne peut donc rien inventer : le code va
+    # chercher lui-même la citation dans le bloc désigné et la prouve comme n'importe quelle autre
+    # (`_controler_quote` — existence **parmi les blocs lus**, `kind ≠ heading`, longueur, inclusion
+    # dans le texte relu depuis le corpus, non-ambiguïté). Ce qui échoue à un seul de ces contrôles
+    # ne rattache rien, et la phrase est retirée exactement comme avant L1h.
+    #
+    # La citation ajoutée porte `rattachee` : elle est aussi prouvée que les autres, mais elle n'a
+    # pas été choisie par la rédaction, et `sources[i]` le dit (`status: "rattachee"`). Elle
+    # n'entre dans aucune décision déjà prise : la table des clauses du sinistre (D6) a été arrêtée
+    # avant l'appel, sur les seules citations du rédacteur, et l'ajout ne la rejoue pas — un
+    # rattachement est un **appui**, jamais une clause de plus.
+    rattachees = 0
+    # Par **cause**, et pas seulement un total : un rattachement refusé se répare différemment selon
+    # la porte qui l'a refusé — un bloc non lu est une désignation hors périmètre, un bloc qui ne
+    # couvre pas est un jugement que le code n'a pas suivi, une citation non prouvable est un défaut
+    # d'AD-3. Un compte unique ne dit lequel des trois s'est produit, et le tour suivant n'aurait rien
+    # à corriger. Des comptes seuls, jamais un texte de bloc (AD-10).
+    ignores: dict[str, int] = {}
+    if rattachements:
+        quotes_de_claim = {claim.claim_id: quotes for claim, quotes, _edition in evaluees}
+        for claim_id, demandes in rattachements.items():
+            retires = phrases_retirees.get(claim_id, set())
+            unites = phrases_de_claim.get(claim_id, [])
+            for demande_de_rattachement in demandes:
+                rang = demande_de_rattachement.rang
+                block_id = demande_de_rattachement.block_id
+                if rang not in retires:
+                    # Rattacher une phrase que les passages joints soutiennent déjà n'ajouterait
+                    # qu'une source que personne n'a demandée.
+                    ignores["phrase déjà soutenue"] = ignores.get("phrase déjà soutenue", 0) + 1
+                    continue
+                if rattachees >= settings.rattachement_de_phrase_max:
+                    ignores["borne atteinte"] = ignores.get("borne atteinte", 0) + 1
+                    continue
+                if block_id not in fournis:
+                    # Un bloc qui n'a pas été lu pendant ce run — inventé, ou réel mais jamais
+                    # ouvert. Il n'est pas plus citable ici qu'il ne l'était pour le rédacteur.
+                    ignores["bloc non lu"] = ignores.get("bloc non lu", 0) + 1
+                    continue
+                bloc_designe = corpus.documents[index.doc_of(block_id)].block(block_id)
+                passage = _passage_qui_couvre(bloc_designe, unites[rang], settings=settings)
+                if passage is None:
+                    ignores["bloc sans le vocabulaire de la phrase"] = (
+                        ignores.get("bloc sans le vocabulaire de la phrase", 0) + 1)
+                    continue
+                controle = _controler_quote(block_id, passage, corpus=corpus, index=index,
+                                            fournis=fournis, blocs=blocs_prepares, settings=settings)
+                if controle.kind or controle.quote is None:
+                    ignores["citation non prouvable (AD-3)"] = (
+                        ignores.get("citation non prouvable (AD-3)", 0) + 1)
+                    continue
+                retires.discard(rang)
+                quotes_de_claim[claim_id].append(
+                    controle.quote.model_copy(update={"rattachee": True}))
+                rattachees += 1
+    if rattachees:
+        step.checks.append(CheckResult(
+            name="phrases_rattachees", ok=True,
+            detail=f"{rattachees} phrase(s) que les passages joints n'établissaient pas sont "
+                   "soutenues par un bloc lu pendant ce run : la citation en a été prise par le "
+                   "code et la phrase est conservée"))
+    if ignores:
+        step.checks.append(CheckResult(
+            name="rattachements_ignores", ok=False,
+            detail=f"{sum(ignores.values())} rattachement(s) désignés par le contrôle n'ont pas été "
+                   "suivis (" + ", ".join(f"{n} {cause}" for cause, n in sorted(ignores.items()))
+                   + ") : les phrases concernées restent retirées"))
 
     # Story 5.6 (L1c). Les affirmations qui ont écrit leur **rattachement aux faits dans `text`**
     # au lieu du champ prévu. Le contrôle juge `text` contre les citations : un rattachement fondu
@@ -1778,9 +1995,10 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                       fournis: set[str] | None = None,
                       contexte: list[tuple[int, AnswerSegment]] | None = None,
                       phrases_de_claim: dict[str, list[str]] | None = None,
+                      inventaire: list[Block] | None = None,
                       ) -> tuple[dict[str, bool], dict[str, str], dict[int, list[str]], dict[int, bool],
                                  dict[str, ChampsApplicabilite], DemandeContexte | None, bool,
-                                 dict[str, set[int]]]:
+                                 dict[str, set[int]], dict[str, list[RattachementDePhrase]]]:
     """L'unique appel `reason` groupé : pertinence, phrases soutenues, couverture — et l'applicabilité.
 
     Tout sort du **même** appel (AD-9 amendé : « un seul appel groupé, qui rend pertinence, phrases
@@ -1862,6 +2080,13 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             charge["clause"] = clauses_de_la_claim[0].kind
             charge["clause_confirmee"] = clauses_de_la_claim[0].kind_confirmed
         parts.append(untrusted("claim", json.dumps(charge, ensure_ascii=False)))
+    # L1h : l'inventaire de ce qui a été **lu** pendant ce run, après les affirmations et avant les
+    # segments. Il ne se cite pas — le contrôle ne rend que des `block_id` —, et il n'entre dans
+    # aucun jugement de pertinence : les passages joints restent le seul barème de
+    # `phrases_non_soutenues`. Il ne sert qu'à `rattachements`. Vide (inventaire désarmé ou aucun
+    # bloc non-titre lu), le message est byte-identique à celui d'avant L1h.
+    for bloc_lu in inventaire or []:
+        parts.append(untrusted("lu", _charge_de_bloc_lu(bloc_lu)))
     juges = {position for position, _ in segments}
     for position, segment in sorted([*segments, *(contexte or [])], key=lambda paire: paire[0]):
         # Le texte du segment vient du modèle : il est délimité comme tout le reste (AD-15). C'est
@@ -1923,6 +2148,12 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
     # par l'ordre d'arrivée : leur **réunion** est retenue, parce que retirer plus est le côté
     # prudent (« dans le doute, réponds false »).
     phrases_retirees: dict[str, set[int]] = {}
+    # L1h : les blocs **désignés** pour une phrase non soutenue. Rien n'est décidé ici — l'étape
+    # appelante possède le corpus, l'index et le contrôle de citation, et c'est elle qui prouve.
+    # Mêmes garde-fous qu'ailleurs : un identifiant inventé ne désigne rien, un rang que nous
+    # n'avons pas envoyé ne rattache rien, et deux désignations pour le même rang sont **écartées**
+    # toutes les deux (une contradiction est un doute, et le doute retire la phrase).
+    rattachements_de_phrases: dict[str, list[RattachementDePhrase]] = {}
     for v in result.parsed.verdicts:
         if v.claim_id not in attendus:  # un identifiant inventé ne décide de rien
             continue
@@ -1930,6 +2161,21 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         if len(unites) > 1:
             phrases_retirees.setdefault(v.claim_id, set()).update(
                 rang for rang in v.phrases_non_soutenues if 0 <= rang < len(unites))
+            par_rang: dict[int, RattachementDePhrase] = {}
+            contredits: set[int] = set()
+            for r in v.rattachements:
+                if not 0 <= r.rang < len(unites):
+                    continue
+                if r.rang in par_rang and par_rang[r.rang].block_id != r.block_id:
+                    contredits.add(r.rang)
+                par_rang.setdefault(r.rang, r)
+            if contredits:
+                step.checks.append(CheckResult(
+                    name="rattachement_contradictoire", ok=False,
+                    detail=f"{len(contredits)} phrase(s) rattachée(s) à deux blocs différents : "
+                           "aucune n'est rattachée, elles sont retirées"))
+            rattachements_de_phrases.setdefault(v.claim_id, []).extend(
+                r for rang, r in sorted(par_rang.items()) if rang not in contredits)
         if v.claim_id in verdicts and verdicts[v.claim_id] != v.pertinente:
             # Le prompt interdit de répondre deux fois pour un même identifiant, et dit « dans le
             # doute, réponds false ». Une contradiction est un doute : elle écarte la claim, elle ne
@@ -2278,7 +2524,7 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
         result.parsed, attendus=attendus, fournis=fournis or set(), texte_envoye=content,
         qualites_rendues=qualites_rendues, applicabilites=applicabilites, step=step)
     return (verdicts, raisons, couverture, soutiens, applicabilites, demande, demande_refusee,
-            phrases_retirees)
+            phrases_retirees, rattachements_de_phrases)
 
 
 def _demande_de_contexte(parsed: SortieVerifier, *, attendus: set[str], fournis: set[str],

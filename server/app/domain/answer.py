@@ -323,6 +323,12 @@ class VerifiedQuote(Quote):
     # preuve (mêmes offsets, même relecture depuis le corpus) ; il change ce que l'affichage en dit,
     # `status: "contexte"` plutôt que `"verifiee"` (AD-3, précision du 04/09/2026).
     contexte: bool = False
+    # Story 5.6 (L1h) — cette citation n'a pas été écrite par le rédacteur : la **vérification** l'a
+    # prise dans un bloc lu pendant le run, sur désignation du contrôle, pour soutenir une phrase que
+    # les passages joints n'établissaient pas. La preuve est la même que pour toute autre citation
+    # (mêmes offsets, même relecture depuis le corpus, mêmes contrôles d'AD-3) ; ce qui change est
+    # son origine, et l'affichage le dit — `status: "rattachee"` plutôt que `"verifiee"`.
+    rattachee: bool = False
 
     @model_validator(mode="after")
     def _span_is_not_empty(self) -> VerifiedQuote:

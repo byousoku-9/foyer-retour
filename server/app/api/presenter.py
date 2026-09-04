@@ -74,11 +74,18 @@ STATUT_VERIFIEE = "verifiee"
 # c'est une source indépendante. Le statut le dit au lecteur plutôt que de la faire passer pour la
 # clause elle-même. `VerifiedQuote.contexte` est le seul à en décider, et il vient de *vérifier*.
 STATUT_CONTEXTE = "contexte"
+# Story 5.6 (L1h) — la citation que la **vérification** a rattachée à une phrase, dans un bloc lu
+# pendant le run mais que le rédacteur n'avait pas joint. Aussi prouvée que les autres ; ce qu'elle
+# n'est pas, c'est une source que la rédaction a choisie. `VerifiedQuote.rattachee` en décide seul,
+# et il vient de *vérifier*.
+STATUT_RATTACHEE = "rattachee"
 
 
 def _statut_de(quote: VerifiedQuote) -> str:
-    """« verifiee », ou « contexte » quand la citation est l'amorce de l'item cité avec elle (L1f)."""
-    return STATUT_CONTEXTE if quote.contexte else STATUT_VERIFIEE
+    """« verifiee », « contexte » (l'amorce de l'item cité avec elle, L1f) ou « rattachee » (L1h)."""
+    if quote.contexte:
+        return STATUT_CONTEXTE
+    return STATUT_RATTACHEE if quote.rattachee else STATUT_VERIFIEE
 
 
 def _incoherence(block_id: str, motif: str) -> PipelineError:

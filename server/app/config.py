@@ -496,7 +496,31 @@ class Settings(BaseSettings):
     # `test_le_plafond_retenu_ecarte_la_troncature_mesuree` rejoue la troncature enregistrée et finit
     # en `LlmParse` — donc en 503 — tant que le plafond ne dépasse pas la réflexion mesurée.
     # Ce qui reste à confirmer au réenregistrement : qu'aucune réponse ne se tronque plus ici.
-    verifier_max_tokens: int = Field(3072, ge=1)
+    #
+    # **6 144 depuis le 04/09/2026 (story 5.6, L1h), et c'est une mesure, pas un confort.** « Plus du
+    # triple de la plus forte dépense jamais observée » décrivait un appel qui lisait les seules
+    # citations du rédacteur. L1h donne au contrôle l'inventaire des passages **lus** : il a plus à
+    # lire, donc plus à peser, et la réflexion suit. Rejeu de la question « avant de partir au
+    # Luxembourg » du 04/09/2026 à 07:27 : **quatre appels de *vérifier* sur quatre** rendus à
+    # exactement 3 072 tokens de sortie, `stop_reason=max_tokens`, `parse_retry` puis `LlmParse` —
+    # donc un 503 sur une question nominale, exactement la panne que ce champ a été relevé pour
+    # supprimer. Le tour précédent (L1g, même question) mesurait déjà 2 714 sur 3 072 : la marge
+    # était de 12 %, et n'importe quelle croissance de la lecture l'épuisait.
+    #
+    # La valeur retenue est `verifier_sinistre_json_tokens` + `verifier_thinking_reserve_tokens`
+    # (1 024 + 5 120), c'est-à-dire **la même réserve de réflexion que le chemin sinistre**. Ce n'est
+    # pas un alignement de commodité : la réflexion est une propriété du **tier et de l'effort**
+    # (`reason`, `medium`), pas du contrat JSON — deux appels du même tier au même effort qui lisent
+    # autant de texte réfléchissent autant. Ce qui reste propre à chaque chemin est le contrat, et
+    # les deux champs demeurent distincts pour cela. 5 120 est déjà documenté là-bas comme « la borne
+    # de sûreté, pas la dérivation » : elle majore de 75 % le pire jamais mesuré.
+    #
+    # **Coût.** Inchangé dans sa nature : `max_tokens` ne facture pas, il borne. Le seul effet est le
+    # majorant de préflight, qui vaut exactement les tokens ajoutés au tarif de sortie du tier servi
+    # — c'est l'identité que `test_le_relevement_du_plafond_ne_coute_que_les_tokens_ajoutes` prouve
+    # hors réseau, et elle se recalcule seule sur ce champ. La durée reste couverte : le plafond vaut
+    # désormais celui du sinistre, dont `llm_timeout_s` est déjà dimensionné (78 s ≥ 6 144 / 85 + 5).
+    verifier_max_tokens: int = Field(6144, ge=1)
 
     # Pipeline sinistre (story 1.8, AD-6) : contrat servi par `pipelines/sinistre.py` — un slug, pas un
     # seuil numérique, donc absent de `thresholds()` comme `guide_doc_id`.
@@ -552,6 +576,37 @@ class Settings(BaseSettings):
     # **unique** relance est demandée avec les rangs retirés nommés (`steps.verifier`), et c'est la
     # relance d'AD-3 déjà bornée par le pipeline — jamais un second appel de plus.
     claim_phrases_retirees_ratio_max: float = Field(0.34, gt=0.0, le=1.0)
+    # --- Story 5.6 (L1h) — rattacher une phrase vraie au passage lu qui la soutient ------------
+    # Mesuré le 04/09/2026 (rejeu guide `540704d9`, sous-question « quoi prévoir pour s'installer ») :
+    # sur cinq phrases rédigées, trois sont retirées, et l'une d'elles est écrite **mot pour mot**
+    # dans la fiche « Trouver un logement », lue pendant la navigation mais non jointe à cette
+    # affirmation-là. Le jugement est juste par rapport aux passages joints, étroit par rapport à ce
+    # que la lecture a vu. Le contrôle reçoit donc l'inventaire de ce qui a été lu, et peut
+    # **désigner** — jamais citer — le bloc qui soutient une phrase qu'il vient de déclarer non
+    # soutenue ; le code prouve ensuite la citation comme n'importe quelle autre (AD-3).
+    #
+    # Le majorant de tokens de l'inventaire. Il borne ce que le contrôle voit **en plus** des
+    # passages joints : au-delà, les blocs des nœuds les plus cités passent d'abord et le reste est
+    # laissé de côté. La borne est en tokens et non en blocs parce que c'est le coût qu'elle protège
+    # (AD-9, NFR4) — un bloc de contrat et un bloc de fiche n'ont pas la même taille. `0` désarme
+    # l'inventaire : le contrôle retrouve alors exactement le message d'avant L1h, à l'octet près.
+    verifier_inventaire_max_tokens: int = Field(1400, ge=0)
+    # Combien de phrases une réponse peut au plus faire **rattacher** par la vérification. Un
+    # rattachement est une citation que le rédacteur n'a pas écrite : elle est prouvée par le code,
+    # mais elle reste un chemin par lequel la réponse s'allonge sans que la rédaction l'ait voulu.
+    # La borne dit qu'il répare un oubli, jamais qu'il rédige. Mesuré : la sous-question du rejeu en
+    # demandait deux.
+    rattachement_de_phrase_max: int = Field(4, ge=0)
+    # La longueur minimale d'un mot de la phrase pour qu'il compte dans l'ancrage lexical du bloc
+    # désigné. Les mots plus courts sont des articles et des prépositions : les compter ferait
+    # « couvrir » n'importe quel bloc de français par n'importe quelle phrase.
+    rattachement_de_phrase_mot_min_chars: int = Field(5, ge=1)
+    # La fraction des mots significatifs de la phrase que le bloc désigné doit porter pour que le
+    # code accepte d'y chercher une citation. C'est le seul contrôle de **couverture** que le code
+    # sache faire seul, et il est volontairement du côté strict : le modèle a désigné le bloc en le
+    # lisant, le code refuse de le suivre quand le vocabulaire de la phrase n'y est pas. En dessous
+    # du seuil, la phrase est retirée exactement comme avant L1h.
+    rattachement_de_phrase_couverture_min_ratio: float = Field(0.6, gt=0.0, le=1.0)
     # L'appel `reason` du sinistre rend tout ce que rend celui du guide **plus** une entrée
     # `applicabilite` par claim décisionnelle. Le partage de `verifier_max_tokens` (1 024) tenait tant
     # que le contrat ne rendait qu'une clause — c'est ce que le run live a montré, et c'est exactement
@@ -1987,6 +2042,11 @@ class Settings(BaseSettings):
             "rattachement_max_chars": self.rattachement_max_chars,
             "claim_phrases_max": self.claim_phrases_max,
             "claim_phrases_retirees_ratio_max": self.claim_phrases_retirees_ratio_max,
+            "verifier_inventaire_max_tokens": self.verifier_inventaire_max_tokens,
+            "rattachement_de_phrase_max": self.rattachement_de_phrase_max,
+            "rattachement_de_phrase_mot_min_chars": self.rattachement_de_phrase_mot_min_chars,
+            "rattachement_de_phrase_couverture_min_ratio":
+                self.rattachement_de_phrase_couverture_min_ratio,
             "historique_max_turns": self.historique_max_turns,
             # `Trace.thresholds` est typé `float | int` : un bool y est publié comme 0/1 par
             # pydantic. On le convertit ici plutôt que de laisser la sérialisation décider
@@ -2216,6 +2276,9 @@ SEUILS_DE_GATE: frozenset[str] = frozenset({
     "conversation_max_turns", "conversation_active_questions_max", "qualites_exigees_max",
     "qualite_mot_min_chars", "rattachement_max_chars", "claim_phrases_max",
     "claim_phrases_retirees_ratio_max",
+    "verifier_inventaire_max_tokens", "rattachement_de_phrase_max",
+    "rattachement_de_phrase_mot_min_chars",
+    "rattachement_de_phrase_couverture_min_ratio",
     "historique_max_turns",
     "relance_sur_non_pertinence",
     "quote_max_chars", "draft_max_segments", "draft_max_claims", "draft_max_definitions",
