@@ -968,10 +968,15 @@ window.CHAT = (function () {
     limites_non_reconduites: "des réserves n'ont pas pu être reconduites sous la borne de segments",
     pertinence_incomplete: "des affirmations sont restées sans verdict de pertinence",
     phrases_de_claim_retirees: "des phrases d'une affirmation retenue avancent plus que ses passages : retirées, le reste est affiché",
+    phrases_rattachees:
+      "des phrases que les passages joints n'établissaient pas sont soutenues par un passage lu ailleurs : conservées, la citation a été ajoutée",
     qualite_de_la_clause_non_enumeree: "une qualité écrite par la clause n'a pas été énumérée",
     qualite_etablie_par_qualification: "une qualité que la clause nomme est remplie par le fait déclaré",
     qualite_exigee_non_etablie: "une qualité exigée par une clause n'est pas établie par les faits",
     qualites_non_enumerees: "les qualités exigées ou établies n'ont pas été énumérées",
+    rattachement_contradictoire: "une phrase rattachée à deux passages différents : aucun n'est retenu",
+    rattachements_ignores:
+      "des rattachements proposés n'ont pas été suivis (passage non lu, ou citation non prouvable) : les phrases restent retirées",
     rattachement_fondu_dans_la_clause: "le lien avec les faits est écrit dans la phrase de la clause, où il est jugé contre les citations",
     rattachement_hors_borne: "un lien avec les faits dépasse la borne d'affichage : ignoré, la clause reste",
     renvoi_cp_non_enumere: "la clause renvoie aux conditions particulières ou à une option, ce que la lecture n'avait pas rendu",
