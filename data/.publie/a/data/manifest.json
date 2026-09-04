@@ -12,15 +12,15 @@
       "source_hash": "6824f9d2bbcb573b0b7c3816ea8a6e5f035b199bd885cf5b777e0978faa4af2c",
       "ingest_fingerprint": "0fd0841609266a79f20a2af7487be9b06a864c24a49b5abad4244ca980bcd460",
       "cases_hash": "0b521262f9d9e4ed5da3923df9985e416f4ab6de6c911e959facf2b36eaa57e0",
-      "pipeline_digest": "1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d",
-      "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
+      "pipeline_digest": "aa3f6d141d56379e187aaaabc3eba8db61f900056ce7c61469a85ca194a97d70",
+      "prompts_digest": "ca306d3840e21043a3ba2acc89e2e1cf5ede0df88827f85770e618506bbe0bcb",
       "model_ids": {
         "ingest": "claude-opus-5",
         "reason": "claude-sonnet-5",
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T18:04:35Z",
+      "date": "2026-09-04T00:09:10Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -31,7 +31,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6135171f1c0f5fecaff315fb4469e4e3f9e41cd6178f44d6f66909ef1263d414",
+          "run_digest": "c8330167f41690b498f5281cc37fe5e0e1633207ee0cb27b7f521a9274440d76",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -42,7 +42,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "6135171f1c0f5fecaff315fb4469e4e3f9e41cd6178f44d6f66909ef1263d414",
+          "run_digest": "c8330167f41690b498f5281cc37fe5e0e1633207ee0cb27b7f521a9274440d76",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -53,7 +53,7 @@
           "threshold": 1.0,
           "scope": "suite:sinistre",
           "n": 3,
-          "run_digest": "6135171f1c0f5fecaff315fb4469e4e3f9e41cd6178f44d6f66909ef1263d414",
+          "run_digest": "c8330167f41690b498f5281cc37fe5e0e1633207ee0cb27b7f521a9274440d76",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -64,7 +64,7 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "6135171f1c0f5fecaff315fb4469e4e3f9e41cd6178f44d6f66909ef1263d414",
+          "run_digest": "c8330167f41690b498f5281cc37fe5e0e1633207ee0cb27b7f521a9274440d76",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -75,7 +75,7 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "9a218297c2f36c09ab83edfecf1833fbb4c6fdd72d077c2e896cfd93a5af6f82",
+          "run_digest": "3ab0ed1533bb2750482309d7f1f6f84d96189ecb951fef66c0959cbafbf79103",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -86,7 +86,7 @@
           "threshold": 1.0,
           "scope": "live_http",
           "n": 3,
-          "run_digest": "9a218297c2f36c09ab83edfecf1833fbb4c6fdd72d077c2e896cfd93a5af6f82",
+          "run_digest": "3ab0ed1533bb2750482309d7f1f6f84d96189ecb951fef66c0959cbafbf79103",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -97,19 +97,20 @@
           "threshold": 1.0,
           "scope": "case:s-bougie-canape",
           "n": 3,
-          "run_digest": "9a218297c2f36c09ab83edfecf1833fbb4c6fdd72d077c2e896cfd93a5af6f82",
+          "run_digest": "3ab0ed1533bb2750482309d7f1f6f84d96189ecb951fef66c0959cbafbf79103",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "6135171f1c0f5fecaff315fb4469e4e3f9e41cd6178f44d6f66909ef1263d414",
+      "run_digest": "c8330167f41690b498f5281cc37fe5e0e1633207ee0cb27b7f521a9274440d76",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
         "llm_output_tokens_per_s_min": 85.0,
         "llm_latence_marge_s": 5.0,
         "client_abort_margin_s": 25.0,
+        "sse_keepalive_s": 15.0,
         "client_probe_timeout_s": 10.0,
         "raison_publiable_max_chars": 500,
         "quote_min_chars": 25,
@@ -169,6 +170,8 @@
         "conversation_active_questions_max": 3,
         "qualites_exigees_max": 4,
         "qualite_mot_min_chars": 5,
+        "rattachement_max_chars": 240,
+        "claim_phrases_max": 12,
         "historique_max_turns": 6,
         "relance_sur_non_pertinence": 0,
         "quote_max_chars": 250,
@@ -287,7 +290,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "5d5b3405788bca77af17f0b7329fbc2f02cd9795",
+      "candidate_revision": "3f12de30beb368a6e6dacb0d19f848a573e25102",
       "report_digest": null,
       "structure_hash": null
     }
@@ -576,7 +579,7 @@
       "source_hash": "abe65f06a4789b61b1e19bb53f8546a8464a697ae24d0dcebc026f40fd49e3a5",
       "ingest_fingerprint": "7c40a0cbf0315a4e4b3f5ff982a048bc283da32418e1386d376f004d660beb34",
       "cases_hash": "9e325311b481b806a11641130952d78c682c32a5db2ac309a2fb5259b8bdd791",
-      "pipeline_digest": "cb19f22348ded7c8b859fe6099eebeb8ddff61cc003676e88ec6d018550cd7ff",
+      "pipeline_digest": "1a0721128e740a819633e4a7eb5697fa86120a3aaf99f2e4fe2849e5d58c351d",
       "prompts_digest": "5668b46bf22eba398a2a3ff4465ddfe8210d20808c5b359270dd5f12a9326727",
       "model_ids": {
         "ingest": "claude-opus-5",
@@ -584,7 +587,7 @@
         "micro": "claude-haiku-4-5-20251001"
       },
       "evals_ok": true,
-      "date": "2026-09-03T17:15:53Z",
+      "date": "2026-09-03T18:05:36Z",
       "overlay_hash": null,
       "cases": 1,
       "countersigned": false,
@@ -595,7 +598,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "5d9edce477043b552f35b79fc035808def42019fbf63efc8cccdc6ad34bfac84",
+          "run_digest": "9bf067540204422c183f65bfb73e71dcaccc6389aac0acde8ef4521cc1102115",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -606,7 +609,7 @@
           "threshold": 1.0,
           "scope": "run",
           "n": 3,
-          "run_digest": "5d9edce477043b552f35b79fc035808def42019fbf63efc8cccdc6ad34bfac84",
+          "run_digest": "9bf067540204422c183f65bfb73e71dcaccc6389aac0acde8ef4521cc1102115",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -617,7 +620,7 @@
           "threshold": 1.0,
           "scope": "suite:guide",
           "n": 3,
-          "run_digest": "5d9edce477043b552f35b79fc035808def42019fbf63efc8cccdc6ad34bfac84",
+          "run_digest": "9bf067540204422c183f65bfb73e71dcaccc6389aac0acde8ef4521cc1102115",
           "value": 1.0,
           "status": "green",
           "reason": null
@@ -628,13 +631,13 @@
           "threshold": 1.0,
           "scope": "repo",
           "n": 3,
-          "run_digest": "b31102f30be581bff2f85afdd463ae469331e2890891b0671d005a89df7b26cf",
+          "run_digest": "9a218297c2f36c09ab83edfecf1833fbb4c6fdd72d077c2e896cfd93a5af6f82",
           "value": 1.0,
           "status": "green",
           "reason": null
         }
       ],
-      "run_digest": "5d9edce477043b552f35b79fc035808def42019fbf63efc8cccdc6ad34bfac84",
+      "run_digest": "9bf067540204422c183f65bfb73e71dcaccc6389aac0acde8ef4521cc1102115",
       "pipeline_settings": {
         "deadline_s": 290.0,
         "llm_timeout_s": 78.0,
@@ -818,7 +821,7 @@
         "response_cache_max_bytes": 33554432
       },
       "plancher_digest": null,
-      "candidate_revision": "f12ce7e2aebc9857af16168bb6598fbc5f211031",
+      "candidate_revision": "5d5b3405788bca77af17f0b7329fbc2f02cd9795",
       "report_digest": null,
       "structure_hash": null
     }
