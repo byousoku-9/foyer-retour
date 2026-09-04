@@ -269,6 +269,37 @@ def _mots_significatifs(libelle: str, *, min_chars: int) -> set[str]:
             if len(m) >= min_chars and m not in MOTS_DE_STRUCTURE}
 
 
+def _meme_mot(a: str, b: str, *, min_chars: int) -> bool:
+    """Deux mots normalisés sont-ils **le même mot** pour ces contrôles ? Un préfixe partagé suffit.
+
+    Story 5.7 (L1q). Le projet n'embarque pas de lemmatiseur, et il n'en a pas besoin pour ce qu'il
+    demande : deux mots qui partagent leurs `min_chars` premiers caractères sont la même racine
+    française — « subit »/« subite », « débordement »/« déborde », et surtout
+    « propagation »/« propageant », que la dérivation sépare des deux côtés.
+
+    C'est ce dernier cas qui a motivé la règle. Mesuré en prod le 04/09/2026 sur les plaques à
+    induction : la clause `p34:7` écrit « la destruction par des flammes se **propageant** … en
+    dehors de leur domaine normal », le vérificateur rendait le fait manquant « **propagation** des
+    flammes hors de leur domaine normal », et le dossier redemandait donc à l'assuré d'établir la
+    propagation que la clause qu'il lisait venait de nommer. Le préfixe **à sens unique** qui servait
+    jusque-là (le libellé cherché tel quel dans le texte, ou « l'un préfixe l'autre ») ne rapproche pas
+    ces deux mots : aucun n'est le préfixe de l'autre, seul « propag » leur est commun.
+
+    La règle est symétrique par construction, donc indifférente au sens de la dérivation, et elle
+    subsume l'ancienne : les mots comparés viennent tous de `_mots_significatifs`, qui n'en retient
+    aucun de moins de `min_chars` caractères — un mot préfixe de l'autre partage donc déjà au moins
+    `min_chars` caractères avec lui.
+    """
+    if a == b:
+        return True
+    partage = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        partage += 1
+    return partage >= min_chars
+
+
 def _dit_la_qualite(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
     """Le fragment cité dit-il la qualité ? **Tous** ses mots porteurs, recoupés par préfixe.
 
@@ -287,7 +318,7 @@ def _dit_la_qualite(qualite: str, fait_cite: str, *, min_chars: int) -> bool:
     if not mots:
         return False
     cites = _mots_significatifs(fait_cite, min_chars=min_chars)
-    return all(any(a.startswith(b) or b.startswith(a) for b in cites) for a in mots)
+    return all(any(_meme_mot(a, b, min_chars=min_chars) for b in cites) for a in mots)
 
 
 def _qualifie_par_la_clause(qualite: str, preuve_norm: str, *, min_chars: int) -> bool:
@@ -334,7 +365,8 @@ def _ecrite_par_la_clause(qualite: str, texte_norm: str, *, min_chars: int) -> b
     mots = _mots_significatifs(qualite, min_chars=min_chars)
     if not mots:
         return False
-    return all(re.search(rf"\b{re.escape(mot)}", texte_norm) for mot in mots)
+    ecrits = set(re.findall(r"[a-z0-9]+", texte_norm))
+    return all(any(_meme_mot(mot, ecrit, min_chars=min_chars) for ecrit in ecrits) for mot in mots)
 
 
 def _propositions(texte: str) -> list[str]:
@@ -1072,6 +1104,15 @@ MOTIFS_NON_PERTINENCE: dict[str, str] = {
     ),
 }
 
+# Story 5.7 (L1q). Le motif d'une affirmation que le contrôle a rangée sous **deux** sous-questions.
+# Ce n'est pas une raison du vocabulaire fermé du modèle — c'est un constat du code sur sa propre
+# sortie —, et le geste demandé est de **découper**, jamais de retrancher : ce que l'affirmation dit
+# de l'autre sous-question a sa place, mais dans sa propre claim, avec ses propres passages.
+MOTIF_FACETTES_MELANGEES = (
+    "affirmation qui répond à plusieurs sous-questions à la fois : découpe-la en une claim par "
+    "sous-question, chacune avec son `facette` et les passages des fiches qui traitent cette "
+    "sous-question-là — une réponse qui fond deux sujets dans un paragraphe n'en traite bien aucun")
+
 MOTIF_NON_PERTINENCE_GENERIQUE = (
     "citation non pertinente : le passage cité ne soutient pas l'affirmation, ou l'affirmation ne "
     "répond pas à l'objet de la question ; rapporte seulement une règle soutenue qui répond à cet "
@@ -1260,7 +1301,11 @@ def _clauses_citees(block_ids: list[str], *, corpus: Any, index: Any) -> list[Cl
             # socle (`Index.est_amorce_denumeration`). Une amorce reste une clause citée — son texte
             # qualifie ses items (L1n) et sa section les conditionne (L1e) —, mais elle ne décide
             # rien par elle-même : citée seule, elle laisse la claim hors de la table.
-            amorce=index.est_amorce_denumeration(block_id)))
+            amorce=index.est_amorce_denumeration(block_id),
+            # L1q : et l'inverse, à la même source (`Index.amorce_qui_introduit`, L1p). Deux clauses
+            # qui partagent leur amorce sont deux items de la **même** énumération : la table s'en
+            # sert pour savoir que deux garanties sont sœurs, donc alternatives.
+            amorce_de=index.amorce_qui_introduit(block_id) or ""))
     return clauses
 
 
@@ -1516,6 +1561,37 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
             raise
     else:
         raisons = {}
+        couverture = {}
+
+    # --- L1q : l'affirmation qui fond deux sous-questions ------------------------------------
+    # Story 5.7 (L1q), défaut 3. Mesuré en prod le 04/09/2026 sur la question d'installation
+    # (`retours-1400/guide-installation.txt`) : à une question qui posait quatre sous-questions, le
+    # guide a servi **une** affirmation et onze passages pris dans trois fiches — les huit premiers
+    # jours, le logement, la banque — fondus dans un seul paragraphe, et l'école est sortie « sans
+    # réponse ». `naviguer_guide.md` demande déjà « une entrée par sous-question » et « ne fonds
+    # jamais deux sous-questions dans un même paragraphe » ; rien, dans le code, ne le vérifiait.
+    #
+    # Le signal existait déjà et n'était lu que pour compter : `SortieVerifier.facettes` dit quelles
+    # affirmations répondent à quelle sous-question. Une claim rangée sous **deux** rangs *est*
+    # l'affirmation fondue, dite par le contrôle lui-même. Elle part en `non_pertinente` avec son
+    # motif, et la relance d'AD-3 — une, déjà là — redemande le découpage.
+    #
+    # **Le guide seul.** En mode sinistre, une même clause peut légitimement répondre à deux
+    # sous-questions d'un même sinistre (la garantie qui couvre le mobilier couvre aussi le
+    # bâtiment) : ce n'est pas un paragraphe fondu, c'est une clause qui porte loin. La règle du
+    # prompt qu'on fait respecter ici est celle du guide, et elle ne vaut que là.
+    melangees: set[str] = set()
+    if faits is None:
+        comptes: dict[str, int] = {}
+        for ids in couverture.values():
+            for claim_id in set(ids):
+                comptes[claim_id] = comptes.get(claim_id, 0) + 1
+        melangees = {claim_id for claim_id, n in comptes.items() if n > 1}
+        if melangees:
+            step.checks.append(CheckResult(
+                name="facettes_melangees", ok=False,
+                detail=f"{len(melangees)} affirmation(s) répondent à plusieurs sous-questions à la "
+                       "fois : elles sont écartées et la relance en demande le découpage"))
 
     # --- L1h : la phrase vraie que le rédacteur a mal sourcée --------------------------------
     # Le contrôle vient de désigner, pour certaines phrases qu'il déclare non soutenues, le bloc lu
@@ -1702,7 +1778,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         line_ids: list[str] = []
         for q in quotes:
             line_ids += [lid for lid in q.line_ids if lid not in line_ids]
-        if pertinente is True:
+        if pertinente is True and claim.claim_id not in melangees:
             claims.append(VerifiedClaim(claim_id=claim.claim_id,
                                         text=textes_amputes.get(claim.claim_id, claim.text),
                                         quotes=quotes,
@@ -1713,6 +1789,11 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         motif = (MOTIFS_NON_PERTINENCE.get(raison_fermee or "", MOTIF_NON_PERTINENCE_GENERIQUE)
                  if pertinente is False else
                  "pertinence non rendue par le contrôle groupé : l'affirmation est écartée plutôt que devinée")
+        if claim.claim_id in melangees:
+            # L1q : le constat du code passe devant celui du modèle. Une affirmation soutenue mais
+            # fondue n'a pas de raison fermée à porter — le vocabulaire du modèle n'en a pas pour
+            # ça —, et le motif dit le seul geste qui répare : découper, sans rien retrancher.
+            motif = MOTIF_FACETTES_MELANGEES
         if claim.claim_id in fondus and raison_fermee in RAISONS_CORRIGEABLES:
             # L1c : « retire ce que les passages ne disent pas » ferait supprimer le rattachement,
             # alors que c'est lui qui évite de redemander au client ce qu'il vient de déclarer. Le
@@ -2034,6 +2115,7 @@ async def verifier(draft: AnswerDraft, *, parsed: ParsedQuestion, retrieval: Ret
         # décidera de la satisfaire (AD-1 : *retrouver* est seul propriétaire des outils).
         demande_contexte=demande,
         phrases_a_reecrire=phrases_a_reecrire,
+        facettes_melangees=sorted(melangees),
         motif=_motif_de_relance(rejetees, noms, inactionnables,
                                 [rang for rang in range(len(parsed.facettes))
                                  if rang not in set(facettes_couvertes)],

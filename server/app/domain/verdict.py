@@ -202,6 +202,11 @@ class ClauseCitee(DomainModel):
     # Une amorce reste une clause citée, avec son texte et ses qualificatifs ; elle n'est pas une
     # clause qui **décide** (`ClaimJugee.clauses_decisionnelles`).
     amorce: bool = False
+    # Story 5.7 (L1q) : le bloc de l'**amorce** dont cette clause est un item, ou une chaîne vide.
+    # Lu sur l'arbre comme `amorce` (`Index.amorce_qui_introduit`), et c'est le seul signal dont la
+    # table a besoin pour savoir que deux garanties sont **sœurs** : les items d'une même énumération
+    # de périls sont des voies alternatives vers la couverture, jamais des exigences cumulées.
+    amorce_de: str = ""
 
 
 class ClaimJugee(DomainModel):
@@ -796,6 +801,39 @@ def _garantie_principale_du_noeud(claim: ClaimJugee, claims: list[ClaimJugee], *
     return "humain" if "humain" in valeurs else "non"
 
 
+def _soeurs_denumeration_ouvertes(garantie: ClaimJugee, claims: list[ClaimJugee], *,
+                                  etat: dict[str, Applicable | None]) -> list[ClaimJugee]:
+    """Les garanties **sœurs** de celle-ci, restées ouvertes — items de la même énumération (L1q).
+
+    Story 5.7 (L1q). Mesuré en prod le 04/09/2026 sur les plaques à induction : le modèle cite
+    `3.1.1.1.1 L'incendie` **et** `3.1.1.1.6 Les dégâts occasionnés … par un événement soudain`, deux
+    des six périls que `p34:6` annonce (« contre les périls suivants : »). L'incendie porte la
+    couverture ; le sixième item exige un caractère soudain que les faits n'établissent pas et reste
+    `humain`. La règle (3) refusait alors de trancher — « aucune claim retenue `humain` » —, et le
+    verdict tombait en `ne_tranche_pas` : une garantie établie était rétrogradée par les qualités
+    manquantes d'une garantie **citée en surplus**.
+
+    Un contrat qui assure « contre les périls suivants » énumère des voies **alternatives** : qu'un
+    second péril ne soit pas établi ne retire rien au premier. La sororité se lit donc sur l'amorce
+    partagée (`ClauseCitee.amorce_de`), c'est-à-dire sur la structure du document, jamais sur une
+    proximité de titres ou de numéros — et c'est ce qui la garde étroite : une garantie qui répond à
+    une **autre** sous-question vit ailleurs dans l'arbre, sous une autre amorce, et continue de
+    peser sur le verdict comme avant.
+
+    Elles ne disparaissent pas pour autant : la clause sœur reste affichée avec son statut, ses
+    qualités restent des questions au client (`_libelles_manquants`), et le verdict que l'appelant en
+    tire est `sous_conditions` — jamais `couvert`. Une garantie s'applique, quelque chose reste
+    ouvert, et la réponse le dit.
+    """
+    amorces = {clause.amorce_de for clause in garantie.clauses_decisionnelles if clause.amorce_de}
+    if not amorces:
+        return []
+    return [autre for autre in claims
+            if autre.claim_id != garantie.claim_id and autre.kind == "garantie"
+            and etat.get(autre.claim_id) == "humain"
+            and any(clause.amorce_de in amorces for clause in autre.clauses_decisionnelles)]
+
+
 def applicabilites_des_claims(
         claims: list[ClaimJugee]) -> dict[str, tuple[Applicable | None, ApplicableReason | None]]:
     """Statut et raison issus du même état de portée que la table AD-6.
@@ -847,9 +885,9 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
     (1)   exclusion `oui` dont la portée couvre les nœuds du cas ⇒ `non_couvert` ;
-    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, garantie hors socle, ou
-          **condition d'applicabilité de sa section non établie**) ⇒ `sous_conditions` — politique
-          conservatrice ;
+    (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, garantie hors socle,
+          **condition d'applicabilité de sa section non établie**, ou **garantie sœur de la même
+          énumération restée ouverte**) ⇒ `sous_conditions` — politique conservatrice ;
     (2bis) garantie `humain` **par** option ou conditions particulières ⇒ `sous_conditions` : c'est
           le « dépend d'une option / CP inconnue » d'AD-6 vu depuis la **clause**, qu'une garantie
           `oui` ne peut pas exprimer (une garantie qui dépend d'une option est `humain` par
@@ -980,13 +1018,22 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
         # « … ou d'une **extension** » (AD-6, règle 2) : le nœud le dit, pas le modèle.
         hors_socle = any(not clause.socle for clause in garantie.clauses)
         conditionnee = _conditions_de(garantie, conditions_ouvertes)
-        # (2) — politique conservatrice : un seul de ces trois motifs suffit à ouvrir le verdict.
-        if ouvertes or hors_socle or conditionnee:
+        # L1q : et les garanties **sœurs** de celle-ci — les autres items de la même énumération de
+        # périls — restées ouvertes. Elles n'ajoutent aucune exigence à la garantie qui s'applique
+        # (ce sont des voies alternatives), mais elles ne s'effacent pas non plus : elles ouvrent le
+        # verdict comme le ferait une condition, au lieu de le faire tomber en `ne_tranche_pas` par
+        # la règle (3).
+        soeurs = _soeurs_denumeration_ouvertes(garantie, retenues, etat=etat)
+        # (2) — politique conservatrice : un seul de ces quatre motifs suffit à ouvrir le verdict.
+        if ouvertes or hors_socle or conditionnee or soeurs:
             motifs = []
             if ouvertes:
                 motifs.append("une condition, une franchise ou une exclusion citée reste ouverte")
             if hors_socle:
                 motifs.append("la garantie ne relève pas du socle commun")
+            if soeurs:
+                motifs.append("une autre garantie de la même énumération, citée en surplus, reste "
+                              "ouverte sans retirer quoi que ce soit à celle qui s'applique")
             # L1e : la condition est **montrée**, pas seulement invoquée — le bloc et son texte, relus
             # dans le corpus. Sans cela, « sous conditions » ne dit pas au lecteur ce qu'il lui reste
             # à établir, et c'est précisément la clause que le modèle n'avait pas citée.
