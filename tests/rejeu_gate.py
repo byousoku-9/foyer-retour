@@ -12,7 +12,8 @@ les renvois aux conditions particulières ou aux options (T18). Le premier témo
 vérifie que cette reconstruction reproduit la signature mesurée : sans quoi tout ce qui suit ne dirait
 rien du run.
 
-`avant` nomme les correctifs qui n'étaient **pas** en vigueur le jour du run. C'est ce qui permet de
+`avant` nomme les correctifs qui n'étaient **pas** en vigueur le jour du run — ou, pour L1u, les
+règles qui l'étaient encore et que ce tour retire. C'est ce qui permet de
 rejouer côte à côte la lecture mesurée et la lecture corrigée : la même entrée, qui divergeait et qui
 converge. Aucun appel réseau — le corpus est celui de `data/`, les rapports sont figés dans
 `tests/data/`.
@@ -87,6 +88,13 @@ def rejouer(repetition: dict, *, corpus: Corpus, index: Index,
         if "L1p" in avant:
             clauses = [_relire_sans_amorce(c, corpus=corpus, index=index) for c in clauses]
         observe = claim["applicable"]
+        if claim.get("ferme_par_le_rattachement") and "L1u" not in avant:
+            # Story 5.7 (L1u). Ce `oui` n'existait que par la porte du rattachement : la claim
+            # rendait un fait manquant — l'exigence que sa clause écrit —, et le rattachement le
+            # fermait. La porte est retirée ; la claim retombe donc sur ce que le **modèle** a
+            # rendu, une exigence restée ouverte. Le rapport figé porte le marqueur, jamais le
+            # code : c'est la lecture de la mesure, et `avant={"L1u"}` rejoue la lecture du run.
+            observe = "humain"
         exigees = _qualites_de_la_clause(clauses, nommees="", place=8) if observe != "non" else []
         renvois = {r for clause in clauses if clause.kind == "garantie" for r in clause.renvois}
         jugees.append(ClaimJugee(

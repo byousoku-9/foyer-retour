@@ -1,0 +1,438 @@
+{
+ "source": "automation/runs/20260903-lisibilite/gate-{doc}-18.json",
+ "mesure": "04/09/2026 — gate `-18` des trois documents, trois répétitions par cas",
+ "cas": [
+  {
+   "nom": "s-bougie-canape",
+   "doc": "axa-lu-optihome-2017",
+   "repetitions": [
+    {
+     "repetition": 1,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:6"
+       ],
+       "applicable": null,
+       "applicable_reason": null,
+       "rattachement": false
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:12",
+        "axa-lu-optihome-2017:p34:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "axa-lu-optihome-2017:p22:4"
+       ],
+       "applicable": null,
+       "applicable_reason": null,
+       "rattachement": false
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "axa-lu-optihome-2017:p22:5"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 2,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:12",
+        "axa-lu-optihome-2017:p34:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:6",
+        "axa-lu-optihome-2017:p34:7"
+       ],
+       "applicable": "non",
+       "applicable_reason": "faits_contraires",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:4"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 3,
+     "verdict_observe": "sous_conditions",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:12"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:4"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": false
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "axa-lu-optihome-2017:p34:7"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": true,
+       "ferme_par_le_rattachement": true
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "axa-lu-optihome-2017:p22:4",
+        "axa-lu-optihome-2017:p22:5"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "nom": "b-bougie-canape",
+   "doc": "baloise-lu-home-2-2024",
+   "repetitions": [
+    {
+     "repetition": 1,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 2,
+     "verdict_observe": "sous_conditions",
+     "claims": [
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "baloise-lu-home-2-2024:p6:4"
+       ],
+       "applicable": null,
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "baloise-lu-home-2-2024:p6:21"
+       ],
+       "applicable": null,
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c5",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c6",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:5",
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 3,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:5",
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "non",
+       "applicable_reason": "faits_contraires",
+       "rattachement": true
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c5",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "nom": "b-invite-cigarette",
+   "doc": "baloise-lu-home-2-2024",
+   "repetitions": [
+    {
+     "repetition": 1,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p11:18"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "baloise-lu-home-2-2024:p11:17"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c5",
+       "blocs": [
+        "baloise-lu-home-2-2024:p26:8"
+       ],
+       "applicable": "non",
+       "applicable_reason": "faits_contraires",
+       "rattachement": true
+      },
+      {
+       "claim_id": "c6",
+       "blocs": [
+        "baloise-lu-home-2-2024:p26:6"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 2,
+     "verdict_observe": "non_couvert",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p11:18"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:6",
+        "baloise-lu-home-2-2024:p12:5"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "baloise-lu-home-2-2024:p28:8"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c5",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:4"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c6",
+       "blocs": [
+        "baloise-lu-home-2-2024:p26:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": false
+      }
+     ]
+    },
+    {
+     "repetition": 3,
+     "verdict_observe": "ne_tranche_pas",
+     "claims": [
+      {
+       "claim_id": "c1",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:6"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c2",
+       "blocs": [
+        "baloise-lu-home-2-2024:p11:18"
+       ],
+       "applicable": "humain",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c3",
+       "blocs": [
+        "baloise-lu-home-2-2024:p26:8"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": true
+      },
+      {
+       "claim_id": "c4",
+       "blocs": [
+        "baloise-lu-home-2-2024:p26:6"
+       ],
+       "applicable": "oui",
+       "applicable_reason": null,
+       "rattachement": false
+      },
+      {
+       "claim_id": "c5",
+       "blocs": [
+        "baloise-lu-home-2-2024:p12:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      },
+      {
+       "claim_id": "c6",
+       "blocs": [
+        "baloise-lu-home-2-2024:p31:9"
+       ],
+       "applicable": "non",
+       "applicable_reason": "hors_portee",
+       "rattachement": false
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "lecture": "Réduction figée des rapports de gate : par répétition, le verdict rendu et, par affirmation, les blocs cités, l'`applicable` que la table leur a donné ce jour-là, sa raison, et le fait qu'un rattachement ait été publié. `ferme_par_le_rattachement` est la lecture de la mesure du 04/09/2026, pas une reconstruction : ce `oui` n'a pu être obtenu que par la porte que L1u retire — la clause écrit une exigence que les faits déclarés contredisent, et seul le rattachement pouvait la fermer."
+}

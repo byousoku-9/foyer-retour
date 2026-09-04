@@ -2695,24 +2695,23 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                         name="fait_cite_hors_sujet", ok=False,
                         detail="le fragment cité pour une qualité n'en emploie aucun des mots : la "
                                "qualité est traitée comme non établie"))
-            # L1b, puis L1c : la **même** porte, ouverte par le rattachement de la claim plutôt que
-            # par la liste que le modèle a bien voulu remplir. Une affirmation retenue dont le
-            # rattachement nomme un fait déclaré dans le vocabulaire de sa clause a établi ce que la
-            # clause exige — que le modèle l'ait rangé dans `qualites_exigees` ou dans
-            # `fait_manquant`, deux écritures du même jugement. Sans cela, le dossier redemande au
-            # client ce que la réponse qu'il lit vient d'affirmer (mesuré sur S2 le 03/09/2026). Les
-            # trois mêmes verrous qu'en L1 : la claim est **retenue**, le libellé est écrit par la
-            # clause citée, et il ne porte aucun qualificatif de `QUALIFICATIFS`. Un rattachement
-            # qui en porte un — « une bougie tombée est une action **subite** de la chaleur » —
-            # laisse donc la qualité en question au client, et la clause, elle, reste retenue :
-            # c'est exactement ce que les deux champs séparés permettent.
-            preuve_norm = preuves_relues.get(a.claim_id, "")
-            qualifie_un_fait = a.claim_id in faits_rattaches
-
-            def etablie_par_la_claim(libelle: str) -> bool:
-                return bool(libelle.strip()) and qualifie_un_fait and _qualifie_par_la_clause(
-                    libelle, preuve_norm, min_chars=settings.qualite_mot_min_chars)
-
+            # **Story 5.7 (L1u) : le rattachement n'établit plus rien.** L1b, puis L1c, ouvraient
+            # ici la porte de L1 par le *rattachement* de la claim plutôt que par la liste que le
+            # modèle avait bien voulu remplir : une affirmation retenue dont le rattachement nommait
+            # un fait déclaré dans le vocabulaire de sa clause tenait pour établi ce que la clause
+            # exige — `qualites_exigees` comme `fait_manquant`. Elle est retirée. Mesuré le
+            # 04/09/2026 sur le gate AXA `-18`, cas `s-bougie-canape` : la seule répétition qui cite
+            # `p34:7` (l'incendie, « des flammes se **propageant** … en dehors de leur domaine
+            # normal ») la rend `oui` sur un rattachement qui dit « l'absence d'embrasement ni de
+            # flammes propagées », c'est-à-dire l'inverse — et le verdict passait de
+            # `ne_tranche_pas` à `sous_conditions` pour cette seule citation. Le code recoupe des
+            # mots entre trois textes ; il ne lit ni la négation, ni la portée, ni la conditionnelle
+            # d'une prose que le modèle écrit librement, et il ne peut donc pas s'en servir pour
+            # **fermer** une exigence. Ce que la clause exige n'est établi que par la déclaration
+            # corroborée — un fragment relu mot pour mot dans les faits déclarés, ci-dessus — ou par
+            # une réponse du client. Ce qui rouvrirait la porte : un rattachement dont le code lise
+            # le sens plutôt que le vocabulaire.
+            #
             # L1n : **le texte de la clause décide de ce qu'elle exige, pas la liste du modèle.** La
             # liste rendue ne peut plus qu'*ajouter* à ce que le code lit ; une qualité dont les mots
             # porteurs ne se relisent dans aucun des blocs cités n'est pas une exigence de cette
@@ -2743,13 +2742,6 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
             for q in exigees:
                 if normalize(q) in etablies:
                     continue
-                if etablie_par_la_claim(q):
-                    etablies.add(normalize(q))
-                    step.checks.append(CheckResult(
-                        name="qualite_etablie_par_qualification", ok=True,
-                        detail="une qualité écrite par la clause citée, sans qualificatif à "
-                               "établir, est tenue pour remplie par le fait déclaré qui la nomme"))
-                    continue
                 if nomme_la_couverture(q):
                     # L1m : « caractère couvert du sinistre » ne se corrobore par aucun fait — c'est
                     # le verdict que la clause nomme. `ChampsApplicabilite` l'écarte de toute façon
@@ -2760,18 +2752,6 @@ async def _pertinence(evaluees: list[tuple[Claim, list[VerifiedQuote], str]], *,
                     non_etablies.append(q)
             fait_present = a.fait_requis_present
             fait_manquant = (a.fait_manquant or "").strip() or None
-            if fait_manquant is not None and etablie_par_la_claim(fait_manquant):
-                # Le fait exigé **est** établi : la claim retenue le dit du fait déclaré, dans les
-                # mots de la clause. Le laisser manquant tiendrait pour ouvert ce que la réponse
-                # affirme ; le retirer sans le déclarer présent serait pire encore — un fait requis
-                # absent sans fait manquant est la signature du « fait connu et contraire »
-                # (`applicable="non"`), c'est-à-dire l'inverse de ce que la claim écrit.
-                fait_present, fait_manquant = True, None
-                step.checks.append(CheckResult(
-                    name="qualite_etablie_par_qualification", ok=True,
-                    detail="le fait exigé par la clause citée, sans qualificatif à établir, est "
-                           "tenu pour présent par le fait déclaré que l'affirmation retenue "
-                           "qualifie : il n'est plus demandé au client"))
             if fait_present or (a.fait_manquant or "").strip():
                 # B3, tour 3, élargi au tour 4 : le texte de la clause est relu **partout où la clause
                 # vise le cas et reste ouverte**, et ce qu'elle exige sans que le modèle l'ait nommé

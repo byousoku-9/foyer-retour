@@ -2186,14 +2186,17 @@ async def test_une_qualite_listee_que_le_texte_n_ecrit_pas_est_ignoree(contrat: 
     assert v.verdict is not None and v.verdict.missing.faits == []
 
 
-async def test_le_debordement_reste_etabli_par_le_rattachement_apres_l1n(contrat: Index) -> None:
-    """Story 5.7 (L1n), témoin (c) : S2/robinet ne bouge pas.
+async def test_le_debordement_ecrit_par_la_clause_reste_une_exigence_ouverte(
+        contrat: Index) -> None:
+    """Story 5.7 (L1n), témoin (c), **relu par L1u** : la clause exige, le rattachement n'établit pas.
 
     « rupture, fissure ou débordement de ces installations » est écrit par la clause — donc retenu
-    par le nouveau filtre — et ne porte aucun qualificatif de `QUALIFICATIFS` : il reste établi par
-    le rattachement de la claim (L1c), et le verdict reste celui de la table sur cette clause.
-    C'est la borne du correctif : L1n durcit ce que la clause exige, il ne referme pas la porte que
-    L1 et L1c ont ouverte pour le vocabulaire du contrat.
+    par le filtre de L1n — et ne porte aucun qualificatif de `QUALIFICATIFS`. Jusqu'à L1u, cela
+    suffisait : le rattachement de la claim (L1b/L1c) le tenait pour établi et la clause valait
+    `oui`. La porte est retirée — un rattachement est une prose dont le code ne lit que le
+    vocabulaire —, et l'exigence redevient ce que le texte en dit : une exigence ouverte, due au
+    client. Ce que L1n garantit ne bouge pas : elle est **écrite par la clause**, donc jamais
+    ignorée.
     """
     draft = _draft_rattache(
         "c1",
@@ -2206,9 +2209,9 @@ async def test_le_debordement_reste_etabli_par_le_rattachement_apres_l1n(contrat
         [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [QUALITE_DEBORDEMENT], []),
                         verdicts=[("c1", True)])],
         faits=FAITS_ROBINET, blocs=["cg:p1:18"])
-    assert v.claims[0].status.applicable == "oui"
+    assert v.claims[0].status.applicable == "humain"
     assert not [c for c in step.checks if c.name == "qualite_hors_du_texte_de_la_clause"]
-    assert v.verdict is not None and v.verdict.missing.faits == []
+    assert v.verdict is not None and v.verdict.missing.faits == [QUALITE_DEBORDEMENT]
 
 
 async def test_une_garantie_qui_renvoie_aux_conditions_particulieres_ne_rend_jamais_couvert(
@@ -2464,16 +2467,24 @@ async def test_un_qualificatif_ecrit_par_la_clause_ne_se_qualifie_jamais_par_les
     assert v.verdict is not None and SUBITE in v.verdict.missing.faits
 
 
-async def test_un_fait_manquant_que_la_claim_retenue_qualifie_nest_plus_demande(
+async def test_un_fait_manquant_que_la_claim_rattache_est_de_nouveau_demande(
         contrat: Index) -> None:
-    """Story 5.6 (L1b) : l'écart mesuré sur S2 le 03/09/2026, dans sa forme exacte.
+    """Story 5.7 (L1u) : la porte de L1b/L1c est retirée, et ce témoin en porte le prix.
 
-    Le contrôle rend `pertinente=true` sur une affirmation qui écrit « un robinet resté ouvert …
-    **est** un débordement de ces installations », et, dans le même objet JSON,
-    `fait_requis_present=false` avec `fait_manquant="rupture, fissure ou débordement…"` — sans
-    remplir `qualites_exigees` ni `qualites_etablies`, si bien que la porte de L1 n'avait rien à
-    corroborer. Le dossier redemandait donc au client d'établir ce que la réponse qu'il lisait
-    venait d'affirmer. La qualification affirmée par la claim ouvre la même porte.
+    L'écart mesuré sur S2 le 03/09/2026, dans sa forme exacte : le contrôle rend `pertinente=true`
+    sur une affirmation qui écrit « un robinet resté ouvert … **est** un débordement de ces
+    installations », et, dans le même objet JSON, `fait_requis_present=false` avec
+    `fait_manquant="rupture, fissure ou débordement…"`. L1b tenait alors le fait pour établi par le
+    rattachement, et la clause valait `oui`.
+
+    Le 04/09/2026, la même lecture a servi l'inverse sur le gate AXA `-18` : le rattachement
+    « l'absence d'embrasement ni de flammes propagées » établissait « la propagation des flammes »
+    qu'il **niait**, et la seule répétition qui citait `p34:7` sortait `sous_conditions` quand les
+    deux autres rendaient `ne_tranche_pas`. Le code ne lit dans un rattachement que des mots
+    partagés : il ne peut pas y distinguer une affirmation d'une négation, et un verdict ne peut
+    pas dépendre de la phrase que le modèle a choisi d'écrire. Le fait redevient donc dû au client
+    — ce qui redemande, ici, ce que la réponse affiche. C'est le prix assumé de L1u, et la
+    condition pour rouvrir la porte : un rattachement dont le code lise le sens.
     """
     draft = _draft_rattache(
         "c1",
@@ -2486,15 +2497,14 @@ async def test_un_fait_manquant_que_la_claim_retenue_qualifie_nest_plus_demande(
         [_applicabilite(("c1", False, False, False, QUALITE_DEBORDEMENT, [], []),
                         verdicts=[("c1", True)])],
         faits=FAITS_ROBINET, blocs=["cg:p1:18"])
-    assert v.claims[0].status.applicable == "oui"
-    assert [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
-    assert v.verdict is not None and v.verdict.missing.faits == []
-    assert not [q for q in v.verdict.ask_client if "Fait à établir" in q]
-    # Ce que le rattachement fait, et rien de plus : il **complète** une clause déjà retenue et
-    # déjà soutenue par sa citation. Le verdict est celui de la table sur cette clause-là ; la
-    # contre-épreuve — qu'aucun `couvert` ne naisse d'un rattachement dont un verrou tombe — est le
-    # témoin suivant.
-    assert v.verdict.value == "couvert"
+    assert v.claims[0].status.applicable == "humain"
+    assert not [c for c in step.checks if c.name == "qualite_etablie_par_qualification"]
+    assert v.verdict is not None and v.verdict.missing.faits == [QUALITE_DEBORDEMENT]
+    assert [q for q in v.verdict.ask_client if "Fait à établir" in q]
+    # La clause reste retenue, citée, affichée : L1u ne retire pas le rattachement de l'écran, il
+    # lui retire le pouvoir de **fermer** une exigence. Le verdict ne conclut plus seul.
+    assert v.claims[0].rattachement is not None
+    assert v.verdict.value == "ne_tranche_pas"
 
 
 async def test_un_rattachement_hors_borne_est_ignore_et_la_clause_reste(contrat: Index) -> None:
@@ -2708,17 +2718,22 @@ async def test_an_applicable_exclusion_covering_the_case_excludes_it(contrat: In
     assert [c.status.applicable for c in v.claims] == ["oui", "oui"]
 
 
-async def test_une_exclusion_rattachee_a_un_fait_declare_conclut_a_lexclusion(
+async def test_une_exclusion_rattachee_a_un_fait_declare_ne_conclut_plus(
         contrat: Index) -> None:
-    """Story 5.7 (L1r) : **une exclusion établie conclut « exclu ».**
+    """Story 5.7 (L1u) : la règle (3bis) de L1r est retirée, et voici ce qu'elle faisait.
 
-    La portée déclarée d'une exclusion est son propre nœud — « 3.1.6.2.1 les vols simples » —, jamais
-    celui de la garantie qu'elle écarte : l'intersection avec les nœuds du cas était vide sur les cinq
-    exclusions de la batterie du 03/09/2026, et `s10-intention` (« j'ai mis le feu à mon canapé
-    exprès ») sortait `ne_tranche_pas` alors qu'il citait l'exclusion de faute intentionnelle et la
-    rattachait aux faits. Ce que le rattachement montre est plus direct qu'une portée : cette
-    clause-là a rencontré ce sinistre-là. Ici `cg:p1:2` porte sur `cg:ext` — hors du nœud du cas — et
-    le rattachement relie « le mobilier de salon » déclaré au vocabulaire de la clause.
+    L1r tenait qu'une exclusion dont le rattachement nomme un fait déclaré dans les mots de la
+    clause a rencontré ce sinistre-là, et vaut `oui` quoi qu'en disent ses champs typés. Mesuré le
+    04/09/2026 sur le gate Baloise `-18`, cas `b-invite-cigarette` : `ne_tranche_pas`,
+    **`non_couvert`**, `ne_tranche_pas` — un « exclu » que seule la deuxième répétition prononce,
+    parce qu'elle est la seule à citer l'exclusion des biens confiés. Un verdict qui dépend des
+    citations d'un tirage n'est pas un verdict.
+
+    Le dossier est celui du témoin de L1r, inchangé : `cg:p1:2` porte sur `cg:ext` — hors du nœud du
+    cas —, le modèle nomme un fait manquant, et le rattachement relie « le mobilier de salon »
+    déclaré au vocabulaire de la clause. L'exclusion retombe sur la lecture ordinaire de sa portée,
+    et rend exactement ce que rendait le témoin voisin, dont le rattachement ne nomme aucun fait
+    déclaré : le verdict ne distingue plus les deux, et c'est le but.
     """
     draft = _draft_libre(
         ("La garantie couvre le mobilier.", "factuel", ["c1"]),
@@ -2732,10 +2747,9 @@ async def test_une_exclusion_rattachee_a_un_fait_declare_conclut_a_lexclusion(
     v, _step, _fake = await _verifier_sinistre(contrat, draft, [_applicabilite(
         ("c1", True, False, False, None), ("c2", False, False, False, "origine de la chaleur"),
         verdicts=[("c1", True), ("c2", True)])])
-    # Le modèle a pourtant nommé un fait manquant : la règle (3bis) passe devant, parce que la
-    # réponse **affichée** tient l'exclusion pour rencontrée.
-    assert [c.status.applicable for c in v.claims] == ["oui", "oui"]
-    assert v.verdict is not None and v.verdict.value == "non_couvert"
+    assert [c.status.applicable for c in v.claims] == ["oui", "non"]
+    assert v.claims[1].status.applicable_reason == "hors_portee"
+    assert v.verdict is not None and v.verdict.value != "non_couvert"
 
 
 async def test_un_rattachement_dexclusion_etranger_aux_faits_ne_conclut_pas(contrat: Index) -> None:

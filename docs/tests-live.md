@@ -4861,3 +4861,21 @@ Aucune fixture live n'a été réenregistrée : le schéma envoyé au fournisseu
 `maxItems: 32` de `blocs_ecartes` reste annoncée, seule sa sanction change (troncature au lieu du
 refus), et le compte du surplus est exclu de `model_dump()` pour que l'empreinte des messages ne
 bouge pas non plus.
+
+## 04/09/2026 — L1u : la dette de gate, et pourquoi elle est due
+
+**Aucun appel API sur ce tour.** Deux règles de la table sont retirées (la conclusion d'une exclusion
+par son rattachement, et la fermeture d'une exigence par ce même rattachement) : la table change,
+donc les trois gates verticaux doivent être rejoués avant toute promotion.
+
+Ce qui a été mesuré, hors ligne, sur les rapports déjà payés
+(`automation/runs/20260903-lisibilite/gate-*-18.json`, réduits et figés dans
+`tests/data/gate-18-l1u.json`) : les trois cas qui divergeaient sur trois répétitions du même corpus
+— `b-invite-cigarette` (`ne_tranche_pas`, **`non_couvert`**, `ne_tranche_pas`), `s-bougie-canape`
+(`ne_tranche_pas`, `ne_tranche_pas`, **`sous_conditions`**) et `b-bougie-canape` (même forme) —
+rendent, sur la table courante, **trois verdicts identiques** chacun (`ne_tranche_pas`). Le rejeu est
+dans `tests/test_rejeu_gate_l1u.py`, sans réseau.
+
+Attendu du prochain gate `-19` : la stabilité, pas le verdict. Le taux de `ne_tranche_pas` monte —
+« Exclu » ne se prononce plus que sur des champs typés corroborés ou sur la portée déclarée d'une
+exclusion —, et c'est le comportement voulu.

@@ -270,8 +270,6 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
     3. une clause décisionnelle **sans portée** ⇒ `humain` — la table compare des portées (règle 1) et
        lit le socle sur le nœud (règle 3) ; une clause dont on ignore où elle s'applique ne peut être
        ni retenue ni écartée par du code ;
-    3bis. **exclusion** dont le rattachement soutenu énonce un fait de la déclaration ⇒ `oui` — la
-       clause a rencontré son cas, et aucun champ typé ne rouvre ce que la réponse affiche (L1r) ;
     4. champs typés non rendus ⇒ `humain` — jamais devinés (AC de la story) ;
     5. fait exigé **connu et contraire** (`fait_requis_present=false`, aucun `fait_manquant`) ⇒ `non`,
        **pour une garantie ou une exclusion seulement** (voir ci-dessous) ;
@@ -316,23 +314,21 @@ def applicable_de_claim(claim: ClaimJugee, *, noeuds_du_cas: set[str] | None = N
         return "humain"
     if any(not c.portee for c in clauses):
         return "humain"
-    # (4bis) — story 5.7 (L1r) : **une exclusion établie conclut.** Une exclusion retenue dont le
-    # rattachement, jugé soutenu, énonce un fait *présent dans la déclaration* dans les mots de la
-    # clause — « j'ai mis le feu à mon canapé **exprès** » ⇒ « … est une faute intentionnelle de
-    # l'Assuré » — a dit tout ce que la table pouvait attendre d'elle. Les champs typés du modèle ne
-    # peuvent plus la rouvrir : une qualité restée non énumérée, un fait déclaré manquant ou un
-    # renvoi aux conditions particulières rendaient `humain` une exclusion que la réponse affichée
-    # tenait pour acquise, et le verdict tombait en `ne_tranche_pas` sur trois cas de la batterie du
-    # 03/09/2026 (`s10-intention`, `s11-bijoux`, `s03-velo`) — « exclu » n'y était jamais dit.
+    # **Story 5.7 (L1u) : le rattachement ne conclut plus rien.** L1r avait donné ici une règle
+    # (3bis) : une exclusion retenue dont le rattachement, jugé soutenu, nommait un fait de la
+    # déclaration dans les mots de la clause valait `oui`, et aucun champ typé ne pouvait la rouvrir.
+    # Elle est retirée. Mesuré le 04/09/2026 sur le gate Baloise `-18`, cas `b-invite-cigarette` :
+    # `ne_tranche_pas`, **`non_couvert`**, `ne_tranche_pas` sur le même cas et le même corpus — un
+    # « exclu » hors des valeurs admissibles, produit par une exclusion citée dans une seule des
+    # trois répétitions. Le rattachement est de la prose libre du modèle : le code y recoupe des
+    # mots, il n'en lit ni la négation ni la portée, et une phrase qui dit l'inverse de ce qu'elle
+    # semble dire y passe entière. Une exclusion reste donc `humain` tant que ses champs typés
+    # laissent quelque chose d'ouvert, et `non` par sa portée ou par un fait connu et contraire,
+    # comme avant L1r. Prix payé, et assumé : « exclu » se dit moins souvent (`s10-intention`,
+    # `s03-velo`, `s11-bijoux` de la batterie du 03/09 redeviennent `ne_tranche_pas`). Ce qui le
+    # rouvrirait : un rattachement dont le code lise le sens, ou une exclusion qui conclue sur ses
+    # seuls champs typés — jamais sur le choix de citations du modèle.
     #
-    # Trois verrous, et ce sont ceux de L1b/L1c : la claim est **retenue** (le contrôle groupé a
-    # soutenu son rattachement), le rattachement relie un mot de la citation vérifiée à un mot des
-    # **faits déclarés**, et la règle ne vaut que pour une exclusion. Un rattachement non soutenu,
-    # ou qui porte sur un fait que la déclaration ne dit pas, ne franchit pas la porte et l'exclusion
-    # reste `humain`. La règle ne touche pas les garanties : le cas bougie garde ses qualificatifs à
-    # établir, et aucun `couvert` ne s'ouvre par ce chemin — il ne s'y gagne qu'un `non_couvert`.
-    if claim.kind == "exclusion" and claim.fait_rattache:
-        return "oui"
     # Une exclusion dont la portée déclarée ne couvre aucun nœud du cas est inapplicable par
     # construction, indépendamment du jugement du modèle sur les faits. Une portée absente a déjà
     # rendu `humain` ci-dessus ; un cas sans nœud prouvé ne permet pas non plus cette conclusion.
@@ -555,19 +551,19 @@ def faits_etablis_par_rattachement(claims: list[ClaimJugee], *,
                                    etat: dict[str, Applicable | None]) -> list[str]:
     """Les faits qu'un rattachement retenu a **établis** : ils ne se demandent plus (story 5.7, L1t).
 
-    Story 5.7 (L1r) a donné à la table une règle (3bis) : une exclusion dont le rattachement, jugé
-    soutenu, énonce un fait présent dans la déclaration vaut `oui`, et « aucun champ typé ne rouvre
-    ce que la réponse affiche ». Le dossier, lui, continuait de lire ces mêmes champs : le
+    Née de la règle (3bis) de L1r, qu'elle rendait cohérente : une exclusion que le rattachement
+    faisait conclure gardait, dans la même page, le fait qu'elle venait de tenir pour acquis — le
     03/09/2026, `s10-intention` rendait « Exclu » en citant « le fait d'avoir mis le feu exprès est
-    une faute intentionnelle », et demandait dans la même page « Fait à établir auprès du client :
-    faute intentionnelle ou dolosive de l'assuré ». Le même verdict tenait le fait pour acquis et le
-    redemandait.
+    une faute intentionnelle », et demandait au-dessous « Fait à établir auprès du client : faute
+    intentionnelle ou dolosive de l'assuré ».
 
-    La règle est donc l'exact symétrique de (3bis), et elle est **générique** : quand le
-    rattachement d'une claim est soutenu (`fait_rattache`) et que la table en a tiré `oui`, ce que
+    **Story 5.7 (L1u) : la règle reste, son unique déclencheur d'alors est parti.** (3bis) est
+    retirée — un rattachement ne rend plus rien `oui` —, mais la règle ne tenait pas à elle : elle
+    dit que quand la table a conclu `oui` sur une claim dont le rattachement est soutenu, ce que
     cette claim déclarait manquant — le `fait_manquant` du modèle comme les `qualites_non_etablies`
-    calculées par le code — est établi. Un fait établi ne se demande à personne, ni au titre de la
-    clause qui l'a établi, ni au titre d'une autre qui l'exige dans d'autres termes : c'est
+    calculées par le code — ne se redemande plus. Le `oui` vient désormais des seuls chemins
+    restants : les champs typés corroborés. Un fait établi ne se demande à personne, ni au titre de
+    la clause qui l'a établi, ni au titre d'une autre qui l'exige dans d'autres termes : c'est
     `meme_fait` qui reconnaît la seconde, la définition unique du système (L1b/L1k).
 
     Le verrou est `etat == "oui"`, et il n'est pas décoratif : une garantie dont le rattachement est
@@ -597,6 +593,9 @@ def exclusion_decisive(claims: list[ClaimJugee], *,
 
     Sa définition ne bouge pas d'un mot : une exclusion affichée que la table tient pour `oui`, et
     qui rencontre le cas — par sa portée déclarée (AD-2) ou par son rattachement aux faits (L1r).
+    Depuis L1u, le `oui` ne s'obtient plus par le rattachement : celui-ci ne dit plus que *où*
+    s'applique une exclusion que ses champs typés ont établie, et la règle devient inerte tant
+    qu'aucune exclusion n'atteint `oui`. Elle reste juste, et elle reste lue.
     """
     cas = _noeuds_du_cas(claims)
     for exclusion in claims:
@@ -938,12 +937,12 @@ def applicabilites_des_claims(
     for claim in claims:
         case_nodes = _noeuds_du_cas(claims)
         applicable_sans_portee = applicable_de_claim(claim, noeuds_du_cas=set())
-        # D3, et L1r ne l'entame pas : **sans garantie affichée, une exclusion ne conclut jamais.**
-        # C'est ce garde-fou qui tient la porte ouverte par le rattachement (règle 3bis). Une
-        # affirmation isolée qui rattache une circonstance déclarée au vocabulaire d'une exclusion —
-        # « une bougie tombée sur le canapé est une action subite de la chaleur » — n'a, à elle
-        # seule, montré aucune branche du contrat : rien ne dit que la clause citée est celle qui
-        # régit ce sinistre, et « Exclu » y serait une conclusion tirée d'une seule phrase.
+        # D3 : **sans garantie affichée, une exclusion ne conclut jamais.** Une affirmation isolée
+        # qui rattache une circonstance déclarée au vocabulaire d'une exclusion — « une bougie tombée
+        # sur le canapé est une action subite de la chaleur » — n'a, à elle seule, montré aucune
+        # branche du contrat : rien ne dit que la clause citée est celle qui régit ce sinistre, et
+        # « Exclu » y serait une conclusion tirée d'une seule phrase. Le garde-fou tenait la porte
+        # que L1r ouvrait au rattachement (règle 3bis) ; L1u a retiré la porte, il reste la règle.
         if claim.kind == "exclusion" and not case_nodes and applicable_sans_portee != "non":
             applicable = "humain"
         else:
@@ -980,7 +979,9 @@ def decider(claims: list[ClaimJugee], *, ask_client_max: int,
     (0bis) aucune claim affichée de kind `garantie` ou `exclusion` ⇒ `ne_tranche_pas` : la table ne
           tranche que sur elles, et un verdict sans clause fondatrice serait une opinion ;
     (1)   exclusion `oui` dont la portée couvre les nœuds du cas, **ou** dont le rattachement
-          soutenu énonce un fait de la déclaration (L1r) ⇒ `non_couvert` ;
+          soutenu énonce un fait de la déclaration (L1r) ⇒ `non_couvert` — une exclusion n'atteint
+          plus `oui` par son seul rattachement depuis L1u, cette seconde branche ne dit donc plus
+          que *où* s'applique une exclusion que ses champs typés ont établie ;
     (2)   garantie `oui` **et** (condition / franchise / exclusion `humain`, garantie hors socle,
           **condition d'applicabilité de sa section non établie**, ou **garantie sœur de la même
           énumération restée ouverte**) ⇒ `sous_conditions` — politique conservatrice ;
